@@ -412,7 +412,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
         uncounted, counted = [], []
         symbols = sorted(set(execution["symbols"]))
         on_contracts = (" AND (NOT EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id) OR "
-                        "EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id AND i.instrument_id IN ("
+                        "EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id AND i.symbol IN ("
                         + db.marks(symbols) + ")))") if symbols else ""
         for trial_id, registration, purpose, trade_start, trade_end in conn.rows(
                 "SELECT t.trial_id, t.research_registration_id, t.purpose, t.trade_start, t.trade_end FROM trial t "

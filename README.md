@@ -91,7 +91,7 @@ null for a reader's).
 
 ### The ledger and the market
 
-The research ledger is generation 1 of `ledger/schema.sql` (`ledger.db.SCHEMA_VERSION`). Each execution
+The research ledger is generation 2 of `ledger/schema.sql` (`ledger.db.SCHEMA_VERSION`). Each execution
 has one `trial_id`; its sealed run uses that same primary key. Commands and registration bodies use
 `--trial-id` and `control_trial_id`. A trial records the market day it read as `market_day`: a day of the
 market directory (`market/README.md`), independent of the ledger's versions. Paper's runs are not research:

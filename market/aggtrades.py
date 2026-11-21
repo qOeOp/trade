@@ -125,39 +125,35 @@ def record_batch(rows: list[tuple]) -> pa.RecordBatch:
 
 
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
-    """One ended month of each contract in `symbols`, each its own file. The contracts are written at once, each in
-    its own worker process (parsing a day's CSV is the work), while this process holds the import lock and places
-    their files in contract order. A contract's refusal leaves the other contracts' files in place; the refusal
-    raised is that of the first refused contract, and its message names the others written."""
-    started = time.monotonic()
-    symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is EMPTY_SYMBOLS
-    start, end = store.closed_month(month)
-    market = files.open_market(profile, "import")
-    with files.lock(market):
-        if market.empty:
-            raise refuse("MARKET_EMPTY", "the market holds no bars yet")
-        jobs = []
-        for symbol in symbols:
-            jobs.append({"root": str(market.root), "symbol": symbol, "cache": str(cache), "start": start, "end": end,
-                         "held": bool(files.entries(market, "agg_trade", [symbol], start, end)),
-                         "earlier": store.earlier_file(market, "agg_trade", symbol, start)})
-        imports = store.contract_files(market, jobs, trade_month, len(jobs), log)
-        market_day = files.latest_market_day(market)
-    return {"month": f"{month:%Y-%m}", "imports": imports, "trade_rows": sum(item["trade_rows"] for item in imports),
-            "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
+    """One ended month of each contract in `symbols`, each its own file (store.import_contracts). The contracts are
+    written at once, each in its own worker process (parsing a day's CSV is the work), while this process holds the
+    import lock and places their files in contract order. A contract's refusal leaves the other contracts' files in
+    place; the refusal raised is that of the first refused contract, and its message names the others written."""
+    def run(market: files.Market, scope: list[str], start: int, end: int) -> dict:
+        jobs = [{"root": str(market.root), "symbol": symbol, "cache": str(cache), "start": start, "end": end,
+                 "held": bool(files.entries(market, "agg_trade", [symbol], start, end)),
+                 "earlier": store.earlier_file(market, "agg_trade", symbol, start)} for symbol in scope]
+        return {"codec": CODEC, "per_symbol": store.contract_files(market, jobs, trade_month, len(jobs), log)}
+    # an empty, repeated or malformed list is EMPTY_SYMBOLS
+    return store.import_contracts(profile, month, symbols or [], store.closed_month, run,
+                                  "the market holds no bars yet")
+
+
+def eve(cache: Path, symbol: str, start: int, earlier: bool, state: State):
+    """`batches` of the day before the month from its archive, which carries the trade sequence into the month; None
+    when it is not published, which it may be only when the market holds no earlier file of the contract (not
+    `earlier`)."""
+    day = clock.ms_day(start - store.DAY).isoformat()
+    path = (sources.fetch_archive if earlier else sources.published)(cache, sources.aggtrades_key(symbol, day))
+    return None if path is None else batches(path, symbol, day, state, {})
 
 
 def month_rows(cache: Path, symbol: str, start: int, end: int, earlier: bool):
-    """A contract month's daily archives as `batches` rows, each fetched into `cache` or read from it. The eve (the
-    day before) carries the id sequence into the month; it may be unpublished only when the market holds no earlier
-    file of the contract (not `earlier`), and the sequence then starts on the first day."""
+    """A contract month's daily archives as `batches` rows, each fetched into `cache` or read from it, after the eve
+    (`eve`); without it the sequence starts on the first day."""
     state = State()
-    eve = clock.ms_day(start - store.DAY).isoformat()
-    key = sources.aggtrades_key(symbol, eve)
-    path = sources.fetch_archive(cache, key) if earlier else sources.published(cache, key)
-    if path is not None:
-        for _ in batches(path, symbol, eve, state, {}):
-            pass
+    for _ in eve(cache, symbol, start, earlier, state) or ():
+        pass
     for moment in range(start, end, store.DAY):
         day = clock.ms_day(moment).isoformat()
         yield from batches(sources.fetch_archive(cache, sources.aggtrades_key(symbol, day)), symbol, day, state, {})
@@ -179,6 +175,4 @@ def trade_month(job: dict) -> dict:
             yield record_batch(found)
 
     written = files.write_file(store.worker_market(job), "agg_trade", clock.ms_day(start), symbol, rows())
-    return {"written": written, "result": {"month": clock.ms_day(start).strftime("%Y-%m"), "symbols": [symbol],
-                                           "codec": CODEC, "trade_rows": total,
-                                           "seconds": round(time.monotonic() - started, 1)}}
+    return {"written": written, "result": {"rows": total, "seconds": round(time.monotonic() - started, 1)}}

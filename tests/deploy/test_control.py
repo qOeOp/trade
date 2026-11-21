@@ -9,10 +9,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.control import CONTROLS, CURRENT, EXTRACTOR, HANDOFF, IMAGE_DEPLOY, hand_off, running
+from deploy.control import CONTROLS, CURRENT, HANDOFF, hand_off, running
 from deploy.paper_release import PaperRelease
 from deploy.release import Release, failure_summary
-from deploy.release_host import JOURNAL_FORMAT, SOURCE, Config, DockerHost
+from deploy.release_host import EXTRACTOR, IMAGE_DEPLOY, JOURNAL_FORMAT, SOURCE, Config, DockerHost
 
 A, B, C = (letter * 40 for letter in "abc")
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64

@@ -1,196 +1,343 @@
 # Database｜数据库
 
-研究账本是一个 Dolt 数据库，当前模式为第 1 代（`ledger/schema.sql`，代码里的 `SCHEMA_VERSION`）。用户 2026-11-10 备份并删除了旧账本，第 1 代从空账本开始，不迁移旧数据。1.0 之前，模式一变就开新账本，不迁移数据（AGENTS.md）；同一代内口径变了，读数层（`run_reading`）由重封按新代码重算。
+研究账本是一个 Dolt 数据库，当前模式为第 2 代。每一代都从空账本开始，不迁移旧数据：1.0 之前，模式一变就开新账本（AGENTS.md）；同一代内口径变了，读数层（`run_reading`）由重封按新代码重算。
+
+本页按记录职责说明每样东西为什么存、守哪些不变式；各表的列以模式文件为准，这里不逐列复述。
+
+## 存什么，怎么存
+
+账本和市场目录只存回放给不回来的东西（AGENTS.md）：决定与声明（登记、判断、源码审查、研究线、样本外登记）；不会重现的观察（失败日志、来源原件、时间戳令牌、市场数据）；复现其余一切所需的最小身份（完整策略源码，每个独立策略一个 UTF-8 文件；运行时镜像摘要；市场日；配置与输入身份）；以及封存时算出的读数（审计与资格判定、指标、报告度量、周期、日收益）和原生报告的指纹。原生报告和其他回放产出都是缓存：重新生成到 `/tmp`，用语义报告比对去核对指纹。能从已存数据推出的值一律不存，读时现算。
 
 表分三层：
 
-- **承诺**：除 `run_reading` 外的业务表。只追加，写账号只有 SELECT 和 INSERT；`ledger review` 报告任何被改或被删的行。
+- **承诺**：除 `run_reading` 外的业务表。只追加，写账号只有 SELECT 和 INSERT；`ledger review` 报告任何被改或被删的行（ROW_CHANGED）。
 - **读数**：`run_reading`。每个通过运行一份当前读数，只有产品的封存命令能写，重封时凭指纹替换，旧值留在 Dolt 历史和公开副本。
 - **写入协调**：`ledger_head` 单行，写账号可以 UPDATE。
 
-每次写入恰好一个事务、一个 Dolt 提交、一行 `ledger_head`；证明先后的时间由服务器触发器写，内容哈希是生成列。Paper 运行存在独立的 Paper 库，市场数据是市场目录里的 Parquet 文件，都不在研究账本里。
+每次写入恰好一个事务、一个 Dolt 提交、一行 `ledger_head`；同一操作 ID（`op_id`）重试返回原记录。证明先后的时间由服务器 BEFORE INSERT 触发器写 UTC，不用调用方的值，也不用可以伪造的提交日期；内容哈希是库内生成列，调用方不能把字节配上别的哈希。Paper 运行存在独立的 Paper 库，市场数据是市场目录里的 Parquet 文件，都不在研究账本里，三者之间没有外键。
 
-账本和市场目录只存回放给不回来的东西（AGENTS.md）：决定与声明（登记、判断、源码审查、研究线、样本外登记）；不会重现的观察（失败日志、来源原件、时间戳令牌、市场数据）；复现其余一切所需的最小身份（完整策略源码，每个独立策略一个 UTF-8 文件；运行时镜像摘要；市场日；配置与输入身份）；以及封存时算出的读数（审计与资格判定、指标、报告度量、周期、日收益）和原生报告的指纹。原生报告和其他回放产出都是缓存：重新生成到 `/tmp`，用语义报告比对去核对指纹。
+### 约束放在哪里
 
-按记录职责查表：先看事实属于哪一类，再看字段、关联和写入方。
+CHECK、ENUM、主键和唯一键对写账号成立，绕不过去。外键不一样：写账号能在会话里关掉外键检查，所以外键挡的是产品代码的错误，`ledger review` 事后对新提交逐个外键查对不上的行（CONSTRAINT_VIOLATED）。
 
-| 职责 | 保存或提供什么 |
+<Mermaid chart={"erDiagram\n  candidate ||--o{ candidate : parent\n  candidate ||--o{ research_line : start\n  research_line ||--o{ line_close : closes\n  research_line ||--o{ line_target : targets\n  line_target ||--o{ line_target : supersedes\n  research_line ||--o{ research_registration : registers\n  research_registration ||--o{ research_registration : retry_of\n  comparison_design ||--o{ research_registration : design\n  comparison_design ||--o{ validation_registration : design\n  research_registration ||--o{ registration_grid_point : grid\n  candidate ||--o{ registration_grid_point : source\n  source_review ||--o{ registration_grid_point : review\n  trial ||--o{ source_review : precheck\n  candidate ||--o{ trial : source\n  research_line ||--o{ trial : line\n  research_registration ||--o{ trial : identity\n  registration_grid_point ||--o| trial : consumes\n  validation_registration ||--o| trial : binds\n  candidate ||--o{ validation_registration : source\n  validation_registration ||--o{ validation_registration : retry_of\n  validation_registration ||--o| witness : stamped\n  trial ||--o{ trial_instrument : instruments\n  trial ||--o| trial_capture : capture\n  trial_capture ||--o{ trial_file : files\n  trial ||--o{ evidence_bundle : bundles\n  evidence_bundle ||--o{ evidence : paths\n  evidence_content ||--o{ evidence : content\n  trial ||--o| run : seals\n  run ||--o| run_reading : reading\n  run ||--o{ run_return : returns\n  run ||--o{ run_cycle : cycles\n  research_line ||--o{ judgment : judgments\n  judgment ||--o{ judgment : supersedes\n  judgment ||--o{ judgment_subject : subjects\n"} />
+
+## 候选与源码审查
+
+### `candidate` [#def-table-candidate]
+
+候选是一份单文件策略源码的原字节。只存源码而不存回放产出，是因为有了源码、镜像、市场日和配置，其余都能重放出来；身份是源码的 SHA-256，`strategy_id@revision` 只是它的名字。
+
+- 内容寻址：同一份字节再发布按 `op_id` 返回原记录；名字（`strategy_id`, `revision`）唯一。
+- 父版本用哈希指向，有父版本就必须写出差异，不能指向自己。
+- 非探索的试验、研究登记网格点、判断主体和样本外登记都用源码哈希指向候选。
+
+### `source_review` [#def-table-source_review]
+
+独立源码审查：针对一次原生预检试验的四项结论和总判定。它是另一个 Agent 的判断，回放给不回来，所以存。
+
+- 总判定通过当且仅当四项都是通过或无机会。
+- 审查只能落在有原始预检捕获的预检试验上（`PRECHECK_CAPTURE_MISSING`）；结论只追加，复审另写一行。
+- 研究登记的每个网格点必须引用同一源码的一条通过审查。
+
+## 登记与试验
+
+### `research_registration` [#def-table-research_registration]
+
+研究登记：一条开着的研究线上，回放前提交的预测、网格、对照和执行身份。先于结果写下，才证明预测不是看了结果再定的。
+
+- 登记行、网格点、比较方法和 `source-<sha256>` 来源包在同一提交写入。
+- 研究回放的交易窗口必须等于研究线的开发期；研究线已关则拒绝。
+- 执行身份（镜像、市场日、范围规则、导出哈希、配置哈希）与登记号、研究线一起组成唯一键，研究试验用复合外键指向它：试验的执行身份不能与登记不同。
+
+### `registration_grid_point` [#def-table-registration_grid_point]
+
+登记网格点：登记承诺要跑的候选。它把“要跑哪些”定在回放之前，试验计数和多重检验的分母从这里来。
+
+- 与登记同一提交写入，之后只读。
+- 每点引用同一源码的一条通过的源码审查。
+- 一点最多被一次研究试验消耗（试验表上的唯一键）；无效和中断的试验同样算消耗。
+
+### `comparison_design` [#def-table-comparison_design]
+
+比较方法：研究登记或样本外登记承诺的配对检验参数（块长、重抽样次数、种子、显著性水平、最小效应和理由）。事前定下，检验才不能事后挑参数。
+
+- 与引用它的登记同一提交写入；参数范围由 CHECK 挡住，理由不能为空。
+
+### `trial` [#def-table-trial]
+
+试验：每次回放一行，在容器启动前写下用途、源码、研究线、登记和执行身份；无效与中断同样有行。试验计数要包括失败的尝试，所以行在结果出来之前就写。
+
+- 执行身份由写入方从镜像检查和覆盖回执推出，不取调用方给的值。
+- 试验行、合约行和开始证据包同一提交写入后才启动容器。
+- 研究试验以复合外键对上登记的执行身份和一个网格点；样本外试验以复合外键对上登记的源码、范围规则和窗口，一次样本外登记只绑定一次试验。
+- 探索和预检的交易窗口只能落在研究线开发期内（`WINDOW_OUTSIDE_DEVELOPMENT`）；保留期、开发期之前的历史和保留期之后只在关线时以 history 试验回放。
+- 工作目录只参与 `op_id` 的哈希，不存：换目录重跑是另一次试验。
+
+### `trial_instrument` [#def-table-trial_instrument]
+
+试验的合约集，一合约一行，与试验行同一提交写入。
+
+### `trial_capture` [#def-table-trial_capture]
+
+一次试验捕获的结局：原生、审计、指纹三个阶段各自的状态和退出码，以及结局类别。失败的原因常常只在这里，不会重现。
+
+- 捕获封存或被拒时写一次；退出码与状态一致由 CHECK 挡住。
+- 原生日志、审计输出等文件进 `trial-<id>-capture` 证据包，与本行同一提交；恢复只能另写 `trial-<id>-recovery` 包。
+
+### `trial_file` [#def-table-trial_file]
+
+捕获的每个文件去了哪里：字节进了捕获包（captured）、只记哈希（hashed）或没有。与捕获行同一提交写入；只记哈希的文件必有哈希和长度。
+
+## 运行与读数
+
+研究、样本外和关线历史回放各封存一个运行。运行行、逐日收益和持仓周期是承诺，只追加；报告读数单独一张表，可以凭指纹重封替换。
+
+### `run` [#def-table-run]
+
+运行：一次封存的结论。通过的运行存原生报告的指纹，无效的运行逐条列原因；两者恰有其一。指纹让原生报告只当缓存：重新回放到 `/tmp`，按指纹做语义比较。
+
+- 运行行、首份读数、逐日收益和持仓周期同一提交写入。
+- 捕获因超限被拒的运行也写一行无效运行，消耗这次试验。
+- 封存时记下当时的 `ledger_head.seq`，不读 Dolt 历史就能给运行排序。
+
+### `run_reading` [#def-table-run_reading]
+
+读数：一个通过运行当前的一份报告读数，存原生报告移走后算不出的值，连同算出它的产品提交。口径变了，`replay reseal` 重放、指纹逐项相同后用当前代码覆盖，旧值留在 Dolt 历史和公开副本。
+
+- 写账号对本表另有 UPDATE；触发器不允许把读数挪到别的运行。
+- `ledger review` 报告不是重封提交改动的读数，以及同时写了承诺行的重封提交（READING_REPLACED_OUTSIDE_RESEAL）。
+- `ledger review` 还用逐日收益和持仓周期重算利润桥等可推出的值，与读数不符即报告（READING_MISMATCH）。
+
+### `run_return` [#def-table-run_return]
+
+逐日收益：通过运行的原生日收益序列和当日平均名义敞口。比较检验、回撤和资金使用读数从这里算，所以按日存，不存汇总。
+
+### `run_cycle` [#def-table-run_cycle]
+
+持仓周期：引擎的每个持仓从开到平一行，记已实现盈亏、手续费、资金费和计划标签。交易结构和利润来源从这里读时现算；价格盈亏读作 realized_pnl + commissions − funding，不另存。
+
+## 证据
+
+证据包是一组命名文件，文件按内容哈希指向只存一份的原件。包的种类说明它装什么；产品种类只由产品代码写，Agent 只写自己的包。
+
+### `evidence_bundle` [#def-table-evidence_bundle]
+
+证据包：名字即身份，从不替换，与它的业务行同一提交写入。试验的 start、capture、recovery 包以 `trial-<id>-` 开头并在本行记下试验，每个试验每种至多一个。
+
+### `evidence` [#def-table-evidence]
+
+包内文件目录：包名 × 路径 → 内容哈希。读回时重算哈希核对原件。
+
+### `evidence_content` [#def-table-evidence_content]
+
+原件：按内容只存一份；哈希由库内生成，写入方不能把改过的字节配上旧哈希。已有的内容只被引用，不再插入。
+
+## 研究线、目标与判断
+
+### `research_line` [#def-table-research_line]
+
+研究线：用户选定的一条研究路线，存名字、起点候选、钉住的市场日和范围规则，以及开线时由规则算出、不能选择的开发期。开发期在开线时定死，研究才不能事后挪窗口。
+
+- 改起点或市场日是另一条线，不改旧行。
+- 开发期的规则：Q 是今天之前、市场已覆盖的最后一个日历季末；保留期是截至 Q 的 8 个季度，开发期是它之前的 12 个季度（起点预检的合约在 Q 之前覆盖 C 个季度、不足 24 个时取 C − 12 个季度，最少 4 个，给否决段留出 4 个季度；不足 12 个季度不能开线，`LINE_HISTORY_SHORT`）。
+- 同一季度开的线共用同一开发期；线开着时，探索、预检和研究回放只能在开发期内交易。
+
+### `line_close` [#def-table-line_close]
+
+关线：结束一条研究线并存总结。已关的线不删也不压缩：它们是多重检验的分母。
+
+- 关线前，关线历史回测的每一段都要有运行（`line history`），否则 `HISTORY_INCOMPLETE`。
+- 同一总结再关是重放；关线之后同步备份，同步失败不撤销关线，`ledger review` 报告落后的备份（BACKUP_BEHIND）。
+
+### `line_target` [#def-table-line_target]
+
+研究目标：用户给一条线（或账本默认）定的最大回撤和最低年化。目标是用户的，只照用户说的记；它指导读报告，不决定候选资格。
+
+- 改目标追加一行取代当前行；同一范围只有一条取代链。
+- 与当前目标相同的值不写。
+
+### `judgment` [#def-table-judgment]
+
+Agent 判断：一条线上的推荐、优先级、解读或搜索暴露，基于一个确切的账本提交。判断是回放给不回来的决定，所以存，且只追加；更正取代同线同类的旧判断。
+
+- 推荐必须点名它所依据的比较表里的全部候选。
+- 完成的研究试验没有解读时，下一次登记拒绝（`INTERPRETATION_REQUIRED`）。
+
+### `judgment_subject` [#def-table-judgment_subject]
+
+判断主体：判断针对的候选、试验或研究登记，每行恰好一个，与判断同一提交写入。
+
+## 样本外登记与时间见证
+
+### `validation_registration` [#def-table-validation_registration]
+
+样本外登记：用户发起的一次性检验声明，存一个候选、范围规则、窗口和比较方法。窗口起点晚于登记时刻，执行只绑定一次。
+
+- 重试保持原登记的候选、范围规则和窗口，不受起点晚于登记的限制。
+- 样本外试验以复合外键对上本行的候选、范围规则和窗口；一次登记只绑定一次试验。
+
+### `witness` [#def-table-witness]
+
+时间见证：插入样本外登记的那个提交的 RFC 3161 时间戳凭证，证明登记早于窗口起点就已存在。时间取凭证的 genTime，按钉住的根证书离线核验；凭证不会重现，所以存。
+
+- 一次登记至多一个见证。
+- `ledger review` 报告见证的提交不是插入其登记的提交，或不在本分支历史里（WITNESS_UNBOUND）。
+
+## 模式版本、写入协调与复核
+
+### `ledger_schema` [#def-table-ledger_schema]
+
+模式代数单行，建库时写，只有管理账号能写。读写前核对代数，不符即拒绝。
+
+### `ledger_head` [#def-table-ledger_head]
+
+写入头指针单行：每次写入加一并记下本次操作 ID，是并发写冲突的碰撞点，也是幂等重放的索引。两个事务把它改成不同值，提交时冲突，后到者回滚并报 CONCURRENT_WRITE。
+
+### `dolt_diff_<table>` / `dolt_history_<table>` [#def-table-dolt_system_tables]
+
+Dolt 为每张表自动维护的系统表：`dolt_diff_<table>` 给出两次提交之间每行的增改删，`dolt_history_<table>` 给出每行在每个提交上的值、提交哈希和时间。账本不另存审计日志，改和删都在这里留痕。
+
+`ledger review` 用只读账号钉住一个版本，对上次检查之后的提交逐表检查，发现只报告，不写入：
+
+- 承诺层出现非新增的行：ROW_CHANGED
+- `run_reading` 的改动不是重封提交，或重封提交同时写了承诺行：READING_REPLACED_OUTSIDE_RESEAL
+- 新增或改动的行对不上它的外键：CONSTRAINT_VIOLATED
+- 见证凭证盖章的提交不是插入其登记的提交：WITNESS_UNBOUND
+- 上次检查的提交或最新备份的头不在当前历史里：HISTORY_REWRITTEN；备份落后：BACKUP_BEHIND
+
+## 读取入口与研究史 [#read-entry-points]
+
+研究账本没有 SQL 视图。读取都经命令行的读命令，它们用读账号钉住一个版本（`--at`，默认头提交），直接读底表并在代码里算资格、遮蔽和读数；读命令从不写入，也不发布。
+
+- **读命令默认只看开着的线。** 已关的线只经关线记录和关线历史回测出现，需要时按线查。
+- **跨线只读汇总。** 多重检验次数、关线热力图这类跨线的数用 SQL 聚合算，不逐个加载运行。"不合格"是从读数推导的状态，不存标记。
+- **只读 SQL。** `ledger sql` 只接受一条只读语句，写语句拒绝（`WRITE_VIA_SQL`）。报告的遮蔽不是数据访问隔离：账本是公开的。
+- 复现历史结果按当时的账本提交读（`--at`），用当时的代码重放原生报告，按运行的指纹核对。
+
+### 研究史与关线历史回测 [#research-history-views]
+
+研究线开着时，交易窗口只在开发期内（<Ref id="table:research_line" />）。开线时按规则固定三段：开发期（标准 12 个季度）、紧随其后的保留期（8 个季度，截至 Q）、开发期之前的历史。线开着时只用开发期；保留期、更早的历史和 Q 之后的前向段都只在关线时回放一次。
+
+`line history` 让这条线上每个有通过研究运行、且最近一次这样的运行仍有经济证据的候选，用这次运行的源码、镜像和配置，换窗口回放：
+
+| 段 | 窗口 | 用途 |
+|---|---|---|
+| veto（否决） | 开发期之前的每个日历年，各一次 | 看候选在更早的年份是否成立 |
+| control（对照） | 开发期本身再跑一次 | 必须复现原来的研究运行，否则这一行不判定 |
+| holdout（保留期） | 开发期之后的两年，一次 | 线开着时从未用过的数据 |
+| forward（前向） | 保留期之后到市场最新完整日 | 只展示 |
+
+每段写一个用途为 `history` 的试验和它的运行；已有通过运行的段跳过，所以重跑就是续跑。最近一次运行无效的段，每次 `line history` 在跑完没有运行的段之后再回放一次：新试验取代无效的那次，旧试验留在账本里，`research history` 只读每段最近一次有运行的试验，被取代的列在该格的 `superseded`。回放是确定的，策略自己造成的失败会再失败一次，所以每次调用每段最多重跑一次。无效的段也算有运行，不挡 `line close`。重跑看的是第一次已看过的数据，统计计数把它当复现，不重复计。能参加的源码在第一次历史试验时固定。
+
+经济证据用的是 `research status` 的同一个读时判定（<Ref id="G.4">7.4</Ref>）：源码审查失败、或运行没有真实成交的源码不是候选，不回放、不占一行，也不计入 `participants`；`line history` 与 `research history` 都在 `without_economic_evidence` 里列出它和原因，不给读数。
+
+`research history` 读出每个候选每段的度量（年化、标记价最大回撤、夏普、周期数、计划胜率）并按用户的两项目标判定：
+
+- **否决段通过**：每个完整的否决年回撤都不超过目标，且这些年的年化中位数不低于目标；
+- **保留期通过**：回撤不超过目标，且年化不低于目标；
+- **达标**（`meets_targets`）：两者都通过；这次检验没有完整的否决年时只看保留期（`judged_on` 写明读了什么）。
+- **无法判定**：判定要用到的读数缺一个，合并结论就是空，`missing` 写明缺的是哪一段。保留期自己的结论照常给出，但不当作达标。
+
+这是证伪检验，不是样本外验证：按它挑候选，是在 `participants` 这些候选之中做选择，选择效应要算进去。保留期只是这条线没用过：同季度开的线共享同一段保留期，`holdout_prior_trials` 读出本账本里先前搜过它的计数试验；账本外的搜索读不到，由关线总结写明。样本外验证是用户另行发起的一次性检验（<Ref id="table:validation_registration" />）。
+
+## Paper 库 [#paper-db]
+
+Paper 运行是执行记录，不是研究：存在独立的 Paper 库里，从不进研究账本，不发布，不进试验计数，不算对样本外的暴露；原生报告的指纹也不适用，因为实时行情重放不回来，所以封存的是文件本身。本机和远程主机各用自己的 Paper 库。它也有 `ledger_schema` 和 `ledger_head` 两张单行表，含义同研究账本；写账号另有 DELETE（`paper delete` 删除一个已封存的运行）。
+
+### `paper_source` [#def-table-paper_source]
+
+复制来的源码：`paper start` 从研究账本读出已发布候选，把字节和入口类复制到 Paper 库，Paper 库因此不依赖研究账本也能复现运行的源码。
+
+### `paper_run` [#def-table-paper_run]
+
+Paper 运行声明：容器启动前写下源码、运行环境、合约、市场日和有效配置；运行从声明时刻开始。
+
+### `paper_seal` [#def-table-paper_seal]
+
+封存：运行结束后写一次，与它的文件同一提交；无论运行怎样结束都封存并写明原因。
+
+### `paper_file` [#def-table-paper_file]
+
+封存的文件：按 UTC 日分的事件日志、停止时的概要、日志和 `seal.json`（封存时算一次的读数）。这些是实时观察，不会重现，所以存原件。
+
+## 市场目录
+
+### 市场目录 [#def-table-market_directory]
+
+金融数据放在普通 Parquet 文件里，路径说明它装的是什么；没有清单，文件里有什么，市场里就有什么。同样的代码和交易所归档导出同样的数据，Git 里的代码就是文件的来历；目录丢了，从交易所公开归档重算，回放读到的内容相同。只存金融数据，能重算的不存。
+
+```
+<市场目录>/
+  <表>/<YYYY-MM>.parquet            bar、funding、universe_month：一个月，全部合约
+  <表>/<YYYY-MM>/<合约>.parquet     agg_trade、quote、metrics：一个月，一个合约
+  instrument.parquet               合约条款，追加
+  lock                             导入锁文件
+```
+
+- 文件按表的主键排序、主键严格递增，写入参数固定，同样的行写出同样的字节；写入时逐批核对各表的行规则（CHECK_FAILED）。
+- 价量比例与推算规则是代码常量；改规则时删掉受影响的派生文件重导，同一张表里不混两种。
+- 写临时文件并落盘后按固定次序改名到位，最新截至日由它推出的文件最后放：中途崩溃只会少推进，不会让截至日指向不完整的数据。
+- 已结束月份的 agg_trade、quote 文件不再写。进行中的月份重写时，K 线与资金费已有的日子须与来源重读逐行相同（MONTH_EXISTS），名单须与已存行相同（UNIVERSE_CHANGED），metrics 已存的行原样留下。
+- 一次只有一个导入：导入全程持有文件锁，第二个导入拒绝 CONCURRENT_IMPORT；锁管不到的写者由放置时核对目标文件拦下（同一拒绝码）。
+- 合约名在读取时与条款、名单关联，文件之间没有外键。
+
+**市场日**　它包含的最后一天 D，写作 `YYYY-MM-DD`（否则 MARKET_DAY_UNRESOLVED）。研究账本里的试验、登记、研究线和 Paper 运行都存它。按市场日读，读到的是：
+
+| 表 | 读到的行 |
 |---|---|
-| [候选、谱系与源码审查](/zh/docs/design-database-candidates/) | 完整策略源码、内容身份与父版本关系；每次原生预检之后的独立源码审查。 |
-| [登记与试验](/zh/docs/design-database-trials/) | 研究登记的预测、网格和执行身份；每次回放的试验行、合约、捕获结局和文件去向。 |
-| [运行结果与封存读数](/zh/docs/design-database-runs/) | 运行的结论与指纹、可重封的读数、逐日收益和原生持仓周期。 |
-| [证据包与原件](/zh/docs/design-database-evidence/) | 证据包组织文件目录，目录指向按内容哈希只存一份的原件。 |
-| [研究线、目标与判断](/zh/docs/design-database-judgments/) | 研究线与它固定的开发期、关线记录、用户的研究目标，以及只追加的 Agent 判断和判断主体。 |
-| [样本外登记与时间见证](/zh/docs/design-database-validation/) | 事前检验声明与时间凭证；凭证证明登记提交在给定时间前已存在。 |
-| [模式版本、写入协调与复核](/zh/docs/design-database-coordination/) | 模式代数、写入头指针，以及 `ledger review` 读的 Dolt 历史表和它的检查项。 |
-| [读取入口与研究史](/zh/docs/design-database-views/) | 读命令怎么读账本（没有 SQL 视图），以及关线历史回测的三段窗口和判定。 |
-| [Paper 库](/zh/docs/design-database-paper/) | Paper 运行的声明、复制来的源码和封存文件；独立的数据库，不进研究账本。 |
-| [市场数据与交易范围](/zh/docs/design-database-market/) | 合约规格、成交价与标记价 K 线、推算买卖报价、完整源 aggTrades、持仓量与多空比、资金费率和逐月共同交易范围；不在 Dolt，存为市场目录里按表、按月的普通 Parquet 文件。 |
+| bar、funding、quote、agg_trade、metrics | 时间列在 D 当天及以前 |
+| universe_month | 月份不晚于 D 次日所在的月：一个月的名单只取决于它之前的日子，所以月末这一天读得到下个月的名单 |
+| instrument | observed_at 在 D 次日结束之前：一天的数据次日导入，条款同时观测 |
 
-## 全库关系图
+省略市场日指最新的截至日：bar 与 metrics 各自最后完整的一天里较早的那天；比它晚的日期是 MARKET_DAY_UNRESOLVED。这一天是月末而下个月还没有名单时，退到它的前一天，读到的成员因此不会变。回填或晚到的归档改动了一个截至日的内容，复跑导出的指纹对不上，由 REPRODUCTION_MISMATCH 报出。
 
-研究账本、Paper 库和市场目录三张图分开：它们之间没有外键。
+### `instrument` [#def-table-instrument]
 
-<Mermaid chart={"erDiagram\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  candidate {\n    LONGBLOB source\n    CHAR_64_ source_sha256 PK\n    VARCHAR_100_ strategy_id\n    INT revision\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    CHAR_64_ parent_source_sha256 FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  research_line {\n    INT line_id PK\n    VARCHAR_64_ name\n    CHAR_64_ start_source_sha256 FK\n    DATE market_day\n    VARCHAR_60_ universe_rule\n    DATE dev_start\n    DATE dev_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  line_close {\n    INT line_id PK, FK\n    TEXT summary\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  line_target {\n    BIGINT target_id PK\n    INT line_id FK\n    INT scope_key FK\n    INT root_scope\n    DECIMAL_7_4_ max_drawdown\n    DECIMAL_7_4_ annual_return\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  comparison_design {\n    INT design_id PK\n    VARCHAR_60_ method\n    INT block_days\n    INT resamples\n    INT inner_resamples\n    BIGINT seed\n    DOUBLE alpha\n    DOUBLE minimum_effect\n    TEXT design_reason\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    ENUM__start____captu kind\n    INT trial_id FK\n    VARCHAR_16_ one_per_trial\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  evidence_content {\n    CHAR_64_ sha256 PK\n    LONGBLOB content\n  }\n  evidence {\n    VARCHAR_160_ bundle PK, FK\n    VARCHAR_512_ path PK\n    CHAR_64_ sha256 FK\n  }\n  research_registration {\n    INT registration_id PK\n    INT line_id FK\n    INT retry_of FK\n    INT control_trial_id FK\n    INT comparison_design_id FK\n    VARCHAR_300_ image_ref\n    DATE market_day\n    VARCHAR_60_ universe_rule\n    VARCHAR_160_ lifecycle_bundle FK\n    CHAR_64_ export_sha256\n    CHAR_64_ comparable_config_sha256\n    JSON body\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_registration {\n    INT registration_id PK\n    CHAR_64_ source_sha256 FK\n    DATE market_day\n    VARCHAR_60_ universe_rule FK\n    DATETIME_6_ window_start FK\n    DATETIME_6_ window_end FK\n    INT comparison_design_id FK\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore____pre purpose\n    CHAR_64_ source_sha256 FK\n    CHAR_64_ candidate_sha256 FK\n    INT line_id FK\n    INT research_registration_id FK\n    INT validation_registration_id FK\n    VARCHAR_300_ image_ref FK\n    VARCHAR_40_ runtime_contract FK\n    VARCHAR_40_ platform\n    CHAR_40_ build_revision\n    DATE market_day FK\n    VARCHAR_60_ universe_rule FK\n    VARCHAR_160_ lifecycle_bundle FK\n    CHAR_64_ export_sha256 FK\n    CHAR_64_ comparable_config_sha256 FK\n    ENUM__bars____quotes execution\n    DECIMAL_24_8_ starting_balance\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start FK\n    DATETIME_6_ trade_end FK\n    JSON runner_argv\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial_instrument {\n    INT trial_id PK, FK\n    VARCHAR_64_ instrument_id PK\n  }\n  source_review {\n    INT review_id PK\n    INT trial_id FK\n    CHAR_64_ source_sha256 FK\n    ENUM__explore____pre purpose FK\n    ENUM__passed____fail verdict\n    ENUM__passed____fail api_status\n    TEXT api_note\n    ENUM__passed____fail causal_status\n    TEXT causal_note\n    ENUM__passed____fail activity_status\n    TEXT activity_note\n    ENUM__passed____fail readiness_status\n    TEXT readiness_note\n    VARCHAR_100_ reviewer\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  registration_grid_point {\n    INT registration_id PK, FK\n    CHAR_64_ source_sha256 PK, FK\n    INT source_review_id FK\n  }\n  trial_capture {\n    INT trial_id PK, FK\n    ENUM__started____exi native_state\n    INT native_exit_code\n    ENUM__started____exi audit_state\n    INT audit_exit_code\n    ENUM__started____exi fingerprint_state\n    INT fingerprint_exit_code\n    ENUM__completed____i outcome_kind\n    TEXT outcome_detail\n    JSON table_hashes\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial_file {\n    INT trial_id PK, FK\n    VARCHAR_512_ path PK\n    ENUM__captured____ca status\n    CHAR_64_ sha256\n    BIGINT length\n  }\n  run {\n    INT trial_id PK, FK\n    JSON failure_reasons\n    ENUM__passed____inva status\n    JSON fingerprints\n    BIGINT sealed_seq\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  run_reading {\n    INT trial_id PK, FK\n    JSON report\n    CHAR_40_ product_commit\n    VARCHAR_160_ op_id\n    DATETIME_6_ computed_at\n  }\n  run_return {\n    INT trial_id PK, FK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n    DECIMAL_24_8_ mean_gross_notional\n  }\n  run_cycle {\n    INT trial_id PK, FK\n    INT seq PK\n    VARCHAR_64_ instrument_id\n    ENUM__long____short_ side\n    BIGINT ts_opened_ns\n    BIGINT ts_closed_ns\n    DECIMAL_24_8_ realized_pnl\n    DECIMAL_24_8_ commissions\n    DECIMAL_24_8_ funding\n    DECIMAL_24_8_ open_unrealized\n    VARCHAR_160_ plan_tag\n    VARCHAR_40_ closing_order_type\n    VARCHAR_160_ closing_order_tag\n  }\n  judgment {\n    BIGINT judgment_id PK\n    ENUM__recommendation kind\n    INT line_id FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK, FK\n    INT seq PK\n    ENUM__about____recom role\n    CHAR_64_ source_sha256 FK\n    INT trial_id FK\n    INT research_registration_id FK\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    INT registration_id FK\n    LONGBLOB token\n  }\n  candidate ||--o{ candidate : \"parent_source_sha256\"}\n  candidate ||--o{ research_line : \"start_source_sha256\"}\n  research_line ||--o{ line_close : \"line_id\"}\n  research_line ||--o{ line_target : \"line_id\"}\n  line_target ||--o{ line_target : \"supersedes_scope_key\"}\n  trial ||--o{ evidence_bundle : \"trial_id\"}\n  evidence_bundle ||--o{ evidence : \"bundle\"}\n  evidence_content ||--o{ evidence : \"sha256\"}\n  research_line ||--o{ research_registration : \"line_id\"}\n  research_registration ||--o{ research_registration : \"retry_of\"}\n  comparison_design ||--o{ research_registration : \"comparison_design_id\"}\n  evidence_bundle ||--o{ research_registration : \"lifecycle_bundle\"}\n  trial ||--o{ research_registration : \"control_trial_id\"}\n  candidate ||--o{ validation_registration : \"source_sha256\"}\n  comparison_design ||--o{ validation_registration : \"comparison_design_id\"}\n  validation_registration ||--o{ validation_registration : \"retry_of_source_sha256_univers\"}\n  candidate ||--o{ trial : \"candidate_sha256_runtime_contr\"}\n  research_line ||--o{ trial : \"line_id\"}\n  research_registration ||--o{ trial : \"research_registration_id_line_\"}\n  validation_registration ||--o{ trial : \"validation_registration_id_sou\"}\n  evidence_bundle ||--o{ trial : \"lifecycle_bundle\"}\n  registration_grid_point ||--o{ trial : \"research_registration_id_sourc\"}\n  trial ||--o{ trial_instrument : \"trial_id\"}\n  trial ||--o{ source_review : \"trial_id_source_sha256_purpose\"}\n  research_registration ||--o{ registration_grid_point : \"registration_id\"}\n  candidate ||--o{ registration_grid_point : \"source_sha256\"}\n  source_review ||--o{ registration_grid_point : \"source_review_id_source_sha256\"}\n  trial ||--o{ trial_capture : \"trial_id\"}\n  trial_capture ||--o{ trial_file : \"trial_id\"}\n  trial ||--o{ run : \"trial_id\"}\n  run ||--o{ run_reading : \"trial_id\"}\n  run ||--o{ run_return : \"trial_id\"}\n  run ||--o{ run_cycle : \"trial_id\"}\n  research_line ||--o{ judgment : \"line_id\"}\n  judgment ||--o{ judgment : \"supersedes_line_id\"}\n  judgment ||--o{ judgment_subject : \"judgment_id\"}\n  candidate ||--o{ judgment_subject : \"source_sha256\"}\n  trial ||--o{ judgment_subject : \"trial_id\"}\n  research_registration ||--o{ judgment_subject : \"research_registration_id\"}\n  validation_registration ||--o{ witness : \"registration_id\"}"} />
+合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长。条款会变、旧条款交易所不再给，所以按观测追加存。
 
-<Mermaid chart={"erDiagram\n  direction LR\n  paper_source {\n    CHAR_64_ source_sha256 PK\n    LONGBLOB source\n    VARCHAR_100_ entry_class\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_run {\n    BIGINT paper_id PK\n    CHAR_64_ source_sha256 FK\n    VARCHAR_300_ image_ref\n    JSON symbols\n    DATE market_day\n    JSON config\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_seal {\n    BIGINT paper_id PK, FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_file {\n    BIGINT paper_id PK, FK\n    VARCHAR_255_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n  }\n  paper_source ||--o{ paper_run : \"source_sha256\"}\n  paper_run ||--o{ paper_seal : \"paper_id\"}\n  paper_seal ||--o{ paper_file : \"paper_id\"}"} />
+- 只追加：已存的观测加新的观测，条款没变不写；推断来源的行不带限额与分类。
+- 导出取该市场日下最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION。
 
-<Mermaid chart={"erDiagram\n  direction LR\n  bar {\n    string symbol PK\n    string price_type PK\n    int64 ts_open PK\n    int64 open\n    int64 high\n    int64 low\n    int64 close\n    int64 volume\n  }\n  funding {\n    string symbol PK\n    int64 funding_time PK\n    decimal128_20_10_ rate\n  }\n  instrument {\n    string symbol PK\n    int64 observed_at PK\n    string terms_source\n    string price_increment\n    string size_increment\n    string min_quantity\n    string max_quantity\n    string min_notional\n    string min_price\n    string max_price\n    string classification\n  }\n  universe_month {\n    string universe_rule PK\n    date32 month PK\n    string symbol PK\n  }\n  quote {\n    string symbol PK\n    int64 ts PK\n    int64 agg_trade_id PK\n    int64 bid\n    int64 ask\n  }\n  agg_trade {\n    string symbol PK\n    int64 transact_time PK\n    int64 agg_trade_id PK\n    int64 price\n    int64 quantity\n    int64 first_trade_id\n    int64 last_trade_id\n    bool is_buyer_maker\n  }\n  metrics {\n    string symbol PK\n    int64 create_time PK\n    decimal128_38_16_ sum_open_interest\n    decimal128_38_16_ count_toptrader_long_short_ratio\n    decimal128_38_16_ sum_toptrader_long_short_ratio\n    decimal128_38_16_ count_long_short_ratio\n  }"} />
+### `bar` [#def-table-bar]
 
-## 原定义入口
+1 分钟 K 线：成交价 LAST 与标记价 MARK（无量）；每个永续独立序列，几个来源拼成一条、来源不留痕；缺口即缺行，不补造。
 
-<a id="research-history-views" />
+- 价格为正、高低包住开收；只有 LAST 带量。
+- 同一分钟两来源不等即整次导入拒绝，不以一方覆盖另一方。
 
-[研究史与关线历史回测](/zh/docs/design-database-views/#research-history-views)
+### `quote` [#def-table-quote]
 
-<a id="def-table-candidate" />
+按声明规则从 aggTrades 推算的完整买卖价状态变化；是近似报价，不是逐档盘口或真实可成交深度。推算规则与证据边界见 <Ref id="W.1.2.1" />。
 
-[candidate](/zh/docs/design-database-candidates/#def-table-candidate)
+- 买价为正且卖价高于买价；同毫秒状态不合并。
+- 一个合约一个月一个文件，月份结束后从已存的 <Ref id="table:agg_trade" /> 推出，不再写；同合约同月已有文件即拒绝。
+- 不存盘口数量：导出用合约最大数量填两侧，不等于实际深度。
 
-<a id="def-table-source_review" />
+### `agg_trade` [#def-table-agg_trade]
 
-[source_review](/zh/docs/design-database-candidates/#def-table-source_review)
+币安 USD-M 的完整源 aggTrades：官方七个字段加合约名，含没有改变推算报价的成交。它是源交易原件，报价从它推出；回放入口请求成交时只作策略信号输入，不驱动撮合。
 
-<a id="def-table-research_registration" />
+- 价格与数量放不进编码即整月拒绝 SCALE_LOSS，不四舍五入、不换编码。
+- 编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
+- 只导已结束的月份；同合约月已有文件即 MONTH_EXISTS。
 
-[research_registration](/zh/docs/design-database-trials/#def-table-research_registration)
+### `metrics` [#def-table-metrics]
 
-<a id="def-table-registration_grid_point" />
+币安 USD-M 每日 metrics 归档里的持仓量和三个多空比，每个合约每 5 分钟一行，列名照抄归档。一行描述的是 create_time + 5 分钟那一刻；表里存归档原值，导出时才按规则给出 REST 显示的值和可见时刻，Paper 和 Live 从 REST 读同一行。
 
-[registration_grid_point](/zh/docs/design-database-trials/#def-table-registration_grid_point)
+- create_time 在 5 分钟格点上，各值不为负；放不进十进制编码的值整日拒绝 SCALE_LOSS。
+- 已存的行原样留下，每次只加新的日子；缺的日子由覆盖读取报出，不存。
+- 归档的主动买卖量比和持仓价值可从已存数据算出或是交易所的价格快照，都不存。
 
-<a id="def-table-comparison_design" />
+### `funding` [#def-table-funding]
 
-[comparison_design](/zh/docs/design-database-trials/#def-table-comparison_design)
+资金费按交易所实际结算时刻记录，保留抖动，导出为引擎资金费更新。费率绝对值小于 1；进行中的月份重写时已有的日子须与来源重读逐行相同。
 
-<a id="def-table-trial" />
+### `universe_month` [#def-table-universe_month]
 
-[trial](/zh/docs/design-database-trials/#def-table-trial)
+共同可交易范围：按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里。名单存下来，任一市场日的成员时间路径都能原样重现，进入输入身份。
 
-<a id="def-table-trial_instrument" />
-
-[trial_instrument](/zh/docs/design-database-trials/#def-table-trial_instrument)
-
-<a id="def-table-trial_capture" />
-
-[trial_capture](/zh/docs/design-database-trials/#def-table-trial_capture)
-
-<a id="def-table-trial_file" />
-
-[trial_file](/zh/docs/design-database-trials/#def-table-trial_file)
-
-<a id="def-table-run" />
-
-[run](/zh/docs/design-database-runs/#def-table-run)
-
-<a id="def-table-run_reading" />
-
-[run_reading](/zh/docs/design-database-runs/#def-table-run_reading)
-
-<a id="def-table-run_return" />
-
-[run_return](/zh/docs/design-database-runs/#def-table-run_return)
-
-<a id="def-table-run_cycle" />
-
-[run_cycle](/zh/docs/design-database-runs/#def-table-run_cycle)
-
-<a id="def-table-evidence_bundle" />
-
-[evidence_bundle](/zh/docs/design-database-evidence/#def-table-evidence_bundle)
-
-<a id="def-table-evidence" />
-
-[evidence](/zh/docs/design-database-evidence/#def-table-evidence)
-
-<a id="def-table-evidence_content" />
-
-[evidence_content](/zh/docs/design-database-evidence/#def-table-evidence_content)
-
-<a id="def-table-research_line" />
-
-[research_line](/zh/docs/design-database-judgments/#def-table-research_line)
-
-<a id="def-table-line_close" />
-
-[line_close](/zh/docs/design-database-judgments/#def-table-line_close)
-
-<a id="def-table-line_target" />
-
-[line_target](/zh/docs/design-database-judgments/#def-table-line_target)
-
-<a id="def-table-judgment" />
-
-[judgment](/zh/docs/design-database-judgments/#def-table-judgment)
-
-<a id="def-table-judgment_subject" />
-
-[judgment_subject](/zh/docs/design-database-judgments/#def-table-judgment_subject)
-
-<a id="def-table-validation_registration" />
-
-[validation_registration](/zh/docs/design-database-validation/#def-table-validation_registration)
-
-<a id="def-table-witness" />
-
-[witness](/zh/docs/design-database-validation/#def-table-witness)
-
-<a id="def-table-ledger_schema" />
-
-[ledger_schema](/zh/docs/design-database-coordination/#def-table-ledger_schema)
-
-<a id="def-table-ledger_head" />
-
-[ledger_head](/zh/docs/design-database-coordination/#def-table-ledger_head)
-
-<a id="def-table-paper_source" />
-
-[paper_source](/zh/docs/design-database-paper/#def-table-paper_source)
-
-<a id="def-table-paper_run" />
-
-[paper_run](/zh/docs/design-database-paper/#def-table-paper_run)
-
-<a id="def-table-paper_seal" />
-
-[paper_seal](/zh/docs/design-database-paper/#def-table-paper_seal)
-
-<a id="def-table-paper_file" />
-
-[paper_file](/zh/docs/design-database-paper/#def-table-paper_file)
-
-<a id="def-table-dolt_system_tables" />
-
-[dolt_diff_\<table> / dolt_history_\<table>](/zh/docs/design-database-coordination/#def-table-dolt_system_tables)
-
-<a id="def-table-bar" />
-
-[bar](/zh/docs/design-database-market/#def-table-bar)
-
-<a id="def-table-funding" />
-
-[funding](/zh/docs/design-database-market/#def-table-funding)
-
-<a id="def-table-instrument" />
-
-[instrument](/zh/docs/design-database-market/#def-table-instrument)
-
-<a id="def-table-market_directory" />
-
-[市场目录](/zh/docs/design-database-market/#def-table-market_directory)
-
-<a id="def-table-universe_month" />
-
-[universe_month](/zh/docs/design-database-market/#def-table-universe_month)
-
-<a id="def-table-quote" />
-
-[quote](/zh/docs/design-database-market/#def-table-quote)
-
-<a id="def-table-agg_trade" />
-
-[agg_trade](/zh/docs/design-database-market/#def-table-agg_trade)
-
-<a id="def-table-metrics" />
-
-[metrics](/zh/docs/design-database-market/#def-table-metrics)
+- 随 K 线导入写；这个月已有名单时，算出的须与已存行相同，否则 UNIVERSE_CHANGED。
+- 放到位前核对最新月份：成员在该月前一 UTC 日有带量的 LAST K 线、成员有条款、范围规则等于当前规则；任一失败 DATA_TESTS_FAILED。
+- 样本外绑定时在登记的市场日与本次市场日下逐行比对登记前各月名单。

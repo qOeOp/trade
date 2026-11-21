@@ -48,6 +48,8 @@ MEASURE_NOTES = {
                                   "direction of the total: the largest net when total >= 0, the smallest when total < 0; "
                                   "`instrument` names it. This is descriptive concentration, not evidence for removing "
                                   "that instrument.",
+    "entry_filled_share": "Entry orders (no parent order, not reduce-only) whose final status is FILLED, over all "
+                          "entry orders; an entry partly filled and then canceled counts as not filled.",
     **dict.fromkeys(("beta_basket", "alpha_basket", "up_month_notional", "down_month_notional", "high_vol_days",
                      "high_vol_mean_log", "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"),
                     BASKET_NOTE),
@@ -661,6 +663,16 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         put("top_exit_share", top_share(list(exits.values()), 1), "exit_classes", len(exits), empty)
         # each exit class's closed-cycle net, the split top_exit_share concentrates (derived on read, never stored)
         found["top_exit_share"]["exit_net"] = {name: metrics.money(net) for name, net in sorted(exits.items())}
+
+    # entry_orders: the reading's order funnel (entry orders by final status)
+    if needs(*slices["entry_orders"]):
+        funnel = sealed.get("order_funnel")
+        entries = sum(funnel.values()) if isinstance(funnel, Mapping) else None
+        reason = "ORDER_FUNNEL_MISSING: the reading has no order funnel" if entries is None else None
+        filled = funnel.get("FILLED", 0) if isinstance(funnel, Mapping) else 0
+        put("entry_orders", entries, "entry_orders", entries, reason)
+        put("entry_filled_share", filled / entries if entries else None, "entry_orders", entries,
+            reason or "NO_ENTRY_ORDER: the run placed no entry order")
 
     # drawdown: the reading's values above (max_drawdown, drawdown_days, top_instrument_share_in_drawdown)
     return {name: value for name, value in found.items() if name in wanted}

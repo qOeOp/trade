@@ -2,6 +2,9 @@
 
 import contextlib
 import copy
+from collections import defaultdict
+from decimal import Decimal
+from itertools import pairwise
 import ast
 import io
 import csv
@@ -13,7 +16,7 @@ import unittest
 
 import pandas as pd
 
-from engine.audit import audit, audit_main, uncovered_intervals
+from engine.audit import audit, audit_main, event_report_findings, live_fill_changes, uncovered_intervals
 from engine.protection import ALLOWANCE_NS as BAR_NS
 
 
@@ -675,3 +678,93 @@ class UncoveredIntervalTests(unittest.TestCase):
         self.assertEqual(len(uncovered_intervals(pending, 10 + BAR_NS + 1)), 1)
         restored = pending + [event("OrderCancelRejected", "stop", 20)]
         self.assertEqual(uncovered_intervals(restored, 10 + BAR_NS + 1), [])
+
+
+BURST = Path(__file__).with_name("paper_fill_burst.json")  # one APT position of Paper run 3, from its sealed reports
+
+
+class PaperFillBurstTests(unittest.TestCase):
+    """A live clock's burst of partial fills (Paper run 3): the Sandbox resizes the working reduce-only exits after
+    each fill while the strategy's cancel request is already queued, and stamps each fill's account update after the
+    burst. The replay's simulated clock keeps the exact rules."""
+
+    def setUp(self):
+        self.data = json.loads(BURST.read_text(encoding="utf-8"))
+
+    def changes(self):
+        changes: defaultdict[int, Decimal] = defaultdict(Decimal)
+        for rows in self.data["account_segments"]:
+            for left, right in pairwise(rows):
+                changes[pd.Timestamp(right["ts_event"]).value] += Decimal(right["total"]) - Decimal(left["total"])
+        return changes
+
+    def test_the_venues_resizes_before_the_cancel_request_are_no_finding_on_a_live_clock_only(self):
+        data, leads = self.data, []
+        self.assertEqual(event_report_findings(data["events"], data["orders"], data["fills"], leads), [])
+        self.assertEqual(len(leads), 1)  # the closing exit the venue canceled before the request (option A)
+        replay = event_report_findings(data["events"], data["orders"], data["fills"])
+        self.assertEqual({item.split(":")[0] for item in replay}, {"EVENT_OUT_OF_ORDER"})
+        self.assertEqual(len(replay), 3)
+
+    def test_other_steps_back_around_a_cancel_request_stay_findings(self):
+        requested: set[str] = set()
+        crossed = []  # the exits resized after their cancel request was recorded
+        for event in self.data["events"]:
+            if event["type"] == "OrderPendingCancel":
+                requested.add(event["client_order_id"])
+            elif event["type"] == "OrderUpdated" and event["client_order_id"] in requested:
+                crossed.append(event["client_order_id"])
+        crossed = sorted(set(crossed))
+        self.assertEqual(len(crossed), 2)
+
+        def update_after_cancel(events):
+            update = next(event for event in events if event["client_order_id"] == crossed[0]
+                          and event["type"] == "OrderUpdated")
+            events.remove(update)
+            events.append(update)
+
+        def not_reduce_only(events):
+            next(event for event in events if event["client_order_id"] == crossed[0])["reduce_only"] = False
+
+        def outside_the_burst(events):
+            own = [event for event in events if event["client_order_id"] == crossed[0]]
+            accepted = next(event["ts_event"] for event in own if event["type"] == "OrderAccepted")
+            for event in own:
+                if event["type"] == "OrderUpdated":
+                    event["ts_event"] = accepted  # in time order, but its last fill is a minute before the request
+        for name, change in (("an update after the cancel", update_after_cancel),
+                             ("not reduce-only", not_reduce_only),
+                             ("an update outside the burst", outside_the_burst)):
+            with self.subTest(name):
+                events = copy.deepcopy(self.data["events"])
+                change(events)
+                found = event_report_findings(events, self.data["orders"], self.data["fills"], [])
+                self.assertIn(f"EVENT_OUT_OF_ORDER: {crossed[0]} events go back in time", found)
+
+    def test_a_bursts_account_changes_match_its_fills_in_order(self):
+        data = self.data
+        changes = self.changes()
+        attributed, lags, found = live_fill_changes(data["fills"], data["positions"], changes)
+        self.assertEqual(found, [])
+        self.assertEqual(len(attributed), len(data["fills"]))
+        self.assertTrue(all(0 < lag <= 10**9 for lag in lags))
+
+    def test_a_burst_with_mismatched_missing_or_extra_changes_is_not_attributed(self):
+        data = self.data
+        fills = sorted(pd.Timestamp(row["ts_event"]).value for row in data["fills"])
+        changes = self.changes()
+        moved = sorted(time for time, value in changes.items() if value)
+        opening = [time for time in moved if fills[1] < time < fills[3]]  # the two partial entry fills' changes
+        self.assertEqual(len(opening), 2)
+        swapped = dict(changes)
+        swapped[opening[0]], swapped[opening[1]] = changes[opening[1]], changes[opening[0]]
+        missing = {time: value for time, value in changes.items() if time != opening[1]}
+        extra = {**changes, opening[1] + 1: Decimal("-0.1")}
+        for name, values, unmatched in (("mismatched amounts", swapped, set(opening)),
+                                        ("a missing change", missing, {opening[0]}),
+                                        ("an extra change", extra, {opening[1] + 1})):
+            with self.subTest(name):
+                attributed, _, found = live_fill_changes(data["fills"], data["positions"], values)
+                self.assertFalse(attributed & unmatched)
+                if name != "an extra change":
+                    self.assertTrue(found, "the position's attributed changes no longer equal its PnL")

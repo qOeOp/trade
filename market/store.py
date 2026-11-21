@@ -21,7 +21,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 import pyarrow as pa
@@ -349,25 +349,41 @@ def closed_month(month: date) -> tuple[int, int]:
     return start, end
 
 
+def import_contracts(profile: dict, month: date, symbols, bounds, run, empty: str | None = None) -> dict:
+    """The skeleton of the four imports (bars, aggTrades, quotes, metrics): the contracts named (`symbols`, None for
+    the default; EMPTY_SYMBOLS), the month's [start, end) (`bounds(month)`, refusing MONTH_INVALID), the market under
+    its import lock (MARKET_EMPTY with the message `empty` when it holds no bars), `run(market, scope, start, end)`
+    -> {per_symbol: {symbol: {rows, ...}}, ...} and one result: {month, per_symbol, the kind's own fields, rows (all
+    contracts), market_day, seconds}."""
+    started = time.monotonic()
+    scope = _scope(symbols)
+    start, end = bounds(month)
+    market = files.open_market(profile, "import")
+    with files.lock(market):
+        if empty is not None and market.empty:
+            raise refuse("MARKET_EMPTY", empty)
+        found = run(market, scope, start, end)
+        market_day = files.latest_market_day(market)
+    return {"month": f"{month:%Y-%m}", **found, "rows": sum(item["rows"] for item in found["per_symbol"].values()),
+            "market_day": market_day, "seconds": round(time.monotonic() - started, 1)}
+
+
 def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
                  log=print) -> dict:
     """market.import_month: one UTC month (the current month through the last closed day), after the latest stored
     month or, as a backfill, just before the earliest. On its first day the current month has no closed day and
     imports its members only: they depend on the days before it alone. `symbols` narrows the contracts."""
-    started = time.monotonic()
-    scope = _scope(symbols)
-    start_ms, end_ms = month_bounds(month)
-    market = files.open_market(profile, "import")
-    work = Path(tempfile.mkdtemp(prefix="market-load-"))
-    try:
-        with files.lock(market):
-            return _import(market, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    def run(market: files.Market, scope: list[str] | None, start_ms: int, end_ms: int) -> dict:
+        work = Path(tempfile.mkdtemp(prefix="market-load-"))
+        try:
+            return _import(market, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+    return import_contracts(profile, month, symbols, month_bounds, run)
 
 
 def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
-            scope: list[str] | None, work: Path, log, started: float) -> dict:
+            scope: list[str] | None, work: Path, log) -> dict:
     label = f"{month:%Y-%m}"
     through = files.bar_months_through(market)
     if not through and start_ms == end_ms:
@@ -432,7 +448,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                          "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None})
     stored_funding = _stored_funding(market, start_ms, held_ms) if held_ms is not None and jobs else {}
 
-    totals: dict[str, Any] = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
+    totals: dict[str, Any] = {"funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
                               "source_rows": {name: 0 for name in series.SOURCES}, "derived_findings": {},
                               "per_symbol": {}}
     prepared: dict[str, str] = {}
@@ -455,7 +471,6 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                 appended_terms.append((symbol, observed, report["terms"]))
                 totals["inferred_terms"].append(symbol)
             rows = sum(report["rows"].values())
-            totals["bar_rows"] += rows
             totals["funding_rows"] += len(report["funding"])
             totals["rounded_volumes"] += report["rounded_volumes"]
             for used in report["source_rows"].values():
@@ -466,7 +481,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                 totals["gaps"][symbol] = gaps
             if report["derived_findings"]:
                 totals["derived_findings"][symbol] = report["derived_findings"]
-            totals["per_symbol"][symbol] = {"bars": report["rows"], "funding": len(report["funding"]),
+            totals["per_symbol"][symbol] = {"rows": rows, "bars": report["rows"], "funding": len(report["funding"]),
                                             "source_rows": report["source_rows"]}
             log(f"[{count}/{len(jobs)}] {symbol}: {rows} bars, {len(report['funding'])} funding, prepared "
                 f"{report['seconds']}s")
@@ -479,7 +494,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     # Each table with new rows gets its whole file again: the stored rows and the new ones. A contract this import
     # did not prepare keeps its stored rows.
     bar_file = funding_file = terms_file = None
-    if totals["bar_rows"]:
+    if any(item["rows"] for item in totals["per_symbol"].values()):
         kept = sorted({symbol for symbol, _ in stored_bars} - set(prepared))
         bar_file = files.write_file(market, "bar", month, None, _month_bars(market, start_ms, end_ms, prepared, kept))
     if settlements:
@@ -494,20 +509,18 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     member_files = [_members_file(market, month, new)] if new else []
     filled = _fill_universe(market, month, earliest, latest) if backfill else {}
     member_files += [_members_file(market, at, found) for at, found in filled.items() if found]
-    failed = files.data_tests(market)
+    failed = files.data_tests(market, universe.RULE)
     if failed:
         raise refuse("DATA_TESTS_FAILED", f"the import fails {', '.join(failed)}", missing=tuple(failed))
     # Bars last: the market's newest day comes from them.
     files.place(market, [item for item in (*member_files, funding_file, terms_file, bar_file) if item is not None])
-    result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
-              "through": clock.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
-              "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
-              "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
-              "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
-              "derived_findings": dict(sorted(totals["derived_findings"].items())),
-              "per_symbol": dict(sorted(totals["per_symbol"].items())),
-              "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
-    return {**result, "market_day": files.latest_market_day(market), "seconds": round(time.monotonic() - started)}
+    return {"universe_rule": universe.RULE, "scope": scope or "all", "through": clock.ms_day(end_ms).isoformat(),
+            "instruments_appended": len(appended_terms), "funding_rows": totals["funding_rows"],
+            "universe_members": members, "gaps": dict(sorted(totals["gaps"].items())),
+            "source_rows": totals["source_rows"], "excluded": excluded, "inferred_terms": sorted(totals["inferred_terms"]),
+            "rounded_volumes": totals["rounded_volumes"], "derived_findings": dict(sorted(totals["derived_findings"].items())),
+            "per_symbol": dict(sorted(totals["per_symbol"].items())),
+            "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
 
 
 def _month_bars(market: files.Market, start_ms: int, end_ms: int, prepared: dict[str, str], kept: list[str]):
@@ -731,31 +744,6 @@ def _fill_universe(market: files.Market, month: date, earliest: date, latest: da
     return filled
 
 
-# market.freshness
-
-def freshness(profile: dict, ref: str | None = None) -> dict:
-    """market.freshness: a market day's universe months and its latest complete UTC day (the day before the one
-    holding the newest LAST minute's end)."""
-    market = files.open_market(profile, "reader")
-    market_day = files.resolve_day(market, ref)
-    months = sorted({month for month, _ in universe.months_of(market, market_day)})
-    if not months:
-        raise refuse("MARKET_EMPTY", f"market day {market_day} has no universe month", missing=(market_day,))
-    newest = None
-    # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
-    high = files._visible("bar", market_day, None)
-    for entry in reversed(files.entries(market, "bar", None, None, high)):
-        for batch in files.file_batches(files.file_bytes(market, entry), files.BAR, None, None, high):
-            opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
-            if len(opens):
-                newest = max(newest or 0, pc.max(opens).as_py())
-        if newest is not None:
-            break
-    complete_day = clock.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
-    return {"market_day": market_day, "universe_months": [value.strftime("%Y-%m") for value in months],
-            "latest_complete_day": complete_day}
-
-
 # One file per contract and month (quotes, complete aggTrades)
 
 def worker_market(job: dict) -> files.Market:
@@ -763,11 +751,11 @@ def worker_market(job: dict) -> files.Market:
     return files.Market(Path(job["root"]), "import", locked=True)
 
 
-def contract_files(market: files.Market, jobs: list[dict], write, workers: int, log) -> list[dict]:
-    """Each job's file written by `write(job)` -> {written, result}, in a process pool when there are several, and
-    placed in job order. A refused contract leaves the other contracts' files; the refusal raised is the first
-    contract's, naming the contracts placed."""
-    done: list[dict] = []
+def contract_files(market: files.Market, jobs: list[dict], write, workers: int, log) -> dict[str, dict]:
+    """{symbol: result} of each job's file written by `write(job)` -> {written, result}, in a process pool when there
+    are several, and placed in job order. A refused contract leaves the other contracts' files; the refusal raised is
+    the first contract's, naming the contracts placed."""
+    done: dict[str, dict] = {}
     failed: tuple[str, BaseException] | None = None
     pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
     try:
@@ -779,19 +767,23 @@ def contract_files(market: files.Market, jobs: list[dict], write, workers: int, 
             except Exception as exc:  # the other contracts go on; raised below
                 failed = failed or (job["symbol"], exc)
                 continue
-            done.append(found["result"])
+            done[job["symbol"]] = found["result"]
             log(f"{job['symbol']}: {found['written'].relative}")
     finally:
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
     if failed is not None:
         symbol, error = failed
-        placed = ", ".join(item["symbols"][0] for item in done)
-        if placed and isinstance(error, Refusal):
-            raise refuse(error.code, f"{symbol}: {error.message}; written meanwhile: {placed}",
-                         missing=error.missing) from error
-        raise error
+        reraise_naming(error, symbol, list(done))
     return done
+
+
+def reraise_naming(error: BaseException, symbol: str, placed: list[str]) -> NoReturn:
+    """Raise the error of `symbol`, a refusal naming the contracts whose files the import placed before it."""
+    if placed and isinstance(error, Refusal):
+        raise refuse(error.code, f"{symbol}: {error.message}; written meanwhile: {', '.join(placed)}",
+                     missing=error.missing) from error
+    raise error
 
 
 def earlier_file(market: files.Market, table: str, symbol: str, start_ms: int) -> bool:

@@ -14,11 +14,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import TypedDict
 import uuid
 
 from nautilus_trader.core import UUID4
-from nautilus_trader.infrastructure import RedisCacheConfig
 # Published rc7 exports this class but omits it from infrastructure.pyi.
 from nautilus_trader.infrastructure import RedisCacheDatabase  # type: ignore[attr-defined]
 from nautilus_trader.model import TraderId, Venue
@@ -35,18 +33,6 @@ HEALTH_SECONDS = 2.0
 # later; both checks must hold, so one late check after a long stall is not enough on its own.
 STALL_SECONDS = 30.0
 STALL_PINGS = 5
-# A dead cache must fail a read or write at once. rc7's defaults (20-second timeouts, 100 retries) leave its writer
-# task retrying, `close()` waits for that task, and `node.dispose()` then does not return (measured 2026-11-15: `paper
-# stop` took 92 s and ended in SIGKILL). Live sets the same four values (engine.live_cache.NATIVE_CONNECTION).
-class NativeConnection(TypedDict):
-    connection_timeout: int
-    response_timeout: int
-    number_of_retries: int
-    max_delay: int
-
-
-NATIVE_CONNECTION: NativeConnection = {"connection_timeout": 1, "response_timeout": 1, "number_of_retries": 0,
-                                       "max_delay": 1}
 
 
 class CacheUnavailable(Exception):
@@ -84,11 +70,11 @@ class NativeCache:
         self.port = port
         # (monotonic time of the first, count) of the PINGs unanswered in a row; None while the cache answers.
         self.unanswered: tuple[float, int] | None = None
-        self.config = RedisCacheConfig(host="127.0.0.1", port=port, **NATIVE_CONNECTION)
+        self.config = redis_child.config(port)
         try:
             self.reader = RedisCacheDatabase(
                 TraderId(trader_id), UUID4(), json.dumps({"encoding": "json", "use_instance_id": False}).encode(),
-                json.dumps({"host": "127.0.0.1", "port": port, **NATIVE_CONNECTION}).encode(),
+                json.dumps(redis_child.connection(port)).encode(),
             )
         except BaseException:
             self.close()

@@ -26,6 +26,61 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
+  DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
+  market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
+
+- Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
+  check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
+  start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).
+- Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
+  OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
+  `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
+  and fills with no account change between them take the next as many account changes in order, one each, instead of
+  only a lone fill matching its change, so a burst no longer reads as `FUNDING_BALANCE_MISMATCH`. Anything else stays
+  a finding; the replay audit is unchanged. Paper run 3 (`pa-trend-second-entry@52`) failed its seal audit on these
+  alone (12 and 14 findings).
+- IDE: every poll of the page (About, market import, line readings, Agent, Market, Paper, Live, a run's comparison and
+  logs, the DoltHub sync, a Live candidate and its evidence) runs on one `lib/polled.ts`: it reads again only after the
+  last read finished, pauses while the page is hidden and reads once on showing again, and stops at the first 401 as
+  before. A run's logs, its comparison and the Live launch page's reads now also pause while the page is hidden.
+
+- market-import health (check change, delegated decision): a round in progress counts as fresh while its
+  `running_since` is younger than 26 hours, so a long daily round no longer reports unhealthy; a round running
+  longer is unhealthy as "a round running since ... is stuck", and a finished status older than 26 hours still is.
+
+- Live notices: the daily Telegram summary is sent only for a UTC day on which a Live run was running, filled or
+  ended (a minute's result, a fill, a start or its end that day; a running run whose minutes are unread counts).
+  A day with none is marked done and never sent later.
+
+- Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
+  schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
+  still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`
+  holds a cross-image reproduction's semantic fingerprint in `run.fingerprints`' shape (`{table: {rows, sha256}}`)
+  instead of `{table: sha256}`. The upgrade drops the generation 1 ledger: every command refuses it with
+  `SCHEMA_MISMATCH`, and research restarts on a new ledger.
+
+- Measure catalogue: every one of the 27 duties is linked to at least one report slice that can measure
+  its rule (nine had none), and B2 moves from `by_period` to `trade_structure`; the links still locate policies and
+  do not constrain which measure a prediction names. A new `entry_orders` slice gives `entry_orders` and
+  `entry_filled_share` (entry orders whose final status is FILLED), derived from the sealed order funnel and never
+  stored, so a change to entry placement or waiting (C1, G1, G2) can predict a measure instead of writing no slice
+  (`docs/plans/duty-directory-recheck-20261121.zh.md`).
+
+- **Breaking** (Live): the Live request log is gone. A page action's request ID now rides on the effect's own rows
+  (the `prepared` and `launch_requested` lifecycle rows, a saved credential's version), so the same ID sent again does
+  the effect at most once; a page that got no reply shows "No reply received", the run's or key's state, and **Send
+  again**, which resends the same request. Gone: `GET /api/live/requests/<id>`, the resolve action, the page's
+  Requests dialog, and the refusals `LIVE_REQUEST_COMMAND`, `LIVE_REQUEST_UNAVAILABLE`, `LIVE_REQUEST_MISSING`,
+  `LIVE_REQUEST_UNRESOLVED`, `LIVE_REQUEST_CLOSED_UNCLAIMED` and `LIVE_CREDENTIAL_INCOMPLETE`; `LIVE_REQUEST_CONFLICT`
+  now compares the effect rows. A run's `research_at` moves into its manifest (format `live-run-5`; earlier runs are
+  skipped as before). Preparation writes under `staging/<run_id>` and renames the run into `runs/` whole; it no
+  longer writes `universes/`. A save cut short finishes when sent again. While a run's latest launched container
+  cannot be found and nothing recycled it, every new launch of it is refused (`LIVE_DOCKER_UNAVAILABLE`), the
+  control's own restart included; STOP still works. Upgrade: Live must be idle; an old `requests/` (and
+  `universes/`) directory is no longer read and is left on disk
+  ([decision](docs/plans/live-request-log-removal-20261121.zh.md)).
+
 - IDE: a paper run's page lists every order the run placed, filled or not. The Trades window has an Orders tab
   (placed, contract, side, type, price or trigger, quantity, state now — Filled, Partly filled, Canceled, Expired,
   Rejected, Denied, Working or Open at stop — and when that state came; a click shows the order on its contract's
@@ -43,6 +98,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   stored (doctor 20261121-01). Read paths that need only a few measures (`research status`, `research runs`, the
   research graph, line history) now derive only those; their output is unchanged.
 
+- market-import health: the check prints why it fails (`status is 27.4 h old, a round running since ...`,
+  `metrics/BTCUSDT lagging`, a stopped scope's refusal code, an unreadable status), Docker keeps that in the
+  container's health log, and the release host's Telegram notice quotes it. The same conditions stay unhealthy.
+
+- Breaking: the four market imports (`market import`, `import-trades`, `import-quotes`, `import-metrics`) return one
+  shape: `month`, `per_symbol` (each contract's `rows` and its own readings), the kind's own fields, `rows` (all
+  contracts), `market_day` and `seconds` (to a tenth). Dropped: `bar_rows`, `trade_rows`, `quote_rows` and
+  `metrics_rows` (now `rows`), the trade and metrics `imports` lists (now `per_symbol`, with the trade `codec` once at
+  the top) and the quote import's `symbols` (the keys of `per_symbol`). The stored files are unchanged.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.
@@ -58,6 +123,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.
+
+- `research-round` strategy authoring: a candidate meant for Paper or Live declares the recovery protocol
+  (`PAPER_RECOVERY = 1`, `on_save` and `on_load` of its own state) when it is created, and its save/load round trip
+  is checked before it is proposed for Paper. Paper runs 2 to 4 of candidates without it could not resume after a
+  host reboot or a VM stall (`PAPER_RECOVERY_UNAVAILABLE`); nothing in `paper start` or the IDE refuses such a source.
 
 - `research-round` strategy authoring: a source keeps its state bounded and updates it per input, never rescanning
   the whole history on each bar (doctor 20261121-02: a price-action root's replay time grew 37 times for a window
@@ -75,6 +145,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - IDE phone, Paper and Live run pages: the Positions heading shows a mark only when one position is held; it showed
   the first position's mark whatever else was held. With several positions each row shows its mark under its entry
   (column Entry / Mark): a sixth column does not fit a phone's width.
+- IDE Research page: clicking a bar in the Progress chart now selects that version in Details, as Enter on the
+  chart and a click on the Scatter already did; before, it only moved the lineage to it.
+- **Breaking** (release host): the release reads a version's compose definition (`deploy/compose.yaml`,
+  `deploy/remote/*.yaml`, the `Caddyfile`, `oauth2-proxy.cfg`) from its service image, as the handoff reads its
+  code, into `/var/lib/trade-release/control/<revision>/deploy/`, and recreates the ledger mirror, market import and
+  the Docker API proxy from it. The checkout `/opt/trade-app` no longer has to follow the routed version: the release
+  never reads it, its `composes()` check and the checkout drift notice are gone, and `install-release.sh` no longer
+  installs overlays in `/opt/trade-release/deploy/remote/`. Upgrade: once 0.5.0 is routed, recreate OAuth2 Proxy and
+  `edge` once from `control/current/deploy/` (`deploy/remote/README.md`, Upgrading a host to 0.5.0); nothing is
+  needed before it.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
@@ -121,6 +201,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
   every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
   line has tried.
+- IDE ⌘K: the separate `Run paper: <version>` entry for every version not running paper is replaced by one
+  `Run paper…` entry that opens a version picker, the selected version first (doctor 20261121-12). Backspace on an
+  empty query goes back.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the

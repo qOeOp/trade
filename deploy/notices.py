@@ -12,6 +12,10 @@ from .telegram import Failure, settings, telegram
 
 # What a notice may quote from a probe: a Paper run's candidate and its refusal code.
 NOTICE_TEXT = re.compile(r"[A-Za-z0-9_.@:-]{1,80}\Z")
+# What it may quote from the last output of market-import's health check (market/follow.py check), the one check
+# that prints only its own reason: words, numbers, kinds and scopes.
+HEALTH_TEXT = re.compile(r"[A-Za-z0-9_.@:+/(),; -]{1,300}\Z")
+QUOTED_HEALTH = frozenset({"market-import"})
 LEDGER_LAG_SECONDS = 1800  # the ledger service retries a publish every 5 minutes: six retries have failed
 # What the routed Web serves beside its own pages, each read through the router every tick (doctor 20261116-03).
 WEB_HEALTH = (("/api/overview/health", "The Market overview"), ("/api/agent/health", "The Agent"),
@@ -27,7 +31,7 @@ class Notices:
     it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
     that stopped and could not resume, or that is held with a position no working stop protects (paper.serve
     unprotected); a research ledger whose publish has failed for LEDGER_LAG_SECONDS or whose origin history changed
-    elsewhere; and a host checkout or docker-api that does not follow the active version
+    elsewhere; and docker-api or a compose service that does not follow the active version
     (deploy/release.py `drift`).
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
@@ -75,8 +79,11 @@ class Notices:
                 if found is None:
                     continue  # not deployed on this host
                 if found["health"] == "unhealthy":
+                    output = found.get("output")
+                    said = output.strip() if service in QUOTED_HEALTH and isinstance(output, str) else ""
                     services[f"service:{service}:unhealthy"] = (
-                        f"The {service} service reports unhealthy: {UNHEALTHY[service]}.")
+                        f"The {service} service reports unhealthy: {UNHEALTHY[service]}"
+                        + (f" (its check: {said})." if HEALTH_TEXT.fullmatch(said) else "."))
                 if found["oom"] is True:
                     services[f"service:{service}:oom"] = (
                         f"The {service} container was killed out of memory at its last exit.")

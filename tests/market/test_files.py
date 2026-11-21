@@ -304,10 +304,10 @@ class Refusals(Directory):
         market = self.importer()
         with files.lock(market):
             written = files.write_file(market, "universe_month", JAN_1, None, [members(JAN_1, ["BTCUSDT", "ETHUSDT"])])
-            self.assertEqual(sorted(files.data_tests(market)),
+            self.assertEqual(sorted(files.data_tests(market, universe.RULE)),
                              ["universe_members_have_terms", "universe_members_traded_on_the_eve"])
             written = files.write_file(market, "universe_month", JAN_1, None, [members(JAN_1, ["ETHUSDT"], "another-rule")])
-            self.assertEqual(files.data_tests(market), ["universe_rule_is_recorded"])
+            self.assertEqual(files.data_tests(market, universe.RULE), ["universe_rule_is_recorded"])
             written = files.write_file(market, "universe_month", JAN_1, None, [members(JAN_1, ["ETHUSDT"])])
-            self.assertEqual(files.data_tests(market), [])
+            self.assertEqual(files.data_tests(market, universe.RULE), [])
             files.place(market, [written])

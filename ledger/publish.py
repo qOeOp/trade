@@ -25,13 +25,14 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
+import stat
 import time
 
 import pymysql
 
 from ledger import db, server
 from shared.errors import Refusal
+from shared.files import atomic_write
 from shared.refusals import refuse
 
 
@@ -100,8 +101,7 @@ def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
     (home / "creds").mkdir(mode=0o700, parents=True, exist_ok=True)
     target = home / "creds" / f"{key}.jwk"
     if not target.exists() or target.read_bytes() != data:  # an unchanged key keeps its install time
-        with open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as stream:
-            stream.write(data)
+        atomic_write(target, data, 0o600)
         changed = True
     config_path = home / "config_global.json"
     try:
@@ -109,11 +109,8 @@ def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
     except (OSError, ValueError):
         config = {}
     if config.get("user.creds") != key:
-        temporary = config_path.with_name(f".{config_path.name}.publish")
-        temporary.write_text(json.dumps({**config, "user.creds": key}), encoding="utf-8")
-        if config_path.exists():
-            shutil.copymode(config_path, temporary)
-        os.replace(temporary, config_path)
+        atomic_write(config_path, json.dumps({**config, "user.creds": key}).encode(),
+                     stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else None)
         changed = True
     return key, changed
 

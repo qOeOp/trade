@@ -76,7 +76,7 @@ class OpenTrialTests(unittest.TestCase):
         self.assertEqual(trial[10].isoformat(), "2026-01-02T00:00:00")
         self.assertEqual((json.loads(trial[11]), trial[12]), (context(data)["argv"], None))
         self.assertEqual([row[0] for row in self.service.sql(
-            self.profile, "SELECT instrument_id FROM trial_instrument WHERE trial_id = %s ORDER BY instrument_id",
+            self.profile, "SELECT symbol FROM trial_instrument WHERE trial_id = %s ORDER BY symbol",
             (opened["trial_id"],))], sorted(SYMBOLS))
         self.assertEqual(opened["start_bundle"], f"trial-{opened['trial_id']}-start")
         start = evidence.load_bundle(self.conn, opened["start_bundle"])

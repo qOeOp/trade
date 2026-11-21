@@ -9,7 +9,7 @@ import unittest
 
 from ledger import trials
 from shared.errors import Refusal
-from registration import comparability, register
+from registration import comparability, duties, register
 from tests.registration.world import DESIGN, config
 
 
@@ -35,6 +35,12 @@ class DesignTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case):
                 self.assertEqual(code(register.validate_design, case), "REGISTRATION_INVALID")
+
+
+class CatalogueTests(unittest.TestCase):
+    def test_every_duty_has_a_slice_that_measures_it(self):
+        linked = {duty for item in duties.measure_catalogue()["slices"] for duty in item["duties"]}
+        self.assertEqual(linked, duties.DUTIES)
 
 
 class SchemaTests(unittest.TestCase):

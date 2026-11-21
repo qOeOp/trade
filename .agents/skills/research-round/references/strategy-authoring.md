@@ -63,8 +63,12 @@ header template, the entry class, the two hooks and a sizing helper.
   position or a working order left at a termination without a settlement price.
 - Paper resumes an interrupted run (a release, `docker stop`, a restart, a crash) only if the source
   declares `PAPER_RECOVERY = 1` and implements `on_save` and `on_load` (the protocol is in Paper
-  trading, `paper/README.md`); a source written to these rules does not, so after an interruption its
-  run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
+  trading, `paper/README.md`). Write a candidate meant for Paper or Live with it when it is created
+  (adding it later is a new version): `on_save` returns all the source's own state as
+  `dict[str, bytes]` and `on_load` sets it back. Before proposing it for Paper, check in a /tmp
+  script that a new instance given `on_load` of the old one's `on_save` holds the same state.
+  Nothing refuses a source without it: `paper start` runs it, and only the running run is marked
+  `Held on restart`. Without it, after an interruption a run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
   ends at once. With the protocol a run resumes with its positions and working orders, unless the market
   reached one of them while it was down (a GTD that expired meanwhile: before its expiry; a trailing
   stop not yet activated: its activation price), and is held as above if the interruption crossed a

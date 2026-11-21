@@ -56,8 +56,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 对照和父版本分开选，必须已通过、已封存、有资格、可比 [#H-1-1-2]
 
 比较对照是拿来和本次结果配对比较的一个已有运行，不必是父版本的运行。它的状态必须是通过并已封存，有经济证据资格，而且和本次回放可比：运行环境、账户配置、输入数据都相同。根不带对照；父版本的研究运行全部出故障或零成交时可以暂时没有对照，但要引用那份诊断，登记时产品按账本里的运行核对。换了运行契约就开新一代账本，研究以根重新开始，旧候选的思路写进理由。
@@ -69,8 +67,6 @@
 比如一个候选的父版本是加了资金费过滤的上一版，对照却选了同样 100 预算、不带资金费过滤的另一版。父版本定从哪一版改，对照定和谁比，两件事分开定。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.check_comparable` `registration.require`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 一个假设只改一处规则，网格各点以同一句改动说明发布 [#H-1-1-3]
 
@@ -84,8 +80,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 从相关策略政策与证据提出可检验假设，登记受影响职责 [#H-1-1-4]
 
 27 项职责声明用于定位策略政策、缺省选择与适用范围。选择假设时围绕当前证据检查相关政策及其依赖，说明一个实际规则改动能区分哪些解释，并在 changed_duties 声明受影响职责；不要求每轮重列全部候选的职责清单。
@@ -97,8 +91,6 @@
 比如归因显示一个资金费过滤候选的净改善全部来自资金费，价格那一块反而下降了。据此，下一个假设可以单独检验价格这一块，指向的职责是 H1 和 C1，登记时就写这两个编号。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 5.2　先查来源并留存 [#H-2]
 
@@ -154,8 +146,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 每次检索记一行；说没找到，只能说按这些查询没找到 [#H-2-1-2]
 
 每次检索在检索记录里写一行：索引名、查询原文、过滤条件、命中数、查询日期、读到哪一层（只有题录、摘要还是全文），以及访问限制（没有密钥、401/403、配额用完）。同一项工作在几个索引都命中时合并成一条，保留各索引的标识。检索记录作为文件，随来源证据包一起入账。
@@ -167,8 +157,6 @@
 比如在两个索引里用三种说法查资金费方向与永续收益，其中一个索引返回 403。记录要写出这三条查询、日期和那次 403，结论只能是「按这些查询在一个索引里没找到，另一个索引无法访问」。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-sources · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 理由三分类与来源的作用 [#H-2-2]
 
@@ -186,8 +174,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 来源只影响研究优先级，不证明在本市场有效，事后材料只追加 [#H-2-2-3]
 
 来源只进入研究优先级里的「机制佐证」一项，不进入审计、资格或检验结果。没有论文的方向照样可以低优先级探索；不按引用数排名、不设引用门槛、不因缺来源关闭方向。出处要记版本或日期，只有登记之前就能看到的版本算事前依据。回放后才找到的材料，另开一个带日期的新证据包追加，原登记和原分类不改。
@@ -199,8 +185,6 @@
 比如一个资金费过滤的假设回放后，又找到一篇讲资金费方向的论文。它只能作为一个新的、带日期的后续证据包入账，原来的登记和理由分类保持原样。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-sources · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 留存来源原件 [#H-2-3]
 
@@ -218,8 +202,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `registration.validate` `cli.evidence_add`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 每份来源记状态和条件；撤稿不算，复述不算独立来源 [#H-2-3-2]
 
 读每份来源时记下：状态（期刊、工作论文、预印本还是学位论文）、市场、窗口、频率、有没有样本外检验、有没有扣成本、依据在哪一页哪一节哪张表或图；只读到摘要的标「仅摘要」。这些记录和原件放进同一个来源证据包，供写外部依据时说明支持范围。
@@ -231,8 +213,6 @@
 比如找到一篇资金费研究的预印本和它后来的期刊版，又找到一篇博客转述它的结论。记录里只算一条来源，引用期刊版；博客不算第二个独立来源。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-sources · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 5.3　写下五样 [#H-3]
 
@@ -288,8 +268,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 回放前写定五类结果各自的下一步，事后不改写 [#H-3-1-2]
 
 Agent 在预测里同时写一份结果到行动的对照：改善、不显著、亏损、零活动（没有实质交易，只留诊断）、无效（完整性审计不通过），每类一句话，写出现这种结果时后续研究怎么做、研究优先级怎么变。可选的动作有沿这个方向细化、换对照、修复后重试、降低优先级并写明什么时候重新评估。
@@ -301,8 +279,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 比如提高成交量占比上限的假设，可以事先写：改善就再试更高一档；不显著就保持优先级、换一个对照；亏损就降低优先级，等容量规则改了再评估；零活动先查成交量上限是不是卡住了下单；无效就修复后重试。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/hypothesis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 检验条件 [#H-3-2]
 
@@ -322,8 +298,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate_design` `registration.validate`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 ### 网格与适用条件 [#H-3-3]
 
 网格定这次试什么，适用条件定结论在什么范围内成立。
@@ -341,8 +315,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 比如要比较 RSI 长度 20、24、28 三个值，就发布三个候选，各写一句参数说明，三个点一次写进同一份登记；之后想加 32，只能另行登记。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `ledger.publish_candidate`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 5.4　登记先于回放并锁定 [#H-4]
 
@@ -398,8 +370,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `cli.registration_add` `ledger.load_bundle`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 执行身份在登记时由代码探测合成，不能手填 [#H-4-1-2]
 
 执行身份是一次回放用的源码、运行环境、账户与撮合配置、输入数据这几样的身份。它在登记时由代码探测出来，随登记写入；登记的窗口必须等于研究路线的开发窗口。
@@ -416,8 +386,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 2. 把运行环境解析成唯一的摘要，在隔离容器里探测它的要求和配置。
 3. 按路线钉住的市场日导出一份不可变的输入，算出内容身份。
 4. 把这几样合成执行身份，随登记一起写入。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `runtime.inspect_runtime` `registration.market_inputs`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 启动引擎前，要在开试验的同一事务里绑定登记 [#H-4-1-3]
 
@@ -436,8 +404,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 3. 核对登记所属的路线仍开着、预检和审查仍然有效、登记早于试验、这个网格点没用过。
 4. 全部通过就记下这次消耗，和试验一起提交；提交成功才启动引擎。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `ledger.open_trial`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 登记内容按字段说明校验，失败时附上该字段的含义 [#H-4-1-4]
 
 登记内容的每个字段都带一段说明。校验失败时，代码把出错字段的说明原样放进拒绝信息里。
@@ -450,8 +416,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.plan_schema`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 下一次登记前，要先补齐解释和到期的复盘 [#H-4-1-5]
 
 复盘是回看全部可用候选、给出推荐。下一次登记前代码核对两件事：每个已完成的试验都有一条解释判断（无效、且已被本路线另一个登记以 retry_of 重试的运行除外）；上次推荐以来本路线的研究试验满 5 个时，已经写了新的综合推荐。5 是产品常数 REVIEW_EVERY（没校准过的示例值），Agent 不能声明、调高或调低。研究状态会提前列出下一次登记还缺什么。
@@ -463,8 +427,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 比如上次推荐之后已经跑了 5 个研究试验，下一次登记就被拒绝（REVIEW_DUE），直到 Agent 读完研究状态里的对照表，写了新的推荐和优先级。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.require_line_records` `ledger.add_judgment` `report.research_state`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 网格点消耗与已跑源码 [#H-4-2]
 
@@ -482,8 +444,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:trial">trial</Ref> <Ref id="table:registration_grid_point">registration_grid_point</Ref> `registration.bind`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 回放过的源码不能当新的登记，只有事前声明的预检例外 [#H-4-2-2]
 
 登记时，代码按内容哈希查试验记录：一次试验在本次登记要交易的某个合约上封存了研究者能读到的这份源码的经济结果，源码就算在这些合约上跑过，不能当新候选登记；只在别的合约上跑过不算，没记下合约的试验算在每个合约上。没登记就跑过的回放，也不能事后补成登记结果。没有可读结果或结果已经计入的试验不算：同一登记与它的再试链上的尝试；没有封存经济结果的预检，即策略收到任何行情之前就失败（核对执行绑定、加载策略或读取输入时出错），或交易窗口不超过 7 天、封存原件完整而零成交零持仓、没有被登记消费，不论它用的是哪个镜像、输入或窗口；登记所引的原生预检，要事先声明用途，同一源码、同一运行环境，交易窗口不超过 7 天，而且没有绑定任何登记；以及与上述某次试验逐字节相同的已验证复现。跑过的源码只能按再试的规则另行登记。
@@ -495,8 +455,6 @@ Agent 在预测里同时写一份结果到行动的对照：改善、不显著�
 比如 Agent 先用探索回放跑了一版，看着不错想补一份登记，会被拒绝。只在 BTC 上正式跑过的源码，可以另行登记到 ETH；登记里含 BTC 就不行。预检用的工程支架要另行声明、单独保留，不冒充自然小时级的策略机会。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.exposure_exempt` `registration.sealed_no_result` `registration.validate`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#H-pending]
 

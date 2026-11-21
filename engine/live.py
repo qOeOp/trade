@@ -11,10 +11,10 @@ outside the limits, gives the start back.
 from __future__ import annotations
 
 # Native network/worker threads must inherit the blocked mask. The dedicated
-# sigwait thread turns process signals into an interruption that keeps positions and their stops.
+# sigwait thread turns process signals into an interruption that keeps positions and their stops (engine.signals).
 if __name__ == "__main__":
-    import signal
-    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+    from engine.signals import block
+    block()
 
 import argparse
 from decimal import Decimal
@@ -25,9 +25,7 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import sys
-import threading
 import time
 from nautilus_trader.model import Venue
 from engine import strategy as strategy_runtime
@@ -44,6 +42,7 @@ from engine import live_brake, live_connection
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
 from engine.kline_events import KlineEvents
+from engine.signals import Signals
 
 
 INTERRUPTED = 3  # the exit status of a run that starts again as itself
@@ -53,6 +52,10 @@ INTERRUPTED = 3  # the exit status of a run that starts again as itself
 GIVEN_BACK = frozenset({"LIVE_ACCOUNT_UNAVAILABLE", "LIVE_CLOCK"})
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
+
+
+# A USD-M contract as live.configuration takes it (market.sources.SYMBOL ending in USDT), a non-ASCII coin included.
+CONTRACT = re.compile(r"[^\W_]+USDT\Z")
 
 
 def read_manifest(path: Path) -> dict:
@@ -65,7 +68,7 @@ def read_manifest(path: Path) -> dict:
             raise ValueError
         symbols = value["symbols"]
         if not isinstance(symbols, list) or not symbols or len(set(symbols)) != len(symbols) \
-                or any(not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols):
+                or any(not isinstance(symbol, str) or not CONTRACT.fullmatch(symbol) for symbol in symbols):
             raise ValueError
         source, candidate, runtime, config = value["source"], value["candidate"], value["runtime"], value["config"]
         if (runtime["runtime_contract"] != RUNTIME_CONTRACT
@@ -276,60 +279,55 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         require_account_mode(snapshot, manifest)
     # Metrics of the run's contracts come from REST (engine.metrics.Feed); trades are served nowhere in Live.
     strategy_runtime.begin_run(args.output, {"Metrics": {str(contract(symbol)) for symbol in manifest["symbols"]}})
-    signals = {signal.SIGTERM, signal.SIGINT}
-    signal.pthread_sigmask(signal.SIG_BLOCK, signals)
-    def await_signal():
-        signal.sigwait(signals)
-        session.interrupt_requested.set()
-    threading.Thread(target=await_signal, daemon=True).start()
-    cache = LiveCache(args.output, resume=args.mode == "reconcile" or resuming)
-    session.cache_guard = cache
-    node = None
-    try:
-        node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
-        if session.mode == "run":
-            session.kline_events = KlineEvents(manifest["symbols"], manifest["config"].get("proxy_url"))
-            session.kline_events.start()
-        session.event("connecting", mode=args.mode)
-        node.run()
-        source_outcome(session, node.cache)
-        session.check_storage()
-        # Late fills/cancels may arrive during native shutdown's residual-event grace.
-        # Recheck the whole cache at the completed boundary, never a stale timer cut.
-        observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
-        session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
-            and not (session.persistence_failed or session.journal_failed or session.connection_failed
-                     or session.interrupting or session.held_flat or session.rewarming)
-    except BaseException as exc:
-        session.event("unresolved", failure_type=type(exc).__name__, strict=False,
-                      code=exc.code if isinstance(exc, Refusal) else None)
-        raise
-    finally:
+    with Signals(lambda _: session.interrupt_requested.set()):
+        cache = LiveCache(args.output, resume=args.mode == "reconcile" or resuming)
+        session.cache_guard = cache
+        node = None
         try:
-            if session.kline_events is not None:
-                session.kline_events.stop()
-                session.record_kline_events()
-                session.kline_events = None
-            if node is not None:
-                session.evidence.reports(node.cache, Venue("BINANCE"))
-                node.dispose()
-            session.node, session.entry_gate = None, None
-            session.sources, session.keepers = {}, {}
-            strategy_runtime.STRATEGIES.clear()  # its instances are released here too, on the thread that built them
-            if session.warmup_catalog is not None:
-                shutil.rmtree(session.warmup_catalog, ignore_errors=True)
+            node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
+            if session.mode == "run":
+                session.kline_events = KlineEvents(manifest["symbols"], manifest["config"].get("proxy_url"))
+                session.kline_events.start()
+            session.event("connecting", mode=args.mode)
+            node.run()
+            source_outcome(session, node.cache)
+            session.check_storage()
+            # Late fills/cancels may arrive during native shutdown's residual-event grace.
+            # Recheck the whole cache at the completed boundary, never a stale timer cut.
+            observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
+            session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
+                and not (session.persistence_failed or session.journal_failed or session.connection_failed
+                         or session.interrupting or session.held_flat or session.rewarming)
+        except BaseException as exc:
+            session.event("unresolved", failure_type=type(exc).__name__, strict=False,
+                          code=exc.code if isinstance(exc, Refusal) else None)
+            raise
         finally:
             try:
-                if strategy_runtime.FAILURES:
-                    strategy_runtime.write_failures()  # the final counts
-            except Exception as error:  # the failure that ends the run must stay the one raised
-                print(f"runtime failure receipts not written: {error}", file=sys.stderr)
-            try:
-                cache.close()
-            except Refusal:
-                session.persistence_failed, session.native_flat = True, False
-                session.event("unresolved", reason="persistence_shutdown_failure", strict=False)
-                raise
+                if session.kline_events is not None:
+                    session.kline_events.stop()
+                    session.record_kline_events()
+                    session.kline_events = None
+                if node is not None:
+                    session.evidence.reports(node.cache, Venue("BINANCE"))
+                    node.dispose()
+                session.node, session.entry_gate = None, None
+                session.sources, session.keepers = {}, {}
+                strategy_runtime.STRATEGIES.clear()  # its instances are released here too, on the thread that built them
+                if session.warmup_catalog is not None:
+                    shutil.rmtree(session.warmup_catalog, ignore_errors=True)
+            finally:
+                try:
+                    if strategy_runtime.FAILURES:
+                        strategy_runtime.write_failures()  # the final counts
+                except Exception as error:  # the failure that ends the run must stay the one raised
+                    print(f"runtime failure receipts not written: {error}", file=sys.stderr)
+                try:
+                    cache.close()
+                except Refusal:
+                    session.persistence_failed, session.native_flat = True, False
+                    session.event("unresolved", reason="persistence_shutdown_failure", strict=False)
+                    raise
     if session.native_flat:
         final_snapshot = observer.snapshot(manifest["symbols"])
         observation = keep(args.output, "final-account", final_snapshot)

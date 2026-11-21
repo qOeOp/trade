@@ -98,7 +98,13 @@ class LiveTests(unittest.TestCase):
         path.write_text(json.dumps({**self.manifest, "symbols": ["BTCUSDT", "ETHUSDT"],
                                     "market": {**self.manifest["market"], "terms": terms}}))
         self.assertEqual(live.read_manifest(path)["symbols"], ["BTCUSDT", "ETHUSDT"])  # one instance each
+        # A non-ASCII coin is a contract as live.configuration and the market take it (market.sources.SYMBOL).
+        terms = {"币安人生USDT": self.manifest["market"]["terms"]["BTCUSDT"]}
+        path.write_text(json.dumps({**self.manifest, "symbols": ["币安人生USDT"],
+                                    "market": {**self.manifest["market"], "terms": terms}}))
+        self.assertEqual(live.read_manifest(path)["symbols"], ["币安人生USDT"])
         for change in ({"symbols": ["BTCUSDT", "ETHUSDT"]}, {"symbols": ["BTCUSDT", "BTCUSDT"]}, {"symbols": []},
+                       {"symbols": ["USDT"]}, {"symbols": ["BTC_USDT"]}, {"symbols": ["BTCUSDC"]},
                        {"config": {**self.manifest["config"], "drawdown_brake": "NaN"}},
                        {"config": {**self.manifest["config"], "duration_seconds": True}}):
             with self.subTest(change=change):
@@ -632,7 +638,7 @@ class LiveTests(unittest.TestCase):
                     mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=[self.held_snapshot(), final]), \
                     mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "LiveCache"), \
                     mock.patch.object(live, "build_node", return_value=node) as build, \
-                    mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread"):
+                    mock.patch.object(live, "Signals"):
                 (self.output / "runner.lock").unlink(missing_ok=True)
                 self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
                 self.assertEqual(build.call_args.kwargs["source_module"], "engine.live")
@@ -702,7 +708,7 @@ class LiveTests(unittest.TestCase):
         args = self.runner_args("run")
         for patch in (mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"),
                       mock.patch.object(live, "source_for_run"),
-                      mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread")):
+                      mock.patch.object(live, "Signals")):
             patch.start()
             self.addCleanup(patch.stop)
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \

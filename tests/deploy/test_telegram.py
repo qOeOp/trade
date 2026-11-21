@@ -243,6 +243,22 @@ class Notices(unittest.TestCase):
         self.tick(web={})
         self.assertEqual(len(self.call.texts()), 4)
 
+    def test_an_unhealthy_market_import_quotes_what_its_check_printed_and_nothing_else(self):
+        ledger, market = "trade-ide-ledger-1", "trade-ide-market-import-1"
+        sick = {"running": True, "health": "unhealthy", "oom": False, "restarts": 0}
+        self.tick(services={market: {**sick, "output": "status is 27.4 h old, a round running since "
+                                                         "2026-11-20T08:30:00+00:00\n"},
+                            ledger: {**sick, "output": "the ledger check printed this"}})
+        self.tick(services={market: {**sick, "output": "metrics/BTCUSDT lagging"}})  # same fact: not sent again
+        self.assertEqual(self.call.texts(), [
+            "The ledger service reports unhealthy: its check cannot read the research ledger.",
+            "The market-import service reports unhealthy: an import is stopped or lagging, or its status is a day "
+            "old (its check: status is 27.4 h old, a round running since 2026-11-20T08:30:00+00:00)."])
+        for output in ("token=" + TOKEN + "\n" + "x" * 400, "<b>html</b>", None, ""):
+            self.tick(services={})
+            self.tick(services={market: {**sick, "output": output}})
+            self.assertTrue(self.call.texts()[-1].endswith("or its status is a day old."), output)
+
     def test_an_unhealthy_out_of_memory_or_restarted_service_is_named_and_restarts_only_as_they_double(self):
         ledger, market = "trade-ide-ledger-1", "trade-ide-market-import-1"
         well = {"running": True, "health": "healthy", "oom": False, "restarts": 0}
@@ -273,14 +289,14 @@ class Notices(unittest.TestCase):
             notices.send()
 
         def unreadable():
-            raise RuntimeError("git ls-tree failed")
+            raise RuntimeError("docker inspect failed")
 
-        drifted = {"drift:checkout:" + "a" * 40: "The host checkout differs."}
+        drifted = {"drift:docker-api:sha256:" + "a" * 64: "docker-api runs another image."}
         tick(lambda: drifted)
         tick(lambda: drifted)
         tick(unreadable)
         tick(lambda: drifted)
-        self.assertEqual(self.call.texts(), ["The host checkout differs."])
+        self.assertEqual(self.call.texts(), ["docker-api runs another image."])
         tick(dict)
         tick(lambda: drifted)
         self.assertEqual(len(self.call.texts()), 2)

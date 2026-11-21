@@ -14,9 +14,9 @@ from cli import live_commands
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import control, release, requests, runs, state
+from live import control, release, runs, state
 from tests.live.test_runs import LiveFixture
-from tests.live.authority_fixture import inject_cli, install, recover
+from tests.live.authority_fixture import inject_cli, install
 from tests.helpers import refused
 
 
@@ -164,7 +164,7 @@ class LiveReleaseTests(LiveFixture):
         with patch.object(release, "idle_locked", return_value="busy"):
             self.assertEqual(live_commands.dispatch(args, []), ({"state": "busy"}, 0))
 
-    def test_invalid_run_set_partial_native_and_unknown_request_do_not_mean_idle(self):
+    def test_invalid_run_set_partial_native_and_unseen_runner_do_not_mean_idle(self):
         other = self.root / "runs" / "invalid_name"
         other.mkdir()
         self.assertEqual(release.idle_locked(self.root), "unavailable")
@@ -183,13 +183,17 @@ class LiveReleaseTests(LiveFixture):
         armed.write_text("{}")
         self.assertEqual(release.idle_locked(self.root), "unavailable")
         armed.unlink()
-        requests.dispatch(self.root, "unknown-start", {"action": "start", "target": {"run_id": self.run_id},
-                                                       "inputs": {}}, lambda *_: None)
-        self.assertEqual(release.idle_locked(self.root), "unavailable")
+        self.unseen_launch()
+        with patch.object(runs, "inspect_runner", return_value=None):
+            self.assertEqual(release.idle_locked(self.root), "unavailable")
 
-    def test_stop_and_exact_duplicate_remain_available_with_bad_release_and_unknown_execution(self):
-        requests.dispatch(self.root, "unknown-start", {"action": "start", "target": {"run_id": self.run_id},
-                                                       "inputs": {}}, lambda *_: None)
+    def unseen_launch(self):
+        """A start whose container cannot be found: it may still be alive."""
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run",
+                     container="unseen", credentials_path=str(self.credentials), request_id="unseen-start")
+
+    def test_stop_and_the_same_stop_again_remain_available_with_bad_release_and_unseen_execution(self):
+        self.unseen_launch()
         self.transaction.parent.mkdir(exist_ok=True)
         self.transaction.write_text("broken")
         body = {"request_id": "stop-through-release"}
@@ -197,39 +201,17 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual(status, 200, stopped)
         self.assertTrue((self.directory / "out" / "STOP").exists())
         before = self.files()
-        with patch.object(control, "_operation", side_effect=AssertionError("duplicate effect")):
-            self.assertEqual(control.execute(self.config, "stop", self.run_id, body, binding=self.binding),
-                             (status, stopped))
+        self.assertEqual(control.execute(self.config, "stop", self.run_id, body, binding=self.binding),
+                         (status, stopped))
         self.assertEqual(before, self.files())
 
-    def test_new_admission_has_no_claim_or_key_effect_and_duplicate_receipt_ignores_handover(self):
-        body = {"request_id": "save-before-release", "api_key": "fake", "api_secret": "fake"}
-        first = control.execute(self.config, "credential_save", None, body, binding=self.binding)
-        self.assertEqual(first[0], 200, first)
+    def test_an_admission_refusal_comes_before_any_effect(self):
         durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
         before = self.files()
         with patch.object(control, "_operation", side_effect=AssertionError("secret dispatched")):
-            self.assertEqual(control.execute(self.config, "credential_save", None, body, binding=self.binding), first)
-            status, refused = control.execute(self.config, "credential_save", None,
-                                              {**body, "request_id": "new-save-during-release"}, binding=self.binding)
+            status, refused = control.execute(self.config, "credential_save", None, {
+                "request_id": "save-during-release", "api_key": "fake", "api_secret": "fake"}, binding=self.binding)
         self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
-        self.assertEqual(before, self.files())
-        stale = release.Binding(self.release_state, NEW)
-        self.assertEqual(control.execute(self.authority.snapshot(NEW).config, "credential_save", None, body, binding=stale), first)
-
-    def test_resolve_determined_receipts_is_read_only_but_missing_or_unknown_needs_owner(self):
-        recover(self.root, "closed-before-release")
-        requests.dispatch(self.root, "unknown-start", {"action": "start", "target": {"run_id": self.run_id},
-                                                       "inputs": {}}, lambda *_: None)
-        durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
-        before = self.files()
-        for identity in ("missing-request", "unknown-start"):
-            status, result = control.execute(self.config, "resolve", identity, {"request_id": identity},
-                                              binding=self.binding)
-            self.assertEqual((status, result["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
-        status, _ = control.execute(self.config, "resolve", "closed-before-release",
-                                    {"request_id": "closed-before-release"}, binding=self.binding)
-        self.assertEqual(status, 200)
         self.assertEqual(before, self.files())
 
     def test_listing_and_explicit_maintenance_distinguish_previous_from_candidate(self):
@@ -280,7 +262,7 @@ with os.fdopen(descriptor, "rb") as locked:
         host.wait(timeout=10)
         self.assertEqual(host.returncode, 0)
 
-    def test_request_waiting_behind_host_lock_rechecks_transaction_before_claim(self):
+    def test_request_waiting_behind_host_lock_rechecks_transaction_before_any_effect(self):
         host = self.process('''
 import fcntl, os, sys
 from pathlib import Path
@@ -300,17 +282,18 @@ with os.fdopen(descriptor, "rb") as locked:
 import sys
 from pathlib import Path
 from engine.live_errors import LiveRefusal
-from live import release, requests
+from live import authority, control, inventory, release
 root, metadata = map(Path, sys.argv[1:3])
+authority.STATE = metadata
+inventory.require_clear = lambda root: None
 binding = release.Binding(metadata, sys.argv[3])
-command = {"action": "credential_save", "target": {"credential_ref": "a" * 32}, "inputs": {}}
+config = authority.from_file(Path(sys.argv[4]), binding).config
 print("validated", flush=True)
-try:
-    requests.dispatch(root, "late-save-request", command, lambda *_: (root / "unexpected-effect").touch(),
-                      admit_new=lambda _: release.admission_locked(binding))
-except LiveRefusal as exc:
-    print(exc.code, flush=True)
-''', self.root, self.release_state, OLD)
+status, body = control.execute(config, "credential_save", None,
+                               {"request_id": "late-save-request", "api_key": "fake", "api_secret": "fake"},
+                               binding=binding)
+print(body["error"]["code"] if status != 200 else "saved", flush=True)
+''', self.root, self.release_state, OLD, self.authority.file)
         self.assertEqual(self.line(writer), "validated")
         self.assertFalse(select.select([writer.stdout], [], [], .15)[0])
         host.stdin.write("commit\n")
@@ -319,8 +302,7 @@ except LiveRefusal as exc:
         host.wait(timeout=10)
         self.assertEqual(self.line(writer), "LIVE_RELEASE_UNAVAILABLE")
         writer.wait(timeout=10)
-        self.assertFalse((self.root / "requests" / "late-save-request.jsonl").exists())
-        self.assertFalse((self.root / "unexpected-effect").exists())
+        self.assertFalse((self.root / "credentials").exists())
 
     def test_inspection_never_creates_an_absent_root_or_lock(self):
         absent = self.root / "not-created"

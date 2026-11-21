@@ -247,7 +247,7 @@ class BarsTests(unittest.TestCase):
     def importing(self, profile, month, cache, symbols=None, log=print):
         self.calls.append((month, symbols))
         end = min(clock.next_month(month), self.today)
-        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
+        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 
     def run_bars(self, through: date, today: date, bar_symbols=None, members=None):
@@ -367,7 +367,7 @@ class CheckTests(unittest.TestCase):
         now = at(FEB)
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "status.json"
-            self.assertEqual(follow.check(path, now), 1)  # no round yet
+            self.assertEqual(follow.check(path, now, list().append), 1)  # no round yet
             for states, age, expected in ((("caught_up", "waiting"), 0, 0), (("caught_up", "lagging"), 0, 1),
                                           (("stopped",), 0, 1), (("unknown",), 0, 1), (("caught_up",), 27, 1)):
                 follow.write_status(path, {"at": (now - timedelta(hours=age)).isoformat(),
@@ -375,8 +375,46 @@ class CheckTests(unittest.TestCase):
                                                      "trades": {str(n): {"state": s, "skipped": ["2025-01"]}
                                                                 for n, s in enumerate(states)}}})
                 with self.subTest(states=states, age=age):
-                    self.assertEqual(follow.check(path, now), expected)
+                    self.assertEqual(follow.check(path, now, list().append), expected)
 
+
+    def test_an_unhealthy_check_prints_why_on_one_line(self):
+        now = at(FEB)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "status.json"
+            said: list[str] = []
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            follow.write_status(path, {"at": (now - timedelta(hours=27)).isoformat(), "kinds": {}})
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            stopped = {"state": "stopped", "refusal": {"code": "MONTH_GAP", "message": "private detail"}}
+            follow.write_status(path, {"at": now.isoformat(), "kinds": {
+                "bars": {"scope": {"state": "caught_up"}},
+                "metrics": {"BTCUSDT": {"state": "lagging"}, "ETHUSDT": stopped}}})
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            follow.write_status(path, {"at": now.isoformat(), "kinds": {"bars": {"scope": {"state": "waiting"}}}})
+            self.assertEqual(follow.check(path, now, said.append), 0)
+            self.assertEqual(said, [
+                "status unreadable (FileNotFoundError)",
+                "status is 27.0 h old",
+                "metrics/BTCUSDT lagging; metrics/ETHUSDT stopped (MONTH_GAP)"])
+
+    def test_a_round_in_progress_is_fresh_until_it_has_run_longer_than_stale(self):
+        now = at(FEB)
+        kinds = {"bars": {"scope": {"state": "caught_up"}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "status.json"
+            for status, expected, why in (
+                    ({"at": (now - timedelta(hours=30)).isoformat(),  # a long daily round, 6 h in
+                      "running_since": (now - timedelta(hours=6)).isoformat()}, 0, None),
+                    ({"at": (now - timedelta(hours=50)).isoformat(),
+                      "running_since": (now - timedelta(hours=27)).isoformat()}, 1,
+                     f"a round running since {(now - timedelta(hours=27)).isoformat()} is stuck"),
+                    ({"at": (now - timedelta(hours=27)).isoformat()}, 1, "status is 27.0 h old")):  # finished
+                follow.write_status(path, {**status, "kinds": kinds})
+                said: list[str] = []
+                with self.subTest(status=status):
+                    self.assertEqual(follow.check(path, now, said.append), expected)
+                    self.assertEqual(said, [] if why is None else [why])
 
 
 class LoopTests(unittest.TestCase):

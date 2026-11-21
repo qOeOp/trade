@@ -1,4 +1,4 @@
-"""A real process signal reaches Paper's drain request, and the caller's mask is restored."""
+"""A real process signal reaches the runner's stop request, and the caller's mask is restored."""
 import subprocess
 import sys
 import unittest
@@ -8,7 +8,7 @@ class SignalTests(unittest.TestCase):
     def test_sigterm_is_consumed_without_invoking_an_owned_node_handler(self):
         program = '''
 import os, signal, threading
-from engine.paper_signals import Signals
+from engine.signals import Signals
 seen=[]
 ready=threading.Event()
 def requested(name):
@@ -19,7 +19,7 @@ with Signals(requested):
     # Models the native run() replacing the ordinary Python handler.
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(AssertionError('native handler ran')))
     os.kill(os.getpid(), signal.SIGTERM)
-    assert ready.wait(3), 'Paper did not receive SIGTERM'
+    assert ready.wait(3), 'the runner did not receive SIGTERM'
 assert seen==['SIGTERM'], seen
 assert signal.pthread_sigmask(signal.SIG_BLOCK, [])==original
 '''

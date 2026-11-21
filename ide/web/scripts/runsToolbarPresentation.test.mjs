@@ -27,7 +27,7 @@ const fixtures = {
   "components/Dropdown": { PopoverWidget: ({ label, trigger }) => createElement("div", { "aria-label": label }, trigger) },
   "components/TextButton": { TextButton: button },
   "widgets/runs/RunMenuList": { RunMenuList: empty },
-  "state/liveWorkspace": { openLiveCredentials: () => opened.push("credentials"), openLiveRequests: () => opened.push("requests"),
+  "state/liveWorkspace": { openLiveCredentials: () => opened.push("credentials"),
     openLiveReview: (id) => opened.push({ review: id }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: { runs: liveRuns } }) },
   "components/RunTile": {
@@ -114,7 +114,8 @@ test("Live toolbar keeps review and management actions without borrowing retaine
   for (const paper of [false, true]) for (const paperService of ["present", "offline"]) {
     const html = render("live", { paper, paperService });
     oneGroup(html);
-    for (const text of ["Live", "live-retest@3", "Review run…", "Settings", "Requests"]) assert.ok(html.includes(text));
+    for (const text of ["Live", "live-retest@3", "Review run…", "Settings"]) assert.ok(html.includes(text));
+    assert.doesNotMatch(html, /Requests/);
     assert.doesNotMatch(html, /New live run/);
     noPaperReadout(html);
     assert.doesNotMatch(html, /<i\b|Backtest|trial 321|data-action="Run paper"/);
@@ -144,6 +145,6 @@ test("Live actions keep the exact selected run target and never dispatch a tradi
     for (const child of [element.props?.children].flat()) click(child);
   };
   click(useRunActions());
-  assert.deepEqual(opened, [{ review: "fixture-live-run" }, "credentials", "requests"]);
+  assert.deepEqual(opened, [{ review: "fixture-live-run" }, "credentials"]);
   assert.doesNotMatch(render("live", { live: false }), /Review run/);
 });

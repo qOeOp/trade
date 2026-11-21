@@ -45,7 +45,7 @@ from shared import paths, profiles as profile_directory
 from shared.refusals import refuse
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PAPER_SCHEMA_VERSION = 1
 ROLES = ("writer", "reader")
 SCHEMA = Path(__file__).with_name("schema.sql")
