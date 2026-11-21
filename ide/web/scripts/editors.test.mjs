@@ -10,8 +10,9 @@ const { namespace } = loader({
   sources: ["state/editors"],
   stubs: {
     "state/atom": { ...atomModule, useAtom: (a) => a.get() },
-    "state/selection": { useSelection: () => selected },
-    "state/shell": { showToolWindow: (id, side) => shown.push(`${side}:${id}`) },
+    "state/selection": { useSelection: () => selected, select: () => {} },
+    "state/linking": { requestFocus: () => {} },
+    "state/shell": { showResearchPage: (id) => shown.push(`left:${id}`) },
   },
 });
 const { useOpenFile, openSource, previewSource, togglePin, openDiff, toggleDiff } = await namespace("state/editors.ts");
