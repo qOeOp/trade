@@ -23,7 +23,7 @@ from report import history
 from shared.refusals import refuse
 from tests.helpers import refused
 
-UNFALSIFIED = runs._unfalsified  # LiveFixture stands it in; the history test below reads the ledger
+UNFALSIFIED = runs.admission.unfalsified  # LiveFixture stands it in; the history test below reads the ledger
 CODE = {"source_files_sha256": {"run_source_sha256": "1" * 64}, "audit_source_sha256": "2" * 64,
         "dependency_lock_sha256": "3" * 64}
 
@@ -111,7 +111,7 @@ class ReplayEvidenceTests(LiveFixture):
         """20261120-06 (user 2026-11-21): the check validation registration makes (report.history.require_unfalsified),
         read at the research commit, before the replay evidence."""
         self.explore()  # replay evidence that would back the run
-        with patch.object(runs, "_unfalsified", UNFALSIFIED):
+        with patch.object(runs.admission, "unfalsified", UNFALSIFIED):
             self.assertEqual(self.refused("untested"), "LIVE_HISTORY_UNDECIDED", "the line has no history trial")
             falsified = refuse("CANDIDATE_FALSIFIED", "short of the targets", missing=("rsi-root",))
             with patch.object(history, "require_unfalsified", side_effect=falsified):

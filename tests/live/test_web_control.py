@@ -170,7 +170,7 @@ class LiveWebControlTests(unittest.TestCase):
         stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
         stack.enter_context(patch.object(runs.image, "require_main_build"))
         stack.enter_context(patch.object(runs, "_evidence", return_value=EVIDENCE))  # test_replay_evidence reads it
-        stack.enter_context(patch.object(runs, "_unfalsified"))  # the history verdict: test_replay_evidence reads it
+        stack.enter_context(patch.object(runs.admission, "unfalsified"))  # the history verdict: test_replay_evidence reads it
         return stack.enter_context(patch.object(runs, "_market_terms", return_value={"market_day": "c", "terms": {}}))
 
     def test_prepare_preflight_start_reuse_original_inputs_through_operator_control(self):

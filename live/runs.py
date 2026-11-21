@@ -22,7 +22,7 @@ from ledger import db, strategies
 from shared.errors import Refusal
 from runtime import image
 from live import host as host_runtime
-from live import configuration, key, requests, state
+from live import admission, configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
@@ -404,20 +404,6 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
     return result
 
 
-def _unfalsified(research: db.LedgerProfile, research_at: str, source_sha256: str) -> None:
-    """Live runs only a candidate its line's closing history test decided meets the targets, read at research_at
-    (report.history.require_unfalsified, the check validation registration makes; 20261120-06, user 2026-11-21):
-    LIVE_CANDIDATE_FALSIFIED for one it judged not meeting them, LIVE_HISTORY_UNDECIDED for one it has not decided."""
-    from report import history
-    with db.read_as_of(research, research_at) as reader:
-        try:
-            history.require_unfalsified(reader, source_sha256)
-        except Refusal as exc:
-            if exc.code in ("CANDIDATE_FALSIFIED", "HISTORY_UNDECIDED"):
-                raise state.fail(f"LIVE_{exc.code}", exc.message) from None
-            raise
-
-
 def _describe(symbols: list[str]) -> list[str]:
     """The runner arguments of the execution image's --describe probe, which reports its replay code."""
     return ["--market-root", "/unused", "--market-day", "live", "--symbols", *symbols,
@@ -506,7 +492,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
-    _unfalsified(research, research_at, found["source_sha256"])
+    admission.unfalsified(research, research_at, found["source_sha256"])
     evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
     if not evidence:
         raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of this "
