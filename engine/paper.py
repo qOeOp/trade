@@ -337,8 +337,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
         on and the contract only reduces (coverage U9). An order on a back-filled bar that cannot wait for T is not
-        sent either: the recovery is refused (engine.paper_session.Session.submitted). Nor is an entry on other terms
-        than the market's (engine.paper_terms.entry): the run stops. The order rules see every other order."""
+        sent either: the recovery is refused (engine.paper_session.Session.submitted). Any other entry waits for its
+        terms read (engine.paper_terms.queue). The order rules see every order sent."""
         now = NOW()
         if not order.is_reduce_only and not self._paper_membership.member_at(now):
             journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
@@ -346,14 +346,11 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
             return None
         if SESSION and SESSION.submitted(order):
             return None
-        changed = None if order.is_reduce_only or not self._paper_entry_terms else self._paper_entry_terms(
-            self._paper_instrument_id)
-        if changed:
-            journal("refusal", code="TERMS_CHANGED", instrument_id=self._paper_instrument_id,
-                    client_order_id=str(order.client_order_id), changed=changed)
-            request_stop("TERMS_CHANGED")
-            return None
-        return super().submit_order(order, position_id=position_id, client_id=client_id, params=params)
+        send = functools.partial(super().submit_order, order, position_id=position_id, client_id=client_id,
+                                 params=params)
+        if order.is_reduce_only or not self._paper_entry_terms:
+            return send()
+        return paper_terms.queue(self._paper_entry_terms, self._paper_instrument_id, order, send)
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         if SESSION and SESSION.commanded():
@@ -823,6 +820,9 @@ class Recorder(DataActor):
     def on_stop_timer(self, _event):
         record_kline_events()
         self._protection()
+        if paper_terms.QUEUE:  # a callback of the run: it sends orders (Session.callback)
+            with SESSION.callback() if SESSION else nullcontext():
+                paper_terms.release(journal, request_stop, stopping=STOP.is_set())
         if SESSION and not STOP.is_set():
             try:
                 SESSION.backend.health()
@@ -875,13 +875,14 @@ class Recorder(DataActor):
         # It also waits for the bar of a declared aggregation's bucket that has ended: the final cut cannot be published
         # before that bar reached the source (engine.paper_session.Session.due).
         pending = (any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values())
-                   or any(in_flight(order) for order in self.cache.orders())
+                   or bool(paper_terms.QUEUE) or any(in_flight(order) for order in self.cache.orders())
                    or bool(SESSION and SESSION.ready and SESSION.due(self.cache, time.time_ns()))
                    ) if pausing() else open_orders
         if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return
         if pausing() and SESSION:
             SESSION.before_stop(self.cache)
+        paper_terms.release(journal, request_stop, stopping=True, final=True)
         journal("stopping", open_orders=len(open_orders))
         self.handle.stop()
         self.handle = None

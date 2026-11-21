@@ -4,6 +4,8 @@ the live view draws from."""
 
 import functools
 import tempfile
+import threading
+import time
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -14,7 +16,7 @@ from unittest import mock
 from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
                                    TriggerType)
 
-from engine import klines, membership as membership_months, paper, realtime
+from engine import klines, membership as membership_months, paper, paper_session, realtime
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
@@ -923,17 +925,21 @@ class TermsTests(unittest.TestCase):
 
 class EntryTermsTests(unittest.TestCase):
     """Binance changes a contract's tick mid-run (C-172): Live refuses the next entry (tests/live_loopback/test_terms.py),
-    and Paper reads Binance's terms for each entry the same way, while reduce-only orders go out unread."""
+    and Paper reads Binance's terms for each entry the same way, off the node's thread; reduce-only orders go out
+    unread."""
 
     MARKET = {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}
 
     def setUp(self):
-        for value in (paper.STOP, paper.STOP_REASON):
+        for value in (paper.STOP, paper.STOP_REASON, paper.paper_terms.QUEUE):
             self.addCleanup(value.clear)
         self.sent = mock.Mock(return_value=None)
-        patcher = mock.patch.object(paper.OrderRules, "submit_order", self.sent)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.journal = mock.Mock()
+        for patcher in (mock.patch.object(paper.OrderRules, "submit_order", self.sent),
+                        mock.patch.object(paper, "SESSION", None), mock.patch.object(paper, "journal", self.journal),
+                        mock.patch("time.sleep")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     @staticmethod
     def exchange(tick: str) -> dict:
@@ -945,35 +951,47 @@ class EntryTermsTests(unittest.TestCase):
                 {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
                 {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]}
 
-    def submit(self, answer, *, reduce_only: bool = False):
+    def source(self):
         source = object.__new__(paper._PaperConfigured)
         source._paper_membership = SimpleNamespace(member_at=lambda _: True)
         source._paper_instrument_id = str(IID)
         source._paper_entry_terms = functools.partial(paper.paper_terms.entry, {"BTCUSDT": self.MARKET}, proxy_url=None)
-        order = SimpleNamespace(is_reduce_only=reduce_only, client_order_id="O-1")
+        return source
+
+    @staticmethod
+    def tick(*, final: bool = False):
+        """The recorder's tick (Recorder.on_stop_timer) once every read started has ended, or at the stop."""
+        if not final:
+            for item in list(paper.paper_terms.QUEUE):
+                item.thread.join(5)
+        paper.paper_terms.release(paper.journal, paper.request_stop, stopping=paper.STOP.is_set() or final, final=final)
+
+    def submit(self, answer, *, reduce_only: bool = False, name: str = "O-1"):
+        order = SimpleNamespace(is_reduce_only=reduce_only, client_order_id=name)
         get = mock.Mock(side_effect=answer if isinstance(answer, Exception) else None, return_value=answer)
-        with mock.patch.object(paper, "SESSION", None), mock.patch.object(klines, "get_json", get), \
-                mock.patch.object(paper, "journal") as journal, mock.patch("time.sleep"):
-            paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
-        return order, journal, get
+        with mock.patch.object(klines, "get_json", get):
+            paper._PaperConfigured.submit_order(self.source(), order)  # type: ignore[arg-type]
+            self.tick()
+        return order, get
 
     def test_an_entry_after_a_tick_change_is_not_sent_and_stops_the_run(self):
-        order, journal, get = self.submit(self.exchange("0.01"))
+        _, get = self.submit(self.exchange("0.01"))
         self.sent.assert_not_called()
         self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
-        journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID),
-                                        client_order_id="O-1", changed=["price_increment: market 0.10, exchange 0.01"])
+        self.journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID),
+                                             client_order_id="O-1",
+                                             changed=["price_increment: market 0.10, exchange 0.01"])
         self.assertEqual(get.call_args.args, ("https://fapi.binance.com/fapi/v1/exchangeInfo", None))
 
     def test_an_entry_on_the_markets_terms_is_sent(self):
-        order, journal, _ = self.submit(self.exchange("0.10"))
+        order, _ = self.submit(self.exchange("0.10"))
         self.sent.assert_called_once()
         self.assertIs(self.sent.call_args.args[0], order)
-        journal.assert_not_called()
+        self.journal.assert_not_called()
         self.assertEqual(paper.STOP_REASON, [])
 
     def test_a_reduce_only_order_is_sent_without_a_read(self):
-        order, _, get = self.submit(self.exchange("0.01"), reduce_only=True)
+        order, get = self.submit(self.exchange("0.01"), reduce_only=True)
         get.assert_not_called()
         self.assertIs(self.sent.call_args.args[0], order)
         self.assertEqual(paper.STOP_REASON, [])
@@ -986,6 +1004,47 @@ class EntryTermsTests(unittest.TestCase):
                 self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
                 paper.STOP.clear()
                 paper.STOP_REASON.clear()
+
+    def test_a_slow_read_holds_only_its_entry_and_later_ones_not_the_node(self):
+        """While Binance is slow to answer, the entry waits unsent and the node goes on: its submit returns at once, a
+        reduce-only order is sent, the recorder's tick sends nothing, no checkpoint is cut; the entries go out in order
+        once the read ends."""
+        answered = threading.Event()
+
+        def slow(url, proxy_url, timeout=10):
+            answered.wait(10)
+            return self.exchange("0.10")
+        with mock.patch.object(klines, "get_json", slow):
+            began = time.monotonic()
+            source = self.source()
+            first, second, stop = (SimpleNamespace(is_reduce_only=reduce_only, client_order_id=name)
+                                   for name, reduce_only in (("O-1", False), ("O-2", False), ("O-3", True)))
+            for order in (first, second, stop):
+                paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
+            self.assertLess(time.monotonic() - began, 1)
+            self.assertEqual([call.args[0] for call in self.sent.call_args_list], [stop])
+            paper.paper_terms.release(paper.journal, paper.request_stop, stopping=False)
+            self.assertEqual(len(paper.paper_terms.QUEUE), 2)
+            session = paper_session.Session.__new__(paper_session.Session)
+            session.pause_error, session.depth, session.stopped_ns, session.supported, session.ready = (
+                None, 0, None, True, True)
+            with self.assertRaisesRegex(Exception, "an entry waits for its terms read"):
+                session.cut(SimpleNamespace(orders=list))
+            answered.set()
+            self.tick()
+        self.assertEqual([call.args[0] for call in self.sent.call_args_list], [stop, first, second])
+        self.assertEqual(paper.paper_terms.QUEUE, [])
+
+    def test_an_entry_still_waiting_at_the_stop_is_not_sent(self):
+        answered = threading.Event()
+        with mock.patch.object(klines, "get_json", lambda *_, **__: answered.wait(10) and self.exchange("0.10")):
+            paper._PaperConfigured.submit_order(self.source(), SimpleNamespace(is_reduce_only=False,  # type: ignore[arg-type]
+                                                                               client_order_id="O-1"))
+            self.tick(final=True)
+            answered.set()
+        self.sent.assert_not_called()
+        self.journal.assert_called_once_with("entry_not_sent", reason="the run is stopping", instrument_id=str(IID),
+                                             client_order_id="O-1")
 
 
 class SandboxConfigTests(unittest.TestCase):

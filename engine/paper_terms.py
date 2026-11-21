@@ -1,10 +1,18 @@
 """Paper's TERMS_CHANGED: the contract's terms (engine.config.TERMS_COMPARED) against the market's at the run's market
 day, on the instrument the loader gave at start and on Binance's terms read for each entry, as Live admits each entry
-(engine.live_venue.require_admission): rc7 does not reload a loaded instrument mid-run (C-172)."""
+(engine.live_venue.require_admission): rc7 does not reload a loaded instrument mid-run (C-172).
+
+As Live's account observation, an entry's read runs off the node's thread: the entry waits in QUEUE, unsent, while
+bars, timers and reduce-only orders go on, and the recorder's tick (`release`) sends it, or refuses it, once its read is
+done, entries in the order they came."""
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 from engine import klines
 from engine.config import terms_changed
@@ -37,3 +45,42 @@ def entry(market_terms: dict, instrument_id: str, proxy_url: str | None) -> list
         return terms_changed(market_terms[klines.symbol(instrument_id)], klines.terms(instrument_id, proxy_url))
     except Exception as exc:  # the network, or an answer without the contract's filters
         return [f"Binance's terms were not read ({type(exc).__name__}: {exc})"]
+
+
+@dataclass
+class Entry:
+    instrument_id: str
+    order: Any
+    send: Callable[[], Any]  # the order rules' submit, bound to the order
+    changed: list[str] | None = None  # the read's differences once it is done
+    thread: threading.Thread = field(init=False)
+
+
+QUEUE: list[Entry] = []
+
+
+def queue(read: Callable[[str], list[str]], instrument_id: str, order, send: Callable[[], Any]) -> None:
+    """Queue an entry and start its read (`read`: `entry` with the market's terms bound; it never raises)."""
+    item = Entry(instrument_id, order, send)
+
+    def work():
+        item.changed = read(instrument_id)
+    item.thread = threading.Thread(target=work, name=f"terms-{order.client_order_id}", daemon=True)
+    QUEUE.append(item)
+    item.thread.start()
+
+
+def release(record: Callable[..., None], stop: Callable[[str], None], *, stopping: bool, final: bool = False) -> None:
+    """On the node's thread, the queued entries whose read is done (every one when `final`), in order: on other terms
+    the entry is refused and the run stops (TERMS_CHANGED); while the run is stopping it is not sent; else it is sent."""
+    while QUEUE and (final or not QUEUE[0].thread.is_alive()):
+        item = QUEUE.pop(0)
+        fields = {"instrument_id": item.instrument_id, "client_order_id": str(item.order.client_order_id)}
+        if item.changed:
+            record("refusal", code="TERMS_CHANGED", changed=item.changed, **fields)
+            stop("TERMS_CHANGED")
+            stopping = True
+        elif stopping or item.changed is None:
+            record("entry_not_sent", reason="the run is stopping", **fields)
+        else:
+            item.send()

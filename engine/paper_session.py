@@ -54,7 +54,7 @@ import time
 from nautilus_trader.model import Price, Venue
 from nautilus_trader.trading import Strategy
 
-from engine import history, klines, paper_checkpoint as checkpoint, strategy as strategy_runtime, warmup
+from engine import history, klines, paper_checkpoint as checkpoint, paper_terms, strategy as strategy_runtime, warmup
 from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 
@@ -523,11 +523,14 @@ class Session:
                 raise checkpoint.fail("no position is open; a source without the recovery protocol is held only "
                                       "while one is")
             self._restorable(cache)
-            if any(getattr(source, "_paper_held", None) for source in strategy_runtime.STRATEGIES.values()):
-                raise checkpoint.fail("a strategy callback remains pending")
+            if paper_terms.QUEUE or any(getattr(source, "_paper_held", None)
+                                        for source in strategy_runtime.STRATEGIES.values()):
+                raise checkpoint.fail("a strategy callback or an entry's terms read remains pending")
         elif cache is not None:
             if not self.ready:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
+            if paper_terms.QUEUE:
+                raise checkpoint.fail("an entry waits for its terms read")
             found = self.due(cache, cut_ns)
             if found:
                 raise checkpoint.fail(f"{found}; a recovery could not tell whether to hand it over")
@@ -583,6 +586,8 @@ class Session:
         found = next(filter(None, map(unrestorable, cache.orders())), None)
         if found:
             self.pause_error = f"the pause had an order that cannot be restored ({found}); its original state is retained"
+        if paper_terms.QUEUE:  # the source sent it, the venue never had it: no checkpoint can hold it
+            self.pause_error = "the pause had an entry waiting for its terms read; its original state is retained"
         # A held checkpoint restores no source, so a source's timers are not lost by it.
         if self.supported and any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"
