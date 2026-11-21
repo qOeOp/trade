@@ -38,6 +38,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
   with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
 
+- `line history` (A-24): a line's closing history test replays several segments at once instead of one after
+  another, as many as Docker's memory (its total less what its running containers hold and 1 GiB) has room for at a
+  replay stage's 16 GiB limit, at least one (3 on a 62.7 GiB Docker VM). Each segment exports and seals as before;
+  `ran` keeps the segment order, and a segment that fails lets the running ones seal and starts no other.
+
 - Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
   DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
   market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.

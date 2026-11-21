@@ -658,7 +658,8 @@ COMMANDS = [
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
-        "segment after the holdout), candidates by development-period Sharpe; "
+        "segment after the holdout), candidates by development-period Sharpe; segments replay several at once, as "
+        "many as Docker's memory (its total less what its containers hold) has room for at a stage's 16 GiB limit; "
         "a segment with a passed history run is skipped, so a rerun resumes; after the segments without a run, "
         "one more history trial per segment whose latest history run is invalid (it supersedes that run, which "
         "stays; a failure of the strategy's own fails again)",
@@ -668,7 +669,8 @@ COMMANDS = [
         "candidates), without_economic_evidence [{source_sha256, candidate, run, reasons}] (the participants left "
         "out), segments_without_trading",
         "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
-        "another effective configuration); the replay refusals of a sealed run"), LEDGER, MARKET,
+        "another effective configuration); the replay refusals of a sealed run (the first in segment order; the "
+        "segments already running still seal, and no other starts)"), LEDGER, MARKET,
          option("--line", required=True, help="an open research line"), MARKET_DAY,
          option("--limit", type=_count, help="run at most this many segments"),
          epilog="Every candidate, a source with a passed research run on the line whose latest such run carries "
