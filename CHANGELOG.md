@@ -42,6 +42,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `running_since` is younger than 26 hours, so a long daily round no longer reports unhealthy; a round running
   longer is unhealthy as "a round running since ... is stuck", and a finished status older than 26 hours still is.
 
+- Live notices: the daily Telegram summary is sent only for a UTC day on which a Live run was running, filled or
+  ended (a minute's result, a fill, a start or its end that day; a running run whose minutes are unread counts).
+  A day with none is marked done and never sent later.
+
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
   still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`
