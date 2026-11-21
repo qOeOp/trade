@@ -18,6 +18,7 @@ import { RENDERERS, type Renderer } from "../widgets/registry";
 import { CoinsWindow } from "../widgets/market/CoinsWindow";
 import { NewsTools, NewsWindow } from "../widgets/market/NewsWindow";
 import { TradesTools, TradesWindow } from "../widgets/paper/TradesWindow";
+import { VersionTableTools } from "../widgets/VersionTable";
 import { AgentWindow } from "./agent/AgentWindow";
 
 export type ToolWindow = {
@@ -49,7 +50,8 @@ const SPECS: readonly ToolWindow[] = [
     actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
   { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
   { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
-  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table", renderer: RENDERERS.table, actions: () => [hide("bottom")] },
+  { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table", renderer: RENDERERS.table, tools: VersionTableTools,
+    actions: () => [hide("bottom")] },
   { id: "gaps", side: "bottom", icon: "tool.gaps", shortcut: alt(6), source: "notes", renderer: RENDERERS.notes, actions: () => [hide("bottom")] },
 ];
 
