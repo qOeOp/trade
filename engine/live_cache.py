@@ -10,23 +10,9 @@ import os
 from pathlib import Path
 import signal
 import subprocess
-from typing import TypedDict
-
-from nautilus_trader.infrastructure import RedisCacheConfig
 
 from engine import redis_child
 from engine.live_errors import LiveRefusal as Refusal
-
-
-class NativeConnection(TypedDict):
-    connection_timeout: int
-    response_timeout: int
-    number_of_retries: int
-    max_delay: int
-
-
-NATIVE_CONNECTION: NativeConnection = {"connection_timeout": 1, "response_timeout": 1,
-                                      "number_of_retries": 0, "max_delay": 1}
 
 
 class LiveCache:
@@ -53,7 +39,7 @@ class LiveCache:
         try:
             if not redis_child.ready(self.process, self.port):
                 raise Refusal("LIVE_CACHE_UNAVAILABLE", "the native cache did not become ready; originals retained")
-            self.config = RedisCacheConfig(host="127.0.0.1", port=self.port, **NATIVE_CONNECTION)
+            self.config = redis_child.config(self.port)
             self.health()
         except BaseException:
             self.close()

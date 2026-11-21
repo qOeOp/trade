@@ -186,22 +186,13 @@ def _source_running(present: list[dict], source_sha256: str) -> bool:
 
 def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
     """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest market day holds
-    (market.universe.month_files). The running runner reads a month's file once the month has begun
+    (market.universe.write_months). The running runner reads a month's file once the month has begun
     (engine.membership.Membership; coverage U9); a written file is never rewritten. Returns the months written."""
     from engine.membership import MONTHS
-    from market.universe import month_files
+    from market import universe
     folder = directory / "inputs" / MONTHS
     folder.mkdir(exist_ok=True)
-    written = []
-    for month, data in month_files(market, symbols, after).items():
-        path = folder / f"{month}.json"
-        if path.exists():
-            continue
-        temporary = path.with_suffix(".partial")
-        temporary.write_bytes(data)
-        os.replace(temporary, path)
-        written.append(month)
-    return written
+    return universe.write_months(market, folder, symbols, after)
 
 
 def _terms(market: dict, market_day: str, symbols: list[str]) -> dict:

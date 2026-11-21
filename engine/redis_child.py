@@ -1,8 +1,8 @@
 """The runners' loopback Redis child: the runtime's pinned redis-server and one RESP command.
 
-Paper (engine.paper_redis) and Live (engine.live_cache) each keep their own persistence options, close policy and
-refusals; this module raises only FileNotFoundError and OSError. The child listens only on loopback; no credential
-is accepted or supplied.
+Paper (engine.paper_redis) and Live (engine.live_cache) each keep their own persistence options (Paper an RDB its
+checkpoint saves, Live an AOF fsynced on every write), close policy and refusals; this module raises only
+FileNotFoundError and OSError. The child listens only on loopback; no credential is accepted or supplied.
 """
 
 from __future__ import annotations
@@ -13,10 +13,34 @@ import socket
 import subprocess
 import sys
 import time
-from typing import IO, BinaryIO
+from typing import IO, BinaryIO, TypedDict
+
+from nautilus_trader.infrastructure import RedisCacheConfig
 
 REDIS = Path("/opt/trade/redis")
 READY_SECONDS = 10
+
+
+class Connection(TypedDict):
+    host: str
+    port: int
+    connection_timeout: int
+    response_timeout: int
+    number_of_retries: int
+    max_delay: int
+
+
+def connection(port: int) -> Connection:
+    """The native cache's connection to the child. A dead cache must fail a read or write at once: rc7's defaults
+    (20-second timeouts, 100 retries) leave its writer task retrying, `close()` waits for that task, and
+    `node.dispose()` then does not return (measured 2026-11-15: `paper stop` took 92 s and ended in SIGKILL)."""
+    return {"host": "127.0.0.1", "port": port, "connection_timeout": 1, "response_timeout": 1, "number_of_retries": 0,
+            "max_delay": 1}
+
+
+def config(port: int) -> RedisCacheConfig:
+    """The native cache configuration of `connection`."""
+    return RedisCacheConfig(**connection(port))
 
 
 def _reply(stream: BinaryIO) -> bytes | int | list:

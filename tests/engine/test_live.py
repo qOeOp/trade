@@ -632,7 +632,7 @@ class LiveTests(unittest.TestCase):
                     mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=[self.held_snapshot(), final]), \
                     mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "LiveCache"), \
                     mock.patch.object(live, "build_node", return_value=node) as build, \
-                    mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread"):
+                    mock.patch.object(live, "Signals"):
                 (self.output / "runner.lock").unlink(missing_ok=True)
                 self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
                 self.assertEqual(build.call_args.kwargs["source_module"], "engine.live")
@@ -702,7 +702,7 @@ class LiveTests(unittest.TestCase):
         args = self.runner_args("run")
         for patch in (mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"),
                       mock.patch.object(live, "source_for_run"),
-                      mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread")):
+                      mock.patch.object(live, "Signals")):
             patch.start()
             self.addCleanup(patch.stop)
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
