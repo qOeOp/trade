@@ -400,8 +400,9 @@ class DevYearTests(unittest.TestCase):
         assert found is not None
         lengths = [365, 365, 366]
         expected = [(1 + rate) ** n - 1 for rate, n in zip((-0.0003, -0.0001, 0.002), lengths, strict=True)]
-        self.assertEqual([(item["start"], item["end"]) for item in found["years"]],
-                         [("2021-10-01", "2022-10-01"), ("2022-10-01", "2023-10-01"), ("2023-10-01", "2024-10-01")])
+        self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["years"]],
+                         [("2021-10-01", "2022-10-01", False), ("2022-10-01", "2023-10-01", False),
+                          ("2023-10-01", "2024-10-01", False)])
         for item, value in zip(found["years"], expected, strict=True):
             self.assertAlmostEqual(item["return"], value, places=12)
             self.assertEqual(item["at_target"], value >= 0.2)
@@ -420,10 +421,26 @@ class DevYearTests(unittest.TestCase):
         self.assertIsNone(found["years_at_target"])
         self.assertNotIn("at_target", found["years"][0])
 
-    def test_any_other_window_has_none(self):
+    def test_a_window_of_whole_years_and_quarters_ends_in_a_partial_segment(self):
+        end = date(2023, 7, 1)  # 7 quarters: one whole year and three quarters
+        run = {**self.run, "trade_end_ns": self.ns(end),
+               "returns": [item for item in self.returns if item[0] < self.ns(end)]}
+        found = measures.dev_years(run, 0.2)
+        assert found is not None
+        self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["years"]],
+                         [("2021-10-01", "2022-10-01", False), ("2022-10-01", "2023-07-01", True)])
+        first, tail = (1 - 0.0003) ** 365 - 1, (1 - 0.0001) ** 273 - 1
+        self.assertAlmostEqual(found["years"][1]["return"], tail, places=12)
+        self.assertNotIn("at_target", found["years"][1], "a part year is not read against an annual target")
+        self.assertEqual(found["years_at_target"], 0, "only whole years are counted")
+        self.assertAlmostEqual(found["worst_year_return"], first, places=12, msg="only whole years are compared")
+        self.assertAlmostEqual(found["return_without_best_year"], (1 + tail) ** (365 / 273) - 1, places=12,
+                               msg="the window's days without the best whole year, the part year's included")
+
+    def test_a_window_of_one_year_or_less_has_none(self):
         one_year = {**self.run, "trade_end_ns": self.ns(date(2022, 10, 1))}
         self.assertIsNone(measures.dev_years(one_year, 0.2), "a 4-quarter window is one year: the window itself")
-        short = {**self.run, "trade_end_ns": self.ns(date(2024, 9, 30))}
+        short = {**self.run, "trade_end_ns": self.ns(date(2022, 9, 30))}
         self.assertIsNone(measures.dev_years(short, 0.2))
 
 

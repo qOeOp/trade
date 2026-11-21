@@ -28,7 +28,7 @@ export type MarketExposure = {
 /** One volatility regime's return summary from `by_regime` (`high` or `low` prior-day basket volatility):
  *  the number of days in that regime, their compounded return (`exp(log_sum) - 1`) and mean daily return (`exp(mean_log) - 1`). */
 export type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
-/** One development year (cut at the trade start's anniversaries, not a calendar year): its UTC dates and compound return. */
+/** One development year (cut at the trade start's anniversaries, not a calendar year) or the window's last part year: its UTC dates and compound return. */
 export type DevYear = { start: string; end: string; ret: number };
 /** The closed cycles of one UTC close year: their count, price move, fees paid and funding (account currency). */
 export type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
@@ -38,7 +38,7 @@ export type PeriodBreakdown = {
   upMonthNotional: number | null; downMonthNotional: number | null;
   levelTerm: number | null; timingTerm: number | null;
   regimes: RegimeStat[]; devYears: DevYear[]; closedYears: ClosedYear[];
-  /** The window's annual return without its best development year. */
+  /** The window's annual return without its best whole development year. */
   exBestYearAnnual: number | null;
 };
 /** A day: its start (s), return, closing equity, gross exposure (share of equity) and cycles held. */
