@@ -47,7 +47,10 @@ When a change of approach is due (SKILL.md), first state in one line how many re
 line has made on its development window (`research status`), how many changes of approach it has
 recorded, whether the recommended version changed since the last one, and how far its annual
 return moved over the counted runs, beside their detectable annual difference; it is a reading for
-the user, not an option to close the line. Then weigh two or three approaches inside this line,
+the user, not an option to close the line. Next name the one bottleneck (opportunities, signal
+quality, costs, capital use or tail drawdown) and the report slice and measure that show it (such
+as `trade_structure.cycles` or `fee_stress.breakeven_fee_multiple`); when two fit, the first step
+tells them apart. Then weigh two or three approaches inside this line,
 never one an earlier `Change of approach.` judgment chose unless you name it and the new evidence. Each
 changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
@@ -58,12 +61,10 @@ parts of different mechanisms and sources outside the ledger (`research-sources`
 `video-evidence`), not only mechanism keywords. A fusion merges a closed line's candidate rule,
 chosen where its `research history` holds up in years this line's candidate fails, into this
 line's source as one change; `rationale.local` names each part and those years, which never count
-toward its targets. When the bottleneck is unclear (opportunities,
-signal quality, costs or capital use), the first step tells the leading explanations apart. Each
-approach names its first experiment and control, the outcome that would change the next step,
+toward its targets. Each approach names the bottleneck it targets, its first experiment and control, the outcome that would change the next step,
 and what its source states apart from your own design.
 Choose the one you rank first and, before its first registration, record the change as a priority
-judgment whose body begins `Change of approach.`, ranks the approaches with the reason for the
+judgment whose body begins `Change of approach.`, names the bottleneck, ranks the approaches with the reason for the
 choice, says who chose (`chosen by the Agent` or `chosen by the user`), names each scale-only run
 left out with its reason and each counted run as a subject (`--subject trial=N`): that restarts the
 count (SKILL.md). An idea needing more contracts or inputs is a reading there, never an exit. Tell the user once, in that round's message and asking nothing: the reading above, the

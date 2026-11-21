@@ -585,10 +585,12 @@ summary and tries to resume one that has none, which a dirty checkpoint refuses,
 The journal ends at the gap; what the run did after it is not recorded.
 
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
-native Redis cache, whichever the source declares, and watches it every second: a child that exited or does not
-answer a PING ends the run with `PAPER_CACHE_UNAVAILABLE` (a `refusal` in the journal, then the stop of a refused
-run: working orders canceled, positions left open, summary written), since a run without its cache could not be
-recovered and would not say so. The cache's connections fail fast (one-second timeouts, no retries, as Live's), so a
+native Redis cache, whichever the source declares, and watches it every second: a child that exited, or one whose
+PING has gone unanswered (2 s each) at least 5 times in a row over at least 30 seconds, ends the run with
+`PAPER_CACHE_UNAVAILABLE` (a `refusal` in the journal, then the stop of a refused run: working orders canceled,
+positions left open, summary written), since a run without its cache could not be recovered and would not say so. A
+shorter miss, as a host stall makes, goes to the runner's log and an answered PING clears it; a write lost meanwhile
+is the checkpoint readback's to find. The cache's connections fail fast (one-second timeouts, no retries, as Live's), so a
 dead one cannot hold `paper stop` in `node.dispose()`. Immutable RDB originals and their exact journal cuts are
 retained. The daemon invokes `paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
 changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse

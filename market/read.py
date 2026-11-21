@@ -3,8 +3,8 @@
 The day's close is the MARK one-minute bar opening at 23:59 UTC; a day's return is that close over
 the previous day's, minus one. The basket weighs equally the members of the day's month that have a
 return that day (a member that stops trading drops out after its last return). Members are the
-contracts the market directory holds that meet the universe rule; a deployment that narrows the
-directory (`--bar-symbols`) narrows the basket to that list. Stored bars are the
+contracts the market directory holds that meet the universe rule: every eligible contract by default; a
+deployment that narrows the directory (`--bar-symbols`) narrows the basket to that list. Stored bars are the
 exporter's own reads (`market.read_bars`, `market.daily_bars`, `market.read_funding`) at a pinned
 market day, each bar with the time the Catalog stamps it. Only the market directory is read; nothing here
 knows the ledger or the strategy.

@@ -28,3 +28,4 @@
 ## Decisions
 
 - 2026-11-18 用户要求将上述五项 Universe Pool 与 `market-import` 维护脱钩问题记入 Doctor 的 finding 列表，留待后续处理。
+- 2026-11-21 用户「我都授权」：`20261118-01` 按只读设计研究选定的方案处理：用现有导入路径（空 `--bar-symbols` 即全部合格合约，不放宽任何拒绝）新建一个全合格范围的市场目录，导完后切换为活动市场目录。为此导入跳过没有数据来源的合约月（上市前、停止交易后），首次全量导入不再空等受限速的 REST 请求（[#3227](https://github.com/qOeOp/trade/pull/3227)）；`market follow --metrics-pool` 让 metrics 跟随每月成员（[#3228](https://github.com/qOeOp/trade/pull/3228)）；部署文档与示例 `.env` 去掉 `--bar-symbols`。`20261118-02` 的 `MONTH_EXISTS` / `UNIVERSE_CHANGED` 拒绝保持不变：新建目录从头导入，不需要往已有月份补币。两行的状态等切换完成后再改。

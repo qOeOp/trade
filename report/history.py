@@ -9,7 +9,8 @@ targets is judged on the veto years and on the holdout apart, and it meets them 
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
 year (cut by the market's first day plus warm-up, or by the period's start) and a segment shorter than SHORT_DAYS are
-shown but read in no summary.
+shown but read in no summary. A segment `line history` replayed again after an invalid run has one cell, its latest
+run; the earlier trials are named in the cell's `superseded`.
 
 A verdict needs every reading it is defined on (20261114-12, user 2026-11-15): a whole veto year whose run is
 invalid or missing, or lacks one of the two readings, a part veto year without a passed run (20261120-01, user
@@ -67,6 +68,21 @@ def _whole_year(row: dict) -> bool:
     start = row["trade_start"]
     return (start == datetime(start.year, 1, 1)
             and row["trade_end"] == datetime(start.year + 1, 1, 1))
+
+
+def _latest(rows: list[dict], kind) -> list[dict]:
+    """Each segment's latest history trial with a run (`rows` in trial order; a segment by its kind and, for a veto
+    segment, its year), else its latest trial: a rerun of an invalid segment (`line history`) supersedes it. Each
+    carries `superseded`, the segment's other history trials, which stay in the ledger."""
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        found = kind(row)
+        groups.setdefault((found, row["trade_start"].year if found == "veto" else None), []).append(row)
+    chosen = []
+    for group in groups.values():
+        pick = ([row for row in group if row["status"] is not None] or group)[-1]
+        chosen.append({**pick, "superseded": [row["trial_id"] for row in group if row is not pick]})
+    return sorted(chosen, key=lambda row: row["trial_id"])
 
 
 def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None) -> dict:
@@ -245,8 +261,10 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     returns: dict[int, list[float]] = {}
     kept, without = candidates(conn, record["line_id"], checker, records)
     for participant in kept:
-        own = [row for row in found if row["source_sha256"] == participant["source_sha256"]]
-        cells = [_cell(conn, row, _kind(row, dev_start, dev_end, held), returns) for row in own]
+        own = _latest([row for row in found if row["source_sha256"] == participant["source_sha256"]],
+                      lambda row: _kind(row, dev_start, dev_end, held))
+        cells = [{**_cell(conn, row, _kind(row, dev_start, dev_end, held), returns), "superseded": row["superseded"]}
+                 for row in own]
         control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
         researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
                               (participant["trial_id"],))

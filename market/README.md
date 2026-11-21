@@ -242,7 +242,7 @@ every listed contract that does.
 
 ### Unattended upkeep
 
-`market follow --bars-from 2020-01 --bar-symbols ... --symbols BTCUSDT ETHUSDT SOLUSDT --metrics-from 2021-12-01
+`market follow --bars-from 2020-01 --symbols BTCUSDT ETHUSDT SOLUSDT --metrics-from 2021-12-01
 --trades-from 2020-01 --quotes-from 2020-01` keeps the configured range current until stopped, through the
 imports above and nothing else. Without `--symbols` it keeps bars only. Each round, in this order:
 - **bars:** the `--bar-symbols` contracts (default every eligible one) from `--bars-from` through the last closed UTC
@@ -252,7 +252,10 @@ imports above and nothing else. Without `--symbols` it keeps bars only. Each rou
   missing between stored ones is `MONTH_INVALID`, which stops the bars. On a month's first day, once the month before
   is complete, the round writes the new month's members alone;
 - **metrics:** the named contracts' days from `--metrics-from` still missing, and those of every other followed
-  contract (above) from the day after its last, so another import never pins the latest day. A day closed more than `SETTLE_DAYS` (3)
+  contract (above) from the day after its last, so another import never pins the latest day. With `--metrics-pool`,
+  also each member of the newest stored month that is neither named nor followed yet, from that month's first day:
+  a contract entering the pool is kept from the month it enters, and no member's earlier days are imported (a manual
+  `market import-metrics` backfills them). A day closed more than `SETTLE_DAYS` (3)
   ago with no archive is not asked for again until the process restarts (`unpublished` in the status);
 - **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
   `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once
