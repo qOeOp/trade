@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 from paper import compare
-from replay import comparison as shared
+from replay import comparison as shared, rerun
 from tests.helpers import refused
 
 
@@ -294,9 +294,9 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(compare.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
                 mock.patch.object(compare, "_journal", return_value=lines), \
                 mock.patch.object(compare, "window", return_value=(START, START + 3 * MINUTE)), \
-                mock.patch.object(shared, "archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
+                mock.patch.object(rerun, "archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
                 mock.patch("market.files.open_market"), mock.patch("market.instrument.terms", return_value={}), \
-                mock.patch.object(shared, "archive_warmup", return_value={}), \
+                mock.patch.object(rerun, "archive_warmup", return_value={}), \
                 mock.patch.object(compare.records, "published_settlements", return_value={}), \
                 mock.patch.object(entry, "replay_unrecorded", side_effect=replayed), \
                 mock.patch("paper.runs.ledger_key", return_value="k"):
@@ -334,7 +334,7 @@ class InputTests(unittest.TestCase):
         from market import read
         rows = archived(3)
         with mock.patch.object(read, "stored_bars", return_value={"market_day": "c" * 32, "bars": {"rows": rows}}) as stored:
-            commit, found = shared.archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE,
+            commit, found = rerun.archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE,
                                            "COMPARE_UNCOVERED")
         self.assertEqual((commit, found), ("c" * 32, {"BTCUSDT": rows}))
         self.assertIs(stored.call_args.kwargs.get("funding"), False)

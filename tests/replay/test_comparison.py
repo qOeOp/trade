@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 from engine.config import utc_text
-from replay import comparison
+from replay import comparison, rerun
 
 
 MINUTE = comparison.MINUTE_NS
@@ -424,14 +424,14 @@ class Warmup(unittest.TestCase):
                     "100.1", str(100 + i / 100), "99.9", "100.2", "0.5"] for i in range(120)]
         rows = [(at - hour - 10**6, "100.10", "100.59", "99.90", "100.20", "30.000"),
                 (at - 10**6, "100.10", "101.19", "99.90", "100.20", "30.000")]
-        received = {"1-HOUR": comparison.digest(rows)}
+        received = {"1-HOUR": rerun.digest(rows)}
         with mock.patch("market.read.stored_bars", return_value={"bars": {"rows": minutes}}):
-            found = comparison.archive_warmup({}, "2026-11-11", "BTCUSDT", at + 7, received,
+            found = rerun.archive_warmup({}, "2026-11-11", "BTCUSDT", at + 7, received,
                                              {"price_increment": "0.10", "size_increment": "0.001"})
         compared_ = comparison.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]
         self.assertTrue(compared_["same"])
         self.assertEqual(compared_["reach_ns"], 2 * hour)
-        received = {"1-HOUR": comparison.digest([rows[0], (*rows[1][:5], "30.001")])}
+        received = {"1-HOUR": rerun.digest([rows[0], (*rows[1][:5], "30.001")])}
         self.assertFalse(comparison.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]["same"])
 
     def test_a_recorded_warm_up_is_digested_as_the_archives_bars_are(self):
@@ -441,7 +441,7 @@ class Warmup(unittest.TestCase):
         recorded = warmup_digest([Bar(BarType.from_str(f"{BTC}-1-MINUTE-LAST-EXTERNAL"), Price.from_str("1.0"),
                                       Price.from_str("2.0"), Price.from_str("0.5"), Price.from_str("1.5"),
                                       Quantity.from_str("3.000"), close_of(i), close_of(i)) for i in (0, 1)])
-        self.assertEqual(recorded, comparison.digest((close_of(i), "1.0", "2.0", "0.5", "1.5", "3.000") for i in (0, 1)))
+        self.assertEqual(recorded, rerun.digest((close_of(i), "1.0", "2.0", "0.5", "1.5", "3.000") for i in (0, 1)))
 
     def test_a_funding_history_is_digested_alike_in_a_run_and_the_archive_and_reaches_back(self):
         from engine.realtime import warmup_digest
@@ -453,13 +453,13 @@ class Warmup(unittest.TestCase):
         journaled = warmup_digest([funding_update(BTC, ms * 10**6, rate) for ms, rate in stored])
         with mock.patch("market.files.open_market"), mock.patch("market.coverage.read_funding",
                                                                 return_value=stored) as read:
-            archived = comparison.archive_funding({}, "2026-11-11", "BTCUSDT", at, 3)
-            whole = comparison.archive_funding({}, "2026-11-11", "BTCUSDT", at, 4)
+            archived = rerun.archive_funding({}, "2026-11-11", "BTCUSDT", at, 3)
+            whole = rerun.archive_funding({}, "2026-11-11", "BTCUSDT", at, 4)
         self.assertLessEqual(read.call_args_list[0].args[3], stored[1][0])
         self.assertEqual((archived["bars"], archived["first_ts_event"]), (3, stored[1][0] * 10**6))
         self.assertTrue(comparison.warmup({BTC: {FUNDING: journaled}}, {"BTCUSDT": {FUNDING: whole}})["BTCUSDT"]["same"])
         self.assertFalse(comparison.warmup({BTC: {FUNDING: journaled}}, {"BTCUSDT": {FUNDING: archived}})["BTCUSDT"]["same"])
-        self.assertEqual(comparison.history_start(at, {BTC: {FUNDING: journaled}}),
+        self.assertEqual(rerun.history_start(at, {BTC: {FUNDING: journaled}}),
                          stored[0][0] * 10**6 // MINUTE * MINUTE)
 
 
@@ -478,7 +478,7 @@ class Replay(unittest.TestCase):
             return {"path": str(output), "status": "passed" if "--metrics" in argv else "invalid", "problems": []}
 
         with tempfile.TemporaryDirectory() as name, mock.patch.object(entry, "replay_unrecorded", side_effect=replayed):
-            status, events, reports = comparison.replay({}, "c" * 32, b"", "S", "image", ["BTCUSDT"], START,
+            status, events, reports = rerun.replay({}, "c" * 32, b"", "S", "image", ["BTCUSDT"], START,
                                                         START + MINUTE, "3", "1000", Path(name) / "replay", "n", None, {})
             self.assertEqual([("--metrics" in argv, output.name) for argv, output in calls],
                              [(False, "replay"), (True, "replay-metrics")])
@@ -503,7 +503,7 @@ class Replay(unittest.TestCase):
                 registration_seams.use(market=lambda profile: profile, inspect_runtime=inspected,
                                        resolve_runtime=lambda runtime: {"runtime_contract": "c"}):
             with self.assertRaises(RuntimeError):
-                comparison.replay(FakeMarket({"c" * 32: months_rows()}), "c" * 32, b"", "S", "image", ["AAAUSDT"],
+                rerun.replay(FakeMarket({"c" * 32: months_rows()}), "c" * 32, b"", "S", "image", ["AAAUSDT"],
                                   end - 46 * MINUTE, end, "3", "1000", Path(name) / "replay", "n", None, {})
         self.assertTrue(any(low <= decided and decided + lifetime <= high for low, high in read["AAAUSDT"]),
                         read["AAAUSDT"])
@@ -550,7 +550,7 @@ class Metrics(unittest.TestCase):
         create = START // 10**6
         row = (create, Decimal("97897.56500000"), Decimal("3.60563315"), Decimal("1.790050"), None)
         with mock.patch.object(export, "metrics_rows", return_value=[row]) as read:
-            found = comparison.archive_metrics(object(), "d", "BTCUSDT", START + 5 * MINUTE, START + MINUTE * 20)
+            found = rerun.archive_metrics(object(), "d", "BTCUSDT", START + 5 * MINUTE, START + MINUTE * 20)
         self.assertEqual(read.call_args.args[3:], (create + 5 * 60_000, None, create + 20 * 60_000))
         # 1.790050 lies at the midpoint of the 4th decimal: REST may show it rounded either way.
         self.assertEqual(found, [[START + 5 * MINUTE, "97897.565", "3.6062", "1.7901", None,
@@ -565,7 +565,7 @@ class Metrics(unittest.TestCase):
         rows = [(create, Decimal("97897.565"), Decimal("1.79005"), Decimal("1.790050"), Decimal("2.00015")),
                 (create + 300_000, Decimal("97897.565"), Decimal("3.6904"), Decimal("1.790049"), None)]
         with mock.patch.object(export, "metrics_rows", return_value=rows):
-            archive = {"BTCUSDT": comparison.archive_metrics(object(), "d", "BTCUSDT", START, START + MINUTE * 20)}
+            archive = {"BTCUSDT": rerun.archive_metrics(object(), "d", "BTCUSDT", START, START + MINUTE * 20)}
         # An account ratio at a midpoint gives no alternative: its shown value is a quotient of rounded shares.
         self.assertEqual([row[-1] for row in archive["BTCUSDT"]], [{"sum_toptrader_long_short_ratio": "1.79"}, {}])
         at = [row[0] + comparison.METRICS_VISIBLE_NS for row in archive["BTCUSDT"]]

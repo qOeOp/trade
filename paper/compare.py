@@ -17,7 +17,7 @@ from pathlib import Path
 
 from engine.config import ACCOUNT_CONTRACT, symbol_of, utc_text
 from ledger import db, paper as records
-from replay import comparison as shared
+from replay import comparison as shared, rerun
 from shared import paths
 from shared.refusals import refuse
 
@@ -148,11 +148,11 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
         from replay import preliminary as rest
         output = paths.temporary_path(output)
         output.mkdir(mode=0o700, parents=True)
-        market, fetched = rest.overlay(market, symbols, shared.history_start(start, run["warmup"]), end,
+        market, fetched = rest.overlay(market, symbols, rerun.history_start(start, run["warmup"]), end,
                                        bool(run["metrics"]), output / "market")
         at = None
-    market_day, archived = shared.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
-    output, replayed, compared = shared.replay_and_compare(
+    market_day, archived = rerun.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
+    output, replayed, compared = rerun.replay_and_compare(
         run, market, market_day, archived, candidate["source"], candidate["entry_class"], row["image_ref"], symbols,
         start, end,
         row["config"]["leverage"], ACCOUNT_CONTRACT["starting_balance_usdt"],

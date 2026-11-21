@@ -180,7 +180,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
     Returns {identity, root, membership_file, symbols, fresh}; the membership path handed to the strategy is the
     membership file, cut to the input window, or from its start to `membership_end` when a comparison's replay
-    gives the strategy the membership its Paper or Live run had (replay.comparison.replay). The export receipts stay
+    gives the strategy the membership its Paper or Live run had (replay.rerun.replay). The export receipts stay
     under root (<symbol>/RECEIPT).
     """
     universe = isinstance(selection, Mapping) and selection.get("universe") is True
