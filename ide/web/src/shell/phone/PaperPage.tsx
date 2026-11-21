@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { PhonePage } from "../../components/PhoneBar";
 import { Skeleton } from "../../components/Missing";
 import { Amount, Change, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { health } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { lineOf } from "../../lib/lines";
-import { fixed, signed, type PaperRun } from "../../lib/paperApi";
+import { fixed, precisions, signed, type PaperRun } from "../../lib/paperApi";
+import { orders, ordersText, priceText, quantityText } from "../../model/events";
+import { follow, useStream } from "../../state/paperStream";
 import { paperEquity, paperHeld, paperIssues } from "../../model/phoneRuns";
 import { usePaperRuns } from "../../state/paper";
 import { closeRun } from "../../state/phone";
@@ -17,6 +19,8 @@ import { ANNUAL_DAYS, annualized, drawdownNow, neededReturn, pace } from "../../
 import { Board, type Facts } from "../../widgets/detail/ReadingsBoard";
 import { EquityLine } from "../../widgets/phone/EquityLine";
 import { clock, keep, since, Version } from "./RunCards";
+
+const SHOWN = 20;  // the latest orders a phone lists; every one is on the desktop
 import { PhoneTop } from "./PhoneTop";
 
 /** The desktop's targets card for a paper run, from its listing: the max drawdown against the limit (now: on the
@@ -33,10 +37,15 @@ function facts(run: PaperRun, targets: { max_drawdown?: number | null; annual_re
   };
 }
 
-/** A paper run's page: its equity and health, its line against the start, the targets card and what it holds. */
+/** A paper run's page: its equity and health, its line against the start, the targets card, what it holds and the
+ *  orders it placed, filled or not, from its stream (with its first contract's bars, the lightest a stream sends),
+ *  followed while the page is open. */
 export function PaperPage({ id }: { id: number }) {
   const listing = usePaperRuns(), lines = useResearchLines().lines, zone = useTimeZone(), now = useNow(30_000);
-  const run = listing?.runs.find((r) => r.paper_id === id) ?? null;
+  const run = listing?.runs.find((r) => r.paper_id === id) ?? null, first = run?.symbols[0] ?? null;
+  useEffect(() => { follow(first ? id : null, first); return () => follow(null, null); }, [id, first]);
+  const stream = useStream(), s = stream?.paperId === id ? stream : null;
+  const placed = useMemo(() => orders(s?.lines ?? []), [s?.lines]), digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
   const money = run ? paperEquity(run) : null;
   const levels = useMemo(() => (money ? [{ value: money.starting, title: "Start" }] : []), [money?.starting]);
   const back = { label: "Runs", onClick: closeRun };
@@ -78,7 +87,18 @@ export function PaperPage({ id }: { id: number }) {
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark" : "Entry", "P&L"]} rows={held.map((p) => [
           p.symbol, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={2} />,
           <span className={pnlClass(p.pnl)}>{signed(p.pnl)}</span>])} />}
-        <p className="px-3 pb-4 pt-2 text-small text-fg-faint">Charts, trades, events and Stop and seal are on the desktop.</p>
+        <PhoneHeading title="Orders" aside={s?.loaded ? (placed.length ? ordersText(placed) : "None yet") : <Skeleton className="w-24" />} />
+        {placed.length > 0 && <PhoneTable head={["Contract", "Side", "Price", "State"]} rows={placed.slice(0, SHOWN).map((o) => {
+          const d = digits.get(o.symbol) ?? { price: -1, size: -1 }, state = !o.done && s?.seal ? "Open at stop" : o.state;
+          return [
+            <>{o.symbol}<span className="block text-small font-normal text-fg-muted">{since(o.placed, zone, now)}</span></>,
+            <Side long={o.buy} word={o.buy === null ? undefined : o.buy ? "Buy" : "Sell"} />,
+            <>{priceText(o, d) ?? o.type.toLowerCase()}<span className="block text-small text-fg-muted">{priceText(o, d) === null ? "" : `${o.type.toLowerCase()} · `}{quantityText(o, d)}</span></>,
+            <><span className={o.failed ? "text-fail-fg" : o.state === "Filled" ? "" : "text-fg-muted"}>{state}</span><span className="block text-small text-fg-muted">{since(o.at, zone, now)}</span></>,
+          ];
+        })} />}
+        {placed.length > SHOWN && <p className="px-3 pt-2 text-small text-fg-faint">The latest {SHOWN} of {placed.length} orders.</p>}
+        <p className="px-3 pb-4 pt-2 text-small text-fg-faint">Orders past the last {SHOWN}, charts, trades, events and Stop and seal are on the desktop.</p>
       </PhonePage>
     </>
   );
