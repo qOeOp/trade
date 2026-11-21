@@ -29,6 +29,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.
+
+- `research-round` strategy authoring: a source keeps its state bounded and updates it per input, never rescanning
+  the whole history on each bar (doctor 20261121-02: a price-action root's replay time grew 37 times for a window
+  3.3 times longer).
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
