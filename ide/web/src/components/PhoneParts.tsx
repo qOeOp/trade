@@ -74,6 +74,17 @@ export function HeldLine({ held }: { held: Held }) {
   );
 }
 
+/** A held position's entry price, with its mark under it when the table holds several (one mark is the heading's):
+ *  a sixth column does not fit a phone's width. */
+export function EntryMark({ held, several, places }: { held: Held; several: boolean; places?: number }) {
+  const entry = fixed(held.entry, places) ?? MISSING;
+  return several ? <>{entry}<span className="block text-small text-fg-muted">{fixed(held.mark, places) ?? MISSING}</span></> : entry;
+}
+
+/** The Positions heading's aside: the mark when exactly one position is held (several show theirs in the table). */
+export const heldAside = (held: readonly Held[], approx: boolean): ReactNode =>
+  !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark)}`;
+
 /** A plain table of a few columns at the page's edges: the first column left, the others right; a row of one cell
  *  is a note under the row above it, across the columns. */
 export function PhoneTable({ head, rows }: { head: readonly string[]; rows: readonly (readonly ReactNode[])[] }) {
