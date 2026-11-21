@@ -55,10 +55,10 @@ jobs:
       - name: Type-check, test and build the single-file page (npm run check && vite build)
         run: npm run build --prefix ide/web
 
-  agent:
+  node:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
-    name: Type-check and test the chat service
+    name: Type-check and test the chat service and the market overview
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -69,26 +69,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: ide/agent/package-lock.json
+          cache-dependency-path: |
+            ide/agent/package-lock.json
+            ide/overview/package-lock.json
       - run: npm ci --prefix ide/agent
       - run: npm run check --prefix ide/agent
       - run: npm test --prefix ide/agent
-
-  overview:
-    needs: changes
-    if: needs.changes.outputs.changed == 'true'
-    name: Type-check and test the market overview
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: ide/overview/package-lock.json
       - run: npm ci --prefix ide/overview
       - run: npm run check --prefix ide/overview
       - run: npm test --prefix ide/overview
@@ -96,7 +82,7 @@ jobs:
   gate:
     name: ide-web-gate
     if: always()
-    needs: [changes, build, agent, overview]
+    needs: [changes, build, node]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
