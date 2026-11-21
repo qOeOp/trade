@@ -506,23 +506,24 @@ class ServerPidTests(unittest.TestCase):
 class UnansweredServiceTests(unittest.TestCase):
     """A service that accepts connections but never sends its greeting (stalled by a long write, or a hung
     process, container or Docker host): every connection fails within the handshake timeout, not the 600 s
-    statement budget, says the service is running but did not answer rather than not running, and advises one
-    rerun before a restart. No Dolt: a listening socket that nobody accepts from is enough."""
+    statement budget, says the service is running but did not answer rather than not running, and is tried again
+    before the refusal (no pauses here). No Dolt: a listening socket that nobody accepts from is enough."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="lgh-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.accounts = {"probe": {"reader": {"user": "r", "password": "p"}, "writer": {"user": "w", "password": "p"}}}
         self.profile = db.LedgerProfile(name="probe", database="probe", service_root=self.root)
-        patcher = patch.object(server, "HANDSHAKE_TIMEOUT", 0.5)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("HANDSHAKE_TIMEOUT", 0.5), ("CONNECT_PAUSES", (0, 0))):
+            patcher = patch.object(server, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def listener(self, family=socket.AF_INET, path: Path | None = None) -> socket.socket:
         process = socket.socket(family, socket.SOCK_STREAM)
         self.addCleanup(process.close)
         process.bind(str(path) if path else ("127.0.0.1", 0))
-        process.listen(8)
+        process.listen(64)  # unaccepted connections stay queued across the retries
         return process
 
     def service(self, **config) -> None:
@@ -545,12 +546,13 @@ class UnansweredServiceTests(unittest.TestCase):
         self.assertIn("docker ps", refusal.next_actions[0])
         self.assertLess(elapsed, 5)
 
-    def test_a_compose_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
+    def test_a_compose_service_that_accepts_but_never_answers_is_retried_then_reported_hung(self):
         port = self.listener().getsockname()[1]
         self.service(port=port)
         for role in ("reader", "writer"):
             refusal, elapsed = self.refused(lambda role=role: db.connect(self.profile, role))
             self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
+            self.assertIn("(tried 3 times over", refusal.message)
         with patch.dict("os.environ", {server.DOLT_HOST: "127.0.0.1"}):
             refusal, elapsed = self.refused(lambda: db.connect(self.profile, "reader"))
         self.assert_hung(refusal, elapsed, f"127.0.0.1:{port}")
@@ -566,6 +568,62 @@ class UnansweredServiceTests(unittest.TestCase):
         self.service(socket=str(path), port=0)
         refusal, elapsed = self.refused(lambda: db.connect(self.profile, "reader"))
         self.assert_hung(refusal, elapsed, str(path))
+
+    def test_a_connection_not_accepted_twice_then_accepted_connects(self):
+        self.service(port=1)
+        opened, failures = object(), [pymysql.err.OperationalError(2003, "refused")] * 2
+        pauses: list[float] = []
+
+        def attempt(config, **options):
+            if failures:
+                raise failures.pop()
+            return opened
+
+        with patch.object(server, "CONNECT_PAUSES", (5, 10, 20, 25, 30)), \
+                patch.object(server, "service_connection", attempt), patch.object(server.time, "sleep", pauses.append):
+            self.assertIs(server.patient_connection(server.service_config(self.root)), opened)
+        self.assertEqual(pauses, [5, 10])
+
+    def test_a_connection_never_accepted_is_refused_after_the_pauses_and_says_so(self):
+        self.service(port=1)
+        pauses: list[float] = []
+        clock = [0.0]
+
+        def attempt(config, **options):
+            clock[0] += 7  # each attempt takes 7 s
+            raise pymysql.err.OperationalError(2003, "refused")
+
+        def sleep(seconds):
+            pauses.append(seconds)
+            clock[0] += seconds
+
+        with patch.object(server, "CONNECT_PAUSES", (5, 10, 20, 25, 30)), \
+                patch.object(server, "service_connection", attempt), patch.object(server.time, "sleep", sleep), \
+                patch.object(server.time, "monotonic", lambda: clock[0]):
+            refusal, _ = self.refused(lambda: server.patient_connection(server.service_config(self.root)))
+        self.assertEqual(refusal.code, "LEDGER_UNAVAILABLE")
+        self.assertEqual(pauses, [5, 10, 20, 25])  # at 95 s a fifth pause would pass 90 s of patience
+        self.assertIn("not running or does not accept connections (tried 5 times over 95 s)", refusal.message)
+        self.assertIn("already waited the minute or two", refusal.next_actions[0])
+
+    def test_an_account_error_or_a_stopped_socket_service_is_refused_at_once(self):
+        for config, error, code in (
+                ({"port": 1}, pymysql.err.OperationalError(1045, "denied"), "LEDGER_PERMISSION"),
+                ({"port": 1}, pymysql.err.OperationalError(1049, "unknown database"), "UNKNOWN_REF"),
+                ({"socket": str(self.root / "mysql.sock"), "port": 0}, pymysql.err.OperationalError(2002, "no socket"),
+                 "LEDGER_UNAVAILABLE")):
+            self.service(**config)
+            calls: list[dict] = []
+
+            def attempt(config, error=error, **options):
+                calls.append(options)
+                raise error
+
+            with patch.object(server, "service_connection", attempt), \
+                    patch.object(server.time, "sleep", side_effect=AssertionError("no retry")):
+                refusal, _ = self.refused(lambda: server.patient_connection(server.service_config(self.root)))
+            self.assertEqual((refusal.code, len(calls)), (code, 1))
+            self.assertNotIn("tried", refusal.message)
 
     def test_a_closed_port_is_still_a_service_that_is_not_running(self):
         closed = self.listener()
