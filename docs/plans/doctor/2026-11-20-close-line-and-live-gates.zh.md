@@ -38,3 +38,4 @@
 - authority 行（`20261120-01`、`-03`、`-05`、`-06`、`-07`）尚待用户决定。
 - 2026-11-21 `20261120-09` 计量后关闭，动作 none：在隔离的临时账本与临时市场上用 `replay explore` 计量（不是完整的封存 `line history` 路径），每段市场导出 1.4–4.2 秒，约占一段回放的 2–13%，按日交易的候选 8–12%。按导出身份共享最多省几个百分点，且只在预热、合约与 `include_*` 旗标都相同时可行，不改。
 - 2026-11-21 `20261120-04` 只修了 `validation` 运行（[#3216](https://github.com/qOeOp/trade/pull/3216)）。`history` 运行仍不能在 `Runs` 里绘制：`registration/availability.py` 对非 `research`、`validation` 用途给出 `PURPOSE_NOT_COMPARABLE`，`replay report` 因此遮蔽其读数、`--tables` 拒绝。放开属于改拒绝与可用性判定，需用户授权；不放开时，历史段读数只在 `Line-close history` 页面（`research history`）可读。
+- 2026-11-21 用户对含 `20261120-03` 的授权清单答复「我都授权」：`line history` 每次调用在跑完没有运行的段之后，把最近一次历史运行为 `invalid` 的段再回放一次（每段每次调用最多一次）；新试验取代旧的无效试验，旧试验留在账本；`research history` 每段只读最近一次有运行的试验，被取代的列在 `superseded`；统计计数把与先前计数的历史试验身份完全相同的重跑当作复现，不重复计。无效段仍算有运行，`line close` 不因它拒绝。账本 `trial` 表对历史试验没有按段的唯一约束（`op_id` 含随机工作目录），不需要新字段。

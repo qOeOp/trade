@@ -358,8 +358,9 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
     participant's `source_sha256`, its
     research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
     start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
-    the segment is left to trade) and `done` (the history trial with a run that covers it, or None). A forward
-    segment is covered by any history run trading from the holdout's end: its end moves with the market."""
+    the segment is left to trade), `done` (the latest history trial with a run that covers it, or None) and
+    `status` (that run's). A forward segment is covered by any history run trading from the holdout's end: its end
+    moves with the market."""
     record = read_line(conn, line_id)
     dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
     segments = history_segments(dev_start, dev_end, first_day, after_last)
@@ -370,20 +371,21 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
         assert trial is not None  # a participant is a run's trial
         warmup = trial["trade_start"] - trial["input_start"]
         earliest = datetime.combine(first_day, time()) + warmup
-        own = [row for row in ran if row["source_sha256"] == participant["source_sha256"]]
+        own = [row for row in reversed(ran) if row["source_sha256"] == participant["source_sha256"]]
         for segment in segments:
             start = max(datetime.combine(segment["start"], time()), earliest)
             end = datetime.combine(segment["end"], time())
             window = ({"input_start": start - warmup, "trade_start": start, "trade_end": end} if start < end
                       else None)
             if segment["kind"] == "forward":
-                done = next((row["trial_id"] for row in own if row["trade_start"] >= datetime.combine(
+                done = next((row for row in own if row["trade_start"] >= datetime.combine(
                     holdout_end(dev_end), time())), None)
             else:
-                done = next((row["trial_id"] for row in own if window is not None
+                done = next((row for row in own if window is not None
                              and (row["trade_start"], row["trade_end"]) == (start, end)), None)
             plan.append({**segment, "source_sha256": participant["source_sha256"],
-                         "trial_id": participant["trial_id"], "window": window, "done": done})
+                         "trial_id": participant["trial_id"], "window": window,
+                         "done": done["trial_id"] if done else None, "status": done["status"] if done else None})
     return plan
 
 

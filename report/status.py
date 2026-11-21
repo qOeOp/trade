@@ -152,7 +152,8 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
     """The trials that count as tests of a strategy, and the ones that do not (user decision
     2026-10-20): a reproduction (an explore trial replaying an earlier trial that has a run, with the
     same source, image digest, windows, instruments, export content and comparable configuration, or one
-    reproduction.matches)
+    reproduction.matches; a history trial with all of those of an earlier counted history trial, the rerun of an
+    invalid segment by `line history`, which looks at nothing its first trial did not)
     and a trial the product stopped before the strategy ran (stopped_before_strategy). Derived from the
     stored trial, instrument and capture rows; nothing is marked. Each counted trial carries its
     `instruments` (a list of instrument IDs)."""
@@ -167,6 +168,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
     matches = reproduction.matcher(conn)
     # Earlier trials by identity, filled in trial-ID order, so each trial looks only at its own bucket.
     with_run: set[tuple] = set()
+    history: set[tuple] = set()
     by_source: dict[tuple, list[int]] = {}
     reproductions, stopped, counted = [], [], []
     for trial in trials:
@@ -177,9 +179,10 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         source = (identity[0], *identity[2:])
         # CF-09: an explore that changes only the configuration (--leverage, --starting-balance) is a new test.
         exact = (*identity, trial["export_sha256"], trial["comparable_config_sha256"])
-        reproduced = trial["purpose"] == "explore" and (
+        reproduced = (trial["purpose"] == "explore" and (
             exact in with_run
             or any(matches(trial_id, earlier) for earlier in by_source.get(source, ())))
+            or trial["purpose"] == "history" and exact in history)
         by_source.setdefault(source, []).append(trial_id)
         if trial["status"] is not None:
             with_run.add(exact)
@@ -189,6 +192,8 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
             stopped.append(trial_id)
         else:
             counted.append(trial)
+            if trial["purpose"] == "history":
+                history.add(exact)
     return {"counted": counted, "reproductions": reproductions, "stopped_before_strategy": stopped}
 
 
