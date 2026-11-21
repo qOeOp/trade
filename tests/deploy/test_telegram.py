@@ -17,6 +17,8 @@ from deploy import notices as notices_module, release, telegram
 
 
 TOKEN = "123456789:" + "A" * 35
+NOW = 1_763_700_000 * 10**9  # the tick's clock, in ns
+HOUR = 3600 * 10**9
 HEALTHY = {path: {"status": 200, "ok": True} for path, _ in notices_module.WEB_HEALTH}
 
 
@@ -104,6 +106,7 @@ class Notices(unittest.TestCase):
         self.saved.write_text(json.dumps({"bot_token": TOKEN, "chat_id": 42}))
         self.saved.chmod(0o600)
         self.call = Telegram()
+        self.logged: list[str] = []
 
     def tick(self, error=None, runs=None, ledger=None, call=None, web=HEALTHY, services=None):
         """One tick: its own outcome, then what the routed Web showed (None: the probe failed), and the compose
@@ -125,13 +128,13 @@ class Notices(unittest.TestCase):
                 raise RuntimeError("docker inspect failed")
             return services.get(container)
 
-        notices = notices_module.Notices(self.state, call or self.call)
+        notices = notices_module.Notices(self.state, call or self.call, self.logged.append, lambda: NOW)
         notices.released(None if error is None else release.failure_summary(error))
         notices.watch(probe, condition)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             notices.send()
-        self.assertNotIn(TOKEN, stderr.getvalue())
+        self.assertNotIn(TOKEN, stderr.getvalue() + "".join(self.logged))
         return stderr.getvalue()
 
     def test_a_release_failure_is_sent_once_while_it_lasts_and_again_after_it_cleared(self):
@@ -169,6 +172,32 @@ class Notices(unittest.TestCase):
         self.tick(runs=runs[:1])
         self.assertEqual(len(self.call.texts()), 3)
 
+    def test_a_paper_run_that_ended_by_itself_is_sent_once_and_a_stop_the_user_asked_for_is_not(self):
+        """Two runs ended at the same second on PAPER_CACHE_UNAVAILABLE (2026-11-20) and nothing was sent. The runs
+        are as the runs probe gives them (deploy/release_host.py PROBE)."""
+        def run(paper_id, stop, ended=HOUR, reasons=None, state="sealed"):
+            return {"id": paper_id, "candidate": "rsi2@3", "state": state, "containers": 0, "last": None,
+                    "recovery": None, "unprotected": [], "stop_reason": stop,
+                    "stopped_ns": None if ended is None else NOW - ended,
+                    "reasons": [f"STOPPED:{stop}"] if reasons is None else reasons}
+        runs = [run(7, "PAPER_CACHE_UNAVAILABLE", reasons=["REFUSED:PAPER_CACHE_UNAVAILABLE",
+                                                            "STOPPED:PAPER_CACHE_UNAVAILABLE"]),
+                run(8, None, reasons=["RUNNER_EXIT_NONZERO", "SUMMARY_MISSING", "<b>"]),
+                run(9, "STOP_FILE", reasons=[]), run(10, "DURATION", reasons=[]),
+                run(11, "SIGTERM", ended=25 * HOUR),  # ended before the day this notice looks back over
+                run(12, None, reasons=["START_FAILED", "JOURNAL_MISSING"]),
+                run(13, None, ended=None, reasons=["JOURNAL_MISSING"]), run(14, None, state="ended", reasons=None)]
+        self.tick(runs=runs)
+        self.tick(runs=runs)
+        self.assertEqual(self.call.texts(), [
+            "Paper run 7 (rsi2@3) ended by itself: PAPER_CACHE_UNAVAILABLE. It is sealed with its journal and runner "
+            "log (REFUSED:PAPER_CACHE_UNAVAILABLE, STOPPED:PAPER_CACHE_UNAVAILABLE); see the Paper page.",
+            "Paper run 8 (rsi2@3) ended by itself: no_summary. It is sealed with its journal and runner log "
+            "(RUNNER_EXIT_NONZERO, SUMMARY_MISSING); see the Paper page."])
+        self.tick(runs=[run(7, "PAPER_CACHE_UNAVAILABLE", ended=25 * HOUR), runs[1]])  # a day later: cleared
+        self.tick(runs=runs[:2])
+        self.assertEqual(len(self.call.texts()), 3)
+
     def test_a_held_runs_unprotected_position_is_sent_once_while_it_lasts(self):
         """User 2026-11-17: a held position with no working stop stays held and is named at once."""
         runs = [{"id": 7, "candidate": "rsi2@3", "state": "running", "recovery": None, "unprotected": ["P-1", "<b>"]}]
@@ -202,19 +231,31 @@ class Notices(unittest.TestCase):
     def test_an_unsent_notice_is_retried_in_order_and_one_telegram_refuses_is_not(self):
         failed = RuntimeError("Agent changed before commit")
         runs = [{"id": 7, "candidate": "rsi2@3", "recovery": "PAPER_FAILED"}]
-        self.assertIn("Failure notice not sent: network", self.tick(failed, runs, call=Telegram(
-            [telegram.Failure("network")])))
+        self.tick(failed, runs, call=Telegram([telegram.Failure("network")]))
+        self.assertEqual([line.split(" ", 3)[2:] for line in self.logged], [
+            ["release", "release:Agent identity changed not sent (network): retried next tick: \"Release tick failed "
+                        "on the host: Agent identity changed. Web and the Paper controller each stay on the route "
+                        "they last committed; see journalctl -u trade-release.service.\""],
+            ["paper", "paper:7:PAPER_FAILED not sent (network): retried next tick: \"Paper run 7 (rsi2@3) stopped "
+                      "and could not resume: PAPER_FAILED. It stays stopped with its account and originals; see the "
+                      "Paper page.\""]])
+        self.assertRegex(self.logged[0], r"\ANotice \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00 ")
         self.tick(failed, runs)
         self.assertEqual(len(self.call.texts()), 2)
+        self.assertEqual([" sent: " in line for line in self.logged[2:]], [True, True])
         refusing = Telegram([telegram.Failure("http_4xx", 400)])
         self.tick(failed, [], {"unpublished": True, "behind_seconds": 3600, "diverged": False}, call=refusing)
         self.tick(failed, [], {"unpublished": True, "behind_seconds": 3600, "diverged": False}, call=refusing)
         self.assertEqual(len(refusing.calls), 1)
+        self.assertIn("ledger:behind refused by Telegram (http_4xx): ", self.logged[-1])
+        self.assertEqual(len(self.logged), 5, "a fact marked sent is not logged again")
 
     def test_without_a_custody_root_or_a_saved_token_nothing_is_sent_or_marked_and_nothing_raises(self):
         failed = OSError("disk")
         self.saved.unlink()
         self.tick(failed)
+        self.assertIn(" release release:filesystem or operating-system operation failed not sent: no Telegram chat saved: ",
+                      self.logged[-1])
         self.saved.write_text(json.dumps({"bot_token": TOKEN, "chat_id": 42}))
         self.saved.chmod(0o644)
         self.assertIn("Failure notices not sent: ValueError", self.tick(failed))

@@ -7,6 +7,7 @@ or once sealed) never reach the page."""
 from __future__ import annotations
 
 from contextlib import redirect_stderr
+from datetime import UTC, datetime
 
 import gzip
 import http.client
@@ -17,6 +18,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -234,6 +236,27 @@ class JournalTests(unittest.TestCase):
         record = json.dumps(FAILURE).encode()
         self.assertEqual(serve.failure_records(record[40:] + b"\n" + record + b"\n" + record[:30]), [FAILURE])
 
+
+
+class OrphanTests(unittest.TestCase):
+    def test_a_runs_age_reads_its_naive_created_at_as_utc_whatever_the_hosts_zone(self):
+        created = datetime(2026, 11, 8, 14, 0)  # the ledger's UTC_TIMESTAMP, read back naive
+        start = created.replace(tzinfo=UTC).timestamp()
+        zone = os.environ.get("TZ")
+        try:
+            for name in ("Asia/Tokyo", "America/New_York", "UTC"):
+                os.environ["TZ"] = name
+                time.tzset()
+                for age, orphan in ((599, False), (601, True)):
+                    with self.subTest(zone=name, age=age):
+                        self.assertIs(serve.orphaned({"state": "unsealed", "created_at": created}, start + age), orphan)
+                self.assertFalse(serve.orphaned({"state": "running", "created_at": created}, start + 601))
+        finally:
+            if zone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = zone
+            time.tzset()
 
 
 class RestartTests(unittest.TestCase):

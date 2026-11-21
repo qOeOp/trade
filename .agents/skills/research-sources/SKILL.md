@@ -35,7 +35,7 @@ Without a key, call each source keyless where it allows that (the references say
 |---|---|
 | Papers on a topic, including SSRN, NBER and RePEc working papers | OpenAlex and Crossref |
 | Which paper states a specific claim | Semantic Scholar snippet search, then read that paper |
-| Citing, cited and similar work | OpenAlex `cites:` and `cited_by_count`; Semantic Scholar |
+| Citing and cited work | OpenAlex `cites:`, `cited_by:` and `cited_by_count` |
 | Versions of one paper | OpenAlex DOI filter and titles; Semantic Scholar `externalIds` |
 | Open full text | [papers.md](references/papers.md) Full text; then step 4 |
 | Secondary accounts of a method | Web search, only after the indexes; step 4 |

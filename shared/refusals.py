@@ -414,6 +414,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "PAPER_RUN_UNKNOWN": ("List the runs with `paper list`.",),
     "PAPER_RUN_ACTIVE": ("Stop it with `paper stop --paper-id N`, which also seals it.",),
     "PAPER_MEMORY_FULL": ("Stop a running one with `paper stop --paper-id N`, then start again.",),
+    "PAPER_RECOVERY_UNDECLARED": ("Publish a new candidate whose entry class declares `PAPER_RECOVERY = 1` and "
+                                  "implements `on_save` and `on_load` (research-round "
+                                  "`references/strategy-authoring.md`), then start that one.",),
     "PAPER_START_FAILED": ("Read the error, repair the runtime or Docker, then start a new run.",),
     # Paper comparison (paper/compare.py)
     "PAPER_COMPARE_EMPTY": ("Compare a run that received at least one bar.",),

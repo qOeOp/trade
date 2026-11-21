@@ -321,7 +321,7 @@ Before exposing a host to untrusted strategy authors, validate a rootless execut
 from one another; the team is for trusted operators only.
 
 Acceptance requires: unauthenticated page/API/SSE denial, a GitHub user outside the team denied (a member of the
-organization outside the team included), a team member admitted, expired login does not stop runners, source/host/CSRF checks still hold, bounded logs, and a native
+organization outside the team included), a team member admitted, expired login does not stop runners, source/host/CSRF checks still hold, logs in the host journal, and a native
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
 
 The mirror's controller syncs the configured read-only research mirror from DoltHub at start and every
@@ -340,6 +340,25 @@ controller. Execution records and native originals need persistent disk and sepa
 profile prevents DoltHub publication. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
 limits and 4-core/8-GB evaluation scope.
+
+## Logs
+
+Every long-lived container on this host logs to the host journal through Docker's `journald` driver, tagged with
+its container name: the release's Web, Agent, Paper controller and Live control containers (`deploy/release_host.py`
+`contained`), the compose services ledger, market-import and docker-api, and the routers, OAuth2 Proxy and Caddy
+(`compose.yaml`, `cd.compose.yaml`, `paper-cd.compose.yaml` here). So a container's log outlives the container: a
+release recreates and prunes containers, and the log of one removed is still there. `journalctl -t <container>` reads
+one (`journalctl -t trade-ide-market-import-1 --since -2d`); `docker logs` still reads a running one. market-import
+prints each round's status as one JSON line, so its rounds' history is in its log. The release tick prints every
+failure notice's text with its UTC time, kind, key and whether Telegram took it (`journalctl -u
+trade-release.service --grep '^Notice '`), and the Live control prints each Live notice the same way; the token
+never. A kernel out-of-memory kill is in `journalctl -k`.
+
+The journal survives a reboot when it is persistent (Ubuntu's default: `/var/log/journal` exists) and journald's
+own size cap bounds it (by default a tenth of the file system, at most 4 GB). `journalctl --disk-usage` and
+`journalctl --list-boots` show both. Strategy containers keep Docker's `json-file` log (docker-api admits only that):
+a Paper run's seal keeps its runner log's last MiB and its egress log, and Live archives each container's log in its
+root when the run ends ([Live on this host](#live-on-this-host)).
 
 ## Rolling back
 

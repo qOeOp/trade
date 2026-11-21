@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper): `paper start` (and the IDE's Paper start) refuses a candidate whose source never names one of
+  `PAPER_RECOVERY`, `on_save` and `on_load` with `PAPER_RECOVERY_UNDECLARED`, before it copies the source or starts a
+  container: such a source cannot declare Paper recovery, so a release, host restart or short stall ended or held its
+  run (remote runs 2, 3 and 4). A source that names all three still starts, and the runner's own verdict
+  (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
+  with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
+
 - Paper and Live funding: a settlement at which a position was open and the published rate or MARK is unknown
   has an unknown funding (None) instead of 0; the seal's `limitations` names how many there were, and the equity
   leaves them out.
@@ -36,6 +43,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
   check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
   start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).
+- Paper: a declared run's age before the daemon seals it as an orphan reads the ledger's `created_at` as UTC; on a
+  host outside UTC it used the host's zone, so east of UTC a run just started could be sealed at once and west of it
+  an orphan waited hours (doctor 20261108-02).
 - Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
   OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
   `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
@@ -61,6 +71,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   browser's kept one) are one `research unchanged` path. The product reads other than graphs (reports, comparisons,
   states, counts, bars, the line index, history, readings, ledger status) share one cache of at most 64 MiB of JSON,
   least recently used dropped first, in place of eight caches each capped at a count of entries.
+
+- Release host evidence: every long-lived container (the release's Web, Agent, Paper controller and Live control; the
+  ledger mirror, market-import and docker-api; the routers, OAuth2 Proxy and Caddy) logs to the host journal through
+  Docker's `journald` driver, tagged with its container name, instead of a 30 MB `json-file` log that went with the
+  container when a release recreated or pruned it (market-import's unhealthy spell on 2026-11-20 left no log after
+  the v0.4.4 release). The release tick and the Live control print each Telegram notice's text, time, kind, key and
+  outcome to their logs. A sealed Paper run that ended by itself (a runner refusal such as PAPER_CACHE_UNAVAILABLE, a
+  runner exit, a stop the user did not ask for) within the last day is now a Telegram notice; the user's Stop and the
+  run's own duration are not. The workstation compose keeps `json-file` (Docker Desktop has no journald);
+  `deploy/remote/README.md`, Logs.
 
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
@@ -89,6 +109,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   control's own restart included; STOP still works. Upgrade: Live must be idle; an old `requests/` (and
   `universes/`) directory is no longer read and is left on disk
   ([decision](docs/plans/live-request-log-removal-20261121.zh.md)).
+
+- `research-round`: before weighing a change of approach, the Agent lists the duties no version of the line has
+  changed (`research graph`'s `duties`) and the recommended header's `default` duties, and at least one approach
+  changes one of them or says why none can act on the bottleneck (on the last ledger, 59 of 78 derivations changed
+  C2, F3, A3 or B1 and none of 12 changes of approach named the 8 duties never tried). The duty directory places
+  risk at a fixed fraction of current equity under E1, so E3 is `adopted` only when a rule changes that fraction
+  after gains, losses or drawdown (all four roots of the last ledger marked E3 adopted for fixed-fraction sizing;
+  `docs/plans/duty-directory-recheck-20261121.zh.md`).
 
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
