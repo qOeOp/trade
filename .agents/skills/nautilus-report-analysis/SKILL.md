@@ -66,7 +66,7 @@ and returned fields.
   window, sub-periods or rolling) and before a deflated Sharpe.
 - [capital.md](references/capital.md): before reading capital use, drawdown, holding structure or
   capacity.
-- [exit-reasons.md](references/exit-reasons.md): before an entry-plan × exit-reason table or
-  splitting contributions by exit.
+- [exit-reasons.md](references/exit-reasons.md): before reading net PnL by exit, an entry-plan ×
+  exit-reason table or splitting contributions by exit.
 - [depth.md](references/depth.md): before reading fill sizes, liquidation prices or slippage of a
   quote-execution run (`execution` is `quotes` in the run's summary).
