@@ -180,7 +180,7 @@ class TamperTests(unittest.TestCase):
         backed = admin.export_history(self.profile, self.profile.backup_root)["commit"]
         self.admin_sql("CALL DOLT_COMMIT('--amend', '--allow-empty', '-m', 'tamper: amend the backed-up head')")
         self.admin_sql("SET FOREIGN_KEY_CHECKS = 0",
-                       "INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (9999, 'AAAUSDT')",
+                       "INSERT INTO trial_instrument (trial_id, symbol) VALUES (9999, 'AAAUSDT')",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: a dangling instrument', '--skip-verification')")
         with self.reader() as conn:
             found = review.review_all(conn)

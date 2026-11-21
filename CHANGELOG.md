@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
+  schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
+  still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`
+  holds a cross-image reproduction's semantic fingerprint in `run.fingerprints`' shape (`{table: {rows, sha256}}`)
+  instead of `{table: sha256}`. The upgrade drops the generation 1 ledger: every command refuses it with
+  `SCHEMA_MISMATCH`, and research restarts on a new ledger.
+
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
   Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host

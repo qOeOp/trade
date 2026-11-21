@@ -354,7 +354,7 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
                             "WHERE t.source_sha256 = %s AND t.execution = 'bars' ORDER BY t.trial_id",
                             (source_sha256,))
         instruments: dict[int, set] = {}
-        for trial_id, symbol in reader.rows("SELECT i.trial_id, i.instrument_id FROM trial_instrument i "
+        for trial_id, symbol in reader.rows("SELECT i.trial_id, i.symbol FROM trial_instrument i "
                                             "JOIN trial t ON t.trial_id = i.trial_id WHERE t.source_sha256 = %s",
                                             (source_sha256,)):
             instruments.setdefault(trial_id, set()).add(symbol)

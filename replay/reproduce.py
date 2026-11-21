@@ -112,8 +112,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
             identical = reproduction.matches(conn, reproduction_id, trial_id)
     finally:
         registration_inputs.cleanup(exported)
-    differing = reproduction.differing_tables({table: entry_.get("sha256") for table, entry_ in (fingerprints or {}).items()},
-                                              expected or {})
+    differing = reproduction.differing_tables(fingerprints or {}, expected or {})
     if expected is None or fingerprints is None or not identical or (same_image and fingerprints != expected):
         why = ("the run has no recorded semantic fingerprint" if expected is None else
                "the runtime image computed no semantic fingerprint" if fingerprints is None else
