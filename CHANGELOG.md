@@ -26,6 +26,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+## 0.4.4 (2026-11-21)
+
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its
   editable package), instead of the file's bytes (user decision 2026-11-21). A release, which bumps only that
   version, no longer rebuilds the replay image or leaves Live without replay evidence (`LIVE_EVIDENCE_MISSING`); a
