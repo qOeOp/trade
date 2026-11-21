@@ -141,7 +141,7 @@ def paper_files(conn: db.LedgerConnection, paper_id: int, *wanted: str) -> dict[
     exact = [name for name in wanted if not name.endswith("/")]
     under = [name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
              for name in wanted if name.endswith("/")]
-    clauses = ([f"path IN ({', '.join(['%s'] * len(exact))})"] if exact else []) + ["path LIKE %s"] * len(under)
+    clauses = ([f"path IN ({db.marks(exact)})"] if exact else []) + ["path LIKE %s"] * len(under)
     where = f" AND ({' OR '.join(clauses)})" if clauses else ""
     return {row["path"]: bytes(row["content"]) for row in conn.dicts(
         f"SELECT path, content FROM paper_file WHERE paper_id = %s{where} ORDER BY path", (paper_id, *exact, *under))}
