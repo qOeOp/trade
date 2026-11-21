@@ -26,6 +26,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE Research page: clicking a bar in the Progress chart now selects that version in Details, as Enter on the
+  chart and a click on the Scatter already did; before, it only moved the lineage to it.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
