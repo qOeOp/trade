@@ -30,9 +30,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import series, universe
+from market import universe
 from market.sources import DAY, _refuse
 from shared import paths, profiles
+from shared import clock
 
 
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
@@ -226,7 +227,7 @@ def relative_path(table: str, month: date | None, symbol: str | None = None) -> 
 
 
 def data_file(table: str, month: date | None, symbol: str | None = None) -> DataFile:
-    low, high = (series._day_ms(month), series._day_ms(universe.next_month(month))) if month is not None else (0, FOREVER)
+    low, high = (clock.day_ms(month), clock.day_ms(clock.next_month(month))) if month is not None else (0, FOREVER)
     return DataFile(relative_path(table, month, symbol), table, symbol, low, high)
 
 
@@ -303,7 +304,7 @@ def last_day(market: Market, table: str) -> date | None:
     for entry in reversed(entries(market, table)):
         moment = last_time(market, entry)
         if moment is not None:
-            return series.ms_day(moment)
+            return clock.ms_day(moment)
     return None
 
 
@@ -313,7 +314,7 @@ def bar_months_through(market: Market) -> dict[date, date]:
     for entry in entries(market, "bar"):
         moment = last_time(market, entry)
         if moment is not None:
-            found[series.ms_day(entry.start_ms)] = series.ms_day(moment) + timedelta(days=1)
+            found[clock.ms_day(entry.start_ms)] = clock.ms_day(moment) + timedelta(days=1)
     return found
 
 
@@ -324,13 +325,13 @@ def followed_metrics(market: Market) -> dict[str, date]:
     held = entries(market, "metrics")
     if not held:
         return {}
-    since = series._day_ms((series.ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
+    since = clock.day_ms((clock.ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
         moment = last_time(market, entry) if entry.start_ms >= since else None
         if moment is not None:
             symbol = str(entry.symbol)
-            latest[symbol] = max(latest.get(symbol, series.ms_day(moment)), series.ms_day(moment))
+            latest[symbol] = max(latest.get(symbol, clock.ms_day(moment)), clock.ms_day(moment))
     return latest
 
 
@@ -349,7 +350,7 @@ def latest_day(market: Market) -> date | None:
     metrics = _metrics_day(market)
     day = bars if metrics is None else min(bars, metrics)
     after = day + timedelta(days=1)
-    if after.day == 1 and not entries(market, "universe_month", None, series._day_ms(after), series._day_ms(universe.next_month(after))):
+    if after.day == 1 and not entries(market, "universe_month", None, clock.day_ms(after), clock.day_ms(clock.next_month(after))):
         return day - timedelta(days=1)
     return day
 
@@ -392,8 +393,8 @@ def day_end(table: str, market_day: str) -> int:
     if day is None:
         raise _refuse(f"{market_day!r} is not a market day", "MARKET_DAY_UNRESOLVED", missing=(str(market_day),))
     if table == "universe_month":
-        return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
-    return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY
+        return clock.day_ms(clock.next_month((day + timedelta(days=1)).replace(day=1)))
+    return clock.day_ms(day) + (2 if table == "instrument" else 1) * DAY
 
 
 def _visible(table: str, market_day: str | None, end_ms: int | None) -> int | None:
@@ -624,7 +625,7 @@ def data_tests(market: Market) -> list[str]:
     latest = pc.max(months.column("month")).as_py()
     newest = months.filter(pc.equal(months.column("month"), pa.scalar(latest, pa.date32())))
     members = sorted(set(newest.column("symbol").to_pylist()))
-    eve = series._day_ms(latest) - DAY
+    eve = clock.day_ms(latest) - DAY
     traded = set()
     for batch in read_table(market, None, "bar", members, eve, eve + DAY):
         minute = pa.array(batch.column("ts_open").to_numpy(zero_copy_only=False) % 60_000 == 0)

@@ -18,8 +18,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import sources, universe
+from market import sources
 from market.sources import DAY, KLINE_SCHEMA, MINUTE, MarketError, _refuse
+from shared import clock
 
 
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
@@ -42,28 +43,15 @@ def _same_row(a: dict, b: dict) -> bool:
 PRICE_TYPES = ("LAST", "MARK")
 
 
-def ms_day(value: int) -> date:
-    return datetime.fromtimestamp(value / 1000, UTC).date()
-
-
-def _day_ms(value: date) -> int:
-    return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp() * 1000)
-
-
-def _months(start_ms: int, end_ms: int) -> list[str]:
-    first, last = ms_day(start_ms).replace(day=1), ms_day(end_ms - 1).replace(day=1)
-    return [month.strftime("%Y-%m") for month in universe.months(first, last)]
-
-
 def _bounds(period: str) -> tuple[int, int]:
     """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
     day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
-    return _day_ms(day), _day_ms(universe.next_month(day) if len(period) == 7 else day + timedelta(days=1))
+    return clock.day_ms(day), clock.day_ms(clock.next_month(day) if len(period) == 7 else day + timedelta(days=1))
 
 
 def _days(start_ms: int, end_ms: int, month: str | None = None) -> list[str]:
-    found, day = [], ms_day(start_ms)
-    while _day_ms(day) < end_ms:
+    found, day = [], clock.ms_day(start_ms)
+    while clock.day_ms(day) < end_ms:
         if month is None or day.strftime("%Y-%m") == month:
             found.append(day.isoformat())
         day += timedelta(days=1)
@@ -163,7 +151,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     if start_ms % MINUTE or end_ms % MINUTE:
         raise _refuse(f"{label}: [{start_ms}, {end_ms}) is not on the minute grid", "SOURCE_SHAPE")
     kind = sources.KIND_OF[price_type]
-    months = _months(start_ms, end_ms)
+    months = clock.month_names(start_ms, end_ms)
     monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months)
     parts = [_tagged(sources.archive_table(path, period, *_bounds(period)), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
@@ -222,11 +210,11 @@ def no_source(cache: Path, symbol: str, start_ms: int, end_ms: int, onboard: int
     the contract did not trade then: the month ended before its onboard time, or the contract no longer trades and
     the month after next has begun (a month's archives come out early in the next one). A relisted contract's months
     before its latest onboard time keep their archives, so they are no such month."""
-    month = ms_day(start_ms).replace(day=1)
-    settled = universe.next_month(universe.next_month(month)) <= datetime.now(UTC).date()
+    month = clock.ms_day(start_ms).replace(day=1)
+    settled = clock.next_month(clock.next_month(month)) <= datetime.now(UTC).date()
     if not (onboard is not None and end_ms <= onboard or not trading and settled):
         return False
-    months = _months(start_ms, end_ms)
+    months = clock.month_names(start_ms, end_ms)
     return not any(sources.monthly_archives(cache, kind, symbol, interval, months) for kind, interval in (
         (sources.KIND_OF["LAST"], "1m"), (sources.KIND_OF["MARK"], "1m"), ("fundingRate", None)))
 

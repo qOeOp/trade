@@ -12,12 +12,13 @@ import argparse
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 import subprocess
 
 from ledger.execution import IDENTITY_FIELDS
 from shared import paths
+from shared import clock
 from shared.refusals import refuse
 
 
@@ -148,13 +149,6 @@ def require_current() -> None:
 
 # Runner arguments (engine.parse_window and the runner's selection flags)
 
-def _ns(text: str) -> int:
-    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    offset = moment.utcoffset()  # None exactly when the text has no zone
-    if offset is None or offset.total_seconds() != 0:
-        raise ValueError(f"{text!r} is not a UTC time")
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
-
 
 class _RunnerParser(argparse.ArgumentParser):
     def error(self, message):
@@ -177,9 +171,9 @@ def runner_inputs(runner_argv: list[str]) -> dict:
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
         raise refuse("TRADE_TICKS_NEED_QUOTES", "--trade-ticks needs --execution quotes", missing=("--execution",))
-    start = _ns(known.start)
-    window = {"start": start, "trade_start": _ns(known.trade_start) if known.trade_start else start,
-              "end": _ns(known.end)}
+    start, trade_start, end = (clock.moment_ns(clock.utc(text)) if text else None
+                               for text in (known.start, known.trade_start, known.end))
+    window = {"start": start, "trade_start": start if trade_start is None else trade_start, "end": end}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,
             "execution": known.execution, "trade_ticks": known.trade_ticks, "metrics": known.metrics}

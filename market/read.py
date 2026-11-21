@@ -20,6 +20,7 @@ import pyarrow.compute as pc
 
 from market import coverage, export, files, instrument, series, universe
 from market.sources import DAY as DAY_MS, MINUTE, _refuse
+from shared import clock
 
 
 DAY = timedelta(days=1)
@@ -72,14 +73,14 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
         if month.strftime("%Y-%m") in months:
             members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
     symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
-    first_close = series._day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
+    first_close = clock.day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
     for batch in files.scan(market, market_day, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
-            closes.setdefault(symbol, {})[series.ms_day(ts_open).isoformat()] = close
+            closes.setdefault(symbol, {})[clock.ms_day(ts_open).isoformat()] = close
     return {**returns_from(closes, members, days), "market_day": market_day, "universe_rule": universe_rule}
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 import gzip
 import hashlib
@@ -32,6 +32,7 @@ import tempfile
 from engine.config import ACCOUNT_CONTRACT, instrument_id, symbol_of
 from engine.kline_events import received
 from ledger import db, metrics, strategies
+from shared import clock
 from shared.refusals import refuse
 
 
@@ -185,11 +186,6 @@ def _decimal(value) -> Decimal | None:
 
 
 MINUTE_NS = 60 * 10**9
-
-
-def _month_end(ns: int) -> int:
-    moment = datetime.fromtimestamp(ns // 10**9, UTC)
-    return int(datetime(moment.year + moment.month // 12, moment.month % 12 + 1, 1, tzinfo=UTC).timestamp()) * 10**9
 
 
 def sealed_journal(files: Mapping[str, bytes]) -> list[dict]:
@@ -367,14 +363,15 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     asked = max((line["wall_ns"] for line in lines if line["kind"] == "stop_requested"), default=None)
     end = max(_ceil_minute(asked or summary["stopped_ns"]), start + MINUTE_NS)
     universe = json.loads((inputs / "universe.json").read_bytes())["membership"]
-    first_month_end = _month_end(start)
+    first_month_end = clock.month_end(start // clock.MS_NS) * clock.MS_NS
     membership = {symbol: [[max(low, start), min(high, first_month_end)] for low, high in universe.get(symbol, [])
                            if high > start and low < first_month_end] for symbol in row["symbols"]}
     for line in lines:
         if line["kind"] == "membership" and line.get("member") is True and line.get("symbol") in membership:
-            month = int(datetime.strptime(line["month"], "%Y-%m").replace(tzinfo=UTC).timestamp()) * 10**9
-            if [month, _month_end(month)] not in membership[line["symbol"]]:
-                membership[line["symbol"]].append([month, _month_end(month)])
+            month = date.fromisoformat(line["month"] + "-01")
+            span = [clock.day_ns(month), clock.day_ns(clock.next_month(month))]
+            if span not in membership[line["symbol"]]:
+                membership[line["symbol"]].append(span)
     closed = [line for line in lines if line["kind"] == "position" and line.get("type") == "PositionClosed"]
     ended = {line.get("client_order_id"): line.get("type") for line in lines if line["kind"] == "order"
              and line.get("type") in ("OrderDenied", "OrderRejected")}

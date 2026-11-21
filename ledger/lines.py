@@ -16,13 +16,14 @@ Closing a line records the Agent's summary: the line's end and an index for late
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 import itertools
 import json
 import re
 
 from ledger import db, review_activity, strategies
 from ledger import targets as line_targets
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -168,10 +169,6 @@ def development_period(today: date, latest_complete_day: date, covered: date | N
     return _quarters_after(dev_end, -length), dev_end
 
 
-def _ns(day: date) -> int:
-    return int(datetime.combine(day, time(), UTC).timestamp()) * 10**9
-
-
 def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start_ns: int, end_ns: int,
                         latest_complete_day: date, covered: date | None = None, today: date | None = None) -> None:
     """Where an explore or precheck replay may trade (line-close-history-test-20261110.zh.md 3.2, B5): with `line`,
@@ -195,7 +192,7 @@ def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start
             earliest = min(held, key=lambda item: item["dev_end"])
             end = date.fromisoformat(earliest["dev_end"])
             allowed += f", before the holdout of the open line {earliest['name']}"
-    if not _ns(first) <= trade_start_ns < end_ns <= _ns(end):
+    if not clock.day_ns(first) <= trade_start_ns < end_ns <= clock.day_ns(end):
         raise refuse("WINDOW_OUTSIDE_DEVELOPMENT", f"the trading window must lie inside {allowed}: from {first} to "
                                                    f"{end} (exclusive)", expected=f"{first} <= trade window <= {end}")
 

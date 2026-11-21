@@ -21,6 +21,7 @@ from ledger import db, lines, metrics, strategies, trials
 from registration import inputs as registration_inputs, seams as registration_seams
 from replay import entry, reproduce
 from report import history as report_history, measures
+from shared import clock
 
 
 def _sharpe(conn: db.LedgerConnection, trial_id: int) -> float | None:
@@ -53,8 +54,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
         window = item["window"]
         recorded, runner_argv, flags = reproduce.stored_runner_argv(
             stored, window["input_start"], window["trade_start"], window["trade_end"])
-        span = {"start": metrics.moment_ns(window["input_start"]),
-                "trade_start": metrics.moment_ns(window["trade_start"]), "end": metrics.moment_ns(window["trade_end"])}
+        span = {"start": clock.moment_ns(window["input_start"]),
+                "trade_start": clock.moment_ns(window["trade_start"]), "end": clock.moment_ns(window["trade_end"])}
         # The segment changes only the window: the image must give the run's configuration otherwise unchanged.
         effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")
         exported = None

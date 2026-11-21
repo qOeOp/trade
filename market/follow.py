@@ -17,7 +17,8 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, files, metrics, quotes, series, sources, store, universe
+from market import aggtrades, files, metrics, quotes, sources, store, universe
+from shared import clock
 
 
 KINDS = ("bars", "metrics", "trades", "quotes")
@@ -96,7 +97,7 @@ def _month(day: date) -> date:
 
 
 def _days(month: date, today: date) -> list[date]:
-    end = min(universe.next_month(month), today)
+    end = min(clock.next_month(month), today)
     return [month + timedelta(days=n) for n in range((end - month).days)]
 
 
@@ -140,14 +141,14 @@ def bar_months(through: dict[date, date], first: date, today: date) -> tuple[dat
         month = first
     else:
         earliest, latest = min(through), max(through)
-        gaps = [month for month in universe.months(earliest, latest) if month not in through]
+        gaps = [month for month in clock.months(earliest, latest) if month not in through]
         if first < earliest:
             month = (earliest - timedelta(days=1)).replace(day=1)
         elif gaps:
             month = gaps[0]
         else:
-            month = universe.next_month(latest) if through[latest] == universe.next_month(latest) else latest
-    return month, min(universe.next_month(month), today)
+            month = clock.next_month(latest) if through[latest] == clock.next_month(latest) else latest
+    return month, min(clock.next_month(month), today)
 
 
 def _bars_ready(cache: Path, symbols: list[str], day: date) -> bool:
@@ -187,9 +188,9 @@ def _bars(profile: dict, listing: dict, scope: Scope, cache: Path, today: date, 
 def following(held: set[date], first: date, skipped=()) -> date:
     """The next month to import of a contract holding the months `held`: the month after the latest, or `first`, past
     the `skipped` months."""
-    month = universe.next_month(max(held)) if held else first
+    month = clock.next_month(max(held)) if held else first
     while month in skipped:
-        month = universe.next_month(month)
+        month = clock.next_month(month)
     return month
 
 
@@ -200,12 +201,12 @@ def _after(month: date, skipped=()) -> date:
 
 def holes(held: set[date], first: date) -> list[date]:
     """The months from `first` to the latest held one that are not held."""
-    return [month for month in universe.months(first, max(held)) if month not in held] if held else []
+    return [month for month in clock.months(first, max(held)) if month not in held] if held else []
 
 
 def _keys(symbol: str, month: date, eve: bool = True) -> list[str]:
     """The daily archives an import of `month` reads: the eve (the carried state), with `eve`, and every day."""
-    days = ([month - timedelta(days=1)] if eve else []) + _days(month, universe.next_month(month))
+    days = ([month - timedelta(days=1)] if eve else []) + _days(month, clock.next_month(month))
     return [sources.aggtrades_key(symbol, day.isoformat()) for day in days]
 
 
@@ -218,8 +219,8 @@ def _published(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
 def _overtaken(cache: Path, symbol: str, month: date, today: date, earlier: bool) -> bool:
     """Whether a month whose archives are not all out stops being waited for: it closed GIVE_UP_DAYS ago, or the whole
     of the closed month after it is out. A day published later still comes in as a hole."""
-    after = universe.next_month(month)
-    return (today - after).days >= GIVE_UP_DAYS or (universe.next_month(after) <= today
+    after = clock.next_month(month)
+    return (today - after).days >= GIVE_UP_DAYS or (clock.next_month(after) <= today
                                                     and _published(cache, symbol, after, earlier))
 
 
@@ -245,7 +246,7 @@ def _sound(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
     broken aggTrade sequence or any other refusal of an archive's content, so a hole whose gap is still there
     never takes the lock to write the days before the gap and roll them back."""
     try:
-        for _ in aggtrades.month_rows(cache, symbol, series._day_ms(month), series._day_ms(universe.next_month(month)),
+        for _ in aggtrades.month_rows(cache, symbol, clock.day_ms(month), clock.day_ms(clock.next_month(month)),
                                       earlier):
             pass
     except sources.MarketError:
@@ -267,7 +268,7 @@ def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
     market = files.open_market(profile, "reader")
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     for entry in files.entries(market, TABLES[kind], symbols):
-        found[str(entry.symbol)].add(series.ms_day(entry.start_ms))
+        found[str(entry.symbol)].add(clock.ms_day(entry.start_ms))
     return found
 
 
@@ -289,7 +290,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
 
     while pending:
         month = min(pending.values())
-        if universe.next_month(month) > today:
+        if clock.next_month(month) > today:
             return
         due = [symbol for symbol, value in pending.items() if value == month]
         ready = []
@@ -462,7 +463,7 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                 first = scope.trades_from if kind == "trades" else scope.quotes_from
                 due = following(listing[kind][symbol], first, memory.skipped.get((kind, symbol), ()))
                 entry["next_month"] = f"{due:%Y-%m}"
-                closed = universe.next_month(due)
+                closed = clock.next_month(due)
                 entry["state"] = ("caught_up" if closed > today else "lagging" if closed < lag else "waiting")
 
 

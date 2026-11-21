@@ -10,10 +10,11 @@ non-coin underlyings (equities, commodities and other TRADIFI) and stablecoin ba
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 import json
 
 from market.sources import _refuse
+from shared import clock
 
 
 RULE = "usdt-perp-listed30d-v1"
@@ -55,19 +56,6 @@ def _first_day(value) -> bool:
     return isinstance(value, date) and not isinstance(value, datetime) and value.day == 1
 
 
-def next_month(month: date) -> date:
-    return (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-
-
-def months(first: date, last: date) -> list[date]:
-    """The first days of the months from `first` through `last` (both first days of a month)."""
-    found = []
-    while first <= last:
-        found.append(first)
-        first = next_month(first)
-    return found
-
-
 def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], month: date) -> list[str]:
     """market.monthly_universe: the sorted member symbols of the month start `month`. A member traded on
     the day before the month and its unbroken run of trading days up to it is at least LISTED_DAYS long."""
@@ -86,15 +74,11 @@ def monthly_universe(classifications: list[dict], trading_days: dict[str, set[da
     return members
 
 
-def _month_ns(month: date) -> int:
-    return int(datetime(month.year, month.month, 1, tzinfo=UTC).timestamp()) * 10**9
-
-
 def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]:
     """Each member month as [month start, next month start) in UTC nanoseconds; touching intervals merge."""
     paths: dict[str, list[list[int]]] = {}
     for month, symbol in sorted(rows, key=lambda row: (row[1], row[0])):
-        start, end = _month_ns(month), _month_ns(next_month(month))
+        start, end = clock.day_ns(month), clock.day_ns(clock.next_month(month))
         intervals = paths.setdefault(symbol, [])
         if intervals and intervals[-1][1] == start:
             intervals[-1][1] = end
@@ -130,9 +114,9 @@ def membership_path(market, market_day: str, window_end: int) -> dict:
     if not rows:
         raise _refuse(f"market day {market_day} has no universe month", "UNIVERSE_EMPTY_AT_DAY", missing=(market_day,))
     last = max(month for month, _ in rows)
-    if _month_ns(next_month(last)) < window_end:
+    if clock.day_ns(clock.next_month(last)) < window_end:
         raise _refuse(f"the universe at {market_day} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
-                      missing=(next_month(last).strftime("%Y-%m"),))
+                      missing=(clock.next_month(last).strftime("%Y-%m"),))
     return {"universe_rule": rule_of(market, market_day), "membership": merge_months(rows)}
 
 

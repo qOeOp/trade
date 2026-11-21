@@ -17,6 +17,7 @@ import json
 
 from ledger import admin, db, execution, metrics, trials, witness
 from report import measures, profit
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import validation
@@ -109,8 +110,8 @@ def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str,
     activity = report.get("activity") or {}
     if (activity.get("returns_compound_to_equity") or {}).get("passed") and final is not None:
         limitations: list[str] = []
-        summary = {"period_start_utc": str(metrics.moment_ns(trial["trade_start"])),
-                   "period_end_utc": str(metrics.moment_ns(trial["trade_end"]))}
+        summary = {"period_start_utc": str(clock.moment_ns(trial["trade_start"])),
+                   "period_end_utc": str(clock.moment_ns(trial["trade_end"]))}
         if metrics.daily_returns(returns, summary, limitations) is None:
             mismatch("run_return", "the monthly figures have no whole daily series: " + "; ".join(limitations))
     if final is not None:

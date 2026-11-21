@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 import json
 from pathlib import Path
 
 from shared import paths
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import CATALOGUE, refuse
 
@@ -77,12 +78,9 @@ def _json_file(path: str, code: str) -> dict:
 
 def _utc_time(text: str) -> datetime:
     try:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except (AttributeError, ValueError) as exc:
-        raise refuse("WINDOW_INVALID", f"{text!r} is not an ISO-8601 time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
-    if moment.utcoffset() != timedelta(0):
-        raise refuse("WINDOW_INVALID", f"{text!r} is not a UTC time", expected="UTC as YYYY-MM-DDTHH:MM:SSZ")
-    return moment
+        return clock.utc(text)
+    except ValueError as exc:
+        raise refuse("WINDOW_INVALID", str(exc), expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
 
 
 def _new_temporary(path: str) -> Path:
