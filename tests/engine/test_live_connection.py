@@ -107,7 +107,7 @@ class NativeConnectionTests(unittest.TestCase):
             account_id="BINANCE-001", credential_binding=credentials.binding,
             universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
             source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-            config=dict(duration_seconds=60, drawdown_brake="0.15", leverage="50"),
+            config=dict(environment="live", duration_seconds=60, drawdown_brake="0.15", leverage="50"),
             market=dict(market_day=MARKET_DAY, terms={"AAAUSDT": dict(
                 price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
         reader = FixtureReader(credentials.binding)
@@ -317,7 +317,7 @@ class NativeConnectionTests(unittest.TestCase):
                     account_id="BINANCE-001", credential_binding=credentials.binding,
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-                    config=dict(duration_seconds=3600,
+                    config=dict(environment="live", duration_seconds=3600,
                                 drawdown_brake="0.15", leverage="50"),
                     market=dict(market_day=MARKET_DAY, terms={"AAAUSDT": dict(
                         price_increment="0.01", size_increment="0.001", min_notional="0.1")}))

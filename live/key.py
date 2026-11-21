@@ -25,9 +25,13 @@ class _KeyRead(BinanceReadOnly):
     PRIVATE = frozenset({RESTRICTIONS})
 
 
-def require_limits(credentials: Path) -> None:
+def require_limits(credentials: Path, environment: str) -> None:
     """Refuses a key that can withdraw, has no IP restriction (every run, the user 2026-11-13; design §3.9) or whose
-    permissions cannot be read."""
+    permissions cannot be read. A demo key is not checked: Binance Demo Trading serves no apiRestrictions
+    (demo-api.binance.com answers 404, probed 2026-11-21) and its keys reach no real funds; a demo key in a live run
+    fails here (api.binance.com does not know it), a live key in a demo run at its first signed read on demo-fapi."""
+    if environment == "demo":
+        return
     try:
         found = _KeyRead(read_credentials(credentials)).get(RESTRICTIONS)
         withdrawals, restricted = found["enableWithdrawals"], found["ipRestrict"]

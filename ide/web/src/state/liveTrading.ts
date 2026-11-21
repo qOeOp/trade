@@ -31,12 +31,12 @@ const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain
   client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
 const writes: LiveTradingActions = {
   saveCredentials: async (input) => { await client.invoke("credential_save", "/credentials", {}, () => input); },
-  removeCredential: async (ref) => { await client.invoke("credential_remove", `/credentials/${encodeURIComponent(ref)}/remove`, { credential_ref: ref }, () => ({})); },
+  removeCredential: async (ref, environment) => { await client.invoke("credential_remove", `/credentials/${encodeURIComponent(ref)}/remove`, { credential_ref: ref }, () => ({ environment })); },
   prepare: (input) => {
-    const id = newLiveRunId(), credential = home?.credentials.find((item) => item.selected);
+    const id = newLiveRunId(), credential = home?.credentials[input.environment].find((item) => item.selected && !item.removed);
     return client.invoke("prepare", "/runs", { run_id: id }, () => ({
       run_id: id, candidate: input.candidate, symbols: [...input.symbols], credential_ref: credential?.credential_ref ?? "",
-      config: { drawdown_brake: String(Math.round(Number(input.values.drawdown_brake) * 1e4) / 1e6),
+      config: { environment: input.environment, drawdown_brake: String(Math.round(Number(input.values.drawdown_brake) * 1e4) / 1e6),
         duration_seconds: input.values.duration_seconds ? Number(input.values.duration_seconds) : null,
         leverage: input.values.leverage },
     }));

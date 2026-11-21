@@ -5,6 +5,7 @@ import { IconButton } from "../../ui/IconButton";
 import { heldGapText } from "../../model/liveHeld";
 import { InfoTip } from "../../ui/InfoTip";
 import { textClass } from "../../theme/roles";
+import { DemoBadge } from "./DemoBadge";
 
 const PHASES: Record<string, string> = { preflight: "Account check", run: "Live execution", reconcile: "Reconciliation" };
 
@@ -48,6 +49,7 @@ function liveRunOperation(run: LiveRun): readonly (readonly [string, ReactNode])
  *  comparison with a replay follow on the same line. */
 export function LiveRunIdentity({ run, operation = false }: { run: LiveRun; operation?: boolean }) {
   return <dl className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small">
+    {run.environment === "demo" && <DemoBadge environment={run.environment} />}
     {([["Run ID", <LiveRunId id={run.id} />], ...liveRunStatus(run), ...operation ? liveRunOperation(run) : []] as const).map(([name, value]) =>
       <div key={name} className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-fg-faint">{name}</dt><dd className="min-w-0">{value}</dd></div>)}
   </dl>;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { DemoBadge } from "../../widgets/live/DemoBadge";
 import { PhonePage } from "../../ui/PhoneBar";
 import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../ui/PhoneParts";
 import { FormButton } from "../../ui/chat/Field";
@@ -35,11 +36,11 @@ export function LivePage({ id }: { id: string }) {
   const sent = nsMilliseconds(view.notify?.lastSentNs), check = run.accountCheck;
   return (
     <>
-      <PhoneTop back={back} aside="Live" />
+      <PhoneTop back={back} aside={run.environment === "demo" ? "Demo" : "Live"} />
       <PhonePage>
         {status.word === "Unresolved" && <div className="px-3 pt-3"><UnresolvedNotice run={run} /></div>}
         <div className="space-y-1 px-3 pt-3">
-          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><DemoBadge environment={run.environment} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
           {run.heldAlert?.note && <p className={`text-small ${textClass(run.heldAlert.tone)}`}>{run.heldAlert.note}</p>}
           <p className="text-small text-fg-faint">{run.symbols?.join(", ") ?? MISSING}{first !== undefined && ` · since ${since(first * 1000, zone, now)}`}{seen !== null && ` · ${keep(`observed ${ago(seen, now)} ago`)}`}</p>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>

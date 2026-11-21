@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
+import { DemoBadge } from "../live/DemoBadge";
 import { useNow } from "../../ui/hooks/useNow";
 import { FilterChips } from "../../ui/FilterChips";
 import { Segmented } from "../../ui/Segmented";
@@ -46,7 +47,7 @@ export function RunMenuList({ close }: { close: () => void }) {
         <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate} · {items.length}</p>
         {items.map((item) => <TextButton key={item.id} role="option" aria-selected={stage === "live" && item.id === liveRun?.id}
           onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left text-fg! outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
-          <span className="flex items-center justify-between gap-3"><span className="truncate font-mono text-small">{item.id}</span><span className={`shrink-0 text-small ${item.heldAlert ? textClass(item.heldAlert.tone) : "text-fg-muted"}`}>{item.heldAlert?.word ?? item.hostState?.replaceAll("_", " ") ?? "Unknown"}</span></span>
+          <span className="flex items-center justify-between gap-3"><span className="flex min-w-0 items-center gap-1.5"><span className="truncate font-mono text-small">{item.id}</span><DemoBadge environment={item.environment} /></span><span className={`shrink-0 text-small ${item.heldAlert ? textClass(item.heldAlert.tone) : "text-fg-muted"}`}>{item.heldAlert?.word ?? item.hostState?.replaceAll("_", " ") ?? "Unknown"}</span></span>
           <span className="mt-0.5 block truncate text-small text-fg-faint">{item.symbols?.join(", ")}</span>
         </TextButton>)}
       </div>)}

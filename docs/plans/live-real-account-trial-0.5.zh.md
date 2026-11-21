@@ -28,6 +28,15 @@
 4. **规模。** 用交易所允许的最小规模。在 Strategy 一栏只填一个合约，选候选在其上的仓位最接近最小名义的那个。最小名义在第 1 项生成的 `preflight-*.json` 里，路径是 `symbols.<合约>.instrument` 的 filters。钱包只留够候选按自己的仓位公式下出一笔不低于最小名义的单，再加一倍余量。现金底线是首次武装时钱包的 85%。现在代码里首次试运行最多 100 USDT（`LIVE_BUDGET`），用户已说删掉，正由另一 lane 删，以发布时的代码为准。
 5. **Telegram。** 在 Live settings 对话框（Live 页 Check account 旁的 Manage keys…）里保存 bot token。整个试运行期间，要有人能在几分钟内看到通知并去 Binance 操作（`live/README.md` “Unresolved Live runs”）。
 
+## 先在 Demo 上演练（D-102）
+
+Live 页的 Live/Demo 开关可以把整份清单先在 [Binance Demo Trading](https://www.binance.com/en/demo-trading) 上跑一遍（`live/README.md` “Demo”）：同样的准备、准入、运行器和停止路径，独立的账户、key、订单簿、价格与资金费。demo 的 key 在 Binance Demo Trading 的 API Management 生成，在 Live settings 里切到 Demo 再保存，不会替换真实账户的 key。Telegram 与每日汇总里写的是 `Demo run`、`Demo daily summary`。
+
+- **Demo 前提的差别。** 不做 key 权限检查（demo 没有 `apiRestrictions`），前提第 3 项的“关闭提现、限制 IP”只对真实账户。`TERMS_CHANGED` 照常：2026-11-21 demo 的 BTCUSDT 步长是 0.0001，市场是 0.001，所以 demo 用 ETHUSDT 或 SOLUSDT。demo 钱包通常远大于 100 USDT，现金底线 100 USDT 的上限（`LIVE_BUDGET`）由 D-160 删除，删除合入之前 demo 的准入会被它拒。回放证据要按 demo 钱包的余额回放。
+- **可以先在 Demo 上做**：第 1 项（Telegram 与准入；key 检查除外）、2、3、4；第 5 项的止损、`positionSide` 与下单路径；7、8、9、10、12、13；可选的 14、15、16；“只在发生时观察”里的 O1、O2、O5、O6、O8、O11、O12。
+- **仍要真实账户**：第 1 项的 key 权限检查（关闭提现、IP 限制）；第 5 项的 `availableBalance` 口径与按手续费率逐笔核对的实收手续费；第 6 项实收资金费；第 11 项的一致性读数（demo 的价格与资金费不是存档的，`live compare` 能跑，但标明不是一致性证据）；强平与 ADL（O10）；真实盘口深度、限价穿价与滑点（O13）；合约状态与条款变化（O9）。
+- Demo 的结果只说明执行链在 Binance 的另一套环境里走得通，不替代上面任何一项真实账户的通过。
+
 ## 看哪里
 
 - **Live 页**：运行状态，Entries 一行（`Open`、`Closed · warming up`、`Closed · connection lost`、`Closed · a bar is missing`、`Closed · inherited position`……），保持时的提示。

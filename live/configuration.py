@@ -17,12 +17,14 @@ from market.sources import SYMBOL  # a contract named as the market holds it, as
 # A candidate reference, strategy_id@revision (ledger.strategies.parse_ref).
 CANDIDATE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}@[1-9][0-9]{0,8}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-# A run's choices: its duration (None: until stopped), the account's Binance leverage and its drawdown brake, which
-# defaults to the user's maximum-drawdown target and can only be tighter (engine.live_brake). Its cash floor is a share
-# of the wallet at its first arming, not a choice.
-CONFIG_KEYS = frozenset({"duration_seconds", "leverage", "drawdown_brake"})
+# A run's choices: its Binance environment (live, the real account; demo, Binance Demo Trading: engine.live_venue.VENUES),
+# its duration (None: until stopped), the account's Binance leverage and its drawdown brake, which defaults to the
+# user's maximum-drawdown target and can only be tighter (engine.live_brake). Its cash floor is a share of the wallet at
+# its first arming, not a choice.
+ENVIRONMENTS = ("live", "demo")
+CONFIG_KEYS = frozenset({"environment", "duration_seconds", "leverage", "drawdown_brake"})
 BRAKE_DEFAULT = str(BRAKE_MAX)
-DEFAULTS = {"duration_seconds": None, "leverage": ACCOUNT_CONTRACT["default_leverage"], "drawdown_brake": BRAKE_DEFAULT}
+DEFAULTS = {"environment": "live", "duration_seconds": None, "leverage": ACCOUNT_CONTRACT["default_leverage"], "drawdown_brake": BRAKE_DEFAULT}
 RUNNER_MEMORY = "2g"  # each Live runner's container memory
 
 
@@ -50,7 +52,7 @@ def absolute(value) -> Path:
 
 def run_config(value) -> dict:
     value = fields(value, CONFIG_KEYS)
-    result: dict = {}
+    result: dict = {"environment": environment(value["environment"])}
     item = value["drawdown_brake"]
     try:
         if not isinstance(item, str) or len(item) > 64:
@@ -70,6 +72,12 @@ def run_config(value) -> dict:
         raise fail()
     result["leverage"] = value["leverage"]
     return result
+
+
+def environment(value) -> str:
+    if value not in ENVIRONMENTS:
+        raise fail()
+    return value
 
 
 def symbols(value) -> list[str]:

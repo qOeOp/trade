@@ -17,6 +17,7 @@ if __name__ == "__main__":
     block()
 
 import argparse
+import functools
 from decimal import Decimal
 import fcntl
 import importlib.metadata
@@ -32,7 +33,7 @@ from engine import strategy as strategy_runtime
 from engine.config import RUNTIME_CONTRACT, is_leverage, read_regular_file
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
-from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
+from engine.live_venue import MANIFEST_FORMAT, VENUES, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
 from engine.live_records import contract, journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import ENDED_EVENTS, Session
@@ -40,7 +41,7 @@ from engine.live_source import source_for_run
 from engine import live_brake, live_connection
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
-from engine.kline_events import KlineEvents
+from engine.kline_events import KlineEvents, connect as kline_connect
 from engine.signals import Signals
 
 
@@ -83,7 +84,7 @@ def read_manifest(path: Path) -> dict:
         duration = config["duration_seconds"]  # None: the run goes on until it is stopped
         if duration is not None and (type(duration) is not int or duration < 1):
             raise ValueError
-        if not is_leverage(config["leverage"]):
+        if not is_leverage(config["leverage"]) or config["environment"] not in VENUES:
             raise ValueError
         market = value["market"]
         if not isinstance(market["market_day"], str) or any(not isinstance(market["terms"][symbol], dict)
@@ -204,7 +205,8 @@ def execute(args) -> int:
 
 def start(args, manifest: dict, credentials, session: Session, resuming: bool) -> int:
     """One start of the execution under its lock: the account read, then the mode's own work."""
-    observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
+    venue = VENUES[manifest["config"]["environment"]]
+    observer = BinanceReadOnly(credentials, origin=venue["rest"], proxy_url=manifest["config"].get("proxy_url"))
     session.account_reader = observer
     try:
         clock = observer.clock() if args.mode in ("preflight", "run") else None
@@ -285,7 +287,8 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         try:
             node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
             if session.mode == "run":
-                session.kline_events = KlineEvents(manifest["symbols"], manifest["config"].get("proxy_url"))
+                session.kline_events = KlineEvents(manifest["symbols"], manifest["config"].get("proxy_url"),
+                                                   functools.partial(kline_connect, host=venue["stream"]))
                 session.kline_events.start()
             session.event("connecting", mode=args.mode)
             node.run()

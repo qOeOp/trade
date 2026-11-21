@@ -33,7 +33,12 @@ CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests us
 # that keeps sending (USDⓈ-M general info, "Limits").
 READ_ATTEMPTS = 3
 RETRY_AFTER_LIMIT_SECONDS = 5
-MANIFEST_FORMAT = "live-run-5"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-6"  # one definition: the host writes it, the runner's image refuses any other
+# Each Live environment's Binance USD-M hosts (the manifest's config.environment): REST and the public streams. "demo" is
+# Binance Demo Trading, its own account, keys, order book, prices and funding. It publishes no /futures/data, so a run
+# reads its metrics from production in either environment (engine.metrics).
+VENUES = {"live": {"rest": "https://fapi.binance.com", "stream": "fstream.binance.com"},
+          "demo": {"rest": "https://demo-fapi.binance.com", "stream": "demo-fstream.binance.com"}}
 
 
 @dataclass(frozen=True)
@@ -78,17 +83,19 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class BinanceReadOnly:
-    """Hardcoded production origin and allowlisted GET paths; no write method exists."""
+    """A fixed Binance origin (ORIGIN, or an environment's VENUES REST host) and allowlisted GET paths; no write
+    method exists."""
 
-    ORIGIN = "https://fapi.binance.com"
+    ORIGIN = VENUES["live"]["rest"]
     TIME = "/fapi/v1/time"
     PUBLIC = frozenset({TIME, "/fapi/v1/exchangeInfo", "/fapi/v1/premiumIndex"})
     PRIVATE = frozenset({"/fapi/v2/account", "/fapi/v1/accountConfig", "/fapi/v1/symbolConfig",
                          "/fapi/v3/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/openAlgoOrders",
                          "/fapi/v1/commissionRate"})
 
-    def __init__(self, credentials: Credentials, *, proxy_url: str | None = None):
+    def __init__(self, credentials: Credentials, *, origin: str | None = None, proxy_url: str | None = None):
         self.credentials = credentials
+        self.origin = origin or self.ORIGIN
         proxy = {"https": proxy_url} if proxy_url else {}
         self.opener = urllib.request.build_opener(_NoRedirect(), urllib.request.ProxyHandler(proxy))
 
@@ -114,7 +121,7 @@ class BinanceReadOnly:
         if path in self.PRIVATE:
             signature = hmac.new(self.credentials.api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
             query += "&signature=" + signature
-        request = urllib.request.Request(self.ORIGIN + path + ("?" + query if query else ""),
+        request = urllib.request.Request(self.origin + path + ("?" + query if query else ""),
                                          headers=headers, method="GET")
         try:
             with self.opener.open(request, timeout=15) as response:
