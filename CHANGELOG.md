@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
+  codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
+  is now answered as a refusal with its code, like any other, instead of failing the request.
 - IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.

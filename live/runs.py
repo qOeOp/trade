@@ -539,14 +539,13 @@ def _market_terms(market_root: Path, symbols: list[str]) -> dict:
     """The market's latest market day and each contract's terms there, which the runner compares with exchangeInfo
     before each entry (TERMS_CHANGED)."""
     from market import files, instrument
-    from market.sources import MarketError
     try:
         opened = files.open_market({"root": str(market_root)}, "reader")
         market_day = files.resolve_day(opened, None)
         return {"market_day": market_day,
                 "terms": {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}}
-    except MarketError as exc:
-        raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
+    except Refusal as exc:
+        raise state.fail("LIVE_MARKET_TERMS", exc.message) from None
 
 
 def require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,

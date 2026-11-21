@@ -25,7 +25,7 @@ from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_wi
 from engine.fill import fill_model
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
-from market.sources import MarketError
+from shared import errors
 from tests.helpers import refused
 
 
@@ -800,7 +800,7 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, february * 10**6), [])
             self.assertEqual(refused(export.write_trades, store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3,
-                                     error=MarketError).code, "TRADE_INEXACT")
+                                     error=errors.Refusal).code, "TRADE_INEXACT")
 
     def test_metrics_months_follow_create_time_not_the_delivery_past_month_end(self):
         """January's last rows (23:50, 23:55) are delivered on 1 February; they never make February held. A

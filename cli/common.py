@@ -10,10 +10,9 @@ from decimal import Decimal
 import json
 from pathlib import Path
 
-from shared import paths
-from shared import clock
+from shared import clock, paths
 from shared.errors import Refusal
-from shared.refusals import CATALOGUE, refuse
+from shared.refusals import refuse
 
 
 # Output
@@ -46,11 +45,6 @@ def _print(stream, value) -> None:
 def refusal_json(exc: Refusal) -> dict:
     """The printed form of a refusal: its fields and its catalogue repair commands."""
     return {**exc.as_dict(), "next_actions": list(exc.next_actions)}
-
-
-def _market_refusal(exc) -> Refusal:
-    """A market package refusal (market.sources.MarketError) as a ledger refusal with its catalogue repair commands."""
-    return Refusal(exc.code, exc.message, missing=exc.missing, next_actions=CATALOGUE[exc.code])
 
 
 # Small argument helpers

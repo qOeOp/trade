@@ -21,8 +21,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from market import files, instrument, lifecycle, metrics, series, store, universe
-from market.sources import MINUTE, _refuse
+from market.sources import MINUTE
 from shared import clock
+from shared.refusals import refuse
 
 
 FORMAT = "market-coverage-v1"
@@ -103,14 +104,15 @@ def _edges(market: files.Market, market_day: str, table: str, symbol: str, start
 def _interval(start_ms, end_ms) -> None:
     if (type(start_ms) is not int or type(end_ms) is not int or start_ms >= end_ms or start_ms % MINUTE
             or end_ms % MINUTE):
-        raise _refuse(f"[{start_ms}, {end_ms}) is not a whole-minute interval with start before end",
-                      "INTERVAL_INVALID", missing=("start", "end"))
+        raise refuse("INTERVAL_INVALID",
+                     f"[{start_ms}, {end_ms}) is not a whole-minute interval with start before end",
+                     missing=("start", "end"))
 
 
 def _series(bars: dict, start_ms: int, end_ms: int, volume: bool) -> dict:
     times = np.asarray(bars["ts_open"], dtype=np.int64)
     if len(times) and (np.any(times % MINUTE) or np.any(np.diff(times) <= 0)):
-        raise _refuse("bar open times are not whole, strictly increasing minutes", "SOURCE_SHAPE")
+        raise refuse("SOURCE_SHAPE", "bar open times are not whole, strictly increasing minutes")
     facts = series.missing_intervals(times, start_ms, end_ms, MINUTE,
                                      np.asarray(bars["volume"]) if volume else None)
     found = {"rows": int(len(times)), "first_open_ms": int(times[0]) if len(times) else None,
@@ -240,9 +242,9 @@ def _ms(text: str) -> int:
     try:
         moment = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
     except ValueError as exc:
-        raise _refuse(f"{text!r} is not an ISO-8601 time", "INTERVAL_INVALID", missing=(str(text),)) from exc
+        raise refuse("INTERVAL_INVALID", f"{text!r} is not an ISO-8601 time", missing=(str(text),)) from exc
     if moment.utcoffset() != timedelta(0):
-        raise _refuse(f"{text!r} is not an explicit UTC time", "INTERVAL_INVALID", missing=(str(text),))
+        raise refuse("INTERVAL_INVALID", f"{text!r} is not an explicit UTC time", missing=(str(text),))
     return int(moment.timestamp() * 1000)
 
 
@@ -264,7 +266,7 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
     start_ms, end_ms = _ms(start), _ms(end)
     _interval(start_ms, end_ms)
     if not symbols or len(set(symbols)) != len(symbols):
-        raise _refuse("the contract list is empty or repeats a contract", "EMPTY_SYMBOLS", missing=("symbols",))
+        raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     episodes = None

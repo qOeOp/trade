@@ -30,8 +30,7 @@ from typing import Any
 from engine.compare import TABLES
 from engine.native_csv import dict_reader
 from ledger import db, problems
-from shared import paths
-from shared import clock
+from shared import clock, paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 
