@@ -74,7 +74,7 @@ class ReleaseProxyTests(unittest.TestCase):
         self.public, self.admin = port(), port()
         self.path = Path(self.root.name) / "caddy.json"
         self.path.write_text(json.dumps(self.config(0)))
-        self.log = tempfile.TemporaryFile()
+        self.log = tempfile.TemporaryFile()  # noqa: SIM115 (closed by its owner)
         self.addCleanup(self.log.close)
         self.process = subprocess.Popen(
             [os.environ["RESEARCH_CADDY_BINARY"], "run", "--config", str(self.path)], stdout=self.log, stderr=self.log

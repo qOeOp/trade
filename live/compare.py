@@ -25,7 +25,7 @@ realized and open profit) plus that funding.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from decimal import Decimal
 import gzip
 import hashlib
@@ -84,7 +84,8 @@ def read_pack(directory: Path) -> dict:
     events = _lines(out / "events.jsonl")
     reports = _reports(out / EVIDENCE)
     if reports is not None and (reports / ORDER_EVENTS).is_file():
-        orders = [json.loads(raw) for raw in gzip.open(reports / ORDER_EVENTS)]
+        with gzip.open(reports / ORDER_EVENTS) as stream:
+            orders = [json.loads(raw) for raw in stream]
     else:  # no process wrote its reports: the order events its source received
         orders = [row["native"] for row in events if row.get("event") == "order" and isinstance(row.get("native"), dict)]
     return {"manifest": manifest, "source": source, "events": events, "market": _lines(out / EVIDENCE / MARKET),
@@ -94,7 +95,7 @@ def read_pack(directory: Path) -> dict:
 def instant(text: str) -> int:
     """An ISO time (UTC when it names no zone) in nanoseconds: --from and --to."""
     moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    return round((moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp() * 10**6) * 1000
+    return round((moment if moment.tzinfo else moment.replace(tzinfo=UTC)).timestamp() * 10**6) * 1000
 
 
 def segments(pack: Mapping) -> list[dict]:

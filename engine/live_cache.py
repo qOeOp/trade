@@ -6,6 +6,7 @@ This is process custody, not a snapshot or an alternative account ledger. A resu
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 import signal
@@ -82,10 +83,8 @@ class LiveCache:
             if self.failure is not None:
                 raise Refusal("LIVE_CACHE_HEALTH", self.failure)
             return
-        try:
+        with contextlib.suppress(Refusal):  # Stop the owned child even when health is already latched failed.
             self.health()
-        except Refusal:
-            pass  # Stop the owned child even when health is already latched failed.
         if self.process.poll() is None:
             self.process.send_signal(signal.SIGTERM)
             try:

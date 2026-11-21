@@ -36,7 +36,7 @@ def admitted(request_line: str, allowed: frozenset = ALLOWED["live"]) -> tuple[s
 
 class Log:
     def __init__(self, path: str):
-        self._stream = open(path, "a", encoding="utf-8", buffering=1)
+        self._stream = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 (closed by its owner)
 
     def write(self, verdict: str, peer, line: str) -> None:
         self._stream.write(f"{time.time_ns()} {verdict} {peer[0] if peer else '-'} {line!r}\n")

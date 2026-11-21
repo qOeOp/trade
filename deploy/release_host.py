@@ -759,10 +759,9 @@ class DockerHost:
             if image in used:
                 continue
             # Without --force Docker also refuses an image that a stopped container still uses.
-            if IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image) or DOCKER_API_REF.fullmatch(image):
-                self.docker("image", "rm", image, check=False)
-            elif (runtimes is not None and RUNTIME_REF.fullmatch(image) and image not in runtimes
-                  and Registry(timeout=15).serves(image)):
+            if (IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image) or DOCKER_API_REF.fullmatch(image)
+                    or (runtimes is not None and RUNTIME_REF.fullmatch(image) and image not in runtimes
+                        and Registry(timeout=15).serves(image))):
                 self.docker("image", "rm", image, check=False)
 
     def memory_available(self) -> bool:

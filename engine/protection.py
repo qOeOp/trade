@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
+from collections.abc import Iterable
 
 ALLOWANCE_NS = 60_000_000_000  # one execution bar (engine.config.EXECUTION_BAR_MINUTES)
 LIVE_DETECTION_NS = 30_000_000_000  # open-order check: 5 s threshold + 10 s interval, with margin

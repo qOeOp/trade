@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from engine.realtime import MarketRows
 

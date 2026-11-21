@@ -22,7 +22,7 @@ returns it to the caller.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 import copy
 from dataclasses import dataclass
@@ -376,10 +376,8 @@ class LedgerConnection:
             raise sql_error(exc) from exc
 
     def close(self) -> None:
-        try:
+        with suppress(pymysql.MySQLError):
             self.raw.close()
-        except pymysql.MySQLError:
-            pass
 
     def __enter__(self):
         return self
@@ -613,17 +611,13 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
             except pymysql.MySQLError as exc:
                 raise sql_error(exc, operation_id=op) from exc
         except BaseException:
-            try:
+            with suppress(pymysql.MySQLError):
                 raw.rollback()
-            except pymysql.MySQLError:
-                pass
             raise
         finally:
             conn.in_write = False
-            try:
+            with suppress(pymysql.MySQLError):
                 raw.autocommit(True)
-            except pymysql.MySQLError:
-                pass
     except pymysql.MySQLError as exc:
         raise sql_error(exc, operation_id=op) from exc
     return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}

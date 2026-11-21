@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterable, Iterator, Mapping
+import contextlib
 import json
 import os
 import socket
@@ -280,10 +281,8 @@ class KlineEvents:
                           else "closed" if alive is not None and isinstance(exc, ConnectionError) else "error")
             finally:
                 if stream is not None:
-                    try:
+                    with contextlib.suppress(OSError):
                         stream.close()
-                    except OSError:
-                        pass
             if not self._stop.is_set():  # a stop is no gap: no bar comes after it
                 self._state(reason, began if alive is None else alive)
             self._stop.wait(RETRY_SECONDS[min(attempt, len(RETRY_SECONDS) - 1)])

@@ -3,7 +3,7 @@
 Every Telegram call is injected; no test reaches the network.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import fcntl
 import json
 import os
@@ -19,7 +19,7 @@ from tests.live.test_views import LiveViewFixture
 
 
 TOKEN = "123456789:" + "A" * 35
-DAY = int(datetime(2026, 11, 9, tzinfo=timezone.utc).timestamp()) * 10**9
+DAY = int(datetime(2026, 11, 9, tzinfo=UTC).timestamp()) * 10**9
 HOUR = 3600 * 10**9
 
 

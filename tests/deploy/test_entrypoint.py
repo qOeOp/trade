@@ -1,5 +1,6 @@
 """The IDE image's entrypoint under `sh`, with stand-in `node` and `python3` on PATH: never the real services."""
 
+import contextlib
 import os
 from pathlib import Path
 import signal
@@ -31,10 +32,8 @@ class EntrypointTests(unittest.TestCase):
                 process.wait(timeout=30)
             finally:
                 # The restart loop outlives serve here and holds stderr open; a container's teardown would end it.
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
             assert process.stderr is not None
             stderr = process.stderr.read()
             process.stderr.close()

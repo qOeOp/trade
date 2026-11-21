@@ -13,7 +13,7 @@ knows the ledger or the strategy.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 
 import pyarrow as pa
@@ -31,7 +31,7 @@ BTC = "BTCUSDT"
 
 
 def _utc_day(moment: datetime) -> datetime:
-    moment = moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment.astimezone(timezone.utc)
+    moment = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
     return moment.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -94,7 +94,7 @@ STEPS = {"1m": MINUTE, "1d": DAY_MS}
 
 
 def _iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _scaled(value: int, scale: int) -> str:

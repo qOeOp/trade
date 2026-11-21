@@ -20,16 +20,16 @@ MAX_LINES = 800
 # Product modules over MAX_LINES, each with the most lines it may have (measured 2026-11-21). Lower a cap when its
 # module shrinks and remove the entry once the module is under MAX_LINES; never raise one or add one: split instead.
 OVERSIZED = {
-    "cli/research_commands.py": 974,
-    "deploy/release.py": 876,
-    "engine/audit.py": 1100,
-    "engine/paper.py": 1247,
+    "cli/research_commands.py": 973,
+    "deploy/release.py": 875,
+    "engine/audit.py": 1099,
+    "engine/paper.py": 1246,
     "engine/run.py": 945,
-    "ide/research_graph/serve.py": 1154,
+    "ide/research_graph/serve.py": 1150,
     "ledger/metrics.py": 995,
     "paper/serve.py": 883,
     "replay/comparison.py": 1016,
-    "report/status.py": 889,
+    "report/status.py": 888,
 }
 # Runtime dependencies no product module imports by name: nautilus_trader.analysis imports plotly when loaded, and
 # Nautilus 2.0.0rc7 declares no dependencies of its own.
@@ -89,10 +89,9 @@ def unused_definitions() -> list[str]:
                 continue
     found = []
     for module, path in sorted(modules.items()):
-        for node in parsed(path).body:
-            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                    and node.name not in used[module] | words):
-                found.append(f"{path}:{node.lineno} {node.name}")
+        found.extend(f"{path}:{node.lineno} {node.name}" for node in parsed(path).body
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                     and node.name not in used[module] | words)
     return found
 
 

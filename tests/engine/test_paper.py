@@ -396,7 +396,7 @@ class CacheLivenessTests(unittest.TestCase):
         with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
                 mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock,
-                                  return_value=SimpleNamespace(orders_open=lambda: [], positions_open=lambda: [])):
+                                  return_value=SimpleNamespace(orders_open=list, positions_open=list)):
             recorder.on_stop_timer(None)
         health.assert_not_called()
         self.assertEqual(paper.STOP_REASON, ["STOP_FILE"])
@@ -789,7 +789,7 @@ class SnapshotTests(unittest.TestCase):
                                    realized_pnl="0 USDT",
                                    unrealized_pnl=lambda price: f"{(price.as_decimal() - 100) * 2} USDT")
         cache = SimpleNamespace(account_for_venue=lambda venue: None, positions_open=lambda: [position],
-                                orders_open=lambda: [])
+                                orders_open=list)
         with mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock, return_value=cache), \
                 mock.patch.object(paper, "journal") as journal:
             for at, price in ((DAY, "100.0"), (DAY + 59 * 10**9, "101.0"), (DAY + MINUTE_NS, "105.0")):

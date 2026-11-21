@@ -7,7 +7,7 @@ references/bundle.md of this skill. "checks" decide "ok" (identity and hash bind
 rows are still recomputed by sample).
 """
 import argparse, hashlib, json, math, os, re, shutil, stat, struct, subprocess, sys, threading, unicodedata, zlib
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -217,7 +217,7 @@ def probe(path):
         return {}
 
 
-@lru_cache(maxsize=None)
+@cache
 def packets(path, stream):
     """((num, den) time base, pts of every packet the demuxer keeps) for stream, e.g. 'v:0'."""
     text = run(["ffprobe", *FF[2:], *MEDIA, "-select_streams", stream, "-show_entries", "stream=time_base:packet=pts,flags",

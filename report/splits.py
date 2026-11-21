@@ -7,7 +7,7 @@ report gives them beside the measures (report.measures).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from decimal import Decimal
 import itertools
 import math
@@ -20,7 +20,7 @@ def closed_by_year(cycles: list[dict]) -> dict:
     """Closed cycles' count, price PnL, commissions and funding by the UTC year of their close."""
     years: dict[str, dict] = {}
     for cycle in closed_cycles(cycles):
-        year = str(datetime.fromtimestamp(cycle["ts_closed_ns"] // 10**9, timezone.utc).year)
+        year = str(datetime.fromtimestamp(cycle["ts_closed_ns"] // 10**9, UTC).year)
         item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
                                        "funding": Decimal(0)})
         item["closed_trades"] += 1
@@ -64,7 +64,7 @@ def _segments(run: Mapping, months: int) -> tuple[list[datetime], int, list[floa
     bounds, whole = found
     returns = [math.prod(1 + value for ts, value, _ in run["returns"] if low <= ts < high) - 1
                for low, high in itertools.pairwise(bounds)]
-    return [datetime.fromtimestamp(ns // 10**9, timezone.utc) for ns in bounds], whole, returns
+    return [datetime.fromtimestamp(ns // 10**9, UTC) for ns in bounds], whole, returns
 
 
 def _without_best(cuts: list[datetime], whole: int, returns: list[float]) -> float | None:
@@ -112,7 +112,7 @@ def dev_quarters(run: Mapping) -> dict | None:
     when it does not end on a cut, each quarter's compound return, the worst whole quarter's return and the window's
     annual return over its days without the best whole quarter. Not read against the annual target. A slice of
     one continuous run, like dev_years. None for a window of two whole years or more, or of one quarter or less."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
+    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
     if run["trade_end_ns"] >= int(start.replace(year=start.year + 2, day=min(start.day, 28)).timestamp()) * 10**9:
         return None
     if (cut := _segments(run, 3)) is None:

@@ -6,6 +6,7 @@ before return; changing or incomplete sources produce unknown, never a flat clai
 from __future__ import annotations
 
 from collections import deque
+import contextlib
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -135,7 +136,7 @@ class _Read:
     that a later read checks are still there, the next line's number and the rows kept so far (_journal)."""
     identity: tuple[int, int]
     size: int
-    digest: "hashlib._Hash"
+    digest: hashlib._Hash
     tail: bytes
     number: int
     kept: list
@@ -442,10 +443,8 @@ def run_view(root: Path, run_id: str) -> dict:
         host_read = str(time.time_ns())
         host = None
         if all(sample.status not in {"invalid", "changed"} for sample in samples.values()):
-            try:
+            with contextlib.suppress(LiveRefusal, OSError, ValueError, KeyError, TypeError):
                 host = runs.observe(root, run_id)
-            except (LiveRefusal, OSError, ValueError, KeyError, TypeError):
-                pass
         native = _rows(samples["native"], run_id)
         reference, observation = None, None
         if native is not None:

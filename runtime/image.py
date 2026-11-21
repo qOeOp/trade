@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Sequence
+import contextlib
 import hashlib
 import json
 import os
@@ -159,10 +160,9 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tup
     try:
         observed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=PROBE_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
-        try:  # killing the docker client alone leaves the container running
+        # killing the docker client alone leaves the container running
+        with contextlib.suppress(subprocess.TimeoutExpired):
             subprocess.run(["docker", "kill", name], capture_output=True, check=False, timeout=INSPECT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            pass
         raise _unavailable("the runtime identity probe", PROBE_TIMEOUT, identity["image_ref"]) from exc
     if observed.returncode:
         raise _probe_invalid(f"failed: {observed.stderr.strip()[-2000:]}")

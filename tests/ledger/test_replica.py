@@ -36,7 +36,7 @@ class ReplicaTests(unittest.TestCase):
         with patch.object(service, "LISTEN", "127.0.0.1"):
             self.process, self.mirror = replica.start(
                 self.root / "s", self.root / "data", self.root / "backup", self.origin, server.free_port(),
-                self.root / "readers", self.root / "controllers", BINARY, subprocess_log := tempfile.TemporaryFile())
+                self.root / "readers", self.root / "controllers", BINARY, subprocess_log := tempfile.TemporaryFile())  # noqa: SIM115
         self.addCleanup(subprocess_log.close)
         self.addCleanup(server.stop, self.process)
         self.execution = db.load_profile("paper")

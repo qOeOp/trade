@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import contextlib
 from datetime import date, timedelta
 import hashlib
 from importlib.resources import files
@@ -408,10 +409,8 @@ def research_state(args):
     from report import status
     profile, current = _research(args), None
     if not args.without_image:
-        try:
+        with contextlib.suppress(Refusal):
             current = seams.current.resolve_runtime(None)["image_ref"]
-        except Refusal:
-            pass
     return status.research_state(profile, args.line, args.at, history=args.history,
                                  history_before=args.history_before, full=args.full, current_image=current)
 

@@ -83,7 +83,7 @@ class SessionTests(unittest.TestCase):
 
     def strategy(self):
         return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False, _paper_user_timers=False,
-                               _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: []),
+                               _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=list),
                                save=lambda: {"phase": b"1"},
                                _paper_cadence=mock.Mock())
 
@@ -228,7 +228,7 @@ class SessionTests(unittest.TestCase):
                                        _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: timers))
             with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 with self.assertRaises(checkpoint.Refusal):
-                    session.cut(SimpleNamespace(orders=lambda: []))
+                    session.cut(SimpleNamespace(orders=list))
         session.backend.snapshot.assert_not_called()
 
     def test_both_id_counters_and_cadence_share_the_native_marker(self):
@@ -249,7 +249,7 @@ class SessionTests(unittest.TestCase):
         strategy._paper_user_timers = True
         with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
             with self.assertRaises(checkpoint.Refusal):
-                session.cut(SimpleNamespace(orders=lambda: []))
+                session.cut(SimpleNamespace(orders=list))
         session.backend.snapshot.assert_not_called()
 
     def test_native_stop_cannot_hide_a_source_timer_or_cancelled_order(self):
@@ -260,9 +260,9 @@ class SessionTests(unittest.TestCase):
             with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 session.before_stop(SimpleNamespace(orders=lambda: orders))
                 # Native component shutdown removes timers and may complete cancellation.
-                strategy.clock.timer_names = lambda: []
+                strategy.clock.timer_names = list
                 with self.assertRaises(checkpoint.Refusal):
-                    session.cut(SimpleNamespace(orders=lambda: []))
+                    session.cut(SimpleNamespace(orders=list))
             session.backend.snapshot.assert_not_called()
 
     def test_sources_and_recorder_start_together_once_every_source_has_warmed(self):
@@ -537,7 +537,7 @@ class BackfillTests(unittest.TestCase):
             session = self.recovery(T + MINUTE_NS)
         session.expected_starts, session.warm_at = 1, T + MINUTE_NS
         session.cache = SimpleNamespace(account_for_venue=lambda _: SimpleNamespace(
-            to_dict=lambda: {"calculate_account_state": True}), orders=lambda: [], bars=lambda _: None)
+            to_dict=lambda: {"calculate_account_state": True}), orders=list, bars=lambda _: None)
         seen: list = []
         with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: SimpleNamespace(
                 _warming_state=lambda: {"expected": {}})}, clear=True), \
@@ -564,7 +564,7 @@ class BackfillTests(unittest.TestCase):
         strategy._paper_subscriptions = {f"{IID}-1-MINUTE-LAST-EXTERNAL",
                                          f"{IID}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"}
         session.ready = True
-        cache = SimpleNamespace(bar=lambda _: aggregated(T), orders=lambda: [])
+        cache = SimpleNamespace(bar=lambda _: aggregated(T), orders=list)
         with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strategy}, clear=True):
             with mock.patch("engine.paper_session.time.time_ns", return_value=T + QUARTER + 1):
                 with self.assertRaises(checkpoint.Refusal) as caught:
@@ -634,7 +634,7 @@ class HeldTests(unittest.TestCase):
         self.assertFalse(self.session(saved=saved).held, "a recovery-capable source is restored, not held")
         account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
         session.ready, session.expected_starts, session.warm_at = False, 2, T
-        session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=lambda: [])
+        session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=list)
         seen: list = []
         with mock.patch("engine.paper_session.time.time_ns", return_value=101):
             session.start(lambda: seen.append("recorder"))

@@ -284,7 +284,7 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
     `venue_cancels` (a live clock) an order whose only step back in time is a venue's cancel crossing the strategy's
     request (venue_cancel_lead; its lead is appended there) or the venue's resizing during a fill burst crossing it
     (venue_updates_before_cancel) is no finding."""
-    findings, history = [], defaultdict(list)
+    history: defaultdict[str, list] = defaultdict(list)
     fills_ns: defaultdict[str, list[int]] = defaultdict(list)  # each contract's fill times
     for event in events:
         history[event["client_order_id"]].append(event)
@@ -293,9 +293,8 @@ def event_report_findings(events: list[dict], orders: list[dict], fills: list[di
     for times in fills_ns.values():
         times.sort()
     reported = {row["client_order_id"]: row for row in orders}
-    for identity in sorted(set(history) ^ set(reported)):
-        findings.append(finding("EVENT_ORDER_SET_MISMATCH", f"{identity} is in only one of the event history and "
-                                                            "the orders report"))
+    findings = [finding("EVENT_ORDER_SET_MISMATCH", f"{identity} is in only one of the event history and the orders "
+                                                    "report") for identity in sorted(set(history) ^ set(reported))]
     for identity, order_events in history.items():
         first, row = order_events[0], reported.get(identity)
         if first["type"] != "OrderInitialized" or any(

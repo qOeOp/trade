@@ -473,7 +473,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         key = f"{row['strategy_id']}@{row['revision']}"
         trials = trials_of[key]
         research = [t for t in trials if t["purpose"] == "research"]
-        registration, plan = plans[key] if key in plans else (None, {})
+        registration, plan = plans.get(key, (None, {}))
         body = plan.get("body") or {}
         reviews = []
         for rec in records:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import copy
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, UTC
 import json
 import os
 from pathlib import Path
@@ -252,9 +252,9 @@ def _messages(run: dict) -> list[tuple[str, str]]:
     result.extend(_restart_messages(run, name))
     result.extend(_brake_and_key_messages(run, name))
     result.extend(_compare_messages(run, name))
-    for row in _fills(run):
-        result.append((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
-                       f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}."))
+    result.extend((_fill_key(run, row), f"{name} fill: {row.get('order_side') or 'side unknown'} "
+                   f"{row.get('last_qty') or '?'} {row.get('instrument_id') or ''} at {row.get('last_px') or '?'}.")
+                  for row in _fills(run))
     if current in FINAL:
         attention = []
         if type(host.get("exit_code")) is int and host["exit_code"] != 0:
@@ -492,7 +492,7 @@ def _summary(facts: list[dict], day: str) -> str:
 
 def _section(facts: list[dict], day: str, environment: str) -> str:
     wallet = _wallet(facts)
-    when = datetime.fromtimestamp(wallet[0] // 10**9, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if wallet else ""
+    when = datetime.fromtimestamp(wallet[0] // 10**9, UTC).strftime("%Y-%m-%d %H:%M UTC") if wallet else ""
     lines = [f"{environment} daily summary for {day} (UTC)"
              + (", Binance Demo Trading, not the real account" if environment == "Demo" else ""),
              f"Wallet: {wallet[1]} USDT, observed {when} by run {wallet[2]}" if wallet else "Wallet: no account observation"]
@@ -545,7 +545,7 @@ def step(record: dict, facts: list[dict], now: int, send: Callable[[str], object
 
     The first pass after enabling (no summary key in `done` yet) records the current facts as history, unsent.
     """
-    moment = datetime.fromtimestamp(now / 1e9, timezone.utc).isoformat(timespec="seconds")
+    moment = datetime.fromtimestamp(now / 1e9, UTC).isoformat(timespec="seconds")
     done = set(record["done"])
     today = DAILY + metrics.utc_day(now)
     candidates = [pair for run in facts for pair in messages(run)]

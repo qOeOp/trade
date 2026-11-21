@@ -114,12 +114,12 @@ def _summary(directory: Path) -> dict:
 
 
 def _funding(directory: Path, positions: list[dict[str, str]]) -> list[tuple[str, int, str]]:
-    result = []
+    result: list[tuple[str, int, str]] = []
     try:
         for row in positions:
-            for event in ast.literal_eval(row["adjustments"]) if row["adjustments"] else []:
-                if event.get("adjustment_type") == "FUNDING":
-                    result.append((event["instrument_id"], event["ts_event"], event["pnl_change"]))
+            result.extend((event["instrument_id"], event["ts_event"], event["pnl_change"])
+                          for event in (ast.literal_eval(row["adjustments"]) if row["adjustments"] else [])
+                          if event.get("adjustment_type") == "FUNDING")
     except (KeyError, ValueError, SyntaxError, AttributeError, TypeError) as exc:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / 'positions.csv'} adjustments: {exc}") from exc
     return sorted(result)

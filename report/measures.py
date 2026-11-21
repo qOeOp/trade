@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 import functools
 
@@ -430,7 +430,7 @@ def exit_net(cycles: list[dict]) -> dict[str, Decimal]:
 def month_logs(returns: list[tuple]) -> dict[str, float]:
     found: defaultdict[str, float] = defaultdict(float)
     for ts, value, _ in returns:
-        found[datetime.fromtimestamp(ts // 10**9, timezone.utc).strftime("%Y-%m")] += math.log1p(value)
+        found[datetime.fromtimestamp(ts // 10**9, UTC).strftime("%Y-%m")] += math.log1p(value)
     return dict(found)
 
 
@@ -720,9 +720,9 @@ def market_for(run: Mapping) -> dict | None:
     try:
         return seams.current.market_returns(identity.get("market_name"), identity.get("market_day"),
                                             identity.get("universe_rule"),
-                                            datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
+                                            datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
                                             - timedelta(days=REGIME_WINDOW),
-                                            datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc))
+                                            datetime.fromtimestamp(run["trade_end_ns"] // 10**9, UTC))
     except Refusal as exc:
         return {"error": f"{exc.code}: {exc.message}"}
     except Exception as exc:  # the market is read apart from the ledger; its failure empties only these measures

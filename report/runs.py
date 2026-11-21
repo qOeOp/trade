@@ -15,6 +15,7 @@ evidence.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import contextlib
 from decimal import Decimal
 import hashlib
 from pathlib import Path
@@ -414,10 +415,8 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
     summary = reports.summary
     assert summary is not None  # load_directory refuses a directory without a summary
     rows = []
-    try:
+    with contextlib.suppress(metrics.Unreconciled):
         rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
-    except metrics.Unreconciled:
-        pass
     return {"sealed": sealed, "returns": metrics.daily_rows(reports), "cycles": rows, "effective_config": {},
             "native_economics": (reports.audit or {}).get("native_economics"),
             "starting_balance": Decimal(str(summary["starting_balance_usdt"])),

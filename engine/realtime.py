@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from nautilus_trader.adapters.binance import (
     BinanceDataClientConfig, BinanceDataClientFactory, BinanceEnvironment, BinanceInstrumentProviderConfig,
