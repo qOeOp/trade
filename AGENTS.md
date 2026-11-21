@@ -87,8 +87,8 @@ Tests, demos and engineering trials of product code write only to an isolated Do
 
 ## Checks and PRs
 
-- Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
-  integration tests: `README.md`).
+- Code changes: `uv run --frozen python .github/scripts/run-tests.py` (the tests `unittest discover` finds, one
+  process per module, several at once, as CI runs them; Dolt integration tests: `README.md`).
 - Skill text is product code: a skill change follows `.agents/README.md`.
 - A PR's title and body follow `.github/pull_request_template.md`; the body reports only checks
   actually run.

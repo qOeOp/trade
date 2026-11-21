@@ -505,9 +505,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
         "choice under that name again writes no line (created false)",
-        "line, line_id, start, window {start, end} (the development period: the 12 calendar quarters before the "
-        "holdout, the 8 quarters ending at the last quarter end before today that the market covers; 4 quarters "
-        "when the start's precheck instruments have fewer than 24 quarters of coverage before it), market_day, "
+        "line, line_id, start, window {start, end} (the development period: the calendar quarters before the "
+        "holdout, the 8 quarters ending at the last quarter end before today that the market covers; C - 12 of them "
+        "but at least 4 and at most 12, C the quarters of the start's precheck instruments' coverage before it), market_day, "
         "universe_rule, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "LINE_HISTORY_SHORT (those instruments have fewer than 12 quarters of coverage before it); "
@@ -667,7 +667,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
         "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
         "needs every reading it is defined on: a whole veto year whose run is invalid or missing or lacks a reading, "
-        "a control without a run, a holdout without a countable reading and a line without targets are named in "
+        "a part veto year without a passed run (a passed one is read in no summary), a control without a run, a holdout without a countable reading and a line without targets are named in "
         "missing, and with anything missing meets_targets and judged_on are null, whatever the holdout's own verdict. "
         "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
@@ -827,8 +827,8 @@ def register(verbs, verb, runner) -> None:
     command.epilog = ("One record per choice: a later change of start or market day is a new line record, never "
                       "an edit. --slug names the line. The development period is not a choice: Q is the last "
                       "calendar quarter end before today that the market covers, the holdout the 8 quarters ending "
-                      "at Q and the development period the 12 quarters before the holdout (4 when the instruments of "
-                      "the start's precheck have fewer than 24 quarters of coverage before Q; under 12, no line). "
+                      "at Q and the development period the C - 12 quarters before the holdout, at least 4 and at most "
+                      "12, where C is the quarters the start's precheck instruments are covered before Q (under 12, no line). "
                       "Lines opened in one quarter share it; the holdout, the history before the period and the "
                       "forward segment after Q are replayed only when the line closes.")
     _ledger_option(command)

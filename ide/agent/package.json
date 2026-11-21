@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && knip --no-progress",
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "knip": "6.44.2",
     "typescript": "6.0.3"
   }
 }

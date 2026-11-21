@@ -658,7 +658,7 @@ def closed_by_year(cycles: list[dict]) -> dict:
             for year, item in sorted(years.items())}
 
 
-DEV_YEARS = 3  # the years of a 12-quarter development window (ledger.lines.DEVELOPMENT_QUARTERS)
+DEV_YEARS = 3  # the years of a 12-quarter development window (ledger.lines.DEVELOPMENT_QUARTERS, the standard)
 
 
 def dev_years(run: Mapping, annual_target: float | None = None) -> dict | None:

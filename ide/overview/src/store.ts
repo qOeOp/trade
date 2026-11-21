@@ -23,8 +23,6 @@ export type Coin = {
   price: number; change24h: number; volume24h: number; funding: number | null; marketCap: number | null; fdv: number | null;
   change1h: number | null; change4h: number | null; change7d: number | null;
   oi: number | null; oiChange24h: number | null; longShort: number | null;
-  /** Open interest in USD on each exchange that has some, the largest first. */
-  oiByVenue: [string, number][];
   /** Liquidations of the last 24 hours in USD, the exchanges' together (see `liquidationsSince`). */
   liquidations: Sides;
 };
@@ -84,7 +82,6 @@ export class Store {
                funding: this.funding.get(c.symbol) ?? null, marketCap: cap?.marketCap ?? null, fdv: cap?.fdv ?? null,
                change1h: change(quote.price, moves?.back1h), change4h: change(quote.price, moves?.back4h), change7d: change(quote.price, moves?.back7d),
                oi: oi?.oi ?? null, oiChange24h: oi?.oiChange24h ?? null, longShort: this.ratios.get(c.symbol) ?? null,
-               oiByVenue: venues.flatMap((v): [string, number][] => (v.oi ? [[v.venue, v.oi]] : [])).sort((a, b) => b[1] - a[1]),
                liquidations: venues.reduce((a, v) => ({ long: a.long + (v.liquidations?.long ?? 0), short: a.short + (v.liquidations?.short ?? 0) }), { long: 0, short: 0 }) };
     });
     const since = LIQUIDATION_VENUES.flatMap((v) => this.liquidations.since[v] ?? []);

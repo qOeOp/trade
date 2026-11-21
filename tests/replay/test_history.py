@@ -79,7 +79,7 @@ class VerdictTests(unittest.TestCase):
     @staticmethod
     def cell(kind, annual, drawdown, whole=True, short=False, label="2020"):
         return {"kind": kind, "label": label, "whole_year": kind == "veto" and whole, "short": short,
-                "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
+                "status": "passed", "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
 
     @staticmethod
     def unread(label, status="invalid"):
@@ -126,6 +126,19 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(self.verdict(over), (None, None, ["veto 2020"]), "undecided whatever the other years read")
         unknown = self.summary(self.cell("veto", None, 0.1), self.cell("veto", 0.4, 0.1, label="2021"), self.HOLDOUT)
         self.assertEqual(self.verdict(unknown), (None, None, ["veto 2020"]), "a passed year without its annual return")
+
+    def test_a_part_veto_year_without_a_passed_run_leaves_the_verdict_undecided(self):
+        """20261120-01: the first veto year starts after the market's first day plus warm-up; its run sealed invalid
+        (UNPROTECTED_POSITION) was neither read nor missing, so the holdout alone decided."""
+        part = {"trial_id": 41, "kind": "veto", "label": "2020", "trade_start": "2020-01-31T00:00:00",
+                "trade_end": "2021-01-01T00:00:00", "status": "invalid", "whole_year": False, "short": False}
+        alone = self.summary(part, self.HOLDOUT)
+        self.assertEqual((alone["veto"]["whole_years"], *self.verdict(alone)), (0, None, None, ["veto 2020"]))
+        years = self.summary(part, self.cell("veto", 0.5, 0.1, label="2021"), self.HOLDOUT)
+        self.assertEqual(self.verdict(years), (None, None, ["veto 2020"]))
+        rerun = self.summary(part, {**part, "trial_id": 42, "status": "passed",
+                                    "measures": {"annual_return": -0.5, "mark_max_drawdown": 0.6}}, self.HOLDOUT)
+        self.assertEqual(self.verdict(rerun), (True, "holdout", []), "a passed part year is read in no summary")
 
     def test_a_year_takes_its_run_with_readings(self):
         """A trial left without a run (the host died) is replayed again: the year reads its rerun."""
@@ -233,7 +246,8 @@ class HistoryRunTests(unittest.TestCase):
         self.assertTrue(cells["holdout"]["short"], "two months of holdout in the fixture market")
         self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"], row["summary"]["missing"]),
                          (None, None, ["holdout", "targets"]),
-                         "no whole veto year; no countable holdout to judge by, and the fixture line has no targets")
+                         "no whole veto year and the part year passed, so it is read in no summary; "
+                         "no countable holdout to judge by, and the fixture line has no targets")
 
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, backups, True)

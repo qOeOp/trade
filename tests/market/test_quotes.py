@@ -5,6 +5,7 @@ exports that read it."""
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+import random
 import shutil
 import tempfile
 import unittest
@@ -87,6 +88,42 @@ class RuleTests(unittest.TestCase):
         with self.assertRaises(MarketError) as caught:
             quotes.derive(table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
         self.assertEqual(caught.exception.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
+
+    def test_random_days_keep_the_rule_and_split_anywhere_derive_the_same(self):
+        # Seeded, bounded property check over random days: contiguous ids, non-decreasing times, either side, prices a
+        # few increments apart so the carried side often crosses the fresh one.
+        draw = random.Random(20261121)
+        for _ in range(200):
+            tick = draw.choice((Decimal("0.1"), Decimal("0.01"), Decimal("0.001")))
+            step, base = int(tick.scaleb(files.TRADE_SCALE)), draw.randint(1_000, 100_000)
+            trades, moment = [], draw.randint(0, 10_000)
+            for identity in range(1, draw.randint(1, 120) + 1):
+                moment += draw.choice((0, 0, 1, draw.randint(1, 5_000)))
+                trades.append((identity, (base + draw.randint(-5, 5)) * step, moment, draw.random() < 0.5))
+            day = pa.table({"agg_trade_id": pa.array([t[0] for t in trades], pa.int64()),
+                            "price": pa.array([t[1] for t in trades], pa.int64()),
+                            "first_trade_id": pa.array([t[0] for t in trades], pa.int64()),
+                            "last_trade_id": pa.array([t[0] for t in trades], pa.int64()),
+                            "transact_time": pa.array([t[2] for t in trades], pa.int64()),
+                            "is_buyer_maker": [t[3] for t in trades]})
+            whole = quotes.State()
+            rows, readings = quotes.derive(day, tick, whole, "t")
+            for previous, row in zip([None, *rows], rows, strict=False):
+                _, price, moment, maker = trades[row[0] - 1]
+                self.assertLess(row[2], row[3])  # never crossed or locked
+                self.assertEqual((row[1], row[2] if maker else row[3]), (moment, price))  # the side that traded holds
+                self.assertTrue(previous is None or (previous[0] < row[0] and previous[2:] != row[2:]))  # changes only
+                carried = previous and (previous[3] if maker else previous[2])
+                if carried is not None and carried != (row[3] if maker else row[2]):
+                    # the other side moved without trading: it had crossed and is pushed one increment off
+                    self.assertTrue(carried <= price if maker else carried >= price)
+                    self.assertEqual(row[3] - row[2], step)
+            self.assertEqual((readings["trades"], readings["quote_changes"]), (len(trades), len(rows)))
+            cut = draw.randint(1, len(trades))
+            parted = quotes.State()
+            first, _ = quotes.derive(day.slice(0, cut), tick, parted, "t")
+            second, _ = quotes.derive(day.slice(cut), tick, parted, "t") if cut < len(trades) else ([], {})
+            self.assertEqual((first + second, parted), (rows, whole))
 
     def test_a_chunk_boundary_never_splits_one_millisecond(self):
         """Several states in one millisecond (a trade burst) straddling the writer's chunk size land in one catalog

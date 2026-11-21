@@ -1,13 +1,14 @@
 """engine.order_rules and engine.strategy.Subscriptions on a native engine: a command outside the contract is not
 sent and is recorded as a breach; one inside goes on unchanged."""
 
+import random
 import unittest
 from decimal import Decimal
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, BarType, InstrumentId, MarkPriceUpdate, OmsType, OrderSide, PositionId, Price, Quantity, StrategyId, TimeInForce, TraderId,
+    Bar, BarType, InstrumentId, MarkPriceUpdate, OmsType, OrderSide, OrderType, PositionId, Price, Quantity, StrategyId, TimeInForce, TraderId,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
@@ -212,6 +213,39 @@ class OrderRuleTests(unittest.TestCase):
         breaches, orders = replay(exits(599))
         self.assertEqual(([text.rsplit(": ", 1)[1] for _, text in breaches], [row["type"] for row in orders]),
                          (["a GTD order expires at least 600 seconds after it is sent"] * 2, ["LIMIT"]))
+
+    def test_random_entries_are_refused_exactly_by_the_gtd_and_exposure_rules(self):
+        # Seeded, bounded property check on one replay's clock: random LIMIT and STOP_MARKET entries, GTC or GTD with
+        # an expiry on or off a whole second, below or above 3 x the 100000 USDT starting equity.
+        draw, checked = random.Random(20261121), []
+
+        def entries(s):
+            for _ in range(300):
+                kind = draw.choice((OrderType.LIMIT, OrderType.STOP_MARKET))
+                price = draw.choice((Decimal(draw.randint(1, 20_000)).scaleb(-2), Decimal(draw.choice((50, 75, 120)))))
+                quantity = draw.choice((Decimal(draw.randint(1, 6_000_000)).scaleb(-3),  # or at the limit's edge
+                                        (300_000 / price).quantize(Decimal("0.001")) + Decimal(draw.randint(-1, 1)) / 1000))
+                seconds = draw.choice((draw.randint(0, 1_200), draw.randint(598, 601)))
+                fraction = draw.choice((0, 0, draw.randint(1, 999_999_999), draw.randint(1, 999) * 1_000_000))
+                gtd = draw.random() < 0.5
+                terms = {"time_in_force": TimeInForce.GTD, "expire_time": s.expiry(seconds) + fraction} if gtd else {}
+                make = s.order_factory.limit if kind == OrderType.LIMIT else s.order_factory.stop_market
+                order = make(INSTRUMENT_ID, draw.choice((OrderSide.BUY, OrderSide.SELL)), Quantity(quantity, 3),
+                             Price(price, 2), **terms)
+                expected = (
+                    "a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD STOP_MARKET "
+                    "order" if gtd and kind == OrderType.STOP_MARKET
+                    else "a GTD order expires on a whole second: Live cannot send a fraction of one" if gtd and fraction
+                    else "a GTD order expires at least 600 seconds after it is sent" if gtd and seconds < 600
+                    else "the strategy's exposure on the contract with this entry is at most 3 times USDT equity"
+                    if quantity * price > 300_000 else None)
+                checked.append((order_rules.violation(s, order), expected))
+
+        breaches, orders = replay({1: entries})
+        self.assertEqual((breaches, orders, len(checked)), ([], [], 300))
+        self.assertEqual([found for found, _ in checked], [expected for _, expected in checked])
+        self.assertTrue({None, "a GTD order expires at least 600 seconds after it is sent"} <=
+                        {expected for _, expected in checked})
 
     def test_several_positions_on_both_sides_each_with_its_stop(self):
         def stops(s):
