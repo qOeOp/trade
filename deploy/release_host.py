@@ -305,12 +305,17 @@ class DockerHost:
 
     def condition(self, name: str) -> dict | None:
         """A compose service's container as Docker last saw it: running, its health check's status (None without
-        one), whether its last exit was out of memory, and its restarts; None when it is absent."""
+        one) and what the check last printed (`output`, None without one), whether its last exit was out of memory,
+        and its restarts; None when it is absent."""
         if not self.exists(name):
             return None
         template = ('{"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}'
-                    '{{else}}null{{end}},"oom":{{json .State.OOMKilled}},"restarts":{{json .RestartCount}}}')
-        return json.loads(self.docker("inspect", "--format", template, name))
+                    '{{else}}null{{end}},"log":{{if .State.Health}}{{json .State.Health.Log}}{{else}}null{{end}},'
+                    '"oom":{{json .State.OOMKilled}},"restarts":{{json .RestartCount}}}')
+        found = json.loads(self.docker("inspect", "--format", template, name))
+        log = found.pop("log") or []
+        found["output"] = log[-1].get("Output") if log and isinstance(log[-1], dict) else None
+        return found
 
     def composes(self, service: str, variable: str, image: str) -> bool:
         """Whether the host's compose definition runs `service` on `image` when `variable` names it."""
