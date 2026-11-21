@@ -64,8 +64,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 研究状态在读的时候当场拼出来，不另存一份 [#E-1-1-3]
 
 研究状态不是一份单独保存的文件，而是每次读的时候，从账本里现有的判断、候选和试验当场拼出来的。账本里没有开着的研究路线时，它也不报错，照样给出候选和计数，并提示下一步记路线。开着的路线不止一条、读的时候又没指定哪一条时，同样不报错：gates 里列出 LINE_AMBIGUOUS，并在 open_lines 里列出各条开着的路线及其窗口和市场日。
@@ -80,8 +78,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.research_state` `cli.research_state` unreviewed-trials-from-commit-diff</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 路线里每一次研究试验都计入试验次数，失败的也算 [#E-1-1-4]
 
 一条路线里跑过的每一次研究试验都算数，包括审计判无效的和中途中断的。这个数由账本统计，不靠 Agent 自己数。一次试验算哪条路线，看它的登记属于哪条路线（<Ref id="E.4" />）；同一份数据、同一窗口上已经关闭的前一条路线，它的试验不算进后来的路线。跨路线的计数由研究计数给出：全账本的试验数，以及同一合约上交易窗口与本路线重叠的试验数，都不分路线。这两个跨路线的数不算两类试验，把它们另列在 excluded_trials 里：复现，即按同一源码、镜像、窗口、合约、导出和可比配置重放一个已有运行的早先试验的探索试验，或复现比对一致的探索试验；以及策略还没收到数据就被产品停下的试验。路线自己的试验数不做这项排除。
@@ -94,15 +90,13 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.line_trials` `report.research_state`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 核对环境就绪 [#E-1-2]
 
 回放之前先确认环境和数据齐不齐；入口只报告事实，不替你决定数据够不够用。
 
 #### 一条路线钉住一份市场数据，路线里的回放都用它 [#E-1-2-1]
 
-你选定路线时，市场数据的版本（市场日）写进路线记录，按规则算出的开发期一起写进去（规则与例子见 <Ref id="J.6.3.1" />）。线开着时，探索、预检和研究回放都只在开发期内交易（WINDOW_OUTSIDE_DEVELOPMENT）；保留期、更早的历史和 Q 之后的前向段只在关线时回放一次（[关线历史回测](/zh/docs/design-database-views/#research-history-views)）。这条路线里所有回放都用这一份数据。
+你选定路线时，市场数据的版本（市场日）写进路线记录，按规则算出的开发期一起写进去（规则与例子见 <Ref id="J.6.3.1" />）。线开着时，探索、预检和研究回放都只在开发期内交易（WINDOW_OUTSIDE_DEVELOPMENT）；保留期、更早的历史和 Q 之后的前向段只在关线时回放一次（[关线历史回测](/zh/docs/design-ledger/#research-history-views)）。这条路线里所有回放都用这一份数据。
 
 两次回放只有用同一份数据，比较才公平。数据中途换了，前后结果就分不清是策略变了还是数据变了。
 
@@ -111,8 +105,6 @@
 比如之后新数据到了，这条线的市场日和开发期都不变，入口不会自己换数据；要用新数据，就在之后的季度开一条新路线，由你来选。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_line` `market.freshness` `market.resolve_day`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 逐个合约列出数据覆盖，入口不删币、不缩窗、不补数 [#E-1-2-2]
 
@@ -126,8 +118,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.market_coverage` `market.diagnose_coverage` `registration.load_lifecycle`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 缺环境或数据时，报清楚缺什么、哪些还能跑，改范围由你选 [#E-1-2-3]
 
 回放前核对三样：运行环境能找到唯一的镜像；市场里有开发窗口涉及的全部月份；每个合约的覆盖都能读出来。缺任何一样，Agent 报告具体缺什么、影响哪段窗口和哪些合约，以及眼下还能跑的范围。
@@ -139,8 +129,6 @@
 比如运行环境的镜像还没构建好，Agent 会说「缺镜像，所有回放暂停；已有的登记和没跑的网格点都保留」，然后等着。如果只有缩小合约范围才能继续，它列出几个选项让你挑，而不是自己挑。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 1.2　记录研究判断 [#E-2]
 
@@ -196,8 +184,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 每条解释写明在什么条件下成立、什么时候重新评估 [#E-2-1-2]
 
 每次登记新假设之前，Agent 至少给上一次结果写一条解释：结论是在什么条件下得出的，什么情况下应该重新评估。被另一个登记以 retry_of 重试的无效运行不用写解释，只记修复。
@@ -209,8 +195,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 比如某一版把单笔预算从 100 提到 500，结果比对照差。解释写成：「在这个窗口和这组 RSI 参数下，单纯放大预算没有改善，可能受到成交量上限的限制；改了容量规则后重新评估。」之后的版本照样可以在仓位这个方向上继续做。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 存法与读回 [#E-2-2]
 
@@ -228,8 +212,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:judgment">judgment</Ref> `ledger.add_judgment` `cli.judgment_add`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 自己写脚本额外看过的角度，也要记下来 [#E-2-2-2]
 
 产品读出来的试验会自动计数；但 Agent 自己写脚本额外看过的角度，比如按月拆、按合约拆、算成交量占比，要记成一条判断；skill 要求算的视角也一样要记。
@@ -241,8 +223,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 比如为了解释推荐的候选，Agent 又按合约、按月份、按多空各拆了一遍，就记一条判断，写明看过这三个角度，以及读的是哪个账本版本。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 1.3　给出综合推荐与路线选项 [#E-3]
 
@@ -298,8 +278,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 只有没有候选，或者你说要离开所有路线时，才从策略库模板起步 [#E-3-1-2]
 
 只有两种情况会把策略库里的模板列为起点：账本里一个候选都没有；或者你明确说要离开所有现有路线。
@@ -311,8 +289,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 每个模板选项附上它在当前开发窗口的第一份报告，比如年化、回撤和胜率，让你知道它大概是什么水平；还没回放过的模板也列出来，但标明「未回放」。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 选项材料与呈现 [#E-3-2]
 
@@ -330,8 +306,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 推荐写清是哪一版、凭什么、放弃了什么 [#E-3-2-3]
 
 推荐说明写清四件事：推荐哪一版；依据哪些指标；取舍是什么；它和下一个实验的起点是不是同一版，不是的话为什么。
@@ -343,8 +317,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 比如：「推荐候选 A：年化高于其他候选；代价是回撤更大，而且闭仓收益里将近一半来自资金费。下一个实验从 A 出发，对照用 B。」
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 跨候选汇总 [#E-3-3]
 
@@ -363,8 +335,6 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 A 年化高、回撤也大，B 年化低、回撤也小，两个谁也没全面压过谁，都在集合里。C 四项都不如 A，就不在。推荐可以落在集合外面，但要说明理由。集合是从很多候选里挑出来的，看的时候要记得有挑选带来的乐观偏差。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 1.4　用户选定研究路线 [#E-4]
 
@@ -428,8 +398,6 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 你附带的想法照常登记；选模板的授权给一次就够 [#E-4-1-2]
 
 选路线时你可以附上想法或资料。想法会变成路线里一个普通的假设，和其他假设一样先查来源、写预测、登记，再回放；资料会被转写成一个新的起点策略。
@@ -441,8 +409,6 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 比如你说「试试资金费为正时不做多」，Agent 会把它写成一个假设，找相关文献，写下预计会影响哪些交易，登记后再跑。你说「就用这个模板开始」，这一次授权就够了，后面的发布、路线记录和首份报告不用再问你。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 开始研究时 Agent 自己设宿主目标，让研究连续跑下去 [#E-4-1-3]
 
@@ -456,8 +422,6 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### Goal 激活时只问阻塞问题，按宿主权限暂停并等待答复 [#E-4-1-4]
 
 宿主的目标会在回合以提问结束后不等你回答就续跑。所以 Goal 激活时，Agent 只问会卡住这条线的问题（需要你授权的事、就绪检查要你选的数据或范围）；其余在自己权限内决定，包括到期的换思路，用一句话告诉你。只有宿主提供暂停工具且当前允许调用时，才在提问前用它暂停；若宿主要求用户明确提出暂停，就须先取得该请求。工具存在不等于有权暂停。没有工具或当前无权暂停时，把暂停请求／操作说明和阻塞选择合在同一次提问里，然后结束回合。未答的续跑保持原问题待答，不做依赖答案的工作；Goal 状态变更（包括 blocked）按宿主权限和阈值处理，然后结束回合，不通过完成、重建目标或额外轮询绕过。只有暂停成功才说已暂停，没有用户消息就不说已获授权。
@@ -467,8 +431,6 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 一次 Codex 会话里，Agent 问你扩窗起点选哪个，15 毫秒后目标就续跑了；它随后自己撤回了问题，在旧窗口里又跑了 12 小时。按这条规则，能否调用暂停工具先看宿主权限；需要你操作时，会把暂停说明与扩窗选择一起问。未答前不替你选窗口，续跑与状态变更遵守宿主规则。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#E-pending]
 

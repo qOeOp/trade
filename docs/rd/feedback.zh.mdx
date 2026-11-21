@@ -64,8 +64,6 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 无效、没跑完或预检没过的运行只修复，修好后另行登记 [#F-1-1-2]
 
 三种情况适用：完整性审计判为无效的运行；原始执行记录里有失败或没跑完阶段的运行；原生预检（登记前的工程短跑）没通过的源码。Agent 只记原因、原件引用和修复经过，作为历史反馈追加到研究状态。
@@ -85,8 +83,6 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 3. 没有通过的预检审查件就登记，会被拒绝（SOURCE_PRECHECK_REQUIRED）；审查结论是失败或未定，也会被拒绝（SOURCE_PRECHECK_FAILED）。
 4. 已经消耗过的网格点不能在原登记下重跑，再次绑定会被拒绝（GRID_ALREADY_ATTEMPTED）；要另行登记，用 retry_of 指向实际消耗它的那次登记。
 5. 在跑过它的合约上重用已经执行过的源码却不写 retry_of，会被拒绝（SOURCE_ALREADY_EXPOSED）。
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 绩效指标的读法 [#F-1-2]
 
@@ -117,8 +113,6 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 比如一笔仓位亏损 30 USDT 平掉，平仓单标签是「中性退出」，它就记在中性退出这一列，不因为亏了就算作止损。如果计划统计因为缺标签、一单多标签或对不上而被置空（<Ref id="C.5.2.1" />），这个运行就不出交叉表，只报原因。交叉表的合计必须等于产品给的闭仓拆分，不相等就不能引用。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/exit-reasons.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 11.2　更新研究优先级：决定下一步改什么 [#F-2]
 
@@ -176,17 +170,11 @@ Agent 根据反馈给下一项具体改动排先后，写成一条研究优先�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 ### 排第一的动作说明报告依据、受影响政策与待检验解释 [#F-2-1-2]
 
 priority 的首位动作说明报告切面或栏目、度量与观察方向，引用运行及账本提交而不复制数值；定位受影响职责，区分已观察的事实与待检验的政策解释。参数选择有报告依据，或明确标为探索，不能由标签代替理由。
 
 优先级综合效应、不确定性、机制支持、既有探索、信息价值与成本，说明决定排序的理由；信息价值在于能区分竞争解释，而不是重复多少指标或标签。
-
-
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 11.3　复盘与推荐：产品停点触发，研究默认继续 [#F-3]
 
@@ -246,8 +234,6 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 复盘停点只触发复盘，复盘完继续研究，没有停止规则 [#F-3-1-2]
 
 上次推荐以来，本路线的研究试验满 5 个，产品就拒绝下一次登记（REVIEW_DUE）。5 是写在代码里的常数（没校准过的示例值），Agent 不能声明、调高或调低；判断里也没有复盘节奏这一种。拒绝信息直接给出下一步：读研究状态里的对照表，写推荐和优先级，推荐一入账，登记就放行。
@@ -261,8 +247,6 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 比如你给的测试长度是十轮，跑完十轮只是到了这个长度，不代表方向已经试尽。你设的运行限制（时长、次数、花费）到了，只会让执行暂停：账本里的登记和还没消耗的网格点都保留，恢复后接着做，不能据此判定方向无效。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 差异连续都分不出来时在线内换个思路，Agent 自己选定并告诉你 [#F-3-1-3]
 
@@ -279,8 +263,6 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 一次 12.5 小时的 EMA 日线会话里，推荐在第 67 号试验后就不再变，之后又跑了 41 个版本、11.6 小时，每次差异区间都跨零，Agent 一直没回来问。另一次会话里 23 次比较全在可检出差内，推荐仍换了 5 次，每次都让「推荐不变」的计数清零，从你选线到第一次到期跑了 22 个研究试验。按这条规则，连续 5 次区间都含零就会换思路。10-31 的一次会话里，旧条件让两条线各在连续 5 次后停下，但 RSI 线的五次里有一次单侧 p=0.016、年化差区间 [+0.2%, +4.9%]，channel 线的五次里有一次年化差区间 [−44.0%, −1.5%]；按区间含零计，RSI 线只连续 4 次，channel 线只连续 1 次，都还不到期。11-01 的一次会话里，trial 510 对 504 的基本区间 [−9.6e-5, +1.1e-5] 含零，学生化区间和年化差区间 [−5.40, −0.07] 个百分点都排除零，当时仍按基本区间计入；按现在的规则它是分出来的一次，计数从它之后重算。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 复盘的内容 [#F-3-2]
 
@@ -303,8 +285,6 @@ Agent 从年化、回撤、夏普、胜率、成本、资金使用率、利润�
 比如复盘推荐的不一定是最新的一版：最新版用了更多资金，净收益要是反而更低、回撤也更高，就推荐前一版；同时可以保留一个小规模的版本作参考。对照表里的非劣标记只描述推荐范围，它不是资格，也不是排序。入口呈现推荐时（<Ref id="E.3.1.1" />）引用这里的判据。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#F-pending]
 

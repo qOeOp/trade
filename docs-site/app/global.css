@@ -56,9 +56,6 @@
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   --shadow-raised: 0 1px 2px var(--shadow-near);
-  /* the IDE's data hues (ide/web/src/theme/tokens.css): a capability's verification-tier dot takes them */
-  --meets: light-dark(#419368, #4AA87F);
-  --misses: light-dark(#B87701, #BE880A);
   /* map edges: the IDE's walked-path grey */
   --edge-path: light-dark(oklch(0.64 var(--n-c) var(--n-h)), oklch(0.66 var(--n-c) var(--n-h)));
 
@@ -215,18 +212,6 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 /* Mermaid nodes take the control radius. */
 .rd-mermaid :is(.node, .cluster) rect { rx: 4px; ry: 4px; }
 
-/* Field references: one compact row, with explanations always visible. */
-.rd-type-table { margin-block: 1rem; }
-.rd-type-table table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
-.rd-type-table th, .rd-type-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: start; vertical-align: top; overflow-wrap: anywhere; }
-.rd-type-table thead th { color: var(--fg-muted); font-size: 12px; font-weight: 400; }
-.rd-type-table thead th:first-child { width: 24%; }
-.rd-type-table thead th:nth-child(2) { width: 23%; }
-.rd-type-table tbody th { font-weight: 500; }
-.rd-type-table code { font-family: var(--font-mono); white-space: normal; }
-.rd-type-table abbr { color: var(--fg-muted); text-decoration: none; }
-.rd-field-type { color: var(--fg-muted); }
-
 /* Callouts and cards: hairline boxes with the card radius, no lift. */
 #nd-page .prose [class*="rounded-xl"] { border-radius: var(--radius-card); }
 #nd-page [data-card="true"] {
@@ -252,28 +237,16 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 [data-theme-toggle] > [class~="bg-fd-accent"] { background: var(--island); color: var(--fg); box-shadow: var(--shadow-raised); }
 
 /* ---------- Reference rows ---------- */
-.rd-badge, .rd-guard, .rd-tier {
+.rd-badge {
   display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: var(--radius-badge);
   font-size: 11px; line-height: 1; white-space: nowrap;
 }
-.rd-badge-kind, .rd-guard { border: 1px solid var(--line-strong); color: var(--fg-muted); }
-/* the tier's text stays muted (the data hues fall below 4.5:1 as text on white); only its dot takes the hue */
-.rd-tier { color: var(--fg-muted); background: var(--island-alt); }
-.rd-tier::before { content: ""; width: 6px; height: 6px; margin-inline-end: 5px; border-radius: 1px; background: var(--tier); }
-.rd-tier-verified { --tier: var(--meets); }
-.rd-tier-unverified { --tier: var(--misses); }
-
-.rd-meta { margin-top: 0.75rem; font-size: 12px; color: var(--fg-muted); }
-.rd-meta p { margin: 0.25rem 0; }
-.rd-meta strong { color: var(--fg); font-weight: 600; margin-right: 0.25rem; }
+.rd-badge-kind { border: 1px solid var(--line-strong); color: var(--fg-muted); }
 .rd-ref-head { scroll-margin-top: 6rem; margin-bottom: 0.25rem; }
 
 /* Untranslated English placeholder pages. */
 .rd-translation-note { font-size: 12px; color: var(--fg-muted); border-left: 2px solid var(--line-strong); padding-left: 0.75rem; }
 
-/* Audited card footer: who guarantees the rule, and the function or skill file that implements it. */
-.rd-foot { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; font-size: 12px; color: var(--fg-muted); }
-.rd-impl { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }
 .rd-example { margin: 0.5rem 0 0.75rem; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--island-alt); }
 .rd-example > p { margin: 0; }
 
