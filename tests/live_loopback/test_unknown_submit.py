@@ -46,7 +46,8 @@ class UnknownSubmitTests(unittest.TestCase):
         with Loopback() as run:
             run.start()
             run.ready()
-            run.venue.fail("POST", "/fapi/v1/order", 503, UNKNOWN)  # not placed; the answer says nothing either way
+            # Not placed; the answer says nothing either way. rc7 takes a 429 on an order the same way (ambiguous).
+            run.venue.fail("POST", "/fapi/v1/order", 503, UNKNOWN)
             run.venue.bar(SYMBOL, TERMS["price"], volume=2)
             run.wait_event("entries_closed", reason="unverified")  # the bar closes up to a minute from now
             row = run.wait_event("submission_unresolved", timeout=live_session.SUBMISSION_UNRESOLVED_SECONDS + 60)

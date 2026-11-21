@@ -24,5 +24,7 @@
 
 ## 已知限制
 
+- rc7 的 Binance 适配器把下单遇到的 429 也当作结果不明（日志 “Ambiguous submit failure … HTTP 429”）。所以入场遇 429 的运行从“约 30 秒本地判拒、干净结束”变成“约 150 秒内 `unresolved` 结束、交易所无仓无单”，和上表第三行同一路径；回环原有的 429 入场用例（`test_orders`）因此与 `test_unknown_submit` 的 503 用例重复，删去。
+
 - 成交后应答长时间丢失时，rc7 的持仓检查（30 秒）会先把交易所仓位记成 EXTERNAL，订单落定后再记一笔反向 EXTERNAL；产品比对因此以 `foreign` 关入场到运行结束，停止时交易所已平但运行记 `unresolved`。这是 rc7 的对账行为，升级 Nautilus 时复测。
 - 撤单结果不明仍由 rc7 本地判撤（无对应配置），见 C-139、D-155。
