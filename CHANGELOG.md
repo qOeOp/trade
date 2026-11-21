@@ -87,6 +87,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `universes/`) directory is no longer read and is left on disk
   ([decision](docs/plans/live-request-log-removal-20261121.zh.md)).
 
+- `research-round`: before weighing a change of approach, the Agent lists the duties no version of the line has
+  changed (`research graph`'s `duties`) and the recommended header's `default` duties, and at least one approach
+  changes one of them or says why none can act on the bottleneck (on the last ledger, 59 of 78 derivations changed
+  C2, F3, A3 or B1 and none of 12 changes of approach named the 8 duties never tried). The duty directory places
+  risk at a fixed fraction of current equity under E1, so E3 is `adopted` only when a rule changes that fraction
+  after gains, losses or drawdown (all four roots of the last ledger marked E3 adopted for fixed-fraction sizing;
+  `docs/plans/duty-directory-recheck-20261121.zh.md`).
+
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
   Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host
