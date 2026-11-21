@@ -308,7 +308,7 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             worker = threading.Thread(target=maintain)
             sender = threading.Thread(target=notifier)
             checker = threading.Thread(target=reader, daemon=True)
-            # A daemon: a release that drains this control does not wait for a comparison, which holds its own lock.
+            # A daemon: a release that stops this control does not wait for a comparison, which holds its own lock.
             comparing = threading.Thread(target=comparer, daemon=True)
             stopping = threading.Event()
             shutdown_thread: threading.Thread | None = None

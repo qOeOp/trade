@@ -72,7 +72,7 @@ class IdleLive:
     def socket(self, name):
         return self.host.state / "live" / revision(name) / "socket"
 
-    def retire(self):
+    def stop_others(self, kept):
         pass
 
     def runtimes(self):
@@ -109,9 +109,6 @@ class Host:
 
     def exists(self, name):
         return name in self.containers
-
-    def requires_live(self, name):
-        return False
 
     def managed(self, prefix, running_only=False):
         return [
@@ -629,7 +626,6 @@ class PruneTests(unittest.TestCase):
             host = Mock(state=Path(directory))
             host.managed.return_value = []
             host.disk_route.return_value = WEB + A
-            host.requires_live.return_value = False
             host.follower.return_value = None  # no compose service of the service image to move
             github = Mock()
             github.approved.return_value = {"revision": A, "image": TARGET["image"], "service": TARGET["service"]}
@@ -964,13 +960,10 @@ class FollowHost(Host):
         assert (name, path, routed) == (WEB + A, "/api/paper/runs", True)
         return json.loads(json.dumps(self.runs))
 
-    def requires_live(self, name):
-        return True
-
     def health(self, name, lines, routed=False, live=True):
         # The Web's /api/live lists under the Live account lock (live/state.py reading): while the release holds it
         # (RecordingLive.barrier) that read waits until the probe times out, as on the host (doctor 20261117-02).
-        if routed and live and self.requires_live(name) and self.live_locked:
+        if routed and live and self.live_locked:
             raise ReaderFailure("routed Web", "/api/live", "TimeoutError")
         self.readers.append((name, routed, live))
 
@@ -1248,7 +1241,6 @@ class ReaderDiagnosisTests(unittest.TestCase):
     def test_a_routed_web_health_failure_names_the_reader_path_and_status(self):
         host = DockerHost(Config())
         host.agent = Mock()
-        host.requires_live = Mock(return_value=False)
         host.probe = Mock(side_effect=lambda name, path, routed=False:
                           {"status": 503} if path == "/api/agent/health" else {"status": 200, "ok": True})
         with self.assertRaises(RuntimeError) as raised:
