@@ -6,13 +6,13 @@ import { useLiveTrading } from "../../state/liveTrading";
 import { pricesWanted, useOverviewService } from "../../state/market";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { follow } from "../../state/paperStream";
-import { phoneTab, usePhoneRoot, type PhoneTab } from "../../state/phone";
+import { choosePhoneTab, phoneTab, usePhoneRoot, type PhoneTab } from "../../state/phone";
 import { MarketTab } from "./MarketTab";
 import { ResearchTab } from "./ResearchTab";
 import { RunsTab } from "./RunsTab";
 
 /** The phone's window (docs/plans/ide-phone-scope-20261111.zh.md): three tabs, a page at a time to the screen's
- *  edges. Runs: the Live and paper runs going now, each opening its page, and Live's one action, a stop that asks
+ *  edges. Runs: the Live and paper runs going now, each opening its page (a tap on Runs again goes back to the list), and Live's one action, a stop that asks
  *  first. Market: a glance at prices. Research: each line's readings. The listings carry what a phone shows, but a
  *  paper run's orders: its page follows that run's stream while it is open. The settings menu at the end of each page's bar has the way to the desktop. */
 export function PhoneShell() {
@@ -30,7 +30,7 @@ export function PhoneShell() {
       <main className="flex min-h-0 flex-1 flex-col">
         {tab === "market" ? <MarketTab /> : tab === "research" ? <ResearchTab /> : <RunsTab />}
       </main>
-      <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />
+      <PhoneTabs items={items} value={tab} onChange={choosePhoneTab} />
     </div>
   );
 }
