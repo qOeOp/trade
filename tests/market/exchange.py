@@ -93,8 +93,9 @@ class Exchange:
         self.requests: list[str] = []
 
     def contract(self, symbol: str, *, status="TRADING", contract_type="PERPETUAL", underlying="COIN", base=None,
-                 tick="0.01", step="0.001"):
+                 tick="0.01", step="0.001", onboard=None):
         self.info.append({"symbol": symbol, "status": status, "contractType": contract_type, "quoteAsset": "USDT",
+                          **({} if onboard is None else {"onboardDate": onboard}),
                           "baseAsset": base or symbol.removesuffix("USDT"), "underlyingType": underlying,
                           "underlyingSubType": ["Test"],
                           "filters": [{"filterType": "PRICE_FILTER", "tickSize": tick, "minPrice": "0.01",
