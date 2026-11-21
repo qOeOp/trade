@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { symbolOf, type RuntimeFailure } from "../../lib/paperApi";
 import { Icon } from "../../icons/Icon";
-import { TextButton } from "../../components/TextButton";
+import { TextButton } from "../../ui/TextButton";
 import { openSource } from "../../state/editors";
 import { CELL, HEAD } from "./table";
 

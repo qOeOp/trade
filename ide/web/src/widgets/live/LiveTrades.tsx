@@ -1,6 +1,6 @@
-import { Tabs } from "../../components/Tabs";
-import { eventNotes, LiveEvents } from "../../components/LiveEvents";
-import { InfoTip } from "../../components/InfoTip";
+import { Tabs } from "../../ui/Tabs";
+import { eventNotes, LiveEvents } from "./LiveEvents";
+import { InfoTip } from "../../ui/InfoTip";
 import type { LiveRun } from "../../model/liveTrading";
 import { atom, useAtom } from "../../state/atom";
 import { useLiveRunView } from "../../state/liveRun";

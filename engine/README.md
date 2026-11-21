@@ -163,8 +163,8 @@ older than the trade) exports every stored aggregate trade
 (`market import-trades`) as one native `TradeTick` and counts it in the receipt (`counts.trade`, present
 only then, so an export without trades keeps its bytes). The runner streams the trades of every contract
 whose receipt counts them, each wrapped as `CustomData(DataType("TradeTick", metadata={"instrument_id":
-<id>}), tick)`: a strategy subscribes with `subscribe_data` on that data type and gets the tick as
-`data.data` in `on_data`. The venue never sees custom data, so trades match no order and move no book; a
+<id>}), tick)`; how a source subscribes and reads them is in the research-round skill's
+[Trades and metrics](../.agents/skills/research-round/references/strategy-authoring.md#trades-and-metrics). The venue never sees custom data, so trades match no order and move no book; a
 native `TradeTick` would overwrite the venue's L1 book whatever `trade_execution` says (probed on
 2.0.0rc7: a market order after a trade below the bid filled at the trade's price, not the quoted ask).
 A month of the trading window without exported trades is `TRADES_MISSING`. A source subscribing to trades
@@ -185,11 +185,7 @@ of the 4th decimal (about 1 row in 100) is rounded either way by REST, and nothi
 `live compare` accepts the midpoint's half-down rounding there too, and no other difference. Both stamps are whole minutes, so in the bar environment an order the row prompts fills at the close
 of the bar that ends there, never at a price older than the decision. The receipt counts the rows
 (`counts.metrics`, present only then). The runner streams them as `CustomData(metrics_data_type(<id>),
-Metrics(...))`: `engine.strategy.Metrics` holds `instrument_id`, `sum_open_interest` (base asset), the three
-ratios `count_toptrader_long_short_ratio`, `sum_toptrader_long_short_ratio` and `count_long_short_ratio`
-as exact `Decimal` (`None` where the archive left one empty), `ts_event` and `ts_init`. A strategy
-subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <id>}))` and reads
-`data.data` in `on_data`. Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
+Metrics(...))` (`engine.strategy.Metrics`; subscribing and reading as for trades, above). Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
 refuses `METRICS_MISSING` for a month of an active contract's trading window without exported metrics; an
 image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
 configuration: the exported metrics files already carry it into the input identity. A subscription to metrics
@@ -245,11 +241,13 @@ the breach's code; Live refuses at once and takes the STOP path.
   trigger price, both sides added, with the new entry stay within 3 times the native portfolio's USDT equity;
   an exit is reduce-only, names its strategy's open position and fits it, and one position's working stops hold at
   most its quantity; no modifications, order lists, emulation,
-  execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order is a LIMIT,
-  STOP_LIMIT or LIMIT_IF_TOUCHED order (the types Nautilus's Binance client sends GTD; it denies any other, so Live
-  could not send one), expires on a whole second (the client denies a fraction of one) and at least 600 seconds
-  after the strategy submits it, by the strategy's clock (Binance's limit; Live needs more, see
-  [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
+  execution algorithms, contingent or linked orders, quote quantities or order parameters; every order is one
+  Nautilus's Binance client sends (no TRAILING_STOP_LIMIT or MARKET_TO_LIMIT; time in force GTC, IOC, FOK or GTD;
+  trailing offsets in basis points) and triggers on the default price (replay and Paper match any other trigger
+  on the bar's price, Binance on its own); a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order (the types
+  the client sends GTD), not post-only, expires on a whole second (the client denies a fraction of one) and at
+  least 605 seconds after the strategy submits it, by the strategy's clock (Binance's 600 seconds plus the margin
+  Live leaves for an entry's account check, see [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
   positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
   `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
@@ -270,7 +268,7 @@ took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per million ev
 that hold rows of that day (found from each file's row group statistics), but rc7's default
 `optimize_file_loading` turns the listed files into their parent directories, so the day's `start` and `end` limit
 the rows, not the file list; funding and lifecycle events are read whole. Events of one
-`ts_init` keep the node's order (contract by contract: MARK, quotes, trades, funding, bars, status,
+`ts_init` keep the node's order (contract by contract: MARK, quotes, trades, metrics, funding, bars, status,
 close; one millisecond's trades in aggregate trade ID order, after its quotes, so a market order a trade
 prompts fills at the quote that millisecond ends with) and the engine gets the node's chunks (50,000
 events, extended to the last event's `ts_init`). On the same inputs this gives the node's reports,
@@ -376,8 +374,8 @@ In `exposures.csv.gz`, a row labelled with one-minute bar timestamp T holds a po
 before the next bar timestamp, including fills stamped between bars, valued with the native
 `Position.notional_value` and `Position.unrealized_pnl` at T's MARK. An observer values the
 positions once the first MARK of the next timestamp shows that point reached, and the runner values
-the last timestamp after every component stopped. It adds no timer: in rc3 probes a five-minute
-timer made a run with many resting orders more than ten times slower. Balances and margins are not
+the last timestamp after every component stopped. It adds no timer: in probes a five-minute timer
+made a run with many resting orders more than ten times slower. Balances and margins are not
 repeated: use the latest account state before the next bar timestamp. A held contract without a
 MARK at a bar (a hole in its one-minute data) is valued at its latest MARK while that is at most 60
 minutes old (`engine.config.MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such hole is one
@@ -524,15 +522,9 @@ venue order IDs and sorts each table by its remaining columns; the account and r
 When the contract changes, the source must accept both constructors, and the reference runs from a
 checkout of the reference commit, whose `replay explore` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
 adjustments, account rows, returns and per-coin diagnostics, plus each run's audit. A clean exit is
-not parity. Before 2.0.0rc7, Nautilus rejected a bracket's target when the entry's fill bar reached its
-stop and canceled a partially filled entry's stop and target when the entry ended, and before
-2.0.0rc5 an OTO child kept a quantity smaller than its entry's fill (rc7 resizes it to the fill);
-the product refuses those order shapes (`FORBIDDEN_ORDER_APIS` in `engine/load.py` and
-`engine/order_rules.py` refuse brackets, OTO children and other order lists), so no run reaches them.
-Across rc3 and rc7 the comparator also reports two representation changes that carry no economics:
-the orders report writes an absent contingency or emulation trigger as empty (rc3:
-`NO_CONTINGENCY`, `NO_TRIGGER`), and the account report no longer repeats each funding
-settlement's state as a second `reported=False` row.
+not parity. Brackets, OTO children and other order lists, whose native handling changed between
+Nautilus releases, are refused (`FORBIDDEN_ORDER_APIS` in `engine/load.py` and `engine/order_rules.py`), so no
+run reaches them.
 
 ## History
 

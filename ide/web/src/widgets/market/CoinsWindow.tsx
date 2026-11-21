@@ -4,8 +4,8 @@ import { capOf, coinsAt, type Coin } from "../../model/market";
 import { marketCoin, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { useOnMarketPage } from "../../state/shell";
 import { pnlClass } from "../../theme/roles";
-import { columns, DataTable, type Column } from "../../components/DataTable";
-import { Missing, TableSkeleton } from "../../components/Missing";
+import { columns, DataTable, type Column } from "../../ui/DataTable";
+import { Missing, TableSkeleton } from "../../ui/Missing";
 
 const col = columns<Coin>();
 const money = (key: "volume24h" | "oi", header: string) =>

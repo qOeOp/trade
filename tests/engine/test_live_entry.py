@@ -32,7 +32,7 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy, StrategyConfig
 
-from engine import history, live, live_brake
+from engine import history, live, live_brake, protection
 from engine import live_commands as commands, live_connection, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import MINUTE_NS, Refusal
 from engine.live_errors import LiveRefusal
@@ -223,9 +223,10 @@ class NativeEntryTests(unittest.TestCase):
         self.session.check_protection(self.engine.cache, now)
 
     def assert_late_after(self, start):
-        self.check(start + live_session.PROTECTION_SECONDS - 1)
+        # engine.protection.Gaps, as Paper: a gap that lasts exactly the allowance is not late yet.
+        self.check(start + live_session.PROTECTION_NS / 1e9)
         self.assertFalse(self.session.stopping)
-        self.check(start + live_session.PROTECTION_SECONDS)
+        self.check(start + live_session.PROTECTION_NS / 1e9 + 0.001)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
 
@@ -1052,7 +1053,7 @@ class NativeEntryTests(unittest.TestCase):
         self.check(0)
         self.check(10_000)
         self.assertFalse(self.session.stopping)
-        self.assertEqual(self.session.protection_gaps, {})
+        self.assertEqual(self.session.gaps.since, {})
 
     def test_position_without_a_stop_is_closed_natively_after_the_allowance(self):
         position = self.owned_position()
@@ -1065,17 +1066,17 @@ class NativeEntryTests(unittest.TestCase):
 
         start = 1000.0  # A whole number: adding and subtracting 90 from an arbitrary float can land below 90.
         observe(start)
-        observe(start + 89)
+        observe(start + 90)
         self.assertFalse(self.session.stopping)
         self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
-        observe(start + 90)
+        observe(start + 90.5)
         self.assertTrue(self.session.stopping)
         self.assertTrue(self.session.failed)
         self.assertEqual(self.read_events("protection_missing")[0]["positions"], [str(position.id)])
         self.advance("99.00", "100.00")
         self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
         self.session.node.handle.return_value.stop.assert_not_called()
-        observe(start + 91)
+        observe(start + 91.5)
         self.session.node.handle.return_value.stop.assert_called_once()
         self.assertTrue(self.session.native_flat)
         self.assertTrue(self.session.failed)
@@ -1104,7 +1105,7 @@ class NativeEntryTests(unittest.TestCase):
         self.source.submit_order(stop, position_id=position.id)
         self.advance("99.00", "100.00")
         self.check(0)
-        self.assertEqual(self.session.protection_gaps, {})
+        self.assertEqual(self.session.gaps.since, {})
         self.advance("50.00", "51.00")
         self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.TRIGGERED)
         self.check(10)
@@ -1125,19 +1126,19 @@ class NativeEntryTests(unittest.TestCase):
         position = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)[0]
         self.assertEqual(position.side, PositionSide.SHORT)
         self.check(0)
-        self.assertEqual(list(self.session.protection_gaps), [str(position.id)])
+        self.assertEqual(list(self.session.gaps.since), [str(position.id)])
         stop = self.source.order_factory.stop_market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"),
                                                      Price.from_str("150.00"), reduce_only=True)
         self.source.submit_order(stop, position_id=position.id)
         self.advance("101.00", "102.00")
         self.check(1)
-        self.assertEqual(self.session.protection_gaps, {})
+        self.assertEqual(self.session.gaps.since, {})
 
     def test_the_check_reads_the_manifests_strategy_not_the_sources_attribute(self):
         position = self.owned_position()
         self.session.sources = {"BTCUSDT": SimpleNamespace(strategy_id=StrategyId("LIVE-OTHER"))}
         self.check(0)
-        self.assertEqual(list(self.session.protection_gaps), [str(position.id)])
+        self.assertEqual(list(self.session.gaps.since), [str(position.id)])
 
     def test_a_smaller_stop_is_not_protection(self):
         self.owned_position()
@@ -1170,9 +1171,9 @@ class NativeEntryTests(unittest.TestCase):
                 found = SimpleNamespace(**{**fields, **changed})
                 cache.orders_for_position.return_value = [found]
                 cache.orders_open.return_value = cache.orders_inflight.return_value = []
-                self.session.protection_gaps = {}
+                self.session.gaps = protection.Gaps(live_session.PROTECTION_NS)
                 self.session.check_protection(cache, 0)
-                self.assertEqual(list(self.session.protection_gaps), [str(position.id)] if changed else [])
+                self.assertEqual(list(self.session.gaps.since), [str(position.id)] if changed else [])
 
     def test_first_limit_waits_for_fresh_account_then_native_accepts(self):
         order, observation = self.submit_pending()

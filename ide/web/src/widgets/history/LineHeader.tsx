@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { MISSING, pct, plural } from "../../lib/format";
 import type { HistoryLine } from "../../lib/historyApi";
 import { priorGroups, priorTrials } from "../../model/history";
-import { Tip } from "../../components/Tip";
+import { Tip } from "../../ui/Tip";
 
 /** What a line's `holdout_prior_trials` says in words: the holdout's earlier searches in this ledger, which the holdout
  *  verdict and the deflated Sharpe are to be read with. The deflated Sharpe counts only this line's participants. */

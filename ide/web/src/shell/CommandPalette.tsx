@@ -7,9 +7,9 @@ import { select, useSelection } from "../state/selection";
 import { paletteOpen } from "../state/shell";
 import { startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { plural } from "../lib/format";
-import { Kbd } from "../components/Kbd";
-import { SCRIM } from "../components/dialog";
-import { VersionLine } from "../components/VersionLine";
+import { Kbd } from "../ui/Kbd";
+import { SCRIM } from "../ui/dialog";
+import { VersionLine } from "../widgets/VersionLine";
 import type { Action } from "./commands";
 
 const ITEM = "flex cursor-pointer items-center gap-3 rounded-control px-2 py-1";

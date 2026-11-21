@@ -7,9 +7,9 @@ import { activeRun, startDialog, starting, usePaperRuns, usePaperService } from 
 import { useSelection } from "../../state/selection";
 import { useShown } from "../../state/shown";
 import { showRunsPage, showToolWindow } from "../../state/shell";
-import { ProseBlocks } from "../../components/Prose";
-import { Section } from "../../components/Section";
-import { TextButton } from "../../components/TextButton";
+import { ProseBlocks } from "../../ui/Prose";
+import { Section } from "../../ui/Section";
+import { TextButton } from "../../ui/TextButton";
 
 /** The replay Details shows, as the History page marks its cell: its version and trial. */
 export type Picked = { version: string | null; trial: number | null };

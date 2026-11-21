@@ -1,4 +1,4 @@
-// A strategy's paper record beside its row in the run picker (components/RunRow.tsx): every run it had, how
+// A strategy's paper record beside its row in the run picker (RunRow.tsx in widgets/runs): every run it had, how
 // long each stop lasted and why, and the starts that failed, newest first (model/paperHistory.ts).
 import type { ReactNode } from "react";
 import type { PaperRun } from "../../lib/paperApi";
@@ -8,8 +8,8 @@ import { contracts } from "../../model/stage";
 import { createdNs, isContinued } from "../../model/chain";
 import { ending } from "../../model/ending";
 import { historyOf, startedMs, type Step } from "../../model/paperHistory";
-import { health } from "../../components/RunTile";
-import { TextButton } from "../../components/TextButton";
+import { health } from "../runs/RunTile";
+import { TextButton } from "../../ui/TextButton";
 import { useTimeZone } from "../../state/timeZone";
 
 

@@ -23,6 +23,7 @@ from pathlib import Path
 
 from engine.config import config_sha256
 from ledger import coverage, db, execution, metrics, problems, evidence
+from shared import paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -238,7 +239,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
             if target.exists() or target.is_symlink():
                 differs.append(path)
             continue
-        data = metrics.read_regular(target)
+        data = paths.read_regular(target)
         if status == "captured_empty":
             same = data == b""
         else:

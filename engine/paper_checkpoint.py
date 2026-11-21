@@ -14,7 +14,7 @@ import re
 import shutil
 import uuid
 
-from engine.config import Refusal
+from engine.config import Refusal, atomic, sync_directory
 
 
 FORMAT = "paper-native-checkpoint-v1"
@@ -23,28 +23,6 @@ HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 def fail(message: str) -> Refusal:
     return Refusal("PAPER_RECOVERY_UNAVAILABLE", message)
-
-
-def sync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
-def atomic(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
-    try:
-        with partial.open("xb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(partial, path)
-        sync_directory(path.parent)
-    finally:
-        partial.unlink(missing_ok=True)
 
 
 def digest(path: Path, size: int | None = None) -> str:

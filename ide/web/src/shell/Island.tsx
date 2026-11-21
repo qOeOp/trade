@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useAtom } from "../state/atom";
 import { activeIsland } from "../state/shell";
-import { ScrollArea } from "../components/ScrollArea";
+import { ScrollArea } from "../ui/ScrollArea";
 
 /** One region of the window: a rounded island on the frame, with an optional header (a PanelHeader).
  *  The island the user last worked in is active, which colours its selection (base.css). */

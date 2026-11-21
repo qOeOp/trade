@@ -19,6 +19,7 @@ import re
 import stat
 import sys
 import tomllib
+import uuid
 from pathlib import Path
 from typing import TypedDict
 
@@ -126,7 +127,7 @@ ACCOUNT_CONTRACT: AccountContract = {
     "margin_model": "default",
     "initial_margin_rate": "1",
     "maintenance_margin_rate": "1",
-    # Fill model (Nautilus 2.0.0rc3 DefaultFillModel; user decision 2026-10-20): a resting limit fills only
+    # Fill model (Nautilus DefaultFillModel; user decision 2026-10-20): a resting limit fills only
     # when a bar trades through its price, never on a touch alone (prob_fill_on_limit 0); no model slippage
     # (prob_slippage 0). Both probabilities are 0, so the model draws no random numbers and needs no seed.
     # Adaptive ordering visits the bar extreme nearer the open first. Consumed-liquidity and queue tracking
@@ -175,7 +176,6 @@ REFUSALS: dict[str, str] = {
                                 "fractional digits.",
     "WINDOW_NOT_ALIGNED": "A window boundary is not on the execution bar grid.",
     "WINDOW_ORDER_INVALID": "The window does not satisfy start <= trade_start < end.",
-    "UNIVERSE_FILE_UNREADABLE": "The universe membership file is not a readable regular file.",
     "UNIVERSE_FILE_INVALID": "The universe membership file is not JSON with a membership object of integer pairs.",
     "ENGINE_VERSION_UNAVAILABLE": "The image holds no engine distribution metadata.",
     "DEPENDENCY_LOCK_MISSING": "The image holds no dependency lock file.",
@@ -486,16 +486,46 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
                                args.metrics, starting_balance_of(args.starting_balance), leverage_of(args.leverage))
 
 
-def read_universe_bytes(path: Path) -> bytes:
-    """A regular file's bytes through one descriptor, never following a link."""
+def read_regular_file(path: Path) -> bytes:
+    """Read through one descriptor; never follow a symlink at the file boundary. Besides the strategy source it
+    reads the universe file, the execution binding and Live's records, so its refusal names the path."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         if not stat.S_ISREG(path.lstat().st_mode):
-            raise OSError("not a regular file")
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb") as stream:
-            return stream.read()
-    except OSError as exc:
-        raise Refusal("UNIVERSE_FILE_UNREADABLE", f"{path}: {exc}") from exc
+            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise Refusal("SOURCE_UNREADABLE", f"cannot read {path}: {error}") from error
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise Refusal("SOURCE_UNREADABLE", f"not a regular file: {path}")
+        return stream.read()
+
+
+def sync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def atomic(path: Path, data: bytes, mode: int | None = None) -> None:
+    """Replace `path` with `data` durably: written and synced beside it, renamed over it, the directory synced. Every
+    engine record file is written this way; `mode` (e.g. 0o600 for Live's private records) is set before the rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
+    try:
+        with partial.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if mode is not None:
+            os.chmod(partial, mode)
+        os.replace(partial, path)
+        sync_directory(path.parent)
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -532,7 +562,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "market_root": str(config.market_root),
         "market_day": config.market_day,
         "universe_path": str(universe) if universe is not None else None,
-        "universe_sha256": hashlib.sha256(read_universe_bytes(universe)).hexdigest() if universe is not None else None,
+        "universe_sha256": hashlib.sha256(read_regular_file(universe)).hexdigest() if universe is not None else None,
         "symbols": list(config.symbols),
         "start": config.window.start,
         "trade_start": config.window.trade_start,

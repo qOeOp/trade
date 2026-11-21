@@ -16,26 +16,26 @@ const fixtures = {
   "model/view": { useWidget: () => null },
   "state/phone": { desktopLayout: { set: empty }, useNarrow: () => false },
   "state/shell": { paletteOpen: { set: empty }, useOnMarketPage: () => false, useOnRunsPage: () => runsPage },
-  "components/SearchTrigger": { SearchTrigger: empty },
+  "ui/SearchTrigger": { SearchTrigger: empty },
   "icons/Icon": { Icon: () => createElement("svg") },
   "widgets/registry": { RENDERERS: { summary: { Component: empty } } },
   "shell/toolbar/LedgerWidget": { LedgerWidget: empty },
   "shell/toolbar/LineWidget": { LineWidget: empty },
   "shell/toolbar/RecommendationWidget": { RecommendationWidget: empty },
   "shell/toolbar/SettingsMenu": { SettingsMenu: empty },
-  "components/hooks/useNow": { useNow: () => 0 },
-  "components/Dropdown": { PopoverWidget: ({ label, trigger }) => createElement("div", { "aria-label": label }, trigger) },
-  "components/TextButton": { TextButton: button },
+  "ui/hooks/useNow": { useNow: () => 0 },
+  "ui/Dropdown": { PopoverWidget: ({ label, trigger }) => createElement("div", { "aria-label": label }, trigger) },
+  "ui/TextButton": { TextButton: button },
   "widgets/runs/RunMenuList": { RunMenuList: empty },
   "state/liveWorkspace": { openLiveCredentials: () => opened.push("credentials"),
     openLiveReview: (id) => opened.push({ review: id }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: { runs: liveRuns } }) },
-  "components/RunTile": {
+  "widgets/runs/RunTile": {
     DeleteButton: action("Delete paper"), RunButton: action("Stop paper"), StartButton: action("Run paper"),
     RunMenu: ({ children }) => createElement("div", { "data-paper-menu": "true" }, children),
     health: (run) => ({ tone: run.alarm ? "fail" : "meets", text: run.alarm ? "Needs attention" : "Paper running" }),
   },
-  "components/Tip": { Tip: ({ content, children }) => createElement("span", { title: content }, children) },
+  "ui/Tip": { Tip: ({ content, children }) => createElement("span", { title: content }, children) },
   "state/paper": { usePaperRuns: () => ({ runs: listing }), usePaperService: () => service },
   "state/paperStream": { useStream: () => stream },
   "state/shown": { useShown: () => shown },
@@ -45,7 +45,7 @@ const fixtures = {
   },
 };
 const graph = loader({ stubs: fixtures,
-  sources: ["shell/MainToolbar", "shell/toolbar/RunsWidget", "components/ActionGroup"] });
+  sources: ["shell/MainToolbar", "shell/toolbar/RunsWidget", "ui/ActionGroup"] });
 const { MainToolbar } = await graph.namespace("shell/MainToolbar.tsx");
 const render = (stage, { paper = true, paperService = "present", warning = false, retainedStream = true,
   onRuns = true, version = "selected-research@2", live = true } = {}) => {
@@ -138,7 +138,7 @@ test("Live actions keep the exact selected run target and never dispatch a tradi
   render("live");
   opened.length = 0;
   const { useRunActions } = graph.loaded("shell/toolbar/RunsWidget.tsx");
-  const { ActionButton } = graph.loaded("components/ActionGroup.tsx");
+  const { ActionButton } = graph.loaded("ui/ActionGroup.tsx");
   const click = (element) => {
     if (!element || typeof element !== "object") return;
     if (element.type === ActionButton) element.props.onClick();

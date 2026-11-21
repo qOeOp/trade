@@ -3,15 +3,21 @@
 A strategy file's header takes a stance on each of the 27 duties; a derived registration names the
 duties its one change touches (`changed_duties`) and predicts, for each, the direction of a measure
 on a fixed attribution slice. The catalogue is shared by registration checks and both reports, so
-a prediction can only name what the reports measure.
+a prediction can only name what the reports measure. The duties a change touches are the header lines it
+edits (`header_changes`).
 """
 
 from __future__ import annotations
+
+import ast
+import re
 
 
 # The duty IDs; their titles are the duty directory's (research-round references/duty-directory.md).
 DUTIES = frozenset(("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "D1", "D2", "E1", "E2", "E3", "E4", "F1", "F2", "F3",
                     "F4", "F5", "G1", "G2", "G3", "H1", "H2", "H3", "I1", "I2"))
+
+_HEADER_LINE = re.compile(r"\s*([A-I][1-5])\s")
 
 # Slices in report order, each with its measures and the duties whose rule it can measure: every duty has
 # at least one. These links locate policies to investigate; they do not identify a cause or constrain the
@@ -51,3 +57,20 @@ def measure_catalogue() -> dict:
 def slice_measures() -> dict[str, frozenset[str]]:
     """Measures by slice ID."""
     return {item["id"]: frozenset(item["measures"]) for item in measure_catalogue()["slices"]}
+
+
+def _header_lines(source: bytes) -> dict[str, str]:
+    """A strategy file's duty lines by duty ID, as written: the first line of its module docstring that starts
+    with each ID."""
+    found: dict[str, str] = {}
+    for line in (ast.get_docstring(ast.parse(source), clean=False) or "").splitlines():
+        match = _HEADER_LINE.match(line)
+        if match and match[1] in DUTIES:
+            found.setdefault(match[1], line)
+    return found
+
+
+def header_changes(parent: bytes, child: bytes) -> list[str]:
+    """The duty IDs whose header line differs between two published sources (added or removed counts), sorted."""
+    old, new = _header_lines(parent), _header_lines(child)
+    return sorted(duty for duty in DUTIES if old.get(duty) != new.get(duty))

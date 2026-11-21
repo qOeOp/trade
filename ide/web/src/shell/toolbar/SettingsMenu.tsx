@@ -6,8 +6,8 @@ import { desktopHref, desktopLayout, usePhoneRun } from "../../state/phone";
 import { TIME_ZONES, TIME_ZONE_LABEL } from "../../lib/time";
 import { copyText } from "../../lib/clipboard";
 import { Icon } from "../../icons/Icon";
-import { AboutDialog } from "../../components/About";
-import { Dropdown, DropdownItem, DropdownLabel, DropdownRadio, DropdownSeparator } from "../../components/Dropdown";
+import { AboutDialog } from "../../widgets/About";
+import { Dropdown, DropdownItem, DropdownLabel, DropdownRadio, DropdownSeparator } from "../../ui/Dropdown";
 
 const THEMES = (Object.keys(THEME_LABEL) as ThemeChoice[]).map((value) => ({ value, label: THEME_LABEL[value] }));
 const ZONES = TIME_ZONES.map((value) => ({ value, label: TIME_ZONE_LABEL[value] }));

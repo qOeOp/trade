@@ -6,9 +6,9 @@ import { when } from "../../lib/format";
 import { Icon } from "../../icons/Icon";
 import { select } from "../../state/selection";
 import { textClass } from "../../theme/roles";
-import { Skeleton } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
-import { Tip } from "../../components/Tip";
+import { Skeleton } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
+import { Tip } from "../../ui/Tip";
 
 /** The selected version's card: its name, role, prediction verdict, when it was published, its
  *  parent; its readings follow in the same card. */

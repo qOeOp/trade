@@ -10,6 +10,9 @@ export type { LiveRequest } from "../lib/liveTradingCommands";
 export type LiveFact = { label: string; value: string | null; format?: "nanoseconds" | "since"; attention?: boolean };
 export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
 /** Replay evidence of a candidate on chosen contracts, read ahead of preparation. */
+/** Whether a sealed Paper run of the source on the contracts matches its replay, as the serving Live control last
+ *  compared (live/reconcile.py): checking until it knows, unknown while it does not answer. */
+export type LivePaperRead = { state: "checking" | "reconciled" | "unreconciled" | "unknown"; paperId: number | null; reasons: readonly string[] };
 export type LiveEvidenceRead = { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
 /** The version selected in the research graph as Live reads it at the research head, for the launch page; preparation
  *  reads it again. `read`: reading (no answer yet), found, absent (no candidate Live can run) or unknown (no answer). */
@@ -19,6 +22,8 @@ export type LiveSource = {
   lastSymbols: readonly string[] | null;
   /** Its replay evidence on the chosen contracts; null until they are valid and asked about. */
   evidence: LiveEvidenceRead | null;
+  /** Its Paper reconciliation on those contracts; null until it is asked. */
+  paper?: LivePaperRead | null;
 };
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;

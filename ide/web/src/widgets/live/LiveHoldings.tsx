@@ -1,5 +1,5 @@
-import { InfoTip } from "../../components/InfoTip";
-import { Side } from "../../components/PhoneParts";
+import { InfoTip } from "../../ui/InfoTip";
+import { Side } from "../../ui/PhoneParts";
 import { MISSING } from "../../lib/format";
 import { fixed, signed } from "../../lib/paperApi";
 import { heldGap } from "../../model/liveHeld";

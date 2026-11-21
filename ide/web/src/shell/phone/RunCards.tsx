@@ -4,8 +4,8 @@ import { clockTime, displayDay, zoneOffset, type TimeZone } from "../../lib/time
 import { heldGap, heldGapLine, type HeldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
 import { away, lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, paperEquity, paperHeld, paperIssues, stopFor, type Fill } from "../../model/phoneRuns";
-import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../components/PhoneParts";
-import { health } from "../../components/RunTile";
+import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../ui/PhoneParts";
+import { health } from "../../widgets/runs/RunTile";
 import { textClass } from "../../theme/roles";
 import { useSnapshot } from "../../state/market";
 import { openRun } from "../../state/phone";

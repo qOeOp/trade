@@ -234,7 +234,7 @@ class StrategyLoaderTests(unittest.TestCase):
         (self.root / "moved.json").write_text('{"membership": {}}')
         self.assertNotEqual(effective_configuration(moved).digest, resolved.digest)
         missing = dataclasses.replace(args, universe_path=self.root / "absent.json")
-        self.assertEqual(refused(effective_configuration, missing, error=Refusal).code, "UNIVERSE_FILE_UNREADABLE")
+        self.assertEqual(refused(effective_configuration, missing, error=Refusal).code, "SOURCE_UNREADABLE")
         self.universe()
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,

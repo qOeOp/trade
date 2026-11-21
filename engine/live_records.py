@@ -2,21 +2,13 @@
 from __future__ import annotations
 import hashlib
 import json
-import os
 from pathlib import Path
 from nautilus_trader.model import InstrumentId, StrategyId
-from engine.config import instrument_id
-from engine.load import read_regular_file, strategy_id
+from engine.config import atomic, instrument_id, read_regular_file
+from engine.load import strategy_id
 
 def write_json(path: Path, value: dict) -> None:
-    temporary = path.with_name("." + path.name + ".partial")
-    with temporary.open("w", encoding="utf-8") as stream:
-        json.dump(value, stream, sort_keys=True, default=str)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.chmod(temporary, 0o600)
-    os.replace(temporary, path)
+    atomic(path, (json.dumps(value, sort_keys=True, default=str) + "\n").encode(), mode=0o600)
 
 
 def keep(output: Path, prefix: str, snapshot: dict) -> str:

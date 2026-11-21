@@ -168,7 +168,7 @@ class GateTests(unittest.TestCase):
         source = SimpleNamespace(_live=self.session)
         self.session.evidence = mock.Mock()
         bar = SimpleNamespace(bar_type=BAR)
-        with mock.patch.object(live_connection, "bar"):
+        with mock.patch.object(live_connection, "bar", return_value=False):
             on_bar(source, bar)  # the source decides on this bar: an entry it submits now carries its type
             self.assertEqual(seen, [(bar, BAR)])
             self.assertIsNone(self.session.deciding)
@@ -563,6 +563,25 @@ class GateTests(unittest.TestCase):
         with mock.patch.object(live_source, "native_cache", return_value=held):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=6 * 60_000_000_000))
         self.assertEqual(len(seen), 1)  # its exits are managed as before
+
+    def test_a_repeated_or_revised_bar_never_reaches_the_source_twice(self):
+        # Binance may push a closed kline again (audit loopback s10_dup_live): the source would decide twice on one bar.
+        seen = []
+        on_bar = live_source._gated("on_bar", lambda source, bar: seen.append(bar))
+        source = SimpleNamespace(_live=self.session)
+        self.session.evidence = mock.Mock()
+        minute = 60_000_000_000
+        first = SimpleNamespace(bar_type=BAR, ts_event=minute)
+        with mock.patch.object(live_source, "native_cache", return_value=Cache()):
+            on_bar(source, first)
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=minute))  # the same bar again, revised or not
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=0))  # an earlier one
+            on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=2 * minute))
+        self.assertEqual([bar.ts_event for bar in seen], [minute, 2 * minute])
+        self.assertEqual(self.session.evidence.bar.call_count, 4)  # every bar Binance sent stays in the evidence pack
+        self.assertEqual([(row["received_ns"], row["after_ns"]) for row in self.events() if row["event"] == "bar_repeated"],
+                         [(minute, minute), (0, minute)])
+        self.assertEqual(self.session.connection.closed, {})  # neither a gap nor a reason to close entries
 
     def test_a_stop_asked_for_while_warming_up_again_ends_the_run(self):
         self.gap()

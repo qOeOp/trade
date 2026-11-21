@@ -18,8 +18,8 @@ test("20261113-106: the recommended menu names the trial it starts after, not it
   const { RecommendationWidget } = await loader({ stubs: {
     "model/view": { useWidget: (type) => widgets[type] },
     "state/selection": { select: empty },
-    "components/Dropdown": { Dropdown: pass, DropdownLabel: pass, DropdownItem: ({ hint }) => createElement("p", null, hint) },
-    "components/VersionLine": { VersionLine: empty },
+    "ui/Dropdown": { Dropdown: pass, DropdownLabel: pass, DropdownItem: ({ hint }) => createElement("p", null, hint) },
+    "widgets/VersionLine": { VersionLine: empty },
   } }).namespace("shell/toolbar/RecommendationWidget.tsx");
   const html = renderToStaticMarkup(createElement(RecommendationWidget));
   assert.match(html, /from trial 140 ·/, "the trial number at x 4, as the ruler labels that column");
@@ -37,8 +37,8 @@ test("20261113-106: a sealed run without a plan win rate shows none, never the c
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => false },
     "state/shown": { useShown: () => shown },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const render = (t) => {
     shown = { version: "a@2", trial: t };
@@ -58,8 +58,8 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => runsPage },
     "state/shown": { useShown: () => shown },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const targets = { max_drawdown: 0.15, annual_return: 0.2 };
   const paperLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
@@ -82,8 +82,8 @@ test("a paper run whose stream has sent its first batch but no readings shows mi
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => true },
     "state/shown": { useShown: () => ({ stage: "paper", run, name: "Paper · BTCUSDT" }) },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const targets = { max_drawdown: 0.15, annual_return: 0.2 };
   const render = () => renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
@@ -106,8 +106,8 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
     "state/comparison": { useComparison: () => ({ kind: "none" }) },
     "state/shell": { useOnMarketPage: () => false, useOnRunsPage: () => false },
     "state/shown": { useShown: () => ({ stage: "backtest", run: null, trial: null }) },
-    "components/Tip": { Tip: pass },
-    "components/TranslatedCardGroup": { TranslatedCardGroup: pass },
+    "ui/Tip": { Tip: pass },
+    "ui/TranslatedCardGroup": { TranslatedCardGroup: pass },
     "widgets/detail/Readings": { Readings: empty },
     "widgets/detail/ReplayTable": { ReplayTable: empty },
     "widgets/detail/StagePerformance": { StagePerformance: empty },
@@ -150,7 +150,7 @@ test("empty inspector cards default to collapsed and open when populated", async
 });
 
 test("backtest market_exposure and period slices parse and render Alpha vs Beta and time/regime breakdowns", async () => {
-  const env = loader({ stubs: { "icons/Icon": { Icon: empty }, "components/Tip": { Tip: pass } } });
+  const env = loader({ stubs: { "icons/Icon": { Icon: empty }, "ui/Tip": { Tip: pass } } });
   const { backtest } = await env.namespace("model/backtest.ts");
   const { MarketExposure, PeriodsAndRegimes } = await env.namespace("widgets/paper/MarketExposure.tsx");
   const parsed = backtest({
@@ -159,7 +159,7 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
     runtime: { image_digest: null },
     drawdown: null,
     capital: null,
-    // dev_years and closed_by_year as report/measures.py's dev_years(run, 0.2) and closed_by_year(cycles) give
+    // dev_years and closed_by_year as report/splits.py's dev_years(run, 0.2) and closed_by_year(cycles) give
     // them for the 2021-10-01..2024-10-01 window of tests/report/test_numerics.py DevYearTests and three
     // closed cycles (2022-03-01, 2022-07-01, 2024-02-01), printed by json.dumps.
     dev_years: {"years": [{"start": "2021-10-01", "end": "2022-10-01", "return": -0.10373255989643182, "at_target": false, "short_by": 0.30373255989643183, "partial": false}, {"start": "2022-10-01", "end": "2023-10-01", "return": -0.035843665807902436, "at_target": false, "short_by": 0.23584366580790245, "partial": false}, {"start": "2023-10-01", "end": "2024-10-01", "return": 1.077715503584595, "at_target": true, "short_by": 0.0, "partial": false}], "annual_target": 0.2, "years_at_target": 1, "worst_year_return": -0.10373255989643182, "return_without_best_year": -0.07040765412682548},
