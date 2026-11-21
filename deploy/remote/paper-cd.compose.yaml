@@ -13,6 +13,6 @@ services:
     volumes:
       - /var/lib/trade-release/paper-router:/etc/caddy/release:ro
     tmpfs: [/config, /data]
-    logging:
-      driver: json-file
-      options: {max-size: 10m, max-file: "3"}
+    logging:  # in the host journal, as remote/compose.yaml's services (README.md, Logs)
+      driver: journald
+      options: {tag: "{{.Name}}"}
