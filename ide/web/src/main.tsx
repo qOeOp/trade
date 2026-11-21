@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { Crashed } from "./components/Crashed";
-import { Waiting } from "./components/Waiting";
+import { Crashed } from "./ui/Crashed";
+import { Waiting } from "./ui/Waiting";
 import { readSetup, type Setup } from "./lib/setupApi";
 import { SIGN_IN, signedOut } from "./lib/transport";
 import { shared } from "./lib/shared";

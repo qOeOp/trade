@@ -13,7 +13,7 @@ class DrawdownContributionTests(unittest.TestCase):
              "realized_pnl": realized, "unrealized_pnl": Decimal(mark)} for t, name, realized, mark in snapshots])
         positions = [{"position_id": "A", "instrument_id": "A"}, {"position_id": "B", "instrument_id": "B"}]
         cycles = [{"closed": False}, {"closed": False}]
-        drawn = {"peak_ns": peak, "trough_ns": 200, "max_drawdown": .15}
+        drawn = {"peak_ns": peak, "trough_ns": 200, "max_drawdown": .15, "years": None}
         return metrics._drawdown_section(drawn, [{"label": 100, "equity": Decimal(100)},
                                                  {"label": 200, "equity": Decimal(70)}],
                                          cycles, positions, exposures, Decimal(100))
@@ -38,7 +38,7 @@ class DrawdownContributionTests(unittest.TestCase):
         positions[2]["instrument_id"] = positions[3]["instrument_id"] = "A"
         cycles = [{"closed": False}, {"closed": False}, {"closed": True, "ts_last": 50 * unit, "realized": Decimal(50)},
                   {"closed": True, "ts_last": 150 * unit, "realized": Decimal(5)}]
-        found = metrics._drawdown_section({"peak_ns": 100 * unit, "trough_ns": 200 * unit, "max_drawdown": .3},
+        found = metrics._drawdown_section({"peak_ns": 100 * unit, "trough_ns": 200 * unit, "max_drawdown": .3, "years": None},
                    [{"label": 100 * unit, "equity": Decimal(100)}, {"label": 200 * unit, "equity": Decimal(70)}],
                    cycles, positions, exposures, Decimal(100))
         self.assertAlmostEqual(found["top_instrument_share_in_drawdown"]["value"], 2 / 3)

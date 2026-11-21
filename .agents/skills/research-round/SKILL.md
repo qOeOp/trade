@@ -48,7 +48,8 @@ input checks inside an existing line).
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
-the verified report cache cut to its technical part (`replay report --trial-id P --directory D | jq
+the source's `diff -u` against its parent's (both from `candidate export`; a fact, never a
+conclusion), the verified report cache cut to its technical part (`replay report --trial-id P --directory D | jq
 '{stages, outcome, runtime_failures, trade_start: .summary.trade_start_by_strategy, audit: (.audit |
 del(.native_economics)), orders: [.reports.orders[] | del(.commissions)], order_events:
 [.reports.order_events[] | del(.commission)]}'`: no item reads returns, fees or PnL) and
@@ -56,9 +57,11 @@ the names of the api/causal/activity/readiness items, whose meaning it reads in 
 brief explains no item and carries no earlier verdict or the author's view. Its brief says it reads
 no host or session memory, which carries earlier sessions' conclusions. It keeps the review
 bound to the precheck trial, checks only those four and records `source review`, never with status `no_opportunity` (code counts it as passed); use a new reviewer
-after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are source properties,
-activity this precheck's; each guards one risk. The api item covers every native call in the source
-against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
+after a repair (Codex: `fork_turns: "none"`). Candidates of one batch that differ only in numeric
+constants may share one reviewer, which records one four-item review per candidate on its own
+precheck. Api, causal and readiness are source properties,
+activity this precheck's; each guards one risk. The api item covers every native call in the source,
+not only the diff's, against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
 `inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
 `nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
 (below). Activity: the precheck filled orders on every order path the change adds or
@@ -88,7 +91,10 @@ quantity inputs and minimum-notional prices, to its observation timestamp, and c
 submission as strategy-authoring.md's Causal clock states; a passed run audit does not cover them. Read the
 prices with `market bars` at the precheck's market day: the stored bars and funding the
 Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close); read
-tick, size step and minimum notional from `market coverage`'s `terms`. Compare
+size step and minimum notional from `market coverage`'s `terms` at that market day, and the
+tick the replay used from the precheck directory's `input-coverage.json` (an export piece with
+`price_precision_widened` traded on 10^-`price_precision`, finer than the terms' tick: no
+mismatch). Compare
 those times with submission; never script against the market package. Report
 unobserved branches as such. Native execution-state and lifecycle reactions retain their own
 event-ordering contracts.
@@ -160,7 +166,8 @@ and makes no change of approach due.
   user names that run, the measures shown and the reason they no longer count.
 - Export candidate source into /tmp before editing and publish the change as a new candidate.
   Read its duty header, edit only the lines of duties whose own rule changes, preserve the others
-  byte for byte and register those ids in `changed_duties`.
+  byte for byte and register exactly those ids in `changed_duties` (`registration add` refuses any
+  other set).
 
 ## Conditional workflows
 

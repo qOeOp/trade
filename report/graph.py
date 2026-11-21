@@ -159,7 +159,7 @@ def _recommendation(conn: db.LedgerConnection, line_id: int, on_line: set[int], 
 
 def line_list(profile, at: str | None = None, every: bool = False, readings: bool = False) -> dict:
     """`line list`: the open line declarations, or with `every` all of them (ledger.lines.list_lines), each with the
-    versions its graph draws (`versions`, oldest first), read at the same commit; with `readings` also its
+    candidates its graph draws (`candidates`, oldest first), read at the same commit; with `readings` also its
     recommendation as the graph's summary reads it (_recommendation), without drawing the graph."""
     listed = lines.list_lines(db.profile(profile), at, every=every)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
@@ -168,10 +168,15 @@ def line_list(profile, at: str | None = None, every: bool = False, readings: boo
         records: list[dict] = precheck.review_records(conn) if readings else []
         for item in listed["lines"]:
             members, on_line = lineage.members(item["line_id"], item["start"])
-            item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
+            item["candidates"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
             if readings:
                 item["recommendation"] = _recommendation(conn, item["line_id"], on_line, members, checker, records)
     return listed
+
+
+# The paired test's readings a version's comparison passes on as they are (report.comparison.paired).
+COMPARISON_EVIDENCE = ("annual_return_difference", "annual_return_difference_interval", "max_drawdown_difference",
+                       "max_drawdown_difference_interval")
 
 
 def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: Mapping | None = None,
@@ -197,9 +202,14 @@ def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: 
                    for p in attribution.get("predictions") or []] or None
     if evidence is None:
         return None, predictions
+    alpha = (((attribution.get("slices") or {}).get("market_exposure") or {}).get("measures") or {}).get("alpha_basket") or {}
+    pairwise = alpha.get("pairwise") or {}
     return ({"vs_trial": found.get("control_trial_id"), "mean_daily_log_difference": evidence.get("mean_daily_log_difference"),
              "detectable": evidence.get("detectable_annual_return_difference_80pct_normal_approx"),
-             "intervals_cross_zero": comparison.intervals_cross_zero(evidence), "summary": None}, predictions)
+             "intervals_cross_zero": comparison.intervals_cross_zero(evidence),
+             **{key: evidence.get(key) for key in COMPARISON_EVIDENCE},
+             "alpha_basket_difference": pairwise.get("value"), "alpha_basket_difference_se": pairwise.get("standard_error"),
+             "summary": None}, predictions)
 
 
 def _reusing(read: Callable, failures: list[Refusal]) -> Callable:

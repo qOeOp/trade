@@ -9,12 +9,12 @@ type Measure = {
   value: number | string | null; standard_error?: number | null; return_sum?: number | null;
   sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
 } | undefined;
-/** One development year, cut at the trade start's anniversaries (`measures.dev_years`), or the window's last
- *  part year (`partial`): its UTC dates and compound return. */
-type DevYear = { start: string; end: string; return: number; partial: boolean };
+/** One development year, cut at the trade start's anniversaries (`dev_years`), or the window's last
+ *  part year (`partial`): its UTC dates, compound return and sealed bar-close MARK drawdown (null when the reading has none). */
+type DevYear = { start: string; end: string; return: number; mark_max_drawdown?: number | null; partial: boolean };
 /** The development years, the worst year's return and the window's annual return without the best year. */
 type DevYears = { years: DevYear[]; worst_year_return: number; return_without_best_year: number } | null;
-/** Closed cycles of one UTC close year, by that year (`measures.closed_by_year`): money as decimal text. */
+/** Closed cycles of one UTC close year, by that year (`splits.closed_by_year`): money as decimal text. */
 type ClosedYear = { closed_trades: number; price_pnl_usdt: string; fill_commissions_usdt: string; reported_funding_usdt: string };
 /** One cycle of `run_cycle`: open to close of one position (no close while it was still open at the
  *  window's end), no prices or sizes stored. */

@@ -70,6 +70,29 @@ class LiveViewTests(LiveViewFixture):
         self.assertEqual(before, self.files())
         self.assertTrue(all(len(call) == 3 and call[1] == "inspect" for call in self.calls))
 
+    def test_a_journal_read_again_parses_only_what_was_appended_and_a_rewrite_from_the_start(self):
+        path = self.directory / "out" / "events.jsonl"
+        for minute in range(views.MAX_MINUTES + 50):
+            self.native("minute_result", minute_ns=minute * 60_000_000_000, result="1")
+        views._sample(path, "native", journal=True)
+        self.native("minute_result", minute_ns=10**15, result="2")
+        with patch.object(views, "_row", wraps=views._row) as parsed:
+            again = views._sample(path, "native", journal=True)
+        self.assertEqual(parsed.call_count, 1, "a run that never ends costs a request what it appended, not its length")
+        views._READS.clear()
+        whole = views._sample(path, "native", journal=True)
+        self.assertEqual((again.cursor, again.lines, again.data), (whole.cursor, whole.lines, whole.data))
+        self.assertEqual(again.data[-1]["result"], "2")
+        text = path.read_bytes()  # the same file rewritten where the last read ended: read from the start
+        with path.open("r+b") as stream:
+            at = text.rindex(b'"2"')
+            stream.write(text[:at] + b'"4"' + text[at + 3:])
+        with patch.object(views, "_row", wraps=views._row) as parsed:
+            rewritten = views._sample(path, "native", journal=True)
+        self.assertGreater(parsed.call_count, views.MAX_MINUTES)
+        views._READS.clear()
+        self.assertEqual(rewritten.cursor, views._sample(path, "native", journal=True).cursor)
+
     def test_minute_results_keep_journal_order_and_unknowns_and_drop_damaged_rows(self):
         self.native("minute_result", minute_ns=60_000_000_000, result="-2.50000000")
         self.native("minute_result", minute_ns=120_000_000_000, result=None)

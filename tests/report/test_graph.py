@@ -14,7 +14,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, lines, metrics, problems, strategies, targets
+from ledger import db, execution, lines, metrics, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck, register
@@ -108,7 +108,7 @@ class ResearchGraphTests(unittest.TestCase):
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": first},
                                                 {"role": "about", "candidate": second}])
         with db.connect(world.profile, "writer") as conn:
-            targets.set_targets(conn, None, 0.15, 0.2)
+            lines.set_targets(conn, None, 0.15, 0.2)
 
     def graph(self, **options):
         return graph.research_graph(self.world.profile, **options)
@@ -289,7 +289,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
         self.assertIn(second, {c["id"] for c in old["candidates"]})
         with patch.object(graph, "research_trials", wraps=graph.research_trials) as read:
-            listed = {item["name"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
+            listed = {item["name"]: item["candidates"] for item in graph.line_list(self.world.profile)["lines"]}
         self.assertEqual(read.call_count, 1, "E1: the research trials are read once for every line")
         for each in (bundle, self.world.line["line"]):
             self.assertEqual(set(listed[each]), {c["id"] for c in graph.research_graph(self.world.profile, each)["candidates"]},

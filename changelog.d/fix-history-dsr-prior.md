@@ -1,0 +1,1 @@
+- `research history`: each holdout also gives `deflated_sharpe_with_prior_trials`, its deflated Sharpe with the line's `holdout_prior_trials` added to the participants as trials (same variance), and `discount.trials_with_prior`. The IDE's Line-close history shows the DSR on every row with a reading, the prior-trials figure after a slash, not only on rows meeting the targets.

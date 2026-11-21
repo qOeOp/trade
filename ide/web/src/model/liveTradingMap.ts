@@ -22,6 +22,8 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
 
 /** The equity the run armed with and its minute results as the account the chart draws (that plus the result), by
  *  time in seconds. */
+const number = (v: string | null | undefined) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
 function equityOf(run: LiveRunDto): LiveRun["equity"] {
   const budget = Number(run.brake?.start ?? NaN);
   if (!run.minute_results || !(budget > 0)) return null;
@@ -103,13 +105,16 @@ function continuityOf(run: LiveRunDto, entries: LiveRun["entries"], compared: Li
 export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveRun {
   const candidate = run.candidate, account = run.account, entries = entriesOf(run), compared = comparedOf(run), open = !ENDED.has(run.host.state ?? "");
   return {
-    id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
+    environment: run.config.environment, id: run.run_id, candidate: candidate.strategy_id ? `${candidate.strategy_id}${candidate.revision === null ? "" : `@${candidate.revision}`}` : "Candidate unknown",
     sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
+    stopRequested: run.stop_requested === true,
+    brake: { ratio: number(run.config.drawdown_brake), start: number(run.brake?.start), peak: number(run.brake?.peak) },
     config: [fact("Drawdown brake", run.config.drawdown_brake), fact("Equity at start (USDT)", run.brake?.start ?? null),
       fact("Highest equity (USDT)", run.brake?.peak ?? null), fact("Duration (seconds)", run.config.duration_seconds),
-      fact("Leverage", run.config.leverage)],
+      fact("Leverage", run.config.leverage),
+      fact("Environment", run.config.environment === "demo" ? "Demo (Binance Demo Trading)" : run.config.environment === "live" ? "Live (real account)" : null)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
     execution: [fact("Native terminal", run.terminal?.event ?? null), fact("Source failed", yesNo(run.terminal?.source_failed)), fact("Terminal observed", run.terminal?.observed_ns ?? null, "nanoseconds")],
     account: account ? [fact("Observed", account.observed_ns, "nanoseconds"), fact("Trading enabled", yesNo(account.can_trade)), fact("Hedge mode", yesNo(account.hedge_mode)),
@@ -125,6 +130,9 @@ export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveR
   };
 }
 
+const credentialsOf = (items: LiveHomeDto["credentials"]["live"]) => items.map((item) => ({ ref: item.credential_ref,
+  savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs }));
+
 export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<string, LiveRunDto>): LiveTradingView {
   const unavailable = home.write_reason === "LIVE_RELEASE_UNAVAILABLE"
     ? "The Live service cannot currently confirm that it is ready to accept new actions. Wait, then refresh observations. (LIVE_RELEASE_UNAVAILABLE)"
@@ -132,7 +140,7 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
   return {
     availability: "ready", notice: home.write_enabled ? null : unavailable,
     reason: home.write_enabled ? null : home.write_reason ?? "LIVE_WRITE_DISABLED",
-    credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
+    credentials: { live: credentialsOf(home.credentials.live), demo: credentialsOf(home.credentials.demo) },
     planFields: [
       // Shown and typed as a percentage; the server takes a fraction (state/liveTrading.ts).
       { id: "drawdown_brake", label: "Drawdown brake", value: String(Math.round(Number(home.defaults.drawdown_brake) * 1e6) / 1e4) },

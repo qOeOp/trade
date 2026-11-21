@@ -533,6 +533,18 @@ class ResumeTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class EquityTailTests(unittest.TestCase):
+    def test_a_streams_readings_carry_only_the_equity_points_it_has_not_sent(self):
+        minute = [[START + index * MINUTE, 100_000.0 + index] for index in range(4320)]  # three days
+        first = serve.equity_tail(None, {"fills": 0, "equity": minute[:-1]})
+        self.assertEqual((first["equity_from"], first["equity"]), (0, minute[:-1]))
+        later = serve.equity_tail(minute[:-1], {"fills": 0, "equity": minute})
+        self.assertEqual((later["equity_from"], later["equity"], later["fills"]), (4319, minute[-1:], 0))
+        self.assertLess(len(json.dumps(later)), 100, "a minute sends its point, not the whole path")
+        settled = [*minute[:-2], [minute[-2][0], 99_000.0], minute[-1]]  # funding journalled after its snapshot
+        self.assertEqual(serve.equity_tail(minute[:-1], {"equity": settled})["equity_from"], 4318)
+
+
 class StreamTests(unittest.TestCase):
     def setUp(self):
         self.service = Service()
@@ -567,7 +579,7 @@ class StreamTests(unittest.TestCase):
         self.assertEqual((kind, first), ("lines", journal()))
         self.assertEqual(events(response), ("state", {"positions": [], "orders": []}))
         kind, live = events(response)
-        self.assertEqual((kind, live["fills"], len(live["equity"])), ("readings", 1, 3))
+        self.assertEqual((kind, live["fills"], len(live["equity"]), live["equity_from"]), ("readings", 1, 3, 0))
         later = [snapshot(START + 3 * MINUTE, "99990", "25"), eth]
         write(self.out / "events.jsonl", later)
         self.assertEqual(events(response), ("lines", later[:1]))

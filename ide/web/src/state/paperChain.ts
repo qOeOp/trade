@@ -35,6 +35,7 @@ export function load(run: PaperRun, symbol: string | null): () => void {
     events.addEventListener("lines", (e) => { for (const l of data<JournalLine[]>(e)) (l.kind === "bar" ? piece.bars : piece.lines).push(l); });
     events.addEventListener("closes", (e) => { for (const [s, found] of Object.entries(data<Piece["closes"]>(e))) piece.closes[s] = [...(piece.closes[s] ?? []), ...found]; });
     events.addEventListener("failures", (e) => { piece.failures = data(e); });
+    // A stream's first readings carry the whole equity path (equity_from 0); a going run is read no further.
     events.addEventListener("readings", (e) => { piece.readings = data(e); if (run.state !== "sealed") keep(piece); });
     events.addEventListener("end", (e) => keep({ ...piece, seal: data(e) }));
   }

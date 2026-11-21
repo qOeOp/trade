@@ -1,4 +1,4 @@
-import { Tabs } from "../../components/Tabs";
+import { Tabs } from "../../ui/Tabs";
 import type { PaperRun } from "../../lib/paperApi";
 import { lineOf } from "../../lib/lines";
 import { useResearchLines } from "../../state/researchLines";

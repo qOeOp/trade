@@ -1,6 +1,6 @@
 """If this fails, a Live run is compared with a replay that is not its own (another source, image, contract, leverage,
 starting wallet or window than the minutes its source received from the warm-up's T), its evidence pack is misread
-(bars, warm-up bars, native order events, the start observation, each minute's result), its fee rates are not
+(bars, warm-up digests, native order events, the start observation, each minute's result), its fee rates are not
 named as the cause of a fee difference, a pack without the facts a comparison needs is compared anyway, a restarted
 run's trading start is replayed with another start's T, wallet, evidence, orders or inherited result, or the weekly
 measures miscount fills, slippage, fees, equity or held entries."""
@@ -27,7 +27,6 @@ from tests.helpers import refused
 MINUTE = shared.MINUTE_NS
 START = 1_794_355_200 * 10**9  # 2026-11-11T00:00:00Z, the warm-up's T
 BTC = "BTCUSDT-PERP.BINANCE"
-MINUTE_BAR = f"{BTC}-1-MINUTE-LAST-EXTERNAL"
 SOURCE = b"class S:\n    WARMUP = {'1-MINUTE': 3}\n"
 TERMS = {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "100"}
 
@@ -36,10 +35,15 @@ def close_of(i: int) -> int:
     return START + (i + 1) * MINUTE - 10**6
 
 
-def bar_row(i: int, kind: str = "bar", close: str = "100.0") -> dict:
-    return {"kind": kind, "wall_ns": close_of(i) + 3 * 10**8, "bar_type": MINUTE_BAR, "instrument_id": BTC,
-            "ts_event": close_of(i), "ts_init": close_of(i), "open": "100.0", "high": "101.0", "low": "99.0",
-            "close": close, "volume": "5.000"}
+def bar_row(i: int, close: str = "100.0") -> dict:
+    return {"kind": "bar", "wall_ns": close_of(i) + 3 * 10**8, "instrument_id": BTC, "ts_event": close_of(i),
+            "ts_init": close_of(i), "open": "100.0", "high": "101.0", "low": "99.0", "close": close, "volume": "5.000"}
+
+
+def warmup_row(minutes: tuple[int, ...], wall_ns: int) -> dict:
+    """The digest of the one-minute history the source received (engine.realtime.MarketRows.warmup)."""
+    return {"kind": "warmup", "wall_ns": wall_ns, "instrument_id": BTC, "period": "1-MINUTE",
+            **shared.digest((close_of(i), "100.0", "101.0", "99.0", "100.0", "5.000") for i in minutes)}
 
 
 def order(name: str, tag: str, side: str, at: int, qty: str = "0.002", price: str | None = "100.0",
@@ -67,7 +71,7 @@ class Pack:
     """A Live run's private directory as prepare, the runner and its evidence pack leave it."""
 
     def __init__(self, root: Path, *, minutes: int = 12, maker: str = "0.0002", source: bytes = SOURCE,
-                 reports: bool = True, warmed: bool = True):
+                 reports: bool = True, warmed: bool = True, environment: str = "live"):
         self.root, self.run_id = root, "trial-1"
         directory = root / "runs" / self.run_id
         (directory / "inputs").mkdir(parents=True)
@@ -76,7 +80,7 @@ class Pack:
         manifest = {"run_id": self.run_id, "candidate": {"strategy_id": "s", "revision": 1},
                     "source": {"source_sha256": hashlib.sha256(SOURCE).hexdigest(), "entry_class": "S"},
                     "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64},
-                    "symbols": ["BTCUSDT"], "config": {"leverage": "5"},
+                    "symbols": ["BTCUSDT"], "config": {"environment": environment, "leverage": "5"},
                     "market": {"market_day": "2026-11-10", "terms": {"BTCUSDT": TERMS}}}
         (directory / "inputs" / "manifest.json").write_text(json.dumps(manifest))
         (directory / "inputs" / "strategy.py").write_bytes(source)
@@ -86,7 +90,7 @@ class Pack:
         commission = str(round(0.2 * float(maker), 8))  # 0.002 BTC at 100: 0.2 USDT notional
         self.orders = trade("L", "P-1", commission)
         events = [{"event": "started", "observation": "connected-account-1.json", "observed_ns": START - 10**9},
-                  *([{"event": "warmup", "at_ns": START, "fetched_ns": START + 10**9, "bars": {"1-MINUTE": 3}}]
+                  *([{"event": "warmup", "at_ns": START}]
                     if warmed else []),
                   {"event": "position", "observed_ns": close_of(3) + 10**8,
                    "native": {"type": "PositionOpened", "instrument_id": BTC, "position_id": "P-1", "side": "LONG",
@@ -97,8 +101,7 @@ class Pack:
                   *({"event": "order", "native": event} for event in self.orders),
                   *({"event": "minute_result", "minute_ns": START + i * MINUTE, "result": "0"} for i in range(minutes))]
         (directory / "out" / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in events) + '{"torn')
-        market = [*(bar_row(i, "historical_bar") for i in (-3, -2, -1)), *(bar_row(i) for i in range(minutes)),
-                  {**bar_row(0), "bar_type": f"{BTC}-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL", "close": "7"}]
+        market = [warmup_row((-3, -2, -1), START + 10**9), *(bar_row(i) for i in range(minutes))]
         (evidence / "market.jsonl").write_text("".join(json.dumps(row) + "\n" for row in market))
         if reports:
             for name, written in (("reports-5", self.orders[:2]), ("reports-9", self.orders)):
@@ -129,13 +132,12 @@ def restart(pack: Pack) -> None:
             {"event": "connecting", "observed_ns": third},
             {"event": "started", "observation": "connected-account-3.json", "observed_ns": third + 1},
             {"event": "minute_result", "minute_ns": third, "result": "0.5"},
-            {"event": "warmup", "at_ns": RESTART, "fetched_ns": RESTART + 10**9, "bars": {"1-MINUTE": 3}},
+            {"event": "warmup", "at_ns": RESTART},
             *({"event": "order", "native": event} for event in orders),
             *({"event": "minute_result", "minute_ns": RESTART + i * MINUTE, "result": "0.5"} for i in range(12))]
     (out / "events.jsonl").write_text("\n".join([json.dumps({"event": "connecting", "observed_ns": START - 2 * 10**9}),
                                                 *lines]) + "\n" + "".join(json.dumps(row) + "\n" for row in rows))
-    market = [*({**bar_row(i, "historical_bar"), "wall_ns": RESTART + 10**8} for i in (17, 18, 19)),
-              *(bar_row(i) for i in range(20, 32))]
+    market = [warmup_row((17, 18, 19), RESTART + 10**8), *(bar_row(i) for i in range(20, 32))]
     with (out / "evidence" / "market.jsonl").open("a") as stream:
         stream.writelines(json.dumps(row) + "\n" for row in market)
     reports = out / "evidence" / "reports-30"
@@ -273,6 +275,12 @@ class Compare(unittest.TestCase):
         self.assertEqual([row["role"] for row in group["orders"]], ["entry", "stop", "target"])
         self.assertEqual(result["equity"]["run"][0], [START, "57.5"])
         self.assertEqual(Decimal(summary["equity_max_difference"]), 0)
+        self.assertEqual((result["environment"], result["note"]), ("live", None))
+
+    def test_a_demo_runs_comparison_says_it_is_no_evidence_of_consistency(self):
+        _, result = self.compared(Pack(self.root, environment="demo"))
+        self.assertEqual((result["environment"], result["note"]), ("demo", compare.DEMO_NOTE))
+        self.assertEqual(result["summary"]["same"], 1)  # the comparison itself runs as for a live run
 
     def test_the_accounts_fee_rates_explain_a_fee_difference(self):
         _, result = self.compared(Pack(self.root, maker="0.00018"))
@@ -350,8 +358,7 @@ class Compare(unittest.TestCase):
     def test_every_contracts_minute_bars_and_commission_are_the_runs(self):
         eth = "ETHUSDT-PERP.BINANCE"
         pack = {"manifest": {"symbols": ["BTCUSDT", "ETHUSDT"]}, "events": [{"event": "warmup", "at_ns": START}],
-                "market": [bar_row(0), {**bar_row(4), "bar_type": f"{eth}-1-MINUTE-LAST-EXTERNAL", "instrument_id": eth},
-                           {**bar_row(9), "bar_type": "SOLUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"}]}
+                "market": [bar_row(0), {**bar_row(4), "instrument_id": eth}]}
         self.assertEqual(compare.window(pack), (START, close_of(4) + 10**6))
         self.assertEqual([line["ts_event"] for line in compare.journal(pack, START) if line["kind"] == "bar"],
                          [close_of(0), close_of(4)])

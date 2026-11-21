@@ -35,15 +35,18 @@ out-of-sample registrations at that commit. They inform the operator and no vali
 Preparation first needs the candidate's closing history test, read at research_at, to have decided that it meets
 its line's targets, the check `validation registration` makes (`report.history.require_unfalsified`): it refuses
 `LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them and `LIVE_HISTORY_UNDECIDED` for one it has
-not decided (no history test, or a verdict missing a reading). It also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
+not decided (no history test, or a verdict missing a reading). It also records the replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
 audit passed and whose trading window lies inside a research trial's window of the same source (a window it already
-saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars`, on a
-replay image whose `--describe`
+saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars` at the run's leverage (the replay's effective
+configuration), on a replay image whose `--describe`
 reports the execution image's `source_files_sha256`, `audit_source_sha256` and `dependency_lock_sha256` (the same
 replay code). A sealed run on other replay code counts through an explore that reproduces it on matching code
-(`replay reproduce`). Without one it refuses `LIVE_EVIDENCE_MISSING`; the manifest lists each (`evidence`) and the
-review shows them. In `preflight` and `run` the runner then needs one that started within 10% of the USDT wallet it
-observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
+(`replay reproduce`). The manifest lists each (`evidence`) and the review shows them. A run that records none may
+still check the account, so the wallet a replay must start near is read before there is one: its `preflight` keeps the
+account observation, makes every other check and then refuses `LIVE_EVIDENCE_MISSING`; its start (`run`) is refused
+`LIVE_EVIDENCE_MISSING` by the control before any key or container, and by the runner too, so a run is prepared again
+once a replay exists (decided 2026-11-21, `docs/plans/live-wallet-read-first-20261121.zh.md`). In `preflight` and `run`
+the runner then needs one that started within 10% of the USDT wallet it observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
 then `replay explore` of that file with `--starting-balance` the wallet and the run's `--symbols`, inside the
 window of one of its research trials.
 Last, preparation needs a reconciled Paper run of the source (`live/reconcile.py`): a sealed run whose status is
@@ -65,7 +68,7 @@ and instances coordinate legs through state the source shares between them (deci
 `docs/plans/cross-line-fusion-20261111.zh.md` §5–§7). Admission requires a flat account, Hedge/Multi-assets mode, and
 on every contract CROSS margin, the declared leverage, no automatic margin addition and Binance status `TRADING`. The
 venue's leverage is observed, never changed or copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
-and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet, at most 100 USDT).
+and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet).
 Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
 the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
@@ -118,12 +121,15 @@ seconds apart (one native position and open-order reconciliation cycle), both ag
 instance's positions per side and open orders by venue ID, on the account modes, nothing on a symbol outside the run,
 and a live bar received since the reconnect. A disagreement restarts the check. Orders at Binance the cache does not
 know are canceled with every order on their contract (native cancel-all, regular and conditional), and entries then
-stay closed for the run, as they do after changed account modes. A missing external bar on any contract (Binance's
+stay closed for the run, as they do after changed account modes. An external bar stamped no later than the last of its type (a closed kline pushed again, revised or not) is journalled
+as `bar_repeated` and never reaches the source. A missing external bar on any contract (Binance's
 stream does not resend a close it missed) is not patched: entries on every contract close and working ones are
 withdrawn; a position keeps its instance and exits. Once no instance holds a position, order or held entry, no
 instance sees a further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
-complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). If that warm-up fails, the start ends the
+complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). An aggregated time bar the source receives more
+than 60 seconds after its bucket's end counts as a missing bar too (`bars_missing` with `late_ns`): rc7 closes such bars on a
+monotonic-clock timer that a host sleep or VM pause leaves behind for good, and only a restart puts it back on time. If that warm-up fails, the start ends the
 same way once more (`rewarming` with `retry`; it counts toward the control's four run launches an hour); a second failure ends
 the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once
 agreeing comparisons (every five minutes) have seen them at Binance for ten minutes, the user is told
@@ -208,7 +214,8 @@ than its limit. The native global notional cap is omitted because it also reject
 all other native risk checks remain enabled. Reductions also require the position to be the instance's own, on
 the run's account and the instance's contract. Live does not claim hostile-code isolation for the source.
 
-Before a `preflight` or `start` takes the account, the control's process reads the key's own permissions once from
+Before a `preflight` or `start` of a live run takes the account (a demo run's key is not read: [Demo](#demo)), the
+control's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
 (`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and so is a key with
 no IP restriction (`LIVE_KEY_IP_UNRESTRICTED`), for every run, timed or not. The runner then bounds its own clock against the venue's time, because native
@@ -218,16 +225,22 @@ requests may sign with it while signed reads here carry the venue's time: at mos
 How to write a candidate that
 runs in Live: `.agents/skills/research-round/references/strategy-authoring.md`, section Live. On every one-second
 observation of a `run`, each open position needs stop coverage (`engine.protection`, the audit's rule), read from
-the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. After 90 seconds without cover from when the gap opened (the
-audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
+the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. Once a gap outlasts 90 seconds from when it opened (the
+audit's one bar plus the native open-order check, timed by the same `protection.Gaps` as Paper; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
-native reconciliation. A failed flat run keeps the account slot until `reconcile`. The STOP path submits at most five
+native reconciliation. A failed flat run keeps the account slot until `reconcile`. Before its first close the STOP path
+reads Binance once: a position Binance holds less of (its leg closed by hand, a liquidation or ADL outside the run) is
+closed only for what Binance still holds and journalled `venue_closed`; once nothing else is open and the run's orders
+(the orphan stops included) are canceled, the run ends `venue_flat`. If that read fails, closes go from the cache.
+The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
 done, so a stop with many positions open stays under the rate. A close that rate still denies (the instances' own
 orders count toward it) was never sent: it marks the run failed like any denied order and is submitted again on a
-later tick. If the close is rejected or
-fails, it is not retried: the node stops with the position open and possibly no stop on the venue, and `status` says
-`unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
+later tick. A close Binance certainly did not take (rc7's `submit-order-error:` rejection: not sent, or a definite
+answer such as a price outside PERCENT_PRICE) is sent again on a later tick, at most three times per position
+(`close_resent`); it fails the run like any rejection. A close rejected more often, or one whose outcome rc7 could not
+learn (`INFLIGHT_TIMEOUT`: Binance may have filled it), is not retried: the node stops with the position open and
+possibly no stop on the venue, and `status` says `unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
 
 The drawdown brake (`engine/live_brake.py`, design §3.5, user 2026-11-10) replaces the per-run loss limit. Every
 15 seconds during a `run` the runner reads the account over REST; equity is the USDT wallet plus its unrealized result,
@@ -237,7 +250,7 @@ the user's 15% maximum-drawdown target, or a tighter share the run was prepared 
 with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and is not started again. With a
 position open and no equity read for 60 seconds the brake cannot be applied: the run stops, failed
 (`drawdown_unverified`); so does a position with no mark price of its contract for 60 seconds (`mark_missing`). The cash floor is 85% of
-the USDT wallet at the first arming (the first trial admits at most 100 USDT, `LIVE_BUDGET`): each entry still needs
+the USDT wallet at the first arming: each entry still needs
 that much USDT wallet and available cash, a last line should the brake fail. The brake does not bound a gap or a
 rejected close; a trigger makes one close attempt. Do not transfer or trade by hand during a run.
 
@@ -291,6 +304,16 @@ nothing could be sent) is reported with `entries_kept`. The check tells; it does
 and closes nothing, and the drawdown brake does not run while it holds. The Live page and Telegram say what the
 latest check found, a position with no stop in its own words.
 
+An order whose submission Binance's answer did not settle (the answer, its user-stream events and the queries for it
+all lost) stays SUBMITTED: rc7 retains it (`SubmissionRecoveryPolicy.RETAIN_UNRESOLVED`) instead of judging it
+rejected after its in-flight check of about 30 s, since Binance may hold or have filled it. From 10 s on the run asks
+Binance for it natively every 10 s and closes entries as `unverified` until it is settled and two venue comparisons
+agree; an order Binance holds or filled settles at its own state and fill as soon as a query is answered. One still
+SUBMITTED after 120 s fails the run through the STOP path (`submission_unresolved`); Nautilus then ends the start
+with the order unresolved, and the run is `unresolved`. While such an order is unsettled, rc7's position check may book
+Binance's position as an EXTERNAL one; the run's own comparison then keeps entries closed and its stop ends
+`unresolved` with the venue flat.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order
@@ -311,7 +334,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-5`) binds the checks to the runner: an older image refuses it before arming. 0.x
+A manifest's format (`live-run-6`) binds the checks to the runner: an older image refuses it before arming. 0.x
 keeps no compatibility between versions: a run an earlier version prepared stays on disk under `runs/`, and no
 listing, release check or operation reads it; only its runner container, while still running, keeps the account
 (`live/inventory.py`). A run without a credential version is unknown ownership and blocks credential changes
@@ -325,14 +348,47 @@ Reconciliation accepts the retained account modes without requiring positive fun
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.
 
+## Demo
+
+A run trades either the real Binance account (`live`) or [Binance Demo Trading](https://www.binance.com/en/demo-trading)
+(`demo`): its own account, API keys, order book, prices and funding, on `demo-fapi.binance.com` and
+`demo-fstream.binance.com` (Nautilus's `BinanceEnvironment.DEMO`). The Live page's Live/Demo switch picks the
+environment: the key shown, saved, removed and checked, and the environment a prepared run uses, which its manifest
+keeps (`config.environment`). Each environment keeps its own saved key versions and selection under
+`credentials/<environment>/`; saving one never replaces the other, and a run binds a version of its own environment
+only (`LIVE_CREDENTIAL_CHANGED` for the other's). The venue refuses the other environment's key as well: a demo key
+in a live run at the key check on `api.binance.com` (`LIVE_KEY_UNVERIFIED`), a live key in a demo run at its first
+signed read on `demo-fapi` (`LIVE_ACCOUNT_UNAVAILABLE`). Demo keys come from Binance Demo Trading's API Management.
+
+A demo run goes through the same preparation, admission and runner as a live one: the closing history test, the
+replay evidence at its wallet, the Paper reconciliation, the account modes, `TERMS_CHANGED`, the clock and every
+order rule. Only these differ:
+
+- Its trading, account reads, klines, funding and kline side connection use the demo hosts; its metrics come from
+  production (`fapi.binance.com/futures/data`), which demo does not serve. Its egress admits those three hosts alone,
+  a live run's egress production's two.
+- The key permission check is skipped: demo serves no `apiRestrictions` (`demo-api.binance.com` answers 404) and its
+  keys reach no real funds.
+- `TERMS_CHANGED` compares demo's instrument terms with the market's: on 2026-11-21 demo's BTCUSDT step was 0.0001
+  against the archive's 0.001, so a BTCUSDT demo run is refused; ETHUSDT and SOLUSDT matched.
+- It is labelled Demo on the Live page, in Telegram (`Demo run …`) and in the daily summary, which reports demo runs
+  in their own section. `live compare` and the daily comparison run as for a live run, but demo's prices and funding
+  are not the archive's: the comparison says so (`note`) and is never evidence that Live and the replay agree.
+
+Use demo to rehearse the start path, orders, stops, restarts, stops and reconciliation before the real account
+([trial checklist](../docs/plans/live-real-account-trial-0.5.zh.md)); fees and funding actually charged, the
+available-balance basis, liquidation and real depth still need the real account.
+
 ## Evidence pack
 
 Each Live run keeps what a replay of its source needs for comparison in `evidence/` of its private output
 (`engine/live_evidence.py`), never the ledger:
 
-- `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
-  history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
-  `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
+- `market.jsonl`, the market rows Paper journals (`engine.realtime.MarketRows`): every one-minute bar the source
+  received (`bar`; an aggregation is built from them and not kept), per contract and period the digest of each
+  history its warm-up delivered (`warmup`: `bars`, `first_ts_event`, `last_ts_event`, `sha256`; period `FUNDING` for
+  the funding settlements), Binance's time for each closed kline and its side connection's state (`kline_event`,
+  `kline_socket`), each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
   reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
   (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published

@@ -28,8 +28,9 @@ export type MarketExposure = {
 /** One volatility regime's return summary from `by_regime` (`high` or `low` prior-day basket volatility):
  *  the number of days in that regime, their compounded return (`exp(log_sum) - 1`) and mean daily return (`exp(mean_log) - 1`). */
 type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
-/** One development year (cut at the trade start's anniversaries, not a calendar year) or the window's last part year: its UTC dates and compound return. */
-type DevYear = { start: string; end: string; ret: number };
+/** One development year (cut at the trade start's anniversaries, not a calendar year) or the window's last part year: its UTC dates,
+ *  compound return and sealed MARK drawdown (null when the reading has none). */
+type DevYear = { start: string; end: string; ret: number; drawdown: number | null };
 /** The closed cycles of one UTC close year: their count, price move, fees paid and funding (account currency). */
 type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
 /** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled`, `dev_years` and `closed_by_year`. */
@@ -138,7 +139,7 @@ function periodsOf(r: TrialReport): PeriodBreakdown | null {
       dailyReturn: meanLog === null ? null : Math.expm1(meanLog),
     }];
   });
-  const devYears: DevYear[] = (r.dev_years?.years ?? []).map((y) => ({ start: y.start, end: y.end, ret: y.return }));
+  const devYears: DevYear[] = (r.dev_years?.years ?? []).map((y) => ({ start: y.start, end: y.end, ret: y.return, drawdown: y.mark_max_drawdown ?? null }));
   const closedYears: ClosedYear[] = Object.entries(r.closed_by_year ?? {}).map(([year, c]) => ({
     year, closed: c.closed_trades, price: amount(c.price_pnl_usdt), fees: amount(c.fill_commissions_usdt), funding: amount(c.reported_funding_usdt),
   }));

@@ -3,7 +3,10 @@ import type { RuntimeFailure } from "./paperApi";
 /** Frozen HTTP projections. Native event rows are observations, never a browser order ledger. */
 export type LiveReply<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string }; request_id?: string };
 /** A command Live did: its request ID and action, and the run or key it names (live/control.py execute). */
-export type LiveWriteReply = { request_id: string; action: string; run_id?: string; credential_ref?: string };
+export type LiveWriteReply = { request_id: string; action: string; run_id?: string; credential_ref?: string; environment?: LiveEnvironment };
+/** A Live run's Binance environment (live/configuration.py ENVIRONMENTS): the real account, or Binance Demo Trading,
+ *  its own account, keys, order book and prices. Each keeps its own saved keys (live/credentials.py). */
+export type LiveEnvironment = "live" | "demo";
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
@@ -43,7 +46,7 @@ export type LiveReviewDto = {
 export type LiveRunDto = {
   run_id: string; source: { source_sha256: string | null; entry_class: string | null }; candidate: Candidate;
   runtime: { digest: string | null; platform: "linux/amd64" | "linux/arm64" | null }; symbols: string[] | null;
-  config: { drawdown_brake: string | null; duration_seconds: string | null; leverage: string | null };
+  config: { environment: LiveEnvironment | null; drawdown_brake: string | null; duration_seconds: string | null; leverage: string | null };
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };
   stop_requested: boolean | null;
   terminal: { event: "clean_stop" | "reconciled_flat" | "venue_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
@@ -78,10 +81,10 @@ type LiveCompareDto = {
 };
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
-  credentials: LiveCredentialDto[]; runs: LiveRunDto[];
+  credentials: Record<LiveEnvironment, LiveCredentialDto[]>; runs: LiveRunDto[];
   /** A run's settings as the page starts them: no duration runs until stopped; the brake can only be tighter; the
    *  leverage is the user's to change, and must equal each contract's at Binance. */
-  defaults: { drawdown_brake: string; duration_seconds: number | null; leverage: string };
+  defaults: { environment: LiveEnvironment; drawdown_brake: string; duration_seconds: number | null; leverage: string };
   /** Telegram notification status; never the bot token or chat. */
   notify: LiveNotifyDto;
 };

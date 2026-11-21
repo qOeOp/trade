@@ -1,5 +1,5 @@
 """Registration's seams: runtime images (`runtime.image`), the product checkout, market reads and export
-(`market`), and economic-evidence qualification (`registration.availability`). What registration and replay
+(`market`), and stand-ins for economic-evidence qualification (`registration.availability` when none is set). What registration and replay
 do with them (runner arguments, the checkout's git gates) is `registration.runner`.
 
 `current` holds the implementations in force; tests swap them with `use(...)` (stand-in images, checkouts,
@@ -64,7 +64,7 @@ class Market:
 
     def __init__(self, profile: dict):
         self.profile = profile
-        self.database = profile["name"]
+        self.name = profile["name"]
 
     def _open(self):
         from market import files
@@ -127,18 +127,6 @@ class Market:
         return lifecycle.validate_lifecycle(body, market_day, files)
 
 
-# Economic-evidence qualification (registration.require, registration.assess)
-
-def _qualification_require(conn, run: Mapping) -> dict:
-    from registration import availability
-    return availability.require(conn, run)
-
-
-def _qualification_assess(conn, run: Mapping, **options) -> dict:
-    from registration import availability
-    return availability.assess(conn, run, **options)
-
-
 @dataclass(frozen=True)
 class Seams:
     resolve_runtime: Callable[[str | None], dict]
@@ -147,14 +135,15 @@ class Seams:
     require_main_build: Callable[[dict, dict], str]
     checkout: Callable[[], Path]
     market: Callable[[dict], Market]
-    qualification_require: Callable[[object, Mapping], dict]
-    qualification_assess: Callable[..., dict]
+    # Economic-evidence qualification (registration.require, registration.assess); None is
+    # registration.availability's own, which reads this module's checkout and so cannot be named here.
+    qualification_require: Callable[[object, Mapping], dict] | None
+    qualification_assess: Callable[..., dict] | None
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
                 require_ci_build=_require_ci_build, require_main_build=_require_main_build, checkout=_checkout,
-                market=Market, qualification_require=_qualification_require,
-                qualification_assess=_qualification_assess)
+                market=Market, qualification_require=None, qualification_assess=None)
 current = DEFAULT
 
 

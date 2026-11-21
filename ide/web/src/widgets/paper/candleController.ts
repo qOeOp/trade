@@ -15,7 +15,7 @@ import { candleSeries } from "./candleSeries";
 import { CandleStretches, type CandleSpan } from "./candleStretches";
 import { drawTrading, pickedMark, type Parts, type Trading } from "./candleTrading";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
-import { fence, firstPeriod, fitAll, periodFor, recall, remember, reshow, respaced, showFrom, showSpan, wholePeriod, widest, dayFloor } from "./candleView";
+import { fence, firstPeriod, fitAll, periodFor, pin, pinned, PINNED_LEAST, PINNED_WIDTH, recall, remember, reshow, respaced, settledPeriod, showFrom, showSpan, wholePeriod, widest, dayFloor } from "./candleView";
 import { Levels } from "./levels";
 import { showStretch } from "./stretchKeys";
 import { TradeMarks } from "./tradeMarks";
@@ -27,6 +27,8 @@ const at = (t: number) => t as UTCTimestamp;
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */
   readonly period = atom(0);
+  /** The period the user pinned (minutes), kept under the chart's key; null for Auto, a period for the span in view. */
+  readonly pin = atom<number | null>(null);
   readonly legend = atom<{ candle: Candle | null; previous: number | null; offline: Down | null; day: boolean }>({ candle: null, previous: null, offline: null, day: false });
   readonly notes = new CandleNotes(() => this.times);
   readonly stretches = new CandleStretches(() => this.parts?.chart ?? null, () => this.times);
@@ -43,7 +45,7 @@ export class CandleController {
 
   /** On `element`, its view kept under `key` (the run and contract) for the next mount of the same. */
   mount(element: HTMLElement, key: string): void {
-    Object.assign(this, { host: element, key });
+    Object.assign(this, { host: element, key }); this.pin.set(pinned(key));
     const { chart, candles, volume } = candleSeries(element, () => { const { orders, held } = this.trading; return [...orders.map((o) => o.price), ...(held ? [held.average] : [])]; });
     const levels = new Levels(), marks = new TradeMarks(() => levels.chips()), picked = pickedMark(() => this.times);
     candles.attachPrimitive(picked); candles.attachPrimitive(marks); candles.attachPrimitive(levels); candles.attachPrimitive(this.stretches.captions);
@@ -63,7 +65,7 @@ export class CandleController {
     this.parts = { chart, candles, volume, marks, levels, ticks, picked };
     // A zoom that takes the candles out of their band regroups them at once, not once it settles.
     const step = () => this.period.get() * 60, time = chart.timeScale();
-    this.release = whenSettled(element, time, (x) => this.settle(x), () => step() > 0 && periodFor(spacing(time), step(), time.getVisibleLogicalRange(), this.leading) !== step());
+    this.release = whenSettled(element, time, (x) => this.settle(x), () => !this.pin.get() && step() > 0 && periodFor(spacing(time), step(), time.getVisibleLogicalRange(), this.leading) !== step());
     this.fenced = fence(time, () => this.times.length);
     this.restyle();
     afterFonts(() => this.restyle());
@@ -84,13 +86,14 @@ export class CandleController {
     const p = this.parts;
     if (!p || (!bars.length && !this.lead)) return;
     if (!this.period.get()) {
-      // The view this contract last had, else the first view, else all; by the bars (a minute each).
-      const saved = recall(this.key), span = this.stretches.firstSpan(bars) ?? bars.length * 60, time = p.chart.timeScale();
-      const step = saved ? saved.minutes * 60 : firstPeriod(span, time.width() || (this.host?.clientWidth ?? 0));
+      // The view this contract last had, else the first view, else all; by the bars (a minute each), at the pinned period if any.
+      const pinnedTo = this.pin.get(), last = recall(this.key), saved = last && (!pinnedTo || last.minutes === pinnedTo) ? last : undefined;
+      const span = this.stretches.firstSpan(bars) ?? bars.length * 60, time = p.chart.timeScale();
+      const step = saved ? saved.minutes * 60 : pinnedTo ? pinnedTo * 60 : firstPeriod(span, time.width() || (this.host?.clientWidth ?? 0));
       this.period.set(step / 60);
       this.draw(true);
       const view = this.stretches.firstView();  // a span (show()), kept as the period settles
-      if (saved) reshow(time, saved, this.times.length); else if (view) this.show(view.from, view.to + step); else fitAll(time, this.times.length, step, this.floor(this.times[0], step));
+      if (saved) reshow(time, saved, this.times.length); else if (view) this.show(view.from, view.to + step); else fitAll(time, this.times.length, step, this.narrowest(this.times[0], step));
       return;
     }
     this.draw(anew);
@@ -114,19 +117,37 @@ export class CandleController {
   setStretches(spans: readonly CandleSpan[]): void { this.stretches.set(spans, seriesColors(this.dark).captions); }
   /** The stretch `k` in view; all of them. */
   fitStretch(k: number): void { const s = this.stretches.spans[k]; if (s) this.show(s.from, s.to + this.period.get() * 60); }
-  whole(): void {  // all in view, at the period that fits them
-    const p = this.parts, step = this.period.get() * 60, next = p ? wholePeriod(this.bars.length * 60, this.leading, p.chart.timeScale().width()) : 0;
+  whole(): void {  // all in view, at the period that fits them (or the pinned one)
+    const p = this.parts, step = this.period.get() * 60, next = !p ? 0 : this.pin.get() ? step : wholePeriod(this.bars.length * 60, this.leading, p.chart.timeScale().width());
     if (!p || !step) return; if (next !== step) { this.period.set(next / 60); this.draw(true); }
-    fitAll(p.chart.timeScale(), this.times.length, next, this.floor(this.times[0], next));
+    fitAll(p.chart.timeScale(), this.times.length, next, this.narrowest(this.times[0], next));
+  }
+
+  /** Pins the candles' period (minutes), the moment in the pane's middle kept there, or goes back to Auto
+   *  (null), which picks the period for the span in view at once. Kept under the chart's key. */
+  choosePeriod(minutes: number | null): void {
+    pin(this.key, minutes); this.pin.set(minutes);
+    const p = this.parts, step = this.period.get() * 60;
+    if (!p || !step || !this.data.length) return;
+    if (!minutes) { this.settle(null); return; }
+    const next = minutes * 60, time = p.chart.timeScale(), anchor = time.width() / 2, t = timeAt(time, this.times, step, anchor);
+    if (next === step) return;
+    this.period.set(minutes);
+    time.applyOptions({ maxBarSpacing: widest(next) });
+    this.draw(true);
+    if (t !== null) restore(time, this.times, next, t, anchor, PINNED_WIDTH);
+    p.ticks.refresh();
   }
 
   /** The open position's whole stretch in view, from the candle it opened in (ms). */
   showPosition(openedMs: number): void { if (this.parts && this.data.length) showFrom(this.parts.chart, this.times, candleOpen(openedMs * 1e6, this.period.get())); }
 
   /** The span from `from` to `to` (s, `to` left out) in view; the period follows once it settles, the span with it. */
-  show(from: number, to: number): void { this.span = { from, to }; if (this.parts) showSpan(this.parts.chart.timeScale(), this.times, from, to - this.period.get() * 60, this.floor(from)); }
+  show(from: number, to: number): void { this.span = { from, to }; if (this.parts) showSpan(this.parts.chart.timeScale(), this.times, from, to - this.period.get() * 60, this.narrowest(from)); }
   /** The narrowest a candle may settle at in a view from `from` (s): LO px where it holds days (dayFloor). */
   private floor = (from = 0, step = this.period.get() * 60) => dayFloor(step, this.leading > 0 && from < (this.times[this.leading] ?? Infinity));
+  /** The narrowest a view the chart picks may show: the floor, and LO px while a period is pinned (a zoom may go narrower). */
+  private narrowest = (from = 0, step = this.period.get() * 60) => Math.max(this.floor(from, step), this.pin.get() ? PINNED_LEAST : 0);
   /** A span around `ms` forty candles either side. */
   showAround(ms: number): void { const span = this.period.get() * 60 * 40, t = Math.floor(ms / 1000); this.show(t - span, t + span); }
 
@@ -167,7 +188,7 @@ export class CandleController {
   private settle(x: number | null): void {
     const p = this.parts, step = this.period.get() * 60;
     if (!p || !step || !this.data.length) return;
-    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step, time.getVisibleLogicalRange(), this.leading), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0, span = this.span;
+    const time = p.chart.timeScale(), w = spacing(time), next = settledPeriod(this.pin.get(), w, step, time.getVisibleLogicalRange(), this.leading), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0, span = this.span;
     const anchor = x ?? time.width() / 2, t = timeAt(time, this.times, step, anchor), range = time.getVisibleLogicalRange();
     // Days narrower than their floor widen to it, the time under `x` kept: what no longer fits scrolls.
     const floor = this.floor(this.times[Math.max(0, Math.floor(range?.from ?? 0))], next);

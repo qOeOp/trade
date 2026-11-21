@@ -34,7 +34,7 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 
 | Code | What to do |
 |---|---|
-| `LEDGER_UNAVAILABLE` | The service is down or busy. Retry after a minute; then `docker compose -f deploy/compose.yaml restart ledger` (a write under way is rolled back and rerun as it was). |
+| `LEDGER_UNAVAILABLE` | The service is down or busy. A command already retries a running service that does not answer or accept for about 90 s, and the message then says how often it tried; otherwise retry after a minute. Then `docker compose -f deploy/compose.yaml restart ledger` (a write under way is rolled back and rerun as it was). |
 | `PUBLISH_FAILED` | The change is stored locally; only the DoltHub copy is behind. Check the network and the key; the service retries every 5 minutes, or run `ledger publish`. A key added while the service ran needs `restart ledger`. |
 | `PUBLISH_REJECTED` | The DoltHub copy changed elsewhere. Nothing is forced; find out who wrote it before anything else. |
 | `REMOTE_MISMATCH` | The ledger already publishes to another repository. Changing it is a decision, not a repair. |

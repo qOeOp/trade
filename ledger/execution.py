@@ -25,9 +25,11 @@ from pathlib import Path
 import re
 from typing import TypeGuard
 
-from ledger import db, evidence, metrics, problems
+from engine.compare import TABLES
+from engine.config import RUNTIME_CONTRACT
+from ledger import db, evidence, problems
 from shared.errors import Refusal
-from ledger.metrics import read_regular
+from shared.paths import read_regular
 from shared.refusals import refuse
 
 
@@ -38,14 +40,13 @@ IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 IDENTITY_FIELDS = ("image_ref", "image_digest", "platform", "runtime_contract")
-TRIAL_COLUMNS = ("trial_id, purpose, source_sha256, image_ref, runtime_contract, platform, build_revision, "
-                 "runner_argv, op_id")
+TRIAL_COLUMNS = "trial_id, purpose, source_sha256, image_ref, platform, build_revision, runner_argv, op_id"
 
 
 def pinned_identity(value) -> dict | None:
     """The runtime identity's four fields (and build revision) when its image is pinned by digest.
 
-    The shape part of runtime.image.validate_identity (runtime imports the ledger, not the reverse);
+    The shape part of runtime.identity.validate_identity (runtime imports the ledger, not the reverse);
     the supported platform and contract sets stay there.
     """
     if not isinstance(value, Mapping):
@@ -64,9 +65,10 @@ def pinned_identity(value) -> dict | None:
 
 
 def runtime_identity(trial: Mapping) -> dict:
-    """The runtime identity a trial row records (the digest read from its image reference)."""
+    """The runtime identity a trial row records (the digest read from its image reference); its contract is the
+    one this ledger's generation runs (a contract change starts a new ledger)."""
     identity = {"image_ref": trial["image_ref"], "image_digest": trial["image_ref"].rsplit("@", 1)[-1],
-                "platform": trial["platform"], "runtime_contract": trial["runtime_contract"]}
+                "platform": trial["platform"], "runtime_contract": RUNTIME_CONTRACT}
     if trial.get("build_revision"):
         identity["build_revision"] = trial["build_revision"]
     return identity
@@ -297,7 +299,7 @@ STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
 # Formal reports and reports of a clean, reproducible precheck stay a working copy. A precheck's
 # fingerprint is kept in its capture (it has no run row); formal fingerprints live in the run row.
-REPORT_OUTPUTS = tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values())
+REPORT_OUTPUTS = tuple(f"reports/{file}" for file, _ in TABLES.values())
 HASHED_OUTPUTS = (*REPORT_OUTPUTS, problems.FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",

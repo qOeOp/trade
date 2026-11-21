@@ -3,9 +3,10 @@ import { ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeChange } f
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget, ProgressWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
-import { progressGutter } from "../../components/ProgressLayout";
-import { TextButton } from "../../components/TextButton";
-import { crosshair, expandedBranches, lineageMode, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../../state/linking";
+import { progressGutter } from "../ProgressLayout";
+import { TextButton } from "../../ui/TextButton";
+import { fold, unfold } from "../useFolded";
+import { crosshair, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../../state/linking";
 import { openSource } from "../../state/editors";
 import { select, selection, useSelection } from "../../state/selection";
 import { ancestors, compactLineage, lineageTree } from "../../model/lineageTree";
@@ -15,7 +16,7 @@ import { Backdrop } from "./Backdrop";
 import { Crosshair } from "./Crosshair";
 import { Elbow } from "./Elbow";
 import { bounds, centredOn, home, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
-import { useSize } from "../../components/hooks/useSize";
+import { useSize } from "../../ui/hooks/useSize";
 import { Ruler } from "./Ruler";
 import { FoldNode, VersionNode, type FoldData, type VersionData } from "./VersionNode";
 
@@ -109,12 +110,12 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
               <span>{shown.nodes.length} of {counts.all} shown{hiddenCount > 0 ? ` (${hiddenCount} folded)` : ""}</span>
               <span>·</span>
               {(mode !== "core" || expanded.size > 0) && (
-                <TextButton size="text" onClick={() => { lineageMode.set("core"); expandedBranches.set(new Set()); }}>
+                <TextButton size="text" onClick={fold}>
                   Fold unpassed
                 </TextButton>
               )}
               {hiddenCount > 0 && (
-                <TextButton size="text" onClick={() => { lineageMode.set("all"); expandedBranches.set(new Set()); }}>
+                <TextButton size="text" onClick={unfold}>
                   Expand all
                 </TextButton>
               )}

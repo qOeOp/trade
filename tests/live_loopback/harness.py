@@ -44,7 +44,12 @@ MEMORY_CACHE = not Path("/opt/trade/redis/redis-server").exists()
 
 
 class Loopback:
-    def __init__(self, *, wallet: str = "100", source: str = SOURCE, terms: dict | None = None):
+    def __init__(self, *, wallet: str = "100", source: str = SOURCE, terms: dict | None = None,
+                 environment: str = "live", venue_key: tuple[str, str] | None = None):
+        """`environment`: the run's (its manifest's config.environment); the runner puts the fake venue on that
+        environment's hosts alone. `venue_key`: the key the venue's account knows, when not the run's (another
+        environment's key)."""
+        self.environment = environment
         self.temp = tempfile.TemporaryDirectory(prefix="live-loopback-")
         self.root = Path(self.temp.name)
         self.output = self.root / "run"
@@ -52,7 +57,8 @@ class Loopback:
         self.credentials_file.write_bytes(b'{"api_key":"loopback-key","api_secret":"loopback-secret"}')
         os.chmod(self.credentials_file, 0o600)
         self.credentials = Credentials(KEY, SECRET)
-        self.venue = Venue(api_key=self.credentials.api_key, api_secret=self.credentials.api_secret,
+        known = venue_key or (self.credentials.api_key, self.credentials.api_secret)
+        self.venue = Venue(api_key=known[0], api_secret=known[1],
                            symbols={SYMBOL: dict(TERMS, **(terms or {}))}, wallet=wallet)
         self.process: subprocess.Popen | None = None
         self.stdout = None
@@ -92,7 +98,7 @@ class Loopback:
             "candidate": {"strategy_id": "loopback-probe", "revision": 1},
             "source": {"entry_class": "Probe", "source_sha256": hashlib.sha256(source.encode()).hexdigest()},
             "runtime": {"image_ref": image, "image_digest": "sha256:" + "a" * 64, "runtime_contract": RUNTIME_CONTRACT},
-            "config": {"drawdown_brake": "0.15", "duration_seconds": None, "leverage": "50"},
+            "config": {"environment": self.environment, "drawdown_brake": "0.15", "duration_seconds": None, "leverage": "50"},
             "market": {"market_day": datetime.now(UTC).date().isoformat(), "terms": {SYMBOL: {
                 "price_increment": self.venue.terms[SYMBOL]["tick"], "size_increment": self.venue.terms[SYMBOL]["step"],
                 "min_notional": self.venue.terms[SYMBOL]["min_notional"]}}},
@@ -111,7 +117,7 @@ class Loopback:
         """`file_size_limit`: RLIMIT_FSIZE for the runner, a full disk for every file it writes (Python ignores
         SIGXFSZ, so a write past it fails with EFBIG)."""
         command = [sys.executable, "-m", "tests.live_loopback.runner", "--http", self.venue.http_origin,
-                   "--ws", self.venue.ws_origin, *(["--memory-cache"] if MEMORY_CACHE else []), "--",
+                   "--ws", self.venue.ws_origin, "--environment", self.environment, *(["--memory-cache"] if MEMORY_CACHE else []), "--",
                    "--manifest", str(self.root / "manifest.json"), "--credentials-file",
                    str(self.credentials_file), "--output", str(self.output), "--mode", mode]
         environment = {key: value for key, value in os.environ.items()

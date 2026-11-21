@@ -48,7 +48,14 @@ def terms(market: files.Market, market_day: str, symbol: str) -> dict:
 
 
 def decimals(increment: str) -> int:
+    """The decimals an increment is written with, trailing zeros included."""
     return len(increment.split(".")[1]) if "." in increment else 0
+
+
+def tick_decimals(increment: str) -> int:
+    """The decimals of an increment's value: Binance writes a tick at the contract's display precision
+    ('0.0001000'), whose trailing zeros neither narrow nor widen it."""
+    return decimals(format(Decimal(increment).normalize(), "f"))
 
 
 def _positive(value) -> bool:
@@ -69,10 +76,10 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
         if terms.get(low) is not None and terms.get(high) is not None and Decimal(terms[low]) > Decimal(terms[high]):
             raise refuse("TERMS_INVALID", f"{symbol}: {low} {terms[low]} exceeds {high} {terms[high]}",
                          missing=(symbol,))
-    exchange = decimals(terms["price_increment"])
+    exchange = tick_decimals(terms["price_increment"])
     if price_precision < exchange:
         raise refuse("PRECISION_NARROWED",
-                     f"{symbol}: price precision {price_precision} is narrower than the exchange's {exchange}",
+                     f"{symbol}: price precision {price_precision} is narrower than the tick's {exchange}",
                      missing=(symbol,))
     if not symbol.endswith(QUOTE):
         raise refuse("UNSUPPORTED_QUOTE", f"{symbol} does not settle in {QUOTE}", missing=(symbol,))
@@ -80,8 +87,8 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
     base_currency = Currency.from_str(symbol.removesuffix(QUOTE))
     # A current tick of 0.10 shares its decimals with history on the 0.01 grid; Nautilus skips any fill
     # off the instrument's grid, so prices off the terms' grid take the finest step their precision allows
-    increment = terms["price_increment"] if exchange == price_precision and on_grid else format(
-        Decimal(1).scaleb(-price_precision), "f")
+    as_written = on_grid and decimals(terms["price_increment"]) == price_precision
+    increment = terms["price_increment"] if as_written else format(Decimal(1).scaleb(-price_precision), "f")
     size = terms["size_increment"]
 
     def optional(key, kind):

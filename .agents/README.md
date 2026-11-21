@@ -3,6 +3,8 @@
 `.agents/` is the plugin root (manifest `.claude-plugin/plugin.json`): skills under `skills/`
 (`.claude/skills` links here), their eval suites under `evals/<skill>/`, where the runner needs them.
 Run suites from the repository root: `claude plugin eval .agents`.
+A case's `graders/skill-fired.md` is a link to its suite's `skill-fired.md` (the runner follows links);
+a case whose check differs keeps its own file.
 
 Skill text is product code. Only a skill's frontmatter description loads into every session; its
 body and references load when it triggers. A skill change restates or deletes what it supersedes,

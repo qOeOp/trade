@@ -72,8 +72,9 @@ whose native `Strategy` entry class supplies `replay_diagnostics` and `replay_in
 and holds every rule, sizing included; the runner takes no strategy parameter.
 
 `runtime_contract` names the replay interface and execution conventions as `replay-contract@v8`;
-its version is separate from the image digest, which pins the implementation. The publisher, host
-image layout and in-image probe declare the same contract.
+its version is separate from the image digest, which pins the implementation. The host image layout
+and in-image probe declare the same contract; the ledger stores none, since a contract change starts
+a new ledger.
 
 ```bash
 uv sync --frozen

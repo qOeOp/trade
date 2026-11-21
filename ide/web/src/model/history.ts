@@ -67,10 +67,35 @@ export function combinedTip(s: HistorySummary): string {
   return s.judged_on === "holdout" ? "On the holdout alone: no whole veto year counts" : s.judged_on ? "On the veto years and the holdout" : "Nothing countable to judge";
 }
 
-const EDGES = [0.02, 0.15, 0.4] as const;
+const EDGES = [0.02, 0.15, 0.4] as const, DRAWDOWN_EDGES = [0.05, 0.15, 0.3] as const, SHARPE_EDGES = [0.25, 1, 2] as const;
+const percent = (v: number) => `${Math.round(v * 100)}%`;
 /** The colour step of an annual return: grey within ±2%, then ±1 to ±3 at 15% and 40%. */
 export const returnStep = (value: number | null | undefined): Step | null => stepOf(value, EDGES);
-export const RETURN_RANGES = rangesOf(EDGES, (v) => `${Math.round(v * 100)}%`);
+export const RETURN_RANGES = rangesOf(EDGES, percent);
+
+/** A cell's colour step by the measure shown: the annual return as returnStep; the max drawdown (a positive fraction)
+ *  only on the down side, grey under 5% and deeper at 15% and 30%; the Sharpe by sign, grey within ±0.25, then 1 and 2. */
+export function metricStep(metric: Metric, m: NonNullable<HistoryCell["measures"]>): Step | null {
+  if (metric === "annual_return") return returnStep(m.annual_return);
+  if (metric === "sharpe_365") return stepOf(m.sharpe_365, SHARPE_EDGES);
+  return m.mark_max_drawdown == null ? null : stepOf(-Math.abs(m.mark_max_drawdown), DRAWDOWN_EDGES);
+}
+
+/** What the colour says for the measure shown, for the page's legend. */
+export function colourWords(metric: Metric): string {
+  if (metric === "annual_return") return `annual return (${RETURN_RANGES[0]} to ${RETURN_RANGES[6]})`;
+  if (metric === "sharpe_365") return "Sharpe (below −2 to above +2, grey within ±0.25)";
+  const [a, , c] = DRAWDOWN_EDGES.map(percent);
+  return `max drawdown (grey under ${a}, deeper red to ${c} and beyond)`;
+}
+
+/** The order a column's header sorts the rows by, if any: the development period by its Sharpe (the command's order),
+ *  the holdout by the measure shown, the median whole-year return and the years meeting targets. */
+export function headerOrder(column: string, metric: Metric): Order | null {
+  if (column === "development") return "development";
+  if (column === "holdout") return metric === "annual_return" ? "holdout_return" : metric === "sharpe_365" ? "holdout_sharpe" : "holdout_drawdown";
+  return column === "Median" ? "median" : column === "Meeting" ? "meeting" : null;
+}
 
 /** A row with no edge, hidden unless asked for (3.7, P3): the combined verdict rejects it (so it lacks no reading) and
  *  neither part outside the development period made money: its whole veto years' median annual return (when the test

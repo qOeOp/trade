@@ -247,7 +247,7 @@ class ConstructionTests(unittest.TestCase):
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
                         symbols=["BTCUSDT", "ETHUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                        config={"duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
+                        config={"environment": "live", "duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
         session = live.Session(manifest, self.root, "run")
         with patch.object(live_source_runtime, "read_universe", wraps=live_source_runtime.read_universe) as read_universe, \
                 patch.object(live.time, "time_ns", return_value=123) as now:
@@ -283,7 +283,7 @@ class ConstructionTests(unittest.TestCase):
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
                         symbols=["BTCUSDT", "ETHUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                        config={"duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
+                        config={"environment": "live", "duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
         hour = 3_600_000_000_000
         at = 1_767_225_600_000_000_000 + 16 * hour
         for reads, text in ((True, source), (False, source.replace("def on_funding_rate", "def funding_rate"))):
@@ -318,7 +318,7 @@ class ConstructionTests(unittest.TestCase):
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
                         symbols=["BTCUSDT", "ETHUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                        config={"duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
+                        config={"environment": "live", "duration_seconds": 30}, market=dict(market_day=MARKET_DAY))
         for module_name in ("engine.live", "__main__"):
             with self.subTest(module_name):
                 session = live.Session(manifest, self.root, "run")

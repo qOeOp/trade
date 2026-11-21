@@ -3,14 +3,15 @@ import type { PaperRun } from "../../lib/paperApi";
 import { clockTime, displayDay, zoneOffset, type TimeZone } from "../../lib/time";
 import { heldGap, heldGapLine, type HeldGap } from "../../model/liveHeld";
 import type { LiveRun } from "../../model/liveTrading";
-import { away, lastFill, liveHeld, liveMoney, liveObserved, liveStatus, liveWorking, marked, paperEquity, paperHeld, paperIssues, stopFor, type Fill } from "../../model/phoneRuns";
-import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../components/PhoneParts";
-import { health } from "../../components/RunTile";
+import { away, liveHeld, liveSnapshot, paperEquity, paperHeld, paperIssues, type Fill } from "../../model/runSnapshot";
+import { Amount, Change, HeldLine, PhoneCard, PhoneNotice, Side } from "../../ui/PhoneParts";
+import { health } from "../../widgets/runs/RunTile";
 import { textClass } from "../../theme/roles";
 import { useSnapshot } from "../../state/market";
 import { openRun } from "../../state/phone";
 import { useTimeZone } from "../../state/timeZone";
 import { LossTrack } from "./LossTrack";
+import { DemoBadge } from "../../widgets/live/DemoBadge";
 import { MISSING } from "../../lib/format";
 
 export const clock = (ms: number, zone: TimeZone) => `${clockTime(ms, zone)} ${zoneOffset(ms, zone)}`;
@@ -41,7 +42,7 @@ export function UnresolvedNotice({ run }: { run: LiveRun }) {
   const held = liveHeld(run);
   return (
     <PhoneNotice tone="fail">
-      Live run {run.candidate} is unresolved{held.length ? ` and left ${held.map((h) => `${h.symbol} ${h.long ? "long" : "short"} ${fixed(h.qty)}`).join(", ")} open` : ""}.
+      {run.environment === "demo" ? "Demo" : "Live"} run {run.candidate} is unresolved{held.length ? ` and left ${held.map((h) => `${h.symbol} ${h.long ? "long" : "short"} ${fixed(h.qty)}`).join(", ")} open` : ""}.
       Reconcile it on the desktop, or close it in the Binance app.
     </PhoneNotice>
   );
@@ -57,15 +58,13 @@ export function StopLine({ trigger, mark, ended, missing = null }: { trigger: nu
 /** A Live run on the Runs tab: its state, the account now, the last fill, the loss threshold used, and what it holds
  *  with the stop protecting it. */
 export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
-  const zone = useTimeZone(), coins = useSnapshot()?.coins, status = liveStatus(run), money = liveMoney(run), fill = lastFill(run);
-  const held = marked(liveHeld(run), coins), working = liveWorking(run);
-  const seen = liveObserved(run), ended = !run.running;
+  const zone = useTimeZone(), { status, money, fill, held, observed: seen } = liveSnapshot(run, useSnapshot()?.coins), ended = !run.running;
   return (
-    <PhoneCard label={`Live run ${run.candidate}`} onClick={() => openRun({ kind: "live", id: run.id })}>
+    <PhoneCard label={`${run.environment === "demo" ? "Demo" : "Live"} run ${run.candidate}`} onClick={() => openRun({ kind: "live", id: run.id })}>
       <div className="space-y-1 px-3 pb-3 pt-2 pr-6">
-        <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
+        <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-dense"><Version name={run.candidate} /><DemoBadge environment={run.environment} /><span className={`shrink-0 ${textClass(status.tone)}`}>{status.word}</span></p>
         {run.heldAlert?.note && <p className={`text-small ${textClass(run.heldAlert.tone)}`}>{run.heldAlert.note}</p>}
-        <p className="truncate text-small text-fg-faint">Live · {run.symbols?.join(", ") ?? MISSING}{seen !== null && ` · ${ended ? `ended ${clock(seen, zone)}` : `observed ${ago(seen, now)} ago`}`}</p>
+        <p className="truncate text-small text-fg-faint">{run.environment === "demo" ? "Demo" : "Live"} · {run.symbols?.join(", ") ?? MISSING}{seen !== null && ` · ${ended ? `ended ${clock(seen, zone)}` : `observed ${ago(seen, now)} ago`}`}</p>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1"><Amount value={money?.equity ?? null} /><Change amount={money?.result} ratio={money && money.result !== null ? money.result / money.start : null} /></p>
         {fill && <FillLine fill={fill} zone={zone} />}
       </div>
@@ -73,7 +72,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
       {held.map((h) => (
         <div key={h.key} className="space-y-0.5 border-t border-line px-3 py-2">
           <HeldLine held={h} />
-          <StopLine trigger={stopFor(h, working)?.trigger} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
+          <StopLine trigger={h.stop} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
         </div>
       ))}
     </PhoneCard>

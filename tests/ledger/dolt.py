@@ -20,6 +20,7 @@ import pymysql
 
 from engine.config import RUNTIME_CONTRACT
 from ledger import db, server
+from registration.duties import DUTIES
 from shared.errors import Refusal
 
 
@@ -46,8 +47,17 @@ DAY = 86_400 * 10**9
 JAN = 1_767_225_600 * 10**9  # 2026-01-01T00:00:00Z in nanoseconds
 
 
-def source(tag: str) -> bytes:
-    return SOURCE + f"# {tag}\n".encode()
+def duty_line(duty: str, rule: str | None = None) -> bytes:
+    """A strategy header's line for one duty: `default`, or `adopted` with `rule` as its reason."""
+    stance = f"adopted | {rule}" if rule else "default | no rule"
+    return f"{duty} fixture duty: {stance} | implementer\n".encode()
+
+
+def source(tag: str, *changed: str) -> bytes:
+    """A strategy file: its header of the 27 duty lines, `tag` the rule of the `changed` duties, then SOURCE and a
+    comment naming `tag`."""
+    lines = b"".join(duty_line(duty, tag if duty in changed else None) for duty in sorted(DUTIES))
+    return b'"""Fixture strategy.\n\n' + lines + b'"""\n' + SOURCE + f"# {tag}\n".encode()
 
 
 def sha(data: bytes) -> str:
@@ -63,7 +73,7 @@ def coverage(market_day: str = MARKET_DAY, *, effective_config: dict | None = No
     """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
     symbol, the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
     lifecycle_bundle) and, when given, the membership file's content."""
-    input_identity = {"market_database": "market", "market_day": market_day, "universe_rule": "pool-v1",
+    input_identity = {"market_name": "market", "market_day": market_day, "universe_rule": "pool-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),

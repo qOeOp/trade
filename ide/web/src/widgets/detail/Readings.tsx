@@ -7,7 +7,7 @@ import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { useStageReading } from "../../state/stageReading";
 import { stageName } from "../../model/stage";
-import { Eased } from "../../components/Eased";
+import { Eased } from "../../ui/Eased";
 import { Board, type Facts } from "./ReadingsBoard";
 
 

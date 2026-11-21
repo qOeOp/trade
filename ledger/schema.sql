@@ -39,7 +39,6 @@ CREATE TABLE candidate (
   strategy_id VARCHAR(100) NOT NULL,
   revision INT NOT NULL,
   entry_class VARCHAR(100) NOT NULL,
-  runtime_contract VARCHAR(40) NOT NULL,
   description VARCHAR(2000) NOT NULL,
   parent_source_sha256 CHAR(64) NULL,
   difference VARCHAR(2000) NULL,
@@ -47,7 +46,6 @@ CREATE TABLE candidate (
   created_at DATETIME(6) NOT NULL,
   PRIMARY KEY (source_sha256),
   UNIQUE KEY candidate_name (strategy_id, revision),
-  UNIQUE KEY candidate_contract (source_sha256, runtime_contract),
   FOREIGN KEY (parent_source_sha256) REFERENCES candidate (source_sha256),
   CHECK (revision > 0),
   CHECK ((parent_source_sha256 IS NOT NULL) = (difference IS NOT NULL)),
@@ -209,14 +207,13 @@ CREATE TABLE trial (
   trial_id INT AUTO_INCREMENT PRIMARY KEY,
   purpose ENUM('explore', 'precheck', 'research', 'validation', 'history') NOT NULL,
   source_sha256 CHAR(64) NOT NULL,
-  -- An explore source need not be published; every other purpose runs a candidate under its contract.
+  -- An explore source need not be published; every other purpose runs a candidate.
   candidate_sha256 CHAR(64) AS (IF(purpose = 'explore', NULL, source_sha256)) STORED NULL,
   line_id INT NULL,
   research_registration_id INT NULL,
   validation_registration_id INT NULL,
   -- <repository>@sha256:<digest>; readers take the digest after the '@' (ledger.db.IMAGE_DIGEST)
   image_ref VARCHAR(300) NOT NULL,
-  runtime_contract VARCHAR(40) NOT NULL,
   platform VARCHAR(40) NOT NULL,
   build_revision CHAR(40) NULL,
   market_day DATE NOT NULL,
@@ -238,7 +235,7 @@ CREATE TABLE trial (
   UNIQUE KEY trial_review_target (trial_id, source_sha256, purpose),
   UNIQUE KEY trial_grid_point (research_registration_id, source_sha256),
   UNIQUE KEY trial_validation (validation_registration_id),
-  FOREIGN KEY (candidate_sha256, runtime_contract) REFERENCES candidate (source_sha256, runtime_contract),
+  FOREIGN KEY (candidate_sha256) REFERENCES candidate (source_sha256),
   FOREIGN KEY (line_id) REFERENCES research_line (line_id),
   FOREIGN KEY (research_registration_id, line_id, image_ref, market_day, universe_rule, export_sha256,
                comparable_config_sha256)

@@ -124,7 +124,11 @@ export function follow(paperId: number | null, symbol: string | null): void {
   });
   events.addEventListener("state", (event) => update((s) => ({ ...s, state: JSON.parse((event as MessageEvent).data) })));
   events.addEventListener("failures", (event) => update((s) => ({ ...s, failures: JSON.parse((event as MessageEvent).data) })));
-  events.addEventListener("readings", (event) => update((s) => ({ ...s, readings: JSON.parse((event as MessageEvent).data) })));
+  // A stream's readings carry the equity path from `equity_from` on (paper/serve.py equity_tail): the rest is kept.
+  events.addEventListener("readings", (event) => update((s) => {
+    const { equity_from, ...sent } = JSON.parse((event as MessageEvent).data) as Readings & { equity_from: number };
+    return { ...s, readings: { ...sent, equity: [...(s.readings?.equity ?? []).slice(0, equity_from), ...sent.equity] } };
+  }));
   events.addEventListener("end", (event) => {
     update((s) => ({ ...s, seal: JSON.parse((event as MessageEvent).data) }));
     events.close();

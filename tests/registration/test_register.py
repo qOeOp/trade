@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ledger import db, judgments, lines, strategies, trials
+from ledger import db, judgments, lines, trials
 from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
@@ -159,6 +159,24 @@ class RegisterTests(unittest.TestCase):
                                                      "duty": "G3", "reason": "no slice measures queue position"}]
         self.assertFalse(self.world.register(without_slice)["replayed"])
 
+    def test_changed_duties_are_the_duty_lines_each_grid_header_changes(self):
+        def grid(label: str, *changed: tuple[str, ...]) -> tuple[list[str], dict[str, int]]:
+            published = [self.world.publish(f"{label} {index}", changed=item) for index, item in enumerate(changed)]
+            return ([item["candidate"] for item in published],
+                    {item["candidate"]: self.world.prechecked(item["source"]) for item in published})
+
+        cases = {
+            "a changed line it does not name": (grid("unnamed line", ("F3", "G3")), ["G3"]),
+            "a named duty whose line is unchanged": (grid("unchanged line", ("G3",)), ["F3", "G3"]),
+            "one grid candidate changes another line": (grid("uneven grid", ("G3",), ("F2", "G3")), ["G3"]),
+        }
+        for label, ((refs, reviews), changed) in cases.items():
+            with self.subTest(label=label):
+                body = self.world.body(refs, reviews, duties=changed)
+                self.assertEqual(self.code(body), "DUTY_HEADER_MISMATCH")
+        refs, reviews = grid("matching header", ("F3", "G3"), ("F3", "G3"))
+        self.assertFalse(self.world.register(self.world.body(refs, reviews, duties=["G3", "F3"]))["replayed"])
+
     def test_a_root_may_predict_mechanisms_on_any_duty(self):
         root = self.world.body(["rsi@1"], {"rsi@1": self.root_review}, retry_of=self.root)
         root["prediction"]["mechanism"] = [{"slice": "by_period", "measure": "months_won_share", "direction": "up",
@@ -183,9 +201,6 @@ class RegisterTests(unittest.TestCase):
                          "LINEAGE_MISMATCH", "one registration tests one change")
         self.assertEqual(self.code(self.derived(grid=[self.child["candidate"], "rsi@1"])), "LINEAGE_MISMATCH",
                          "one registration has one parent")
-        with patch.object(strategies, "RUNTIME_CONTRACT", "r0-retired"):
-            retired = self.world.publish("retired contract")
-        self.assertEqual(self.code(self.derived(grid=[retired["candidate"]])), "CONFIG_MISMATCH")
         self.assertEqual(self.code(self.derived(control_trial_id=999)), "RUN_NOT_PASSED")
 
     def test_every_grid_source_needs_a_passing_review_and_no_prior_exposure(self):
@@ -470,7 +485,7 @@ class BindTests(unittest.TestCase):
         exc = self.refused_trial(registration, data, runtime={**RUNTIME, "runtime_contract": contract,
                                                               "inspection": {**RUNTIME["inspection"],
                                                                              "runtime_contract": contract}})
-        self.assertEqual(exc.code, "CONFIG_MISMATCH")
+        self.assertEqual(exc.code, "RUNTIME_CONTRACT_MISMATCH")
         self.world.research_trial(registration, data)
 
     def test_the_trial_row_is_checked_not_a_caller_supplied_execution(self):

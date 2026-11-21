@@ -14,7 +14,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import functools
-import itertools
+
 import math
 import statistics
 
@@ -212,7 +212,8 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth
     for the intercept (`lags`; `lag_selection` is the truncation that estimated it). Because the
     design has an intercept, the OLS residuals sum to zero and the fitted days' simple-return sum
-    splits into `alpha_return` (T * a) and `beta_return` (sum(b0 m_t + b1 m_(t-1)))."""
+    splits into `alpha_return` (T * a) and `beta_return` (sum(b0 m_t + b1 m_(t-1))); `beta_days` holds each
+    fitted day's b0 m_t + b1 m_(t-1)."""
     if len(y) != len(market) or len(y) < 5:
         raise ValueError("the regression needs two aligned series of at least five days")
     m = np.asarray(market, dtype=float)
@@ -221,9 +222,10 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     target = np.asarray(y, dtype=float)[1:]
     lags, selection = coefficient_bandwidth(target, x, 0)
     beta, covariance = ols_newey_west(target, x, lags)
+    beta_days = x[:, 1:] @ beta[1:]
     return {"beta": float(beta[1] + beta[2]), "alpha": float(beta[0]), "alpha_se": float(math.sqrt(covariance[0, 0])),
-            "beta_return": float((x[:, 1:] @ beta[1:]).sum()), "alpha_return": float(beta[0] * days),
-            "lags": lags, "lag_selection": selection, "days": days}
+            "beta_return": float(beta_days.sum()), "alpha_return": float(beta[0] * days),
+            "beta_days": [float(value) for value in beta_days], "lags": lags, "lag_selection": selection, "days": days}
 
 
 def autocorrelations(values: Sequence[float], lags: int) -> list[float]:
@@ -406,20 +408,21 @@ def expectancy_split(control: Mapping, candidate: Mapping) -> dict | None:
 
 # Per-run building blocks
 
-def _closed(cycles: list[dict]) -> list[dict]:
+def closed_cycles(cycles: list[dict]) -> list[dict]:
+    """The cycles that closed."""
     return [cycle for cycle in cycles if cycle["ts_closed_ns"] is not None]
 
 
 def instrument_net(cycles: list[dict]) -> dict[str, Decimal]:
     found: defaultdict[str, Decimal] = defaultdict(Decimal)
-    for cycle in _closed(cycles):
+    for cycle in closed_cycles(cycles):
         found[cycle["instrument_id"]] += Decimal(cycle["realized_pnl"])
     return dict(found)
 
 
 def exit_net(cycles: list[dict]) -> dict[str, Decimal]:
     found: defaultdict[str, Decimal] = defaultdict(Decimal)
-    for cycle in _closed(cycles):
+    for cycle in closed_cycles(cycles):
         found[cycle["closing_order_type"] or "UNKNOWN"] += Decimal(cycle["realized_pnl"])
     return dict(found)
 
@@ -464,6 +467,22 @@ def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]:
     return found
 
 
+def pnl_split(returns: list[tuple], starting: Decimal | None, beta_days: Sequence[float]) -> tuple[float | None, float | None]:
+    """The daily PnL sum in account currency split in two: the beta part weights each fitted day's market part
+    (market_regression beta_days, from the second day on) by the equity before that day; the alpha part is the rest
+    (intercept, residuals and the first day), so the two add up to the daily PnL sum. (None, None) without a
+    starting balance."""
+    if starting is None:
+        return None, None
+    equity, before, total = float(starting), [], 0.0
+    for _, value, _ in returns:
+        before.append(equity)
+        total += equity * value
+        equity *= 1 + value
+    beta = sum(weight * part for weight, part in zip(before[1:], beta_days, strict=True))
+    return beta, total - beta
+
+
 def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping | None = None,
                     wanted: Collection[str] | None = None) -> dict:
     """{name: {value, population, sample_size, null_reason}} of one run's stored facts (`run_facts`), for the
@@ -479,7 +498,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
 
     sealed = run.get("sealed") or {}
     returns, cycles = list(run["returns"]), list(run["cycles"])
-    closed = _closed(cycles)
+    closed = closed_cycles(cycles)
     days = len(returns)
     window_days = (run["trade_end_ns"] - run["trade_start_ns"]) / metrics.DAY_NS
     activity = sealed.get("activity") or {}
@@ -611,11 +630,12 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             except (ValueError, np.linalg.LinAlgError) as exc:
                 reason = f"REGRESSION_UNAVAILABLE: {exc}"
         if reason is None:
+            beta_pnl, alpha_pnl = pnl_split(returns, starting, fitted["beta_days"])
             put(beta_name, fitted["beta"], "account_days", fitted["days"])
-            found[beta_name].update(return_sum=fitted["beta_return"])
+            found[beta_name].update(return_sum=fitted["beta_return"], pnl_sum=beta_pnl)
             put(alpha_name, fitted["alpha"], "account_days", fitted["days"])
             found[alpha_name].update(standard_error=fitted["alpha_se"], return_sum=fitted["alpha_return"],
-                                     lags=fitted["lags"], lag_selection=fitted["lag_selection"])
+                                     pnl_sum=alpha_pnl, lags=fitted["lags"], lag_selection=fitted["lag_selection"])
         else:
             put(beta_name, None, "account_days", days, reason)
             put(alpha_name, None, "account_days", days, reason)
@@ -691,64 +711,6 @@ def daily_turnover(sides: Mapping | None, starting: Decimal | None,
     return float(notional / starting) / days, fills, None
 
 
-def closed_by_year(cycles: list[dict]) -> dict:
-    """Closed cycles' count, price PnL, commissions and funding by the UTC year of their close."""
-    years: dict[str, dict] = {}
-    for cycle in _closed(cycles):
-        year = str(datetime.fromtimestamp(cycle["ts_closed_ns"] // 10**9, timezone.utc).year)
-        item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
-                                       "funding": Decimal(0)})
-        item["closed_trades"] += 1
-        item["price"] += Decimal(cycle["price_pnl"])
-        item["commissions"] += Decimal(cycle["commissions"])
-        item["funding"] += Decimal(cycle["funding"])
-    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": metrics.money(item["price"]),
-                   "fill_commissions_usdt": metrics.money(item["commissions"]), "reported_funding_usdt": metrics.money(item["funding"])}
-            for year, item in sorted(years.items())}
-
-
-def dev_years(run: Mapping, annual_target: float | None = None) -> dict | None:
-    """The development years of a run's trading window, cut at its trade start's anniversaries, and a last part
-    year (`partial`) when the window does not end on one: each segment's compound return over the stored daily
-    returns dated in it, and with `annual_target` whether a whole year reaches the target or by how much it falls
-    short, how many whole years reach it, the worst whole year's return and the window's annual return over its
-    days without the best whole year (the part year's included). A part year is not read against the annual
-    target. A slice of one continuous run: positions and the equity peak carry across segments. None for a window
-    of one whole year or less."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
-    end = datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc)
-    cuts = [start]
-    try:
-        while (following := start.replace(year=start.year + len(cuts))) <= end:
-            cuts.append(following)
-    except ValueError:  # a 29 February start has no anniversaries
-        return None
-    whole = len(cuts) - 1
-    if end > cuts[-1]:
-        cuts.append(end)
-    if whole == 0 or len(cuts) < 3:
-        return None
-    bounds = [int(moment.timestamp()) * 10**9 for moment in cuts]
-    returns = [math.prod(1 + value for ts, value, _ in run["returns"] if low <= ts < high) - 1
-               for low, high in itertools.pairwise(bounds)]
-    days = [(high - low).total_seconds() / 86400 for low, high in itertools.pairwise(cuts)]
-    years = []
-    for k, ((begin, finish), value) in enumerate(zip(itertools.pairwise(cuts), returns, strict=True)):
-        item: dict[str, object] = {"start": begin.date().isoformat(), "end": finish.date().isoformat(),
-                                   "return": value, "partial": k >= whole}
-        if annual_target is not None and k < whole:
-            item.update(at_target=value >= annual_target, short_by=max(annual_target - value, 0.0))
-        years.append(item)
-    best = returns.index(max(returns[:whole]))
-    rest = [k for k in range(len(returns)) if k != best]
-    return {"years": years, "annual_target": annual_target,
-            "years_at_target": None if annual_target is None else sum(value >= annual_target
-                                                                      for value in returns[:whole]),
-            "worst_year_return": min(returns[:whole]),
-            "return_without_best_year": annual_return(math.prod(1 + returns[k] for k in rest),
-                                                      sum(days[k] for k in rest))}
-
-
 def market_for(run: Mapping) -> dict | None:
     """The market's daily returns over the run's trading window and the REGIME_WINDOW days before it
     (report.seams.market_returns); a failure becomes {error} so that only the market measures are empty."""
@@ -756,7 +718,7 @@ def market_for(run: Mapping) -> dict | None:
     from report import seams
     identity = run.get("input_identity") or {}
     try:
-        return seams.current.market_returns(identity.get("market_database"), identity.get("market_day"),
+        return seams.current.market_returns(identity.get("market_name"), identity.get("market_day"),
                                             identity.get("universe_rule"),
                                             datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
                                             - timedelta(days=REGIME_WINDOW),

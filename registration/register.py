@@ -29,7 +29,8 @@ import jsonschema
 from ledger import db, evidence, execution as ledger_execution, lines, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, runner, seams
+from registration import (availability, comparability, duties, inputs as registration_inputs, precheck, reproduction,
+                          runner, seams)
 
 
 METHOD = "paired-circular-log-mean-v1"
@@ -80,7 +81,9 @@ def plan_schema() -> dict:
                     "outcomes": {"type": "object", "required": list(OUTCOMES), "additionalProperties": False,
                                  "properties": {name: _TEXT for name in OUTCOMES}}}},
             "changed_duties": {"description": "The duty IDs (A1 to I2) the one change touches: empty for a root (grid "
-                                              "candidates without a parent), at least one for a derived registration.",
+                                              "candidates without a parent), at least one for a derived registration, "
+                                              "exactly the duties whose header line each grid candidate changes from "
+                                              "its parent's.",
                                "type": "array", "items": {"type": "string"}},
             "control_trial_id": {"description": "The trial_id of the comparison control, a passed, sealed, comparable "
                                                 "run with economic evidence; null for a root, or for a derived "
@@ -279,7 +282,7 @@ def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None
         return
     run = control_trial(conn, control)
     comparability.check_comparable(run, execution)
-    seams.current.qualification_require(conn, run)
+    (seams.current.qualification_require or availability.require)(conn, run)
 
 
 def _check_window(execution: Mapping, line: Mapping) -> None:
@@ -289,10 +292,25 @@ def _check_window(execution: Mapping, line: Mapping) -> None:
                      missing=("window",), expected=f"{line['dev_start']} to {line['dev_end']}")
 
 
-def _check_grid(conn: db.LedgerConnection, grid: list[str], execution: Mapping) -> tuple[list[dict], dict | None]:
-    """The grid points {candidate, source_sha256} and their shared parent (None for a root): every grid candidate
-    has the first one's parent and published difference, a distinct source and the execution's runtime contract."""
-    points, seen, first = [], set(), None
+def _check_header(body: Mapping, parent: dict | None, sources: Mapping[str, bytes]) -> None:
+    """A derived registration's changed duties are the duty lines each grid candidate's header changes from its
+    parent's."""
+    if parent is None:
+        return
+    changed = sorted(set(body["changed_duties"]))
+    for ref, source in sources.items():
+        edited = duties.header_changes(parent["source"], source)
+        if edited != changed:
+            raise refuse("DUTY_HEADER_MISMATCH", f"grid candidate {ref} changes the header lines of "
+                                                 f"{', '.join(edited) or 'no duty'} from {strategies.name(parent)}; "
+                                                 f"changed_duties names {', '.join(changed)}",
+                         missing=tuple(sorted(set(edited) ^ set(changed))), expected=", ".join(edited) or "none")
+
+
+def _check_grid(conn: db.LedgerConnection, grid: list[str]) -> tuple[list[dict], dict | None, dict[str, bytes]]:
+    """The grid points {candidate, source_sha256}, their shared parent (None for a root) and their sources by
+    reference: every grid candidate has the first one's parent and published difference and a distinct source."""
+    points, seen, first, sources = [], set(), None, {}
     for index, ref in enumerate(grid):
         row = _candidate(conn, ref, f"grid[{index}]")
         if row["source_sha256"] in seen:
@@ -305,13 +323,11 @@ def _check_grid(conn: db.LedgerConnection, grid: list[str], execution: Mapping) 
         if row["difference"] != first["difference"]:
             raise refuse("LINEAGE_MISMATCH", f"grid candidate {ref} was published with another difference than "
                                              f"{grid[0]}; a registration tests one change", missing=(ref,))
-        if row["runtime_contract"] != execution.get("runtime_contract"):
-            raise refuse("CONFIG_MISMATCH", f"grid candidate {ref} needs runtime contract {row['runtime_contract']}, "
-                                            f"the execution has {execution.get('runtime_contract')}", missing=(ref,))
         points.append({"candidate": ref, "source_sha256": row["source_sha256"]})
+        sources[ref] = row["source"]
     assert first is not None  # the schema requires one grid point
     parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) if first["parent_source_sha256"] else None
-    return points, parent
+    return points, parent, sources
 
 
 def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int) -> dict:
@@ -333,7 +349,8 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     if run["status"] == "invalid":
         return True
     scope = _sealing_review_scope(conn, trial_id)
-    return not seams.current.qualification_assess(conn, run, review_scope=scope)["economic_evidence_available"]
+    assess = seams.current.qualification_assess or availability.assess
+    return not assess(conn, run, review_scope=scope)["economic_evidence_available"]
 
 
 def _retry_chain(conn: db.LedgerConnection, retry_of: int | None) -> list[dict]:
@@ -450,9 +467,10 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, bindi
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
     chain = _retry_chain(conn, plan.get("retry_of"))
-    points, parent = _check_grid(conn, plan["grid"], execution)
+    points, parent, sources = _check_grid(conn, plan["grid"])
     _check_duties(body, parent is None)
     _check_prediction(body, parent is None)
+    _check_header(body, parent, sources)
     _check_lineage(conn, plan, parent, execution, binding)
     _check_window(execution, line)
     for point in points:
@@ -580,7 +598,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
             registration_inputs.cleanup(exported)
         inputs = exported["identity"]
         execution = {"image_ref": identity["image_ref"], "image_digest": identity["image_digest"],
-                     "runtime_contract": identity["runtime_contract"], "market_day": inputs["market_day"],
+                     "market_day": inputs["market_day"],
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),

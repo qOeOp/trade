@@ -20,11 +20,11 @@ from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
 from deploy.release_host import (AGENT, DEFINITION, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
-                                 PROBE, DockerHost, ReaderFailure,
+                                 PROBE, DockerHost, ReaderFailure, Registry,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
-# The keys of a `line list` entry DockerHost.lines reads besides `versions` (graph.line_list), written out: the
+# The keys of a `line list` entry DockerHost.lines reads besides `candidates` (graph.line_list), written out: the
 # release controller's tests run on the host's system Python, which cannot import the ledger.
 # tests/ledger/test_lines.py holds them within ledger.lines.LISTED.
 HOST_LINE_KEYS = ("name", "created_at")
@@ -583,7 +583,7 @@ class PruneTests(unittest.TestCase):
     def test_a_runtime_image_goes_only_when_unused_unnamed_and_still_in_the_registry(self):
         old, kept, used, gone = ("ghcr.io/qoeop/trade-runtime@sha256:" + c * 64 for c in "defa")
         host = FakeDocker({}, [old, kept, used, gone], [used])
-        with patch.object(DockerHost, "registry_serves", side_effect=lambda image: image != gone) as serves:
+        with patch.object(Registry, "serves", side_effect=lambda image: image != gone) as serves:
             host.prune((WEB,), set(), set(), {kept})
         self.assertEqual(host.removed_images(), [old])
         self.assertEqual([call.args[0] for call in serves.call_args_list], [old, gone], "a last copy stays")
@@ -822,7 +822,7 @@ class SelectionTests(unittest.TestCase):
     def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
         host = DockerHost(Config())
         def listed(name, version, created_at):  # a `line list` entry (graph.line_list over lines.list_lines)
-            return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), versions=[version])
+            return dict(zip(HOST_LINE_KEYS, (name, created_at), strict=True), candidates=[version])
 
         lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
         runs = {"status": 200, "runs": [{"candidate": "v1", "state": "running"}]}

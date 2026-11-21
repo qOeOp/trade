@@ -95,8 +95,8 @@ Tests, demos and engineering trials of product code write only to an isolated Do
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
 - A merge is not a release; `deploy/remote/README.md` says what a release switches and what stays.
-- Until 1.0, a version keeps no compatibility with earlier ones. A breaking change says in `CHANGELOG.md` what
-  the upgrade drops. No code reads, migrates or special-cases an earlier format of runs, profiles, graphs or
+- Until 1.0, a version keeps no compatibility with earlier ones. A breaking change says in its `changelog.d/`
+  entry (`CHANGELOG.md` says how) what the upgrade drops. No code reads, migrates or special-cases an earlier format of runs, profiles, graphs or
   ledgers; old research restarts on a new ledger.
 - A fix for a doctor finding follows the header of `docs/plans/doctor/index.zh.md`. It adds or
   changes only its own finding's eval case and leaves every other grader alone; a grader change is

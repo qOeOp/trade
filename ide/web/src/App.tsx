@@ -1,5 +1,5 @@
 import { Tooltip } from "radix-ui";
-import { FirstRun } from "./components/FirstRun";
+import { FirstRun } from "./widgets/FirstRun";
 import type { View } from "./model/types";
 import { NO_VIEW, ViewProvider } from "./model/view";
 import { useAtom } from "./state/atom";
@@ -7,8 +7,8 @@ import { firstRun } from "./state/firstRun";
 import { usePhone } from "./state/phone";
 import { PhoneShell } from "./shell/phone/PhoneShell";
 import { Shell } from "./shell/Shell";
-import { PaperRefusal } from "./components/PaperRefusal";
-import { SessionNotice } from "./components/SessionNotice";
+import { PaperRefusal } from "./widgets/paper/PaperRefusal";
+import { SessionNotice } from "./widgets/SessionNotice";
 import { LiveDialogs } from "./widgets/live/LiveDialogs";
 
 /** Providers only, and which shell: the view model for everyone (null until there is one, when each shell says why

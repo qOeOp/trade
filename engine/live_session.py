@@ -15,6 +15,7 @@ from nautilus_trader.trading import Strategy
 from engine import protection, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_brake import Brake
+from engine import live_connection
 from engine.live_connection import Connection
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
@@ -26,7 +27,15 @@ from engine.order_rules import native_cache
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
 # engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
-PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
+PROTECTION_NS = protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS
+# An order Binance's answer to its submission did not settle stays SUBMITTED (engine.live_node retains it: rc7
+# SubmissionRecoveryPolicy.RETAIN_UNRESOLVED, which stops the native per-order queries once its in-flight check of about
+# 30 s is spent). From SUBMISSION_QUERY_SECONDS on the run asks the venue for it natively (Strategy.query_order) every
+# SUBMISSION_QUERY_SECONDS, which settles an order Binance holds or filled, and entries close until it is settled and
+# the venue agrees (engine.live_connection, "unverified"); one still SUBMITTED after
+# SUBMISSION_UNRESOLVED_SECONDS takes the STOP path, failed: nothing the run can read says whether it reached Binance.
+SUBMISSION_QUERY_SECONDS = 10
+SUBMISSION_UNRESOLVED_SECONDS = 120
 MARK_SECONDS = 60  # With a position open and no mark for this long, the run stops (design §3.2.4).
 # The runner's events after which the run is over; a run whose latest start ended in none of them (interrupted,
 # held until flat, or killed without a word) starts again as itself.
@@ -83,7 +92,14 @@ class Session:
     cache_guard: Any = None
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
-    protection_gaps: dict[str, float] = field(default_factory=dict)
+    # The STOP path's read of Binance before its first close (engine.live_lifecycle.venue_held): the snapshot ({} when
+    # it failed), how much of each position Binance held then, and the positions it no longer held in full.
+    stop_read: dict | None = None
+    stop_held: dict = field(default_factory=dict)
+    phantoms: set[str] = field(default_factory=set)
+    resent: Counter = field(default_factory=Counter)  # position ID -> closes sent again after a rejection
+    gaps: protection.Gaps = field(default_factory=lambda: protection.Gaps(PROTECTION_NS))  # position ID -> gap start
+    submitted: dict[str, list[float]] = field(default_factory=dict)  # SUBMITTED order -> [since, last query]
     marks: dict[str, tuple[float, Any]] = field(default_factory=dict)  # contract -> when its latest mark arrived, its value
     exposed_since: dict[str, float] = field(default_factory=dict)  # contract -> since when the run holds a position on it
     warmup_catalog: Path | None = None  # the run's temporary Catalog of warm-up bars (engine.history)
@@ -98,10 +114,7 @@ class Session:
         """The side connection's state changes and the closed klines' event times read since the last call, into
         the evidence pack."""
         if self.kline_events is not None:
-            for state, at, reason in self.kline_events.drain_states():
-                self.evidence.kline_socket(state, at, reason)
-            for iid, close, sent in self.kline_events.drain():
-                self.evidence.kline_event(iid, close, sent)
+            self.evidence.market("kline_events", self.kline_events)
 
     def catalog(self) -> Path:
         """The run's temporary Catalog of warm-up bars (engine.history), made once."""
@@ -185,25 +198,44 @@ class Session:
         return next(iter(self.sources.values()), None)
 
     def check_protection(self, cache, now: float) -> None:
-        """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none)."""
+        """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none),
+        timed by its Gaps as Paper's, on the monotonic clock `now` in seconds."""
         try:
-            gaps = {}
+            uncovered = []
             for position in owned(cache.positions_open, self.manifest):
                 quantity = position.quantity.as_decimal()
                 held = quantity if position.side == PositionSide.LONG else -quantity
                 if not protection.covered(held, protection.of_position(cache, position)):
-                    gaps[str(position.id)] = self.protection_gaps.get(str(position.id), now)
+                    uncovered.append(str(position.id))
         except Exception as exc:
             self.failed = True
             self.event("protection_unverified", strict=False, failure_type=type(exc).__name__)
             self.begin_stop("protection_unverified")
             return
-        self.protection_gaps = gaps
-        late = sorted(key for key, since in gaps.items() if now - since >= PROTECTION_SECONDS)
+        late = self.gaps.update(round(now * 1_000_000_000), uncovered)
         if late:
             self.failed = True
             self.event("protection_missing", strict=False, positions=late)
             self.begin_stop("protection_missing")
+
+    def follow_submissions(self, cache, now: float) -> None:
+        """The run's SUBMITTED orders, on the monotonic clock `now` (SUBMISSION_QUERY_SECONDS)."""
+        found = {str(order.client_order_id): order for order in owned(lambda strategy_id: pending_orders(
+            cache, strategy_id), self.manifest) if order.status == OrderStatus.SUBMITTED}
+        self.submitted = {cid: self.submitted.get(cid, [now, now]) for cid in found}
+        for cid, times in self.submitted.items():
+            since, asked = times
+            if now - since >= SUBMISSION_UNRESOLVED_SECONDS and not self.stopping:
+                self.failed = True
+                self.event("submission_unresolved", strict=False, client_order_id=cid, seconds=int(now - since))
+                self.begin_stop("submission_unresolved")
+            if now - asked >= SUBMISSION_QUERY_SECONDS:
+                times[1] = now
+                order = found[cid]
+                Strategy.query_order(self.owner(order.strategy_id), order)
+                # No further entry while one may be at Binance unknown to the run: the gate reopens as after a
+                # reconnect, once the order is settled and two comparisons with the venue agree.
+                live_connection.close_entries(self, "unverified", withdraw=False, client_order_id=cid)
 
     def check_mark(self, cache, now: float) -> bool:
         """Whether a position of the run is open; with one open on a contract and no mark price of that contract for

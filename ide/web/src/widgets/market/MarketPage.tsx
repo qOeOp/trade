@@ -3,16 +3,18 @@ import { plural } from "../../lib/format";
 import { coinsAt, level, into, MORE, type Color, type Node, type Size } from "../../model/market";
 import { layout } from "../../model/treemap";
 import { hoverAt, ripple } from "../../model/ripple/layout";
+import { heldCount } from "../../model/marketLocal";
+import { useMarketLocal } from "../../state/marketLocal";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
-import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
-import { DropdownChoice } from "../../components/Dropdown";
-import { HeatLegend } from "../../components/HeatLegend";
-import { HeatTile } from "../../components/HeatTile";
-import { Skeleton } from "../../components/Missing";
+import { Breadcrumbs, type Crumb } from "../../ui/Breadcrumbs";
+import { DropdownChoice } from "../../ui/Dropdown";
+import { HeatLegend } from "../../ui/HeatLegend";
+import { HeatTile } from "../../ui/HeatTile";
+import { Skeleton } from "../../ui/Missing";
 import { marketDown } from "./CoinsWindow";
-import { TextButton } from "../../components/TextButton";
-import { Empty } from "../../components/Waiting";
-import { useSize } from "../../components/hooks/useSize";
+import { TextButton } from "../../ui/TextButton";
+import { Empty } from "../../ui/Waiting";
+import { useSize } from "../../ui/hooks/useSize";
 
 const SIZES = [{ value: "marketCap", label: "Market cap" }, { value: "volume24h", label: "Volume 24h" }, { value: "oi", label: "Open interest" }] as const;
 const COLORS = [{ value: "change1h", label: "Change 1h" }, { value: "change4h", label: "Change 4h" }, { value: "change24h", label: "Change 24h" },
@@ -30,7 +32,7 @@ const crumbs = (path: readonly string[], labels: readonly string[]): Crumb[] => 
  *  leave, which a growing tile and its shrinking neighbours would set off back and forth. */
 function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: Color; path: readonly string[]; coin: string | null }) {
   const [ref, { width, height }] = useSize();
-  const [hovered, setHovered] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null), held = useMarketLocal()?.held ?? null;
   const tiles = useMemo(() => layout(nodes, width, height), [nodes, width, height]);
   const shown = useMemo(() => (hovered === null ? tiles : ripple(tiles, hovered, width, height)), [tiles, hovered, width, height]);
   const areas = tiles.map((t) => t.width * t.height);
@@ -44,7 +46,8 @@ function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: 
     <div ref={ref} className="relative mx-2 mb-2 min-h-0 flex-1" onMouseMove={point} onMouseLeave={() => setHovered(null)}>
       {shown.map((t, i) => (
         <HeatTile key={`${t.data.kind}:${t.data.name}`} tile={t} frame={frame} color={color} hovered={i === hovered}
-                  selected={t.data.kind === "coin" && t.data.coins[0]?.symbol === coin} onPick={() => pick(t.data)} />
+                  selected={t.data.kind === "coin" && t.data.coins[0]?.symbol === coin} onPick={() => pick(t.data)}
+                  local={heldCount(held, t.data.coins.map((c) => c.symbol))} />
       ))}
     </div>
   );

@@ -26,11 +26,12 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "LEDGER_KIND": ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
                     "--name paper --kind isolated --holds paper --service-root DIR`.",),
     "LEDGER_UNAVAILABLE": ("When the message says the service did not answer, it is running and starting it again "
-                           "does not help: rerun the same command once after a minute or two, since a stall from a "
-                           "long write clears by itself. If it still does not answer, check the host with `docker "
-                           "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
-                           "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
-                           "rolls back a write in progress; then rerun the same command.",
+                           "does not help. When it says the connection was tried several times, the command already "
+                           "waited the minute or two in which a stall from a long write clears by itself; otherwise "
+                           "rerun the same command once after a minute or two. If it still does not answer, check "
+                           "the host with `docker ps` (one that does not return means Docker itself is hung) and ask "
+                           "the user to restart the ledger service (`docker compose restart ledger`) or Docker, "
+                           "saying that a restart rolls back a write in progress; then rerun the same command.",
                            "Otherwise start it with `ledger service start`, then rerun the same command."),
     "LEDGER_PERMISSION": ("Write only through the declared commands; they use the writer account.",),
     "SCHEMA_MISMATCH": ("Use the product version that matches the ledger's schema generation (README); never "
@@ -165,8 +166,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "RUNNER_OPTION_RESERVED": ("Pass only the window and the instrument scope; the entry adds the rest.",),
     "RUNTIME_NOT_CI_BUILT": ("Use a runtime image CI built from a pushed branch or main "
                              "(`--runtime ghcr.io/qoeop/trade-runtime:main`).",),
-    "RUNTIME_CONTRACT_MISMATCH": ("Replay on an image of the candidate's contract, or publish the source for the "
-                                  "image's contract.",),
+    "RUNTIME_CONTRACT_MISMATCH": ("Replay on a runtime image this release built; a contract change starts a new "
+                                  "ledger.",),
     "REGISTRATION_REQUIRED": ("Pass --registration <id> or --validation <id>, not both.",),
     "EXPORT_CHANGED_BEFORE_EXECUTION": ("Export the inputs again (rerun the same command).",),
     "REPRODUCTION_IMAGE_DIFFERS": ("Reproduce it without --image, or precheck the source again on the new image.",),
@@ -216,6 +217,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                                "then move the run with `replay reproduce`. Register a new source for a new research "
                                "hypothesis.",),
     "DUTY_UNKNOWN": ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",),
+    "DUTY_HEADER_MISMATCH": ("Name in changed_duties exactly the duties whose header lines the grid candidates change "
+                             "from their parent's. When a line changed whose own rule the change does not touch, "
+                             "publish the source again with that line byte for byte as in the parent.",),
     "PREDICTION_INVALID": ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
                            "empty slice with a reason).",),
     "INTERPRETATION_REQUIRED": ("Add an interpretation with `judgment add --kind interpretation` about the trials "
@@ -326,7 +330,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "RUNTIME_DIGEST_AMBIGUOUS": ("Pass the image by digest (`<image>@sha256:<digest>`).",),
     "RUNTIME_MISMATCH": ("Pull the image by digest again; report the image if the probe still disagrees.",),
     # The command line (cli/)
-    "USAGE_ERROR": ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",),
+    "USAGE_ERROR": ("Rerun with the declared options; for the command line, its usage and options are listed under "
+                    "`expected`, and `python -m cli.main <noun> <verb> --help` adds its contract.",),
     "SOURCE_UNREADABLE": ("Pass the path of the single-file UTF-8 source itself.",),
     "WRITE_VIA_SQL": ("Write only through the declared commands; read with one SELECT.",),
     "PRECHECK_NOT_FOUND": ("Run `replay precheck` for the candidate on the image, then review that trial.",),
@@ -384,7 +389,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "TRADE_INEXACT": ("Report the contract named; the agg_trade table and the instrument terms disagree.",),
     "QUOTES_UNSORTED": ("Report the contract named; the exporter never reorders quotes.",),
     "GRID_MISALIGNED": ("Pass bars read from the market at one market day.",),
-    "INPUT_UNSORTED": ("Pass bars read from the market at one market day.",),
     "VOLUME_OVERFLOW": ("Report the contract and timeframe named; derivation never truncates.",),
     "EXCHANGE_INFO_MALFORMED": ("Rerun the import; report the contract if exchangeInfo keeps the shape.",),
     "MONTH_NOT_FIRST_DAY": ("Pass a month start.",),
@@ -396,12 +400,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SYMBOL_SHAPE": ("Export USDT perpetuals by their public names.",),
     "EPISODE_INDEX": ("Number episodes 1, 2, ... in time order.",),
     "EPISODE_SHAPE": ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",),
-    "BARS_UNSORTED": ("Report the contract named; the market is inconsistent.",),
-    "BAR_RAW_INEXACT": ("Report the contract named; the exporter never rounds.",),
-    "MARK_UNSORTED": ("Report the contract named; the market is inconsistent.",),
-    "MARK_INEXACT": ("Report the contract named; the exporter never rounds.",),
+    "SERIES_UNSORTED": ("Report the contract named; the market is inconsistent.",),
+    "EXPORT_INEXACT": ("Report the contract named; the exporter never rounds.",),
     "FUNDING_FILE_MISSING": ("Re-import the month named with `market import`; a funding file is never optional.",),
-    "FUNDING_UNSORTED": ("Report the contract named; the market is inconsistent.",),
     "FUNDING_RATE_SHAPE": ("Report the contract named; the market is inconsistent.",),
     "INTERVAL_INVALID": ("Pass --start and --end as UTC times on whole minutes, start before end; daily bars take "
                          "whole UTC days of LAST prices.",),
@@ -418,14 +419,11 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                                   "implements `on_save` and `on_load` (research-round "
                                   "`references/strategy-authoring.md`), then start that one.",),
     "PAPER_START_FAILED": ("Read the error, repair the runtime or Docker, then start a new run.",),
-    # Paper comparison (paper/compare.py)
+    # Paper and Live comparison (paper/compare.py, live/compare.py)
     "PAPER_COMPARE_EMPTY": ("Compare a run that received at least one bar.",),
-    "PAPER_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                                "contract scope once its days are archived, then compare at the new market day.",),
-    # Live comparison (live/compare.py)
     "LIVE_COMPARE_EMPTY": ("Compare a run whose source started and received at least one minute.",),
-    "LIVE_COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
-                               "contract scope once its days are archived, then compare at the new market day.",),
+    "COMPARE_UNCOVERED": ("Import the run's month with `market import --month YYYY-MM` over the market's "
+                          "contract scope once its days are archived, then compare at the new market day.",),
 }
 
 

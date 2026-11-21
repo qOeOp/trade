@@ -17,9 +17,14 @@ from live import state
 
 
 LABEL = "trade.live"
-# The egress container, as egress_command starts it and container_identity verifies it.
+# The egress container, as egress_command starts it and container_identity verifies it (egress_argv).
 EGRESS_ARGV = ("--port", "3128", "--log", "/reports/egress.log")
 EGRESS_MEMORY = "256m"
+
+
+def egress_argv(manifest: dict) -> list[str]:
+    """The egress's arguments: it admits the hosts of the run's environment alone (engine.egress.ALLOWED)."""
+    return [*EGRESS_ARGV, "--environment", manifest["config"]["environment"]]
 
 
 def docker(*argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
@@ -100,7 +105,7 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
     if role == "egress":
         expected_networks["bridge"] = network_identity("bridge", None)
         expected_mounts = {"/reports": (str((directory / "egress").resolve()), True)}
-        expected_command = ["-m", "engine.egress", *EGRESS_ARGV]
+        expected_command = ["-m", "engine.egress", *egress_argv(manifest)]
     else:
         if role != "runner" or mode not in ("preflight", "run", "reconcile") or not credentials_path:
             raise state.fail("LIVE_IDENTITY_CHANGED", "the retained launch lacks its complete execution binding")
@@ -173,7 +178,7 @@ def remove_resources(root: Path, run_id: str, containers: list[dict]) -> None:
 
 def egress_command(manifest: dict, directory: Path, run_id: str, names: dict[str, str]) -> list[str]:
     return container.live_command(manifest["runtime"], [(directory / "egress", "/reports", False)],
-                                         "engine.egress", list(EGRESS_ARGV),
+                                         "engine.egress", egress_argv(manifest),
                                          name=names["egress"], network=names["network"], memory=EGRESS_MEMORY,
                                          labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "egress"})
 

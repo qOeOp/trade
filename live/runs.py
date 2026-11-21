@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+from typing import Any
 
 from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
@@ -48,6 +49,9 @@ FAILED_EXITS = frozenset({1, 2})
 KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})  # live.control.check_key_locked's lifecycle rows
 RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
 HOUR_NS = 3600 * 10**9
+EVIDENCE_MISSING = ("no passed run, or audited explore inside a research window, of this source on these instruments in "
+                    "bars runs the replay code of this execution image; replay it at the wallet's balance on a matching "
+                    "replay image (engine/README.md) and prepare a new run")
 
 
 def inspect_runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
@@ -347,13 +351,14 @@ def _candidate(research: db.LedgerProfile, research_at: str, candidate: str) -> 
 
 
 def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, symbols: list[str],
-              inspection: dict, runner_args: list[str]) -> list[dict]:
+              inspection: dict, runner_args: list[str], leverage: str | None) -> list[dict]:
     """The replays at research_at that back running this source live: on exactly Live's instruments, in the bars
     environment, either a passed sealed run or a completed explore whose audit passed (`replay explore` of the
     candidate at the wallet's balance) trading only inside a research trial's window of this source (a window it
     already saw: no new exposure, no holdout spent), on an image whose replay code (admission.REPLAY_CODE) equals this
     execution image's. A sealed run on other replay code still counts through an explore that reproduces it on
-    matching code."""
+    matching code. Only replays at `leverage` (their effective configuration's) back a run at it (re-judge C-083);
+    None, for the page before the user picks one, lists them at any."""
     from ledger import execution
     from registration import reproduction
     with db.read_as_of(research, research_at) as reader:
@@ -382,6 +387,7 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
             else:
                 continue
             backing.append((row, images))
+        captures: dict[int, Any] = execution.read_captures(reader, [row["trial_id"] for row, _ in backing], listing=True)
     described: dict[str, bool] = {}
 
     def same_code(image_ref: str) -> bool:
@@ -392,8 +398,12 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
 
     result = []
     for row, images in backing:
+        try:  # an unreadable capture (a Refusal) or a configuration without a leverage backs nothing
+            traded = captures[row["trial_id"]]["input_coverage"]["effective_config"]["account"]["default_leverage"]
+        except (KeyError, TypeError):
+            continue
         matching = next((ref for ref in dict.fromkeys(images) if same_code(ref)), None)
-        if matching is not None:
+        if matching is not None and leverage in (None, traded):
             balance = Decimal(row["starting_balance"]).normalize()
             result.append({"trial_id": row["trial_id"], "starting_balance_usdt": format(balance, "f"),
                            "image_ref": matching})
@@ -412,11 +422,11 @@ def replay_evidence(research: db.LedgerProfile, research_at: str, source_sha256:
     before a run is prepared. Read only; preparation still checks again and refuses as before."""
     describe = _describe(symbols)
     inspection = image.inspect_runtime(image.resolve(runtime), describe)
-    return _evidence(research, research_at, source_sha256, symbols, inspection, describe)
+    return _evidence(research, research_at, source_sha256, symbols, inspection, describe, None)
 
 
-def _settings(root: Path, run_id: str, drawdown_brake: str, duration_seconds: int | None, memory: str,
-              leverage: str) -> dict:
+def _settings(root: Path, run_id: str, environment: str, drawdown_brake: str, duration_seconds: int | None,
+              memory: str, leverage: str) -> dict:
     """A run's settings as its manifest records them, checked."""
     if duration_seconds is not None and (isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int)
                                          or duration_seconds < 1):
@@ -426,7 +436,8 @@ def _settings(root: Path, run_id: str, drawdown_brake: str, duration_seconds: in
         raise state.fail("LIVE_CONFIG", f"the drawdown brake can only be tighter than {configuration.BRAKE_DEFAULT}")
     if not is_leverage(leverage):
         raise state.fail("LIVE_CONFIG", "leverage must be an integer from 1 to 125")
-    return {"drawdown_brake": brake, "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
+    return {"environment": configuration.environment(environment), "drawdown_brake": brake,
+            "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
             "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
 
 
@@ -461,8 +472,8 @@ def _clear_staging(staging: Path) -> None:
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: bytes, credentials: Path, runtime: str, *,
-                    drawdown_brake: str, duration_seconds: int | None, memory: str, leverage: str,
-                    market_root: Path, credential_ref: str, request_id: str,
+                    environment: str, drawdown_brake: str, duration_seconds: int | None, memory: str,
+                    leverage: str, market_root: Path, credential_ref: str, request_id: str,
                     reconciled: Callable[[str, list[str]], None]) -> dict:
     """Capture immutable inputs, before any account effect: the candidate's own source at research_at (the run's
     research commit, kept in its manifest), the membership `universe`, the pinned image and the market's terms.
@@ -470,10 +481,10 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     contracts reconciles with its replay. Everything is written under staging/<run_id>, then renamed into runs/ whole:
     a preparation cut short is redone by the same request, and a published one is returned as it is
     (prepared_locked)."""
-    settings = {"drawdown_brake": drawdown_brake, "duration_seconds": duration_seconds, "memory": memory,
-                "leverage": leverage}
+    settings = {"environment": environment, "drawdown_brake": drawdown_brake, "duration_seconds": duration_seconds,
+                "memory": memory, "leverage": leverage}
     configuration.symbols(symbols)
-    config = _settings(root, run_id, drawdown_brake, duration_seconds, memory, leverage)
+    config = _settings(root, run_id, environment, drawdown_brake, duration_seconds, memory, leverage)
     prior = prepared_locked(root, run_id, request_id, candidate, symbols, credential_ref, **settings)
     if prior is not None:
         return prior
@@ -496,15 +507,10 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         describe = _describe(symbols)
         inspection = image.inspect_runtime(identity, describe)
         image.require_main_build(identity, inspection)
-        if found["runtime_contract"] != identity["runtime_contract"]:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
         admission.unfalsified(research, research_at, found["source_sha256"])
-        evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
-        if not evidence:
-            raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of "
-                                                      "this source on these instruments in bars runs the replay code "
-                                                      "of this execution image; replay it at the wallet's balance on a "
-                                                      "matching replay image (engine/README.md)")
+        # Recorded, possibly none: a run without it may still check the account (and read the wallet a replay must
+        # start near), but never starts (launch_locked, engine.live_venue.require_evidence).
+        evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe, leverage)
         reconciled(found["source_sha256"], symbols)
         market = _market_terms(market_root, symbols)
         key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
@@ -622,6 +628,8 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if request_id is not None and (replayed := sent_locked(root, run_id, mode, request_id)) is not None:
         return replayed
     directory, manifest = read_manifest(root, run_id)
+    if mode == "run" and not manifest["evidence"]:
+        raise state.fail("LIVE_EVIDENCE_MISSING", EVIDENCE_MISSING)
     _bound_credential(root, run_id, directory, credentials, mode)
     _credentials(credentials, manifest["credential_binding"])
     recorded = recycled(directory)
@@ -655,7 +663,7 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
         # Checked here too: a released run must not take the slot back only to be refused by its runner.
         raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
     if mode != "reconcile":
-        key.require_limits(credentials)
+        key.require_limits(credentials, manifest["config"]["environment"])
     _recycle_others(root, run_id)
     if mode != "preflight" and active_run(root) is None:
         state.append(root / "account.jsonl", "reserved", run_id)
