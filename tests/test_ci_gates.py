@@ -48,7 +48,7 @@ class CiPathsTests(unittest.TestCase):
         self.git("add", ".")
         self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", "change")
 
-    def select(self, paths, *, base=None, event="pull_request"):
+    def select(self, paths, *, base=None, event="pull_request", workflow=""):
         output = self.repo / ".git/ci-output"
         output.unlink(missing_ok=True)
         result = subprocess.run(
@@ -61,6 +61,7 @@ class CiPathsTests(unittest.TestCase):
                 "CI_EVENT_NAME": event,
                 "CI_BASE_SHA": self.base if base is None else base,
                 "CI_PATHS": paths,
+                "CI_WORKFLOW": workflow,
                 "GITHUB_OUTPUT": str(output),
             },
         )
@@ -108,6 +109,22 @@ class CiPathsTests(unittest.TestCase):
                 self.assertNotEqual(code, 0)
                 self.assertEqual(output, "")
 
+    def test_without_named_paths_the_workflows_own_push_paths_select(self):
+        workflow = self.repo / ".github/workflows/web.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("name: web\non:\n  push:\n    branches: [main]\n    # the page\n    paths:\n"
+                            "      - web/**\n      - '!web/README.md'\n  pull_request:\n    branches: [main]\n")
+        self.commit_files("web/README.md")
+        reference = "owner/repo/.github/workflows/web.yml@refs/pull/1/merge"
+        self.assertEqual(self.select("", workflow=reference), (0, "changed=false\n"))
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.commit_files("web/page.ts")
+        self.assertEqual(self.select("", workflow=reference), (0, "changed=true\n"))
+        workflow.write_text("name: web\non:\n  push:\n    branches: [main]\n")
+        code, output = self.select("", workflow=reference)
+        self.assertNotEqual(code, 0)
+        self.assertEqual(output, "")
+
     def test_push_and_dispatch_run_without_a_pr_diff(self):
         for event in ("push", "workflow_dispatch"):
             self.assertEqual(self.select("", base="", event=event), (0, "changed=true\n"))
@@ -130,15 +147,13 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("      - uses: ./.github/actions/gate\n        with:\n          needs: ${{ toJSON(needs) }}\n"
                               + (f"          always: {always}\n" if always else ""), gate)
 
-    def test_push_paths_equal_the_paths_the_changes_job_selects(self):
-        # release-ready.cjs reads "no push run" as "nothing to release", so the two lists must not drift apart.
+    def test_a_push_filtered_workflow_selects_with_its_own_push_paths(self):
+        # release-ready.cjs reads "no push run" as "nothing to release": a PR selects exactly what a push would run.
         for name in PUSH_FILTERED:
-            source = (ROOT / f".github/workflows/{name}.yml").read_text()
-            push = re.findall(r"^      - (\S+)$", section(source, "\n  push:\n", "\n  [a-z_]+:\n"), re.M)
-            selected = section(section(source, "\n  changes:\n"), "          paths: |\n", "\n(?! {12})")
+            changes = section((ROOT / f".github/workflows/{name}.yml").read_text(), "\n  changes:\n")
             with self.subTest(workflow=name):
-                self.assertTrue(push)
-                self.assertEqual(push, [line.strip() for line in selected.splitlines()])
+                self.assertIn("      - uses: ./.github/actions/ci-paths\n", changes)
+                self.assertNotIn("paths:", changes)
 
 
 @unittest.skipUnless(shutil.which("jq"), "CI gate probes require jq (present on CI runners)")

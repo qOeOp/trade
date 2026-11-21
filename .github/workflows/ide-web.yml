@@ -35,14 +35,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/ci-paths
         id: paths
-        with:
-          paths: |
-            .github/workflows/ide-web.yml
-            ide/web/**
-            ide/agent/**
-            ide/overview/**
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
 
   build:
     needs: changes
