@@ -1,7 +1,8 @@
 import type { HeldAlert } from "./liveHeld";
-import type { LiveEventRow, LiveRequest, LiveReviewDto } from "../lib/liveTradingDto";
+import type { LiveRequest } from "../lib/liveTradingCommands";
+import type { LiveEventRow, LiveReviewDto } from "../lib/liveTradingDto";
 import type { RuntimeFailure } from "../lib/paperApi";
-export type { LiveRequest } from "../lib/liveTradingDto";
+export type { LiveRequest } from "../lib/liveTradingCommands";
 
 /** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
  * this is not a backend schema and contains no venue credential or private path. */
@@ -72,14 +73,15 @@ export type LiveTradingView = {
 export type LiveTradingActions = {
   saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
   removeCredential?: (ref: string) => void | Promise<void>;
-  prepare?: (input: { candidate: string; symbols: readonly string[]; values: Readonly<Record<string, string>> }) => Promise<LiveRequest | null>;
-  /** Each resolves to the request's receipt (null: none received), so a refusal can be said where it was asked. */
-  preflight?: (runId: string) => void | Promise<LiveRequest | null | void>;
-  start?: (runId: string, confirmRealOrders: string) => void | Promise<LiveRequest | null | void>;
+  prepare?: (input: { candidate: string; symbols: readonly string[]; values: Readonly<Record<string, string>> }) => Promise<LiveRequest>;
+  /** Each resolves to the request as answered (or not), so a refusal can be said where it was asked. */
+  preflight?: (runId: string) => void | Promise<LiveRequest | void>;
+  start?: (runId: string, confirmRealOrders: string) => void | Promise<LiveRequest | void>;
   stop?: (runId: string) => void | Promise<void>;
   reconcile?: (runId: string) => void | Promise<void>;
   maintain?: (runId: string) => void | Promise<void>;
-  resolveRequest?: (requestId: string) => void | Promise<void>;
+  /** Send again: a request that had no reply, with its same ID; null when this tab no longer holds it. */
+  resend?: (requestId: string) => Promise<LiveRequest | null>;
   /** Telegram settings; each resolves to the refusal text, or null when it succeeded. */
   saveNotify?: (botToken: string) => Promise<string | null>;
   testNotify?: () => Promise<string | null>;

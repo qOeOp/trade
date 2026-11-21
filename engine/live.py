@@ -54,6 +54,10 @@ IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
+# A USD-M contract as live.configuration takes it (market.sources.SYMBOL ending in USDT), a non-ASCII coin included.
+CONTRACT = re.compile(r"[^\W_]+USDT\Z")
+
+
 def read_manifest(path: Path) -> dict:
     try:
         value = json.loads(read_regular_file(path))
@@ -64,7 +68,7 @@ def read_manifest(path: Path) -> dict:
             raise ValueError
         symbols = value["symbols"]
         if not isinstance(symbols, list) or not symbols or len(set(symbols)) != len(symbols) \
-                or any(not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols):
+                or any(not isinstance(symbol, str) or not CONTRACT.fullmatch(symbol) for symbol in symbols):
             raise ValueError
         source, candidate, runtime, config = value["source"], value["candidate"], value["runtime"], value["config"]
         if (runtime["runtime_contract"] != RUNTIME_CONTRACT

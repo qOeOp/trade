@@ -37,7 +37,7 @@ test("run review refresh and stop remain independent, and a stop is sent only on
   Date.now = () => now;
   try {
     let releaseRead, releaseStop, reads = 0, stops = 0;
-    const props = { run: { id: "run-review", candidate: "fixture" }, open: true, close() {}, requests() {}, view: {}, actions: {
+    const props = { run: { id: "run-review", candidate: "fixture" }, open: true, close() {}, view: {}, actions: {
       refresh: () => { reads++; return new Promise((resolve) => { releaseRead = resolve; }); },
       stop: (id) => { stops++; assert.equal(id, "run-review"); return new Promise((resolve) => { releaseStop = resolve; }); },
     } };
@@ -85,7 +85,7 @@ test("copy sends the complete selected identity to the clipboard helper", async 
 test("Review run… of a run that executes is the observation review, and a prepared one offers no start", async () => {
   const render = await component("LiveRunReview");
   const run = { id: "run-review", sourceHash: "frozen-source", hostState: "prepared", host: [{ label: "Mode", value: null }] };
-  const props = { runId: run.id, open: true, close() {}, requests() {}, view: { runs: [run], credentials: [] }, actions: { start() {}, preflight() {} } };
+  const props = { runId: run.id, open: true, close() {}, view: { runs: [run], credentials: [] }, actions: { start() {}, preflight() {} } };
   const prepared = render(props);
   assert.equal(control(prepared, "Start live…"), undefined);
   assert.equal(control(prepared, "Start live trading"), undefined);

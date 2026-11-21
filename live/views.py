@@ -18,6 +18,7 @@ import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from live import daily, runs, state
+from market.sources import SYMBOL  # a contract as the market holds it, a non-ASCII coin included
 from shared.failures import FAILURES, failure_records
 
 
@@ -214,7 +215,7 @@ def _identity(manifest):
                       "revision": _integer(candidate.get("revision"))},
         "runtime": {"digest": _image(runtime)["digest"],
                     "platform": _enum(runtime.get("platform"), {"linux/amd64", "linux/arm64"})},
-        "symbols": [value for value in symbols if _text(value, re.compile(r"[A-Z0-9]{2,24}USDT\Z"))]
+        "symbols": [value for value in symbols if _text(value, SYMBOL)]
                    if isinstance(symbols, list) else None,
         "config": {"drawdown_brake": _decimal(config.get("drawdown_brake")),
                    "duration_seconds": _integer(config.get("duration_seconds")),
@@ -296,7 +297,7 @@ def _held_verdict(row) -> dict:
     def rows(name):
         return row.get(name) if isinstance(row.get(name), list) else []
     return {"holding": row.get("holding") if type(row.get("holding")) is int else None,
-            "uncovered": [{"symbol": _text(item.get("symbol"), re.compile(r"[A-Z0-9]{1,40}\Z")),
+            "uncovered": [{"symbol": _text(item.get("symbol"), SYMBOL),
                            "side": _enum(item.get("side"), {"LONG", "SHORT"}),
                            "position": _decimal(item.get("position")), "stops": _decimal(item.get("stops"))}
                           for item in rows("positions")[:MAX_ROWS] if isinstance(item, dict)],

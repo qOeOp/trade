@@ -56,8 +56,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` <Ref id="table:run">run</Ref> `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 运行或审计失败、有发现或有异常记录，就判无效 [#G-1-1-2]
 
 代码逐条检查：运行器非零退出；审计没运行或非零退出；审计结果缺失、读不出、自报未通过或有发现。每种情况各记一条无效原因。判定只看退出码、文件和结构化记录，不去匹配日志里的文字。基础设施故障也照实记为无效原因，不另设一种状态，也不改口叫「证据不足」。
@@ -69,8 +67,6 @@
 比如一次试验运行器正常退出，审计却非零退出。它照样记为失败，当时的退出状态原样保留，不事后改记成成功。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.audit_problems` `replay.seal`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 策略构造或回调抛异常就无效，干净退出也不掩盖 [#G-1-1-3]
 
@@ -84,8 +80,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.guard_callback` `engine.execution_failure` `engine.main`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 原生摘要里的执行身份要和试验记录一致，否则无效 [#G-1-1-4]
 
 在运行环境之外，代码逐项核对原生报告摘要和试验记录上的执行身份（这次回放绑定的身份，由代码记下，不能手填）：源码内容哈希、运行环境摘要、账户与撮合配置。摘要缺失、身份不符或运行器自报未通过，各记一条无效原因。
@@ -97,8 +91,6 @@
 比如试验登记的是某个候选，而摘要里记的源码内容哈希和它不同，那这次跑的其实是另一个候选，回放判无效。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.summary_problems`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 无效后的处置 [#G-1-2]
 
@@ -116,8 +108,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `registration.check_comparable` `report.research_status`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 每条无效原因带定位，能找到时间、品种、数量和订单 [#G-1-2-2]
 
 每条无效原因有三部分：原因码、说明和定位。订单类发现定位到订单号，持仓类发现定位到持仓号；止损覆盖缺口定位到品种、策略、数量、起止时间和相关订单。定位由独立审计给出，入账时原样转抄，不重新解释。
@@ -129,8 +119,6 @@
 比如审计发现一段裸仓，原因里写着：哪个合约、哪个策略实例、超出止损的数量是多少、从几点几分到几点几分，以及当时相关的订单号。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.protection` <Ref id="table:run">run</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 7.2　核对输入与消费 [#G-2]
 
@@ -180,8 +168,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 引擎消费的事件数要等于导出回执所含，估值时刻数另从文件数 [#G-2-1-2]
 
 引擎消费的事件数要等于各合约导出回执里 LAST K 线、MARK 估值、资金费结算和生命周期事件（报价环境另加报价）条数之和；回执由导出器在导出时写下，不等时运行器非零退出，回放判无效。持仓估值的时刻数要等于导出文件里标记价时间戳去重后的个数，由代码直接从导出文件的时间戳列数出，不等即审计失败。
@@ -193,8 +179,6 @@
 比如导出了 3 个合约，回执各记 1000 根 LAST 1 分钟 K 线、1000 个 MARK 估值和 90 次资金费结算，引擎就必须正好消费 6270 个事件；少一个，就说明有数据没被读到。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.replay` `engine.mark_timestamps` `engine.capital_findings`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 覆盖与生命周期回执 [#G-2-2]
 
@@ -212,8 +196,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.verify_coverage` `ledger.audit_problems`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 生命周期事件要和原生计数相符，入账时只信封存原件 [#G-2-2-2]
 
 生命周期事件指合约上市、下架、到期这类状态变化。每个合约的状态事件和关闭事件个数，要等于覆盖记录里的计数；事件要落在窗口内，到期关闭要带正的关闭价。缺少事件供给按拒绝处理，不当作没有事件。入账时不信工作目录或调用方给的副本，只按封存原件重算一遍。
@@ -225,8 +207,6 @@
 比如覆盖记录写着某合约在窗口内有 1 次关闭事件，回放里却一次也没有，这就会被拒绝，而不是当作这个合约一直在正常交易。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_events` `ledger.original_coverage` `ledger.ingest_run`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 7.3　回放后独立审计 [#G-3]
 
@@ -282,8 +262,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `engine.audit_main` `engine.audit`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 审计不查信号和止损价格，每次结果写明检查边界 [#G-3-1-2]
 
 审计核对引擎记录前后自洽、订单提交不早于提交者实例的有效交易起点、开仓区间外只减仓、止损覆盖和下架处置。它不重建信号，不比对止损价格，不重算成交、盈亏或资金费。每次结果都写明检查范围和边界，并附上各报告的哈希和计数。
@@ -297,8 +275,6 @@
 比如策略的止损价设得离入场价很远，审计不会因此报错，它只看每个持仓是否都有止损单保护。止损设得合不合理，是源码审查和研究要回答的问题。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_result`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 各表对账 [#G-3-2]
 
@@ -316,8 +292,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.event_report_findings` `engine.write_order_events`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 订单、成交、持仓、费用和账户互相对账，只对不重算 [#G-3-2-2]
 
 每笔成交对应唯一的订单，订单的已成交量等于它名下成交之和。持仓恰好把全部成交覆盖一次，数量和手续费一致。资金费调整在每个时刻都等于账户总额的变动，账户各行自洽。期初余额、已实现盈亏和闭仓笔数与摘要一致。
@@ -329,8 +303,6 @@
 比如一张订单数量 10，名下两笔成交是 6 和 3，加起来只有 9，订单报告却写着已成交量 10，这就是一条发现。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 成交与资金费同刻不对资金费，期末有仓不对权益 [#G-3-2-3]
 
@@ -344,8 +316,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.generic_result`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 被否决、被拒绝的订单和估值缺口，都判审计失败 [#G-3-2-4]
 
 被否决指引擎风险检查拦下的订单，被拒绝指模拟交易所拒收的订单。它们和策略自检发现、持仓估值缺口一起写进原生摘要。摘要里只要有一条发现，运行器就非零退出，审计也计为失败。这里只记事实，不区分被拒原因，也不重算估值。
@@ -358,8 +328,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.capital_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 每笔手续费按导出回执的费率核对 [#G-3-2-5]
 
 每笔成交的手续费，要等于成交量 × 成交价 × 该合约导出回执假定的挂单方或吃单方费率，误差不超过报告金额末位的半个单位。没有费率的合约或流动性方向，也是一条发现。
@@ -371,8 +339,6 @@
 比如源码把费率模型换成零费率，162 笔成交的手续费全是 0，各表照样对得上；按回执的吃单方费率 0.0005，第一笔 0.229 × 43599.90 应收 4.99218855 USDT，每一笔都是一条发现。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.commission_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 持仓保护与终止检查 [#G-3-3]
 
@@ -390,8 +356,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.uncovered_intervals`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 声明不设止损的策略，裸仓只报告，不判无效 [#G-3-3-2]
 
 策略源码用一个开关声明是否设止损，载入时校验。声明不设止损时，裸仓区间只写进结果，不计为发现。声明缺失或格式不对，一律按设止损处理。
@@ -403,8 +367,6 @@
 比如一个策略有意不设止损，在源码开关里写明。审计照样将覆盖缺口持续超过一分钟的区间写进结果，读报告的人能看到它没有保护的时间有多长，只是不据此判无效。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.load_strategy`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 无结算价下架前必须清仓撤单，之后的订单事件算迟到 [#G-3-3-3]
 
@@ -420,8 +382,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_findings` `engine.lifecycle_events`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 成员区间外只许减仓，旧入场挂单和剩余量必须结束 [#G-3-3-4]
 
 独立审计从可信输入回执重建每个实际交易合约的开仓区间：月度成员时段与上市片段相交，截到首次 PRE_CLOSE、CLOSE 或结算。区间外（含截止时刻）只允许原生 reduce_only=True 的退出和保护订单；未标记的平仓单也不例外。退池不强制立即平仓，重新入池后可以恢复开仓。
@@ -431,8 +391,6 @@
 逐订单检查原生初始化的只减仓标记、提交/模拟/释放/修改、成交量、原生总量和终态。每个违规订单记 `ENTRY_ORDER_OUTSIDE_MEMBERSHIP`，保留品种、策略、时刻和未成交量；整次运行无效。有订单从未成交，也不能留下活动入场量穿过禁新仓区间。缺少或非法覆盖回执、成员/生命周期、未知目标合约或非法只减仓标记记 `ENTRY_SCOPE_INVALID`，不回退为全部允许。
 
 固定 Nautilus 2.0.0rc7 的原生探针确认：PRE_CLOSE 不自动拒绝开仓，CLOSE 才拒绝订单且包括减仓。GTD 请求的到期时间也不等于已经收到原生到期确认；相邻撮合事件之间的到期请求可能到下一撮合事件才留下 OrderExpired，须安排原生撤销/到期在截止时完成，不能用请求时间改写事件。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.entry_windows` `engine.entry_findings` `engine.episode_membership` · 原生回归测试 `tests/engine/test_entry_membership.py`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 7.4　判定经济证据资格 [#G-4]
 
@@ -488,8 +446,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.native_reasons` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 不可用的运行只留诊断，比较和对照登记都拒绝它 [#G-4-1-2]
 
 资格不可用时，全部绩效指标置空，只留活动计数之类的诊断。比较和登记比较对照之前都先核资格，不可用就拒绝，列出全部原因，不给检验结果。
@@ -501,8 +457,6 @@
 比如一个改动把入场条件收得太紧，整个窗口一笔都没成交，收益是 0。它不能拿来和年化为负的对照比较并「胜出」，只留下零成交的诊断，供 Agent 去查原因。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.mask` `registration.require`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 资格的来源与呈现 [#G-4-2]
 
@@ -520,8 +474,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 绑定本运行的独立源码审查失败，就不作证据 [#G-4-2-2]
 
 独立源码审查是没参与编写的 Agent 读源码和预检原件后写下的结论。它绑定源码和运行环境，身份从账本读，不信调用方给的；只算源码和运行环境都与本运行相同的审查。任何一条绑定的审查结论是失败，运行就不可用，但候选不删除。审查和审计分开呈现，谁也不能替代谁。
@@ -533,8 +485,6 @@
 比如某候选的回放审计通过，另一个 Agent 审查源码时发现，它用当根 K 线的收盘价决定在当根入场，写下失败结论。这个运行随即不可用，候选本身仍留在谱系里。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.source_reviews` `registration.record_review`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 资格在读取时按当前判据算出，不改写审计结论 [#G-4-2-3]
 
@@ -548,10 +498,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.check_identity` `registration.assess` `report.directory_report`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ## 其他边界归属 [#G-pending]
-
 
 - **不进文档**　前视检查：因果时钟与前视偏差由原生预检和独立源码审查承担（第 4、5 章）；本章只在 <Ref id="G.4.2.2" /> 读其留存结论，不另设审计项。
 - **不进文档**　回放中途被打断的半成品的处置：归第 13 章封存契约：开始回执保留，最终捕获标未完成或缺失；本章只在 <Ref id="G.4.2.1" /> 读其结局，未完成即无经济证据资格。

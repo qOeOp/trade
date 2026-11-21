@@ -1,6 +1,7 @@
 """Private Live custody survives unknown launches and never mistakes process exit for flatness."""
 
 import copy
+from contextlib import ExitStack
 from datetime import datetime
 import hashlib
 import io
@@ -62,7 +63,8 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": runs.MANIFEST_FORMAT, "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": runs.MANIFEST_FORMAT, "run_id": self.run_id, "research_at": "a" * 32, "runtime": IDENTITY,
+            "symbols": ["BTCUSDT"],
             "candidate": {"strategy_id": "example", "revision": 1},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
             "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
@@ -155,10 +157,10 @@ class LiveCustodyTests(LiveFixture):
                                          {"drawdown_brake": "0.15", "duration_seconds": 8100, "leverage": leverage},
                                          error=LiveRefusal).code, "LIVE_CONFIG")
                 self.assertEqual(refused(prepare, self.root, "leverage-run", object(), "a" * 32, "original@2",
-                                         ["BTCUSDT"], Path("unused"), self.credentials, IDENTITY["image_ref"],
+                                         ["BTCUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
                                          scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g",
                                          leverage=leverage, market_root=Path("unused"), credential_ref="a" * 32,
-                                         error=LiveRefusal).code, "LIVE_CONFIG")
+                                         request_id="prepare-leverage", error=LiveRefusal).code, "LIVE_CONFIG")
         for leverage in ("1", "125"):
             self.assertEqual(configuration.run_config({"drawdown_brake": "0.15",
                                                        "duration_seconds": 8100, "leverage": leverage})["leverage"],
@@ -173,9 +175,10 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
         for limit in ("0", "NaN", "0.1501"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
-                prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
-                             self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake=limit, duration_seconds=60, memory="2g", leverage="3",
-                         market_root=Path("unused"), credential_ref="a" * 32)
+                prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
+                        self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake=limit,
+                        duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                        credential_ref="a" * 32, request_id="prepare-limit")
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
     def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
@@ -555,7 +558,7 @@ class LiveCustodyTests(LiveFixture):
     def review(self, source=b"original", rows=(), candidate="found", read_error=None):
         """The review the control shows after preparation and before any launch (live.control)."""
         origin = hashlib.sha256(b"original").hexdigest()
-        manifest = {"candidate": {"strategy_id": "original", "revision": 2},
+        manifest = {"research_at": "a" * 32, "candidate": {"strategy_id": "original", "revision": 2},
                     "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": "Original"},
                     "runtime": IDENTITY, "evidence": EVIDENCE}
         reader = unittest.mock.MagicMock()
@@ -563,7 +566,7 @@ class LiveCustodyTests(LiveFixture):
             "source": b"original", "source_sha256": origin, "entry_class": "Original"}
         reader.__enter__.return_value.dicts.return_value = list(rows)
         with patch.object(runs.db, "read_as_of", return_value=reader, side_effect=read_error) as read:
-            return runs.review(object(), "a" * 32, manifest), read, reader.__enter__.return_value
+            return runs.review(object(), manifest), read, reader.__enter__.return_value
 
     def refused(self, **review) -> str:
         with self.assertRaises((LiveRefusal, Refusal)) as caught:
@@ -613,8 +616,6 @@ class LiveCustodyTests(LiveFixture):
             state.directory(self.root, "../../other")
 
     def test_prepare_captures_the_candidates_own_source_and_never_stores_credentials(self):
-        universe = self.root / "universe-input.json"
-        universe.write_text('{}')
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}
@@ -624,11 +625,12 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "resolve", return_value=IDENTITY), \
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
-            manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
-                                    universe, self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
-                                    market_root=Path("unused"), credential_ref="a" * 32)
+            manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
+                               self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15",
+                               duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                               credential_ref="a" * 32, request_id="prepare-candidate")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], runs.MANIFEST_FORMAT)
+        self.assertEqual((manifest["format"], manifest["research_at"]), (runs.MANIFEST_FORMAT, "a" * 32))
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
         self.assertEqual(manifest["candidate"], {"strategy_id": "original", "revision": 2})
         self.assertEqual(manifest["source"], {"source_sha256": origin["source_sha256"], "entry_class": "Original"})
@@ -640,8 +642,6 @@ class LiveCustodyTests(LiveFixture):
             self.assertNotIn(b"example-secret", content)
 
     def test_a_candidate_whose_source_does_not_load_is_no_source_to_prepare(self):
-        universe = self.root / "universe-input.json"
-        universe.write_text('{}')
         for source, entry_class in ((b"not python (", "Original"), (b"class Other: pass\n", "Original")):
             found = {"strategy_id": "original", "revision": 2, "entry_class": entry_class, "source": source,
                      "source_sha256": hashlib.sha256(source).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
@@ -649,73 +649,99 @@ class LiveCustodyTests(LiveFixture):
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                     self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
-                runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
+                runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32, reconciled=lambda *_: None)
+                                    credential_ref="a" * 32, request_id="prepare-unloadable",
+                                    reconciled=lambda *_: None)
             self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
             self.assertFalse(state.directory(self.root, "unloadable").exists())
+            self.assertEqual(list((self.root / "staging").iterdir()), [])  # a refusal leaves nothing staged
 
-    def test_only_the_frozen_source_hash_of_the_candidate_is_prepared(self):
-        universe = self.root / "universe-input.json"
-        universe.write_text('{}')
+    def test_a_stored_source_that_does_not_hash_to_its_source_sha256_is_never_prepared(self):
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
+                  "source": b"class Original: pass  # other\n",
+                  "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
                   "runtime_contract": RUNTIME_CONTRACT}
-        for found, declared in ((origin, "f" * 64), ({**origin, "source": b"class Original: pass  # other\n"}, origin["source_sha256"])):
-            with self.subTest(declared=declared), patch.object(runs.db, "read_as_of"), \
-                    patch.object(runs.strategies, "read_candidate", return_value=found), \
-                    patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
-                    self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
-                runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
-                                    self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
-                                    duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32, reconciled=lambda *_: None, source_sha256=declared)
-            self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
-            self.assertFalse(state.directory(self.root, "declared-run").exists())
+        with patch.object(runs.db, "read_as_of"), patch.object(runs.strategies, "read_candidate", return_value=origin), \
+                patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
+                self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
+            runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
+                                self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
+                                duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
+                                credential_ref="a" * 32, request_id="prepare-declared", reconciled=lambda *_: None)
+        self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+        self.assertFalse(state.directory(self.root, "declared-run").exists())
 
-    def test_a_prepared_run_id_replays_the_same_inputs_and_refuses_any_other(self):
-        files = {name: self.root / name for name in ("universe", "other-universe")}
-        files["universe"].write_text("{}")
-        files["other-universe"].write_text('{"membership":{}}')
-        linked = self.root / "linked-universe"
-        linked.symlink_to(files["universe"])
-        other_key = self.root / "other-key.json"
-        state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
-        same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
-                "credentials": self.credentials, "runtime": IDENTITY["image_ref"], "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
-                "market_root": Path("unused"), "credential_ref": "a" * 32}
-        origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
-                  "runtime_contract": RUNTIME_CONTRACT}
+    def prepare_patches(self, stack, origin):
+        """Research, image and universe reads are fake; returns the research reader's mock."""
+        stack.enter_context(patch.object(runs.strategies, "read_candidate", return_value=origin))
+        stack.enter_context(patch("engine.load.read_universe"))
+        stack.enter_context(patch.object(runs.image, "resolve", return_value=IDENTITY))
+        stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
+        stack.enter_context(patch.object(runs.image, "require_main_build"))
+        return stack.enter_context(patch.object(runs.db, "read_as_of"))
 
-        def again(**changes):
-            return prepare(self.root, "conflict", object(), "a" * 32, scope=self.scope, **{**same, **changes})
+    ORIGIN = {"strategy_id": "original", "revision": 2, "entry_class": "Original", "source": b"class Original: pass\n",
+              "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+    SAME = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": b"{}", "runtime": IDENTITY["image_ref"],
+            "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
+            "market_root": Path("unused"), "credential_ref": "a" * 32, "request_id": "prepare-conflict"}
 
-        # Only the repeat's inputs: the managed credential version has its own tests (test_credentials, test_requests).
-        with patch.object(runs, "_bound_credential", return_value=None), \
-                patch.object(runs.db, "read_as_of") as read, \
-                patch.object(runs.strategies, "read_candidate", return_value=origin), \
-                patch("engine.load.read_universe"), \
-                patch.object(runs.image, "resolve", return_value=IDENTITY), \
-                patch.object(runs.image, "inspect_runtime", return_value={}), \
-                patch.object(runs.image, "require_main_build"):
-            manifest = again()
+    def again(self, research_at="a" * 32, **changes):
+        return prepare(self.root, "conflict", object(), research_at, credentials=self.credentials, scope=self.scope,
+                       **{**self.SAME, **changes})
+
+    def test_a_prepare_sent_again_returns_its_run_unread_and_any_other_choice_is_refused(self):
+        with ExitStack() as stack:
+            read = self.prepare_patches(stack, self.ORIGIN)
+            manifest = self.again()
             stored = (state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes()
-            # Without this the fixture's own difference could be what each case below is refused for.
-            self.assertEqual(again(), manifest)
+            # Sent again it is the published run, even where the research head has moved since: research_at stays.
+            self.assertEqual(self.again("b" * 32), manifest)
+            self.assertEqual(manifest["research_at"], "a" * 32)
             for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"drawdown_brake": "0.1"},
-                            {"duration_seconds": 61},
-                            {"memory": "3g"},
-                            {"credentials": other_key},
-                            {"universe": files["other-universe"]}, {"universe": linked},
-                            {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64},
-                            {"runtime": "ghcr.io/qoeop/trade-runtime:exec-main"}):
+                            {"duration_seconds": 61}, {"memory": "3g"}, {"credential_ref": "b" * 32}):
                 with self.subTest(changes=changes):
-                    self.assertEqual(refused(again, **changes, error=LiveRefusal).code, "LIVE_RUN_CONFLICT")
-        # The first preparation and the identical repeat read the candidate; a differing repeat is refused first.
-        self.assertEqual(read.call_count, 2)
+                    self.assertEqual(refused(self.again, **changes, error=LiveRefusal).code, "LIVE_REQUEST_CONFLICT")
+            self.assertEqual(refused(self.again, request_id="another-request", error=LiveRefusal).code,
+                             "LIVE_RUN_CONFLICT")
+        self.assertEqual(read.call_count, 1)  # only the first preparation read the candidate
         self.assertEqual((state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes(), stored)
+
+    def test_a_prepare_cut_short_is_published_only_whole_and_redone_by_the_same_request(self):
+        original = state.write_new
+
+        def crash(path, data):
+            if path.name == "manifest.json":
+                raise SystemExit("crash while staging")
+            original(path, data)
+
+        with ExitStack() as stack:
+            self.prepare_patches(stack, self.ORIGIN)
+            with patch.object(state, "write_new", side_effect=crash), self.assertRaises(SystemExit):
+                self.again()
+            directory, staging = state.directory(self.root, "conflict"), self.root / "staging" / "conflict"
+            self.assertFalse(os.path.lexists(directory))  # nothing a listing, release check or launch reads
+            self.assertTrue((staging / "inputs" / "strategy.py").exists())
+            manifest = self.again()
+        self.assertFalse(os.path.lexists(staging))
+        self.assertEqual(runs.read_manifest(self.root, "conflict")[1], manifest)
+        self.assertEqual([(row["event"], row["request_id"]) for row in runs.host_events(directory)],
+                         [("prepared", "prepare-conflict")])
+
+    def test_a_prepare_publishes_by_rename_after_fsyncing_both_directories(self):
+        seen = []
+        fsync, rename = state.fsync_parent, os.rename
+        with ExitStack() as stack:
+            self.prepare_patches(stack, self.ORIGIN)
+            stack.enter_context(patch.object(state, "fsync_parent", side_effect=lambda path: (
+                seen.append(("fsync", Path(path).parent.name)), fsync(path))[1]))
+            stack.enter_context(patch.object(runs.os, "rename", side_effect=lambda a, b: (
+                seen.append(("rename", Path(a).parent.name, Path(b).parent.name)), rename(a, b))[1]))
+            self.again()
+        at = seen.index(("rename", "staging", "runs"))
+        self.assertEqual(seen[at + 1:at + 3], [("fsync", "staging"), ("fsync", "runs")])
 
     def test_full_runner_identity_is_required_for_idempotency_and_logs(self):
         self.launch_record()

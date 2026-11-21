@@ -62,8 +62,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.check_source` `engine.load_strategy`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 实际执行的字节必须和发布时记下的哈希一致 [#C-1-1-2]
 
 发布时只检查文件形态，不运行源码，所以发布成功不证明规则写对了。之后每次从账本读出、每次加载执行，都重算一遍哈希，和发布时的记录比。加载时对不上就拒绝执行；读出时对不上，记为账本损坏。
@@ -75,8 +73,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 比如 Agent 在工作目录里改了一行，却没有重新发布，回放读的仍是账本里原来那份字节，改动不会混进旧候选。要是账本里存的字节被动过，读出时哈希对不上，就记为账本损坏。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.read_candidate` `engine.load_strategy`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 规则与参数的归属 [#C-1-2]
 
@@ -96,8 +92,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.build_parser` `engine.parse_configuration` `engine.configure_strategy`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 加载时检查：依赖边界与自带钩子 [#C-1-3]
 
 源码在隔离容器里加载，入口类必须带齐两个钩子。
@@ -114,8 +108,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.load_strategy` `engine.source_findings` `runtime.container_command` `runtime.resolve`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 入口类必须带诊断和自检两个钩子 [#C-1-3-2]
 
 诊断钩子交出策略自报的计数，只写进摘要，不进审计，也不进绩效指标；自报的计数不能借用原生报告里交易事实的名字。自检钩子报出的问题和被拒的订单，都让这次运行无效。策略构造或回调出错时，运行以非零退出，记为无效。
@@ -127,8 +119,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 比如策略自报「RSI 跌破 30 的信号出现了 500 次」，可以写进摘要供诊断；但不能把这个数叫成「成交数」冒充原生报告。自检要是报出「有一张单没挂上止损」，这次运行直接无效。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.diagnostics` `engine.load_strategy` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 文件头的立场与硬契约 [#C-1-4]
 
@@ -146,8 +136,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">candidate new/export · cli/templates/strategy-header.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 改源码前先读父版本文件头，只改涉及的职责行，登记时列出 [#C-1-4-2]
 
 改源码之前，Agent 先读研发父版本（新候选所基于的那一版）的文件头。改源码时，文件头只改这次改动涉及的职责行，其余行和父版本逐字相同。登记时列出改了哪几项职责。这条由 skill 指导，评测用例检查。
@@ -160,8 +148,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 多个合约共用一个账户时，资金怎么分、分不到的怎么办，写在源码里 [#C-1-4-4]
 
 同一账户里多个合约实例共用本金时，源码写清资金预算和本金分配：同一批信号怎么一起分资金，分不到资金的机会怎么处理（缩量、延后或放弃），退出单只减仓。不能拿回调执行的先后顺序或引擎拒单代替分配规则：拒单是保证金事实（<Ref id="G.3.2.4" />），不是分配规则。把另一版本的规则合并进来后，分配仍在同一个账户里做，按一处改动登记（<Ref id="H.1.1.3" />）。这条由 skill 指导，评测用例检查。
@@ -173,8 +159,6 @@ Agent 照 skill 写单文件源码：一个入口类，开头是写明职责立�
 比如同一个小时里 30 个合约同时出现 RSI 信号，账户剩下的预算只够开 10 笔。源码要写明按什么排序给这 10 笔分钱，另外 20 笔是缩小数量、等下一根 K 线，还是直接放弃，而不是让先回调的合约先抢到。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 工作副本与脚手架 [#C-1-5]
 
@@ -192,8 +176,6 @@ Agent 改文件时，规则就在手边，不用另去翻 skill；两处各写�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.candidate_export`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 新策略从脚手架起步，生成时不写账本 [#C-1-5-2]
 
 新策略可以用脚手架生成：源码里带文件头模板、唯一的入口类、两个仓位辅助方法和两个空钩子，同时生成工作目录说明。equity() 给出该合约报价货币的账户权益；order_quantity(quantity, price=None) 把下单数量向下取整到最小变动单位，低于最小变动单位、最小数量或（给了价格时）最小名义额时返回 None。生成时不写账本，发布之后才成为候选。
@@ -205,8 +187,6 @@ Agent 改文件时，规则就在手边，不用另去翻 skill；两处各写�
 比如用户给了一篇论文，想从它的策略开始一条新路线。Agent 先生成脚手架，在里面照论文写规则、填文件头；改到满意并发布之前，账本里没有任何新记录。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.candidate_new`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 4.2　把交易事实交给引擎 [#C-2]
 
@@ -263,8 +243,6 @@ Agent 改文件时，规则就在手边，不用另去翻 skill；两处各写�
 比如一个候选全部持仓收到的资金费、全部成交费用，都是从引擎写出的报告里读出来的。账户条款对每个候选都一样，初始资本和杠杆（2026-11-11 起由 `--leverage` 给出，默认 3）都由运行器给出。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.write_native_reports` `ACCOUNT_CONTRACT` `engine.replay`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 4.3　只用已发生的信息决策 [#C-3]
 
@@ -329,8 +307,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 3. 没有同源码、同运行环境、同配置且已通过的预检和审查，登记会被拒绝（`registration.require_precheck`）。
 4. 当经济证据时只认身份匹配的审查记录（`registration.source_reviews`）；因果审查没过的运行不当经济证据，审查结论和账户审计分开列出（<Ref id="G.4.2.2" />）。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ## 4.4　给每个持仓挂保护单 [#C-4]
 
 源码声明设不设止损；设了，就按原生持仓补齐保护。完整性审计拒绝止损覆盖缺口持续超过一分钟的运行。
@@ -389,8 +365,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.strategy_metadata` `engine.load_strategy` `engine.protection`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ## 4.5　把交易切成可计数的计划 [#C-5]
 
 一个信号下的全部订单打同一个计划标签，计划数和计划胜率只按标签来数。
@@ -445,8 +419,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.plan_metrics`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 计划和持仓周期一一对应 [#C-5-1-2]
 
 持仓是 HEDGING 的：每张入场单开自己的持仓，持仓周期是这个持仓从开仓到归零的那一段。每笔成交恰好属于一个周期，一个周期只装一个计划的成交，一个计划的成交只在一个周期里。同一合约上的计划可以同时开着；持仓归零时策略撤掉这个计划剩下的订单，免得入场单剩余部分再开出一个持仓。
@@ -458,8 +430,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 比如同一合约上一个多头计划还没平，又来了一个空头信号：两张入场单各开一个持仓，各挂自己的止损，各算各的盈亏。要是一个计划又下了第二张入场单，它就有了两个持仓周期，计划统计置空。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.cycles` `ledger.plan_metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 不合规与原生平仓单 [#C-5-2]
 
@@ -477,8 +447,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.unreconciled` `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 下架结算时引擎生成的无标签平仓单，对得上号才归进计划 [#C-5-2-2]
 
 合约下架时，引擎会自动生成一张不带标签的只减仓平仓单。只有当它和结算事件、所在的持仓周期、对应的计划逐项唯一对上时，才归进那个计划。有任何歧义就不归，按缺标签算作违例。归属只读报告、不改报告；策略自己仿造这种单的情况，由独立源码审查排查。
@@ -490,8 +458,6 @@ Agent 只按已收盘的 K 线和已发生的事件写决策逻辑。
 比如某合约在窗口中途下架，引擎在结算时刻按结算价平掉剩下的持仓。这张平仓单和那一刻的结算、仍开着的那个周期、周期里唯一的计划都对得上，就归进这个计划；要是能对上的计划不止一个，就不归，按缺标签算违例。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.expiry_plan_owners`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 4.6　登记前的原生预检与独立审查 [#C-6]
 
@@ -549,8 +515,6 @@ Agent 读封存的预检原件，分清是没有交易机会还是实现出了�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.precheck` `registration.exposure_exempt` `cli.replay_precheck`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 独立源码审查 [#C-6-2]
 
 审查是独立 Agent 留下的具名证据，账本只追加不改，代码只核对绑定和是否通过。
@@ -568,8 +532,6 @@ Agent 读封存的预检原件，分清是没有交易机会还是实现出了�
 比如审查读封存的预检原件，构造、时钟、部分成交、撤单回调和就绪都有对应的检查。另行声明的工程支架单独保留，不被当成自然出现的小时级交易机会。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">独立审查</span> <span className="rd-impl">实现 `registration.require_precheck` `registration.record_review` `cli.source_review` `cli.market_bars`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 已定边界与归属 [#C-pending]
 

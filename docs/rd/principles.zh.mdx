@@ -72,8 +72,6 @@
 8. 读比较证据：只和登记时声明的对照比，用配对的分块自助法给出效应、区间和 p 值（`report.compare`）。登记没有对照（比如根）时，它如实回答没有可比的，指向单运行报告；对照运行不存在、运行不属于这次登记的网格、两边不可比，或任一边没有经济证据资格，都会被拒绝并留下诊断。它不给结论。
 9. 反馈与优先级：结论只在登记的适用条件内成立，写成只追加的证据包。再按预期效应、不确定性、机制佐证、覆盖、信息价值和成本，给接下来的具体研究动作排序；排在后面的保留，以后重新评估。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 ### 写完报告和优先级不算做完，Agent 在同一回合接着跑下一个实验 [#A-1-1-3]
 
 在路线里，Agent 写完报告、解释、推荐、复盘或优先级，都不算这一回合做完。优先级记进账本后，它在同一回合里接着做下一个实验：发布候选、预检、独立审查、登记、回放。只有三种情况会结束回合：碰到要你授权的事，路线该换了，或者你本人打断。
@@ -85,8 +83,6 @@
 比如一条路线的根第一次回放有了经济证据，Agent 写好报告、interpretation 和 priority 后，不问「要不要接着做」，而是直接导出并发布排第一的子候选，跑预检、请另一个 Agent 审源码、登记，再回放。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 14.2　划清谁决定什么 [#A-2]
 
@@ -150,8 +146,6 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 4. 仓位规则写在源码里，不另设一个名义上限去模仿保证金；资金使用率从报告里读。
 5. 改这些设计变量不需要授权，也不能在推荐或反馈里说成是你的约束。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 ### 用户决定的 [#A-2-3]
 
 你的决定在产品之外做出；账本只记你给的两个研究目标（照你的话写入），不记其余这类状态；skill 规定 Agent 遇到这些事要停下来等你。
@@ -171,8 +165,6 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 </div>
 
 被检查挡住时，正确做法是修源码或代码，发布新候选或新运行环境，再重新登记，而不是改检查。不在这份清单上的事（包括仓位这类设计变量）不需要授权。
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">AGENTS.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 **规则的验证与删减**
 

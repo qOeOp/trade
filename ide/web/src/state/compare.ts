@@ -3,6 +3,7 @@
 // seconds while one is running.
 import { ApiError } from "../lib/transport";
 import { paperApi } from "../lib/paperApi";
+import { polled, type Poll } from "../lib/polled";
 import { atom, useAtom } from "./atom";
 
 const POLL_MS = 3000;
@@ -70,28 +71,18 @@ export type Comparison = {
 const comparison = atom<Comparison | null>(null);
 export const useComparison = () => useAtom(comparison);
 
-let timer = 0, followed: number | null = null;
-
-async function read(paperId: number): Promise<void> {
-  window.clearTimeout(timer);
-  try {
-    const found = await paperApi<Comparison>(`/runs/${paperId}/compare`);
-    if (followed !== paperId) return;
-    comparison.set(found);
-    if (found.state === "comparing") timer = window.setTimeout(() => void read(paperId), POLL_MS);
-  } catch (error) {
-    if (followed !== paperId) return;
-    comparison.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
-  }
-}
+let followed: number | null = null, poll: Poll | null = null;
+const failed = (paperId: number, error: unknown): Comparison => ({ paper_id: paperId, state: "failed",
+  error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
 
 /** Follows the latest comparison of `paperId` (null, or a run not sealed yet: none). */
 export function followComparison(paperId: number | null): void {
   if (followed === paperId) return;
   followed = paperId;
-  window.clearTimeout(timer);
+  poll?.stop();
   comparison.set(null);
-  if (paperId !== null) void read(paperId);
+  poll = paperId === null ? null : polled(() => paperApi<Comparison>(`/runs/${paperId}/compare`).catch((error) => failed(paperId, error)),
+    (found) => found.state === "comparing" ? POLL_MS : null, comparison.set);
 }
 
 /** Replays a sealed run on the archive and compares it (`preliminary`: on Binance's REST where the archive does not
@@ -101,8 +92,8 @@ export async function compare(paperId: number, preliminary = false): Promise<voi
   try {
     await paperApi(`/runs/${paperId}/compare`, { method: "POST", body: preliminary ? { preliminary: true } : {} });
   } catch (error) {
-    comparison.set({ paper_id: paperId, state: "failed", error: error instanceof ApiError ? { code: error.code, message: error.message } : { code: "PAPER_FAILED", message: String(error) } });
+    comparison.set(failed(paperId, error));
     return;
   }
-  await read(paperId);
+  if (followed === paperId) await poll?.read();
 }

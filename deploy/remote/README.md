@@ -155,7 +155,7 @@ The candidate, its contracts and leverage are chosen for each run on the Live pa
 version selected in the research graph, read from the research ledger's head when the run is prepared and frozen in
 it. No strategy file is staged and no API key or secret is written on the host.
 
-A release waits until Live is idle: no run holds account custody and no request is unresolved. The current control
+A release waits until Live is idle: no run holds account custody and every runner it started is seen. The current control
 inspects the account inside the account lock (`live release-inspect`) before anything is prepared, and the
 candidate's control again before the journal and at commit; a host with no runs answers idle (one 256 MiB helper
 run). While Live is busy or unresolved, or a read in progress holds the lock, the current Web/control pair stays,
@@ -165,7 +165,7 @@ or migrate a run an earlier version prepared. Such a run stays on disk under `ru
 still runs the account counts as unavailable. During a paired update, new effect-producing Live requests wait for a
 committed owner; reads and STOP remain available. Existing runners are never restarted for publication. Once the new
 route is committed, still inside the account lock under which Live answered idle, the release stops every other
-control (`docker stop`, verified by its revision label): idle means none of them holds a run or an unresolved request.
+control (`docker stop`, verified by its revision label): idle means none of them holds a run or an unseen runner.
 A rollback stops the candidate's control the same way. A stopped control keeps its restart policy, so starting it
 again restores it. Pairing does not query a venue, read a key, arm a strategy or change
 account settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
@@ -470,8 +470,8 @@ removed when it exits) that replays each run's previous day on the market direct
 A Live contract outside `TRADE_MARKET_ARGS` is never covered, so its comparison waits.
 
 The release state holds that fixed private root (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git.
-Saved credentials have private versions under `LIVE_ROOT/credentials/`, and each run's contract membership under
-`LIVE_ROOT/universes/`.
+Saved credentials have private versions under `LIVE_ROOT/credentials/`; a run being prepared is written under
+`LIVE_ROOT/staging/` and then moved whole into `LIVE_ROOT/runs/`.
 
 `live status`, `logs` and `stop` stay on the command line for observation and STOP; they read the root and its containers. Run
 them as a one-off container of the admitted service image, named for the currently committed owner revision: read
