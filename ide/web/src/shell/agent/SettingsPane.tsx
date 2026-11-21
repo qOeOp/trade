@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { AgentCard } from "../../components/chat/AgentCard";
-import { FormButton } from "../../components/chat/Field";
+import { AgentCard } from "../../widgets/agent/AgentCard";
+import { FormButton } from "../../ui/chat/Field";
 import { agentApi, type Agent } from "../../lib/agentApi";
 import { errorText } from "../../lib/transport";
 import { agents, refreshAgents, replaceAgent, useAgents } from "../../state/agent";

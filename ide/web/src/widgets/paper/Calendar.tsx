@@ -5,9 +5,9 @@ import { pct } from "../../lib/format";
 import { days, utcDay, type Fill } from "../../model/paper";
 import type { Account } from "../../model/account";
 import { START } from "../../model/chain";
-import { IconButton } from "../../components/IconButton";
-import { Section } from "../../components/Section";
-import { Tip } from "../../components/Tip";
+import { IconButton } from "../../ui/IconButton";
+import { Section } from "../../ui/Section";
+import { Tip } from "../../ui/Tip";
 import { useAtom } from "../../state/atom";
 import { calendarMonth, pickedDay } from "../../state/paperStream";
 

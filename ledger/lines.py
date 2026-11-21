@@ -1,4 +1,4 @@
-"""Research lines (`ledger.select_line`, `ledger.open_line`, `ledger.read_line`,
+"""Research lines (`ledger.select_line`, `ledger.open_line`, `ledger.set_targets`, `ledger.read_line`,
 `ledger.line_trials`, `ledger.close_line`).
 
 A research line is the user's choice of start candidate (a revision whose source review passed) and
@@ -78,6 +78,31 @@ def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
     if record["closed"]:
         raise refuse("LINE_ENDED", f"{record['name']} is closed", missing=(record["name"],))
     return record
+
+
+def set_targets(conn: db.LedgerConnection, line_id: int | None, max_drawdown, annual_return) -> dict:
+    """Record the user's targets for the open line `line_id`, or the ledger default when it is None.
+    The same targets as the ones in force write nothing. Called inside a write (as `line select` does),
+    it joins that transaction and sees its uncommitted line."""
+    drawdown, annual = line_targets.check(max_drawdown, annual_return)
+    if line_id is not None:
+        open_line(conn, line_id)
+    tip = line_targets.tip(conn, line_id)
+    source = "line" if line_id is not None else "default"
+    if tip is not None and (tip["max_drawdown"], tip["annual_return"]) == (drawdown, annual):
+        return {**line_targets.reading(tip, source), "line_id": line_id, "written": False, "commit": None}
+    payload = {"line_id": line_id, "max_drawdown": str(drawdown), "annual_return": str(annual),
+               "supersedes": tip["target_id"] if tip is not None else None}
+
+    def insert(c, op):
+        c.rows(f"INSERT INTO {line_targets.TABLE} (line_id, max_drawdown, annual_return, supersedes, op_id) "
+               "VALUES (%s, %s, %s, %s, %s)", (line_id, drawdown, annual, payload["supersedes"], op))
+        return c.one(f"SELECT target_id, line_id, max_drawdown, annual_return, created_at FROM {line_targets.TABLE} "
+                     "WHERE op_id = %s", (op,))
+
+    written = db.write(conn, "set_targets", payload, line_targets.TABLE, insert)
+    return {**line_targets.reading(written["record"], source), "line_id": line_id,
+            "written": not written["replayed"], "commit": written["commit"]}
 
 
 LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "summary")
@@ -259,13 +284,13 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
                "op_id) VALUES (%s, %s, %s, %s, %s, %s, %s)", (*choice.values(), operation))
         (line_id,), = c.rows("SELECT LAST_INSERT_ID()")
         if targets is not None:
-            line_targets.set_targets(c, line_id, *targets)
+            set_targets(c, line_id, *targets)
         return {"line_id": line_id}
 
     def replay(c, row):
         record = read_line(c, row["line_id"])
         if targets is not None and not record["closed"]:
-            line_targets.set_targets(c, row["line_id"], *targets)
+            set_targets(c, row["line_id"], *targets)
         return {"line_id": row["line_id"]}
 
     written = db.write(conn, "select_line", choice, "research_line", insert, replay)

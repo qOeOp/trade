@@ -17,7 +17,7 @@ import posixpath
 import re
 
 from shared.refusals import refuse
-from runtime import image
+from runtime.identity import LAYOUT, validate_identity
 
 
 PIDS_LIMIT = 256  # example value, not calibrated
@@ -48,7 +48,7 @@ def _covers(target: str, protected: str) -> bool:
             or protected.startswith(target.rstrip("/") + "/"))
 
 
-REPLAY_MODULES = {image.LAYOUT[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
+REPLAY_MODULES = {LAYOUT[key] for key in ("runner_module", "audit_module", "fingerprint_module")}
 
 
 def _check_mounts(mounts: list[tuple[Path, str, bool]], require_reports: bool) -> list[tuple[Path, str, bool]]:
@@ -99,7 +99,7 @@ def command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, a
             name: str) -> list[str]:
     """The identity probe's docker run argument list: the checks of `container_command` without requiring
     /reports (the probe writes nothing), removed on exit."""
-    identity = image.validate_identity(identity)
+    identity = validate_identity(identity)
     return _run(identity, mounts, module, argv, REPLAY_MODULES, False,
                 ["--name", name, "--rm", "--network", "none"])
 
@@ -110,7 +110,7 @@ def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], modu
     paths, distinct normalized absolute targets clear of /, /tmp and the image's code, and exactly one
     writable mount, /reports. `name` names the container so an interrupt can stop it and its exit state can be
     read; it has STAGE_MEMORY and no swap, and is not removed on exit (replay.seams removes it)."""
-    identity = image.validate_identity(identity)
+    identity = validate_identity(identity)
     return _run(identity, mounts, module, argv, REPLAY_MODULES, True,
                 ["--name", name, "--network", "none", "--memory", STAGE_MEMORY, "--memory-swap", STAGE_MEMORY])
 
@@ -118,7 +118,7 @@ def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], modu
 def _detached(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
               modules: tuple[str, ...], *, name: str, network: str, memory: str, labels: dict[str, str],
               stop_seconds: int, cpus: str | None = None) -> list[str]:
-    """A detached Paper or Live container: one of `modules`, keys of `image.LAYOUT`, on one named
+    """A detached Paper or Live container: one of `modules`, keys of `LAYOUT`, on one named
     Docker network (never `host`, `bridge` or `none`: the caller creates it), with a memory limit (and a CPU limit
     when given), `stop_seconds` to stop, string labels, and the stage checks of `container_command`. It is kept
     after it exits, so its exit code and log stay readable until the caller removes it."""
@@ -138,7 +138,7 @@ def _detached(identity: dict, mounts: list[tuple[Path, str, bool]], module: str,
         options += ["--cpus", cpus]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, {image.LAYOUT[key] for key in modules}, True, options)
+    return _run(identity, mounts, module, argv, {LAYOUT[key] for key in modules}, True, options)
 
 
 def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
@@ -146,7 +146,7 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
                   cpus: str | None = None) -> list[str]:
     """A paper container's command: the contract layout's paper runner or egress proxy (`_detached`), with
     PAPER_STOP_SECONDS to stop."""
-    identity = image.validate_identity(identity)
+    identity = validate_identity(identity)
     return _detached(identity, mounts, module, argv, ("paper_module", "egress_module"), name=name, network=network,
                      memory=memory, labels=labels, stop_seconds=PAPER_STOP_SECONDS, cpus=cpus)
 
@@ -158,7 +158,7 @@ def live_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: s
     A trading credential is a read-only file mounted at one fixed path. No host environment
     values are forwarded. A runner is never force-stopped; containers stay until the run has ended.
     """
-    identity = image.validate_identity(identity)
+    identity = validate_identity(identity)
     secrets = [(path, target, readonly) for path, target, readonly in mounts if target == "/run/secrets/binance.json"]
     if module == "engine.live" and (len(secrets) != 1 or not secrets[0][2] or not secrets[0][0].is_file()):
         raise refuse("ARGV_INVALID", "Live requires one read-only Binance credential file mount")

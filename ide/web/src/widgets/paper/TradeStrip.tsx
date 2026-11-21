@@ -1,7 +1,7 @@
 import { dateTime, displayDay } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { useRef, useState, type MouseEvent, type WheelEvent } from "react";
-import { IconButton } from "../../components/IconButton";
+import { IconButton } from "../../ui/IconButton";
 import { signed } from "../../lib/paperApi";
 import type { Closed } from "../../model/trades";
 import { pickedTrade, tradesTab } from "../../state/paperStream";

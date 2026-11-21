@@ -36,18 +36,10 @@ CYCLE_EDGES = frozenset({
     "engine.live_session -> engine.live_brake",
     "engine.live_session -> engine.live_commands",
     "engine.live_session -> engine.live_connection",
-    "ledger.execution -> ledger.metrics",
-    "ledger.lines -> ledger.targets",
-    "ledger.metrics -> ledger.execution",
-    "ledger.targets -> ledger.lines",
     "live.control -> live.notify",
     "live.credentials -> live.runs",
     "live.notify -> live.control",
     "live.runs -> live.credentials",
-    "registration.availability -> registration.seams",
-    "registration.seams -> registration.availability",
-    "runtime.container -> runtime.image",
-    "runtime.image -> runtime.container",
 })
 
 

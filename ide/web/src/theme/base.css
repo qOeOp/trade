@@ -51,10 +51,10 @@ body {
 /* Tooltips fade in; menus, dropdowns and the palette open at once (frequent, so never animated). */
 @keyframes enter { from { opacity: 0; } }
 .enter { animation: enter var(--t-fast) var(--ease); }
-/* A typing status line's caret blinks; under reduced motion it is not drawn (components/Typing.tsx). */
+/* A typing status line's caret blinks; under reduced motion it is not drawn (ui/Typing.tsx). */
 @keyframes blink { 50% { opacity: 0; } }
 .caret { animation: blink 1s step-end infinite; }
-/* A reading's placeholder pulses while its report or stream is being read (components/Missing.tsx); under
+/* A reading's placeholder pulses while its report or stream is being read (ui/Missing.tsx); under
    reduced motion it stands still. */
 @keyframes skeleton-pulse { 50% { opacity: 0.35; } }
 .skeleton { background: var(--line-strong); animation: skeleton-pulse 1.2s ease-in-out infinite; }
@@ -83,7 +83,7 @@ body {
   .skeleton { animation: none !important; }
 }
 
-/* Scrollbars: a thin line on the scrolled region's edge (components/ScrollArea.tsx), widening under the
+/* Scrollbars: a thin line on the scrolled region's edge (ui/ScrollArea.tsx), widening under the
    pointer; it shows while the pointer is in the region and takes no space. Native ones elsewhere are thin. */
 .os-theme-island {
   --os-size: 10px;

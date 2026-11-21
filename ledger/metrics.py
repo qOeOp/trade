@@ -29,7 +29,7 @@ from typing import Any
 
 from engine.compare import TABLES
 from engine.native_csv import dict_reader
-from ledger import db, problems
+from ledger import db, execution, problems
 from shared import clock, paths
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -152,14 +152,6 @@ def report_root(directory: Path) -> tuple[Path, Path]:
     return directory.parent, directory
 
 
-def read_regular(path: Path) -> bytes | None:
-    """The bytes of a regular file, never through a link; None when there is none."""
-    try:
-        return path.read_bytes() if path.is_file() and not path.is_symlink() else None
-    except OSError:
-        return None
-
-
 REPORTS_DIR = "reports"
 WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()),
                  problems.AUDIT_RESULT)
@@ -175,7 +167,7 @@ def load_directory(directory: Path) -> Reports:
     files = {}
     for name in WORKDIR_FILES:
         path = base / name.removeprefix(f"{REPORTS_DIR}/") if name.startswith(f"{REPORTS_DIR}/") else root / name
-        data = read_regular(path)
+        data = paths.read_regular(path)
         if data is not None:
             files[name] = data
     return load_files(files)
@@ -251,7 +243,6 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
     refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two reads that
     grow with a run's days and positions, for a caller that reads neither. A `listing` read reads the captures as a
     listing (execution.read_captures): enough for availability and the derived measures, not for a run's report."""
-    from ledger import execution
     ids = sorted(set(trial_ids))
     runs: dict[int, dict] = {}
     trials: dict[int, dict] = {}
@@ -291,7 +282,6 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
 
 def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed: dict | None, returns: list | None,
             cycles: list | None) -> dict:
-    from ledger import execution
     if run is None:
         raise refuse("UNKNOWN_RUN", f"no run {trial_id!r} on this ledger version", missing=(str(trial_id),))
     if trial is not None:

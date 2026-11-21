@@ -1,5 +1,5 @@
 import { useAtom, type Atom } from "../../state/atom";
-import { TIP_BOX } from "../../components/Tip";
+import { TIP_BOX } from "../../ui/Tip";
 import type { Tip } from "./candleEvents";
 
 const OFF = 14;  // px between the pointer and the tooltip

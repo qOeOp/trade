@@ -1,6 +1,6 @@
-import { useNow } from "../../components/hooks/useNow";
-import { RunRow } from "../../components/RunRow";
-import { Section } from "../../components/Section";
+import { useNow } from "../../ui/hooks/useNow";
+import { RunRow } from "../runs/RunRow";
+import { Section } from "../../ui/Section";
 import { chainOf } from "../../model/chain";
 import { rowShows } from "../../model/paperHistory";
 import { usePaperRuns, usePaperService } from "../../state/paper";

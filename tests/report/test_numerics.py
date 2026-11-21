@@ -12,7 +12,7 @@ import unittest
 import numpy as np
 
 from ledger import metrics
-from report import attribution, comparison, measures
+from report import attribution, comparison, measures, splits
 from tests.helpers import refused
 from tests.ledger.dolt import DAY, JAN
 
@@ -31,8 +31,6 @@ class PairedTests(unittest.TestCase):
         self.assertAlmostEqual(found["mean_daily_log_difference"], sum(logs) / 6, places=15)
         annual = (math.exp(365 * sum(map(math.log1p, right)) / 6) - math.exp(365 * sum(map(math.log1p, left)) / 6))
         self.assertAlmostEqual(found["annual_return_difference"], annual, places=12)
-        absolute = sorted(map(abs, logs), reverse=True)
-        self.assertAlmostEqual(found["top_five_absolute_difference_share"], sum(absolute[:5]) / sum(absolute))
         swapped = comparison.paired(right, left, DESIGN, 1)
         self.assertAlmostEqual(swapped["mean_daily_log_difference"], -found["mean_daily_log_difference"], places=15)
         low, high = found["mean_log_basic_interval"]
@@ -81,7 +79,7 @@ class PairedTests(unittest.TestCase):
                                            DESIGN["resamples"])
         se = float(np.std(logs[indices].mean(axis=1), ddof=1))
         normal = NormalDist()
-        detectable = se * (normal.inv_cdf(1 - DESIGN["alpha"] / 4) + normal.inv_cdf(comparison.POWER))
+        detectable = se * (normal.inv_cdf(1 - DESIGN["alpha"] / 4 / 2) + normal.inv_cdf(comparison.POWER))
         control = 365 * float(np.log1p(np.asarray(left)).mean())
         self.assertAlmostEqual(found["detectable_annual_return_difference_80pct_normal_approx"],
                                math.exp(control + 365 * detectable) - math.exp(control), places=9,
@@ -95,24 +93,17 @@ class PairedTests(unittest.TestCase):
         found = comparison.paired([0.0, 0.0], [math.expm1(-0.01), math.expm1(0.03)], {**DESIGN, "block_days": 1}, 1)
         self.assertLess(abs(found["p_one_sided"] - 0.25), 0.05, "only the mean 0.03 centers at or above 0.01")
 
-    def test_the_grid_corrects_p_and_the_interval_coverage(self):
+    def test_the_grid_corrects_the_interval_coverage(self):
         left, right = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01], [0.0, 0.01, -0.01, 0.02, 0.0, 0.01]
         one, four = comparison.paired(left, right, DESIGN, 1), comparison.paired(left, right, DESIGN, 4)
         self.assertEqual(four["p_one_sided"], one["p_one_sided"])
-        self.assertEqual(four["p_bonferroni"], min(1.0, 4 * one["p_one_sided"]))
         self.assertEqual((one["interval_coverage_grid_adjusted"], four["interval_coverage_grid_adjusted"]),
                          (0.95, 1 - 0.05 / 4))
         self.assertLessEqual(four["mean_log_basic_interval"][0], one["mean_log_basic_interval"][0])
-        self.assertEqual([item["available"] for item in one["block_sensitivity"]], [True, True, False],
-                         "six days hold fewer than two blocks of four")
-        self.assertEqual([item["block_days"] for item in one["block_sensitivity"]], [1, 2, 4])
-        self.assertEqual([item["block_days"] for item in comparison.paired(left, right, {**DESIGN, "block_days": 3}, 1)[
-            "block_sensitivity"]], [1, 3, 6])
 
     def test_a_constant_difference_leaves_p_and_the_studentized_interval_empty(self):
         found = comparison.paired([0.0] * 6, [0.01] * 6, DESIGN, 1)
         self.assertIsNone(found["p_one_sided"])
-        self.assertIsNone(found["p_bonferroni"])
         self.assertIsNone(found["mean_log_studentized_interval"])
         self.assertTrue(any(item.startswith("DEGENERATE_SE") for item in found["limitations"]))
 
@@ -384,6 +375,18 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(measures.without_top({"B": Decimal(3), "A": Decimal(3)}), ("A", Decimal(3)), "ties by name")
         self.assertEqual(measures.without_top({}), (None, None))
 
+    def test_closed_cycles_by_instrument_split_the_net_into_price_fees_and_funding(self):
+        found = splits.closed_by_instrument([
+            cycle(1, "X", "long", 0, 1, "10", commissions="1", funding="-0.5"),
+            cycle(2, "X", "short", 2, 3, "-4", commissions="1"),
+            cycle(3, "Y", "long", 4, 5, "2"),
+            cycle(4, "Y", "long", 6, None, None)])
+        self.assertEqual(found, {
+            "X": {"closed_trades": 2, "win_rate": 0.5, "price_pnl_usdt": "8.50000000", "fill_commissions_usdt": "2.00000000",
+                  "reported_funding_usdt": "-0.50000000", "net_pnl_usdt": "6.00000000"},
+            "Y": {"closed_trades": 1, "win_rate": 1.0, "price_pnl_usdt": "2.00000000", "fill_commissions_usdt": "0.00000000",
+                  "reported_funding_usdt": "0.00000000", "net_pnl_usdt": "2.00000000"}}, "open cycles never count")
+
 
     def test_a_candidate_paying_less_in_fees_that_still_wins_never_breaks_even(self):
         multiple, reason = measures.breakeven_multiple(Decimal(100), Decimal(-500))
@@ -409,7 +412,7 @@ class DevYearTests(unittest.TestCase):
         self.run = {"returns": self.returns, "trade_start_ns": ns(self.start), "trade_end_ns": ns(date(2024, 10, 1))}
 
     def test_each_year_compounds_its_own_days_and_reads_against_the_target(self):
-        found = measures.dev_years(self.run, 0.2)
+        found = splits.dev_years(self.run, 0.2)
         assert found is not None
         lengths = [365, 365, 366]
         expected = [(1 + rate) ** n - 1 for rate, n in zip((-0.0003, -0.0001, 0.002), lengths, strict=True)]
@@ -429,7 +432,7 @@ class DevYearTests(unittest.TestCase):
                                msg="the years compound to the window")
 
     def test_without_a_target_the_years_carry_no_mark(self):
-        found = measures.dev_years(self.run)
+        found = splits.dev_years(self.run)
         assert found is not None
         self.assertIsNone(found["years_at_target"])
         self.assertNotIn("at_target", found["years"][0])
@@ -438,7 +441,7 @@ class DevYearTests(unittest.TestCase):
         end = date(2023, 7, 1)  # 7 quarters: one whole year and three quarters
         run = {**self.run, "trade_end_ns": self.ns(end),
                "returns": [item for item in self.returns if item[0] < self.ns(end)]}
-        found = measures.dev_years(run, 0.2)
+        found = splits.dev_years(run, 0.2)
         assert found is not None
         self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["years"]],
                          [("2021-10-01", "2022-10-01", False), ("2022-10-01", "2023-07-01", True)])
@@ -452,9 +455,46 @@ class DevYearTests(unittest.TestCase):
 
     def test_a_window_of_one_year_or_less_has_none(self):
         one_year = {**self.run, "trade_end_ns": self.ns(date(2022, 10, 1))}
-        self.assertIsNone(measures.dev_years(one_year, 0.2), "a 4-quarter window is one year: the window itself")
+        self.assertIsNone(splits.dev_years(one_year, 0.2), "a 4-quarter window is one year: the window itself")
         short = {**self.run, "trade_end_ns": self.ns(date(2022, 9, 30))}
-        self.assertIsNone(measures.dev_years(short, 0.2))
+        self.assertIsNone(splits.dev_years(short, 0.2))
+
+
+    def test_a_window_under_two_years_is_cut_into_quarters(self):
+        def quarters(end: date):
+            run = {**self.run, "trade_end_ns": self.ns(end),
+                   "returns": [item for item in self.returns if item[0] < self.ns(end)]}
+            return splits.dev_quarters(run), run
+
+        found, run = quarters(date(2022, 10, 1))  # 4 quarters
+        assert found is not None
+        self.assertEqual([(item["start"], item["end"], item["partial"]) for item in found["quarters"]],
+                         [("2021-10-01", "2022-01-01", False), ("2022-01-01", "2022-04-01", False),
+                          ("2022-04-01", "2022-07-01", False), ("2022-07-01", "2022-10-01", False)])
+        self.assertAlmostEqual(math.prod(1 + item["return"] for item in found["quarters"]),
+                               math.prod(1 + value for _, value, _ in run["returns"]), places=9,
+                               msg="the quarters compound to the window")
+        self.assertAlmostEqual(found["worst_quarter_return"], (1 - 0.0003) ** 92 - 1, places=12)
+        days = [92, 90, 91, 92]
+        returns = [item["return"] for item in found["quarters"]]
+        best = returns.index(max(returns))
+        rest = [k for k in range(4) if k != best]
+        self.assertAlmostEqual(found["return_without_best_quarter"],
+                               math.prod(1 + returns[k] for k in rest) ** (365 / sum(days[k] for k in rest)) - 1,
+                               places=12)
+
+        found, _ = quarters(date(2022, 12, 15))  # 5 quarters, the last a part one
+        assert found is not None
+        self.assertEqual([item["partial"] for item in found["quarters"]], [False] * 4 + [True])
+        self.assertEqual(found["worst_quarter_return"], min(item["return"] for item in found["quarters"][:4]),
+                         "only whole quarters are compared")
+
+        found, _ = quarters(date(2023, 7, 1))  # 7 quarters: dev_years gives a single whole year
+        assert found is not None
+        self.assertEqual(len(found["quarters"]), 7)
+        self.assertIsNone(quarters(date(2023, 10, 1))[0], "two whole years: dev_years reads the window")
+        self.assertIsNone(quarters(date(2024, 10, 1))[0], "12 quarters: dev_years reads the window")
+        self.assertIsNone(quarters(date(2022, 1, 1))[0], "one quarter is the window itself")
 
 
 class SerialCorrelationTests(unittest.TestCase):

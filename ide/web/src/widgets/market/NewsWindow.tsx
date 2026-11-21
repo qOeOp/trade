@@ -6,10 +6,10 @@ import { marketCoin, newsKind, useMarketView, useNews, useNewsFailed, useSnapsho
 import { MarketPending } from "./CoinsWindow";
 import { useAtom } from "../../state/atom";
 import { useOnMarketPage } from "../../state/shell";
-import { columns, DataTable, type Column } from "../../components/DataTable";
-import { TableSkeleton } from "../../components/Missing";
-import { Tabs } from "../../components/Tabs";
-import { TextButton } from "../../components/TextButton";
+import { columns, DataTable, type Column } from "../../ui/DataTable";
+import { TableSkeleton } from "../../ui/Missing";
+import { Tabs } from "../../ui/Tabs";
+import { TextButton } from "../../ui/TextButton";
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 /** How long ago, in the largest whole unit. */

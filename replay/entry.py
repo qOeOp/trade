@@ -36,7 +36,8 @@ from registration import inputs as registration_inputs, precheck as source_prech
 from registration import runner as registration_runner, seams as registration_seams
 from registration import validation as registration_validation
 from replay import seams
-from runtime import container, image
+from runtime import container
+from runtime.identity import LAYOUT
 
 
 COVERAGE = problems.COVERAGE
@@ -197,8 +198,8 @@ def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | Non
     """Invalidity reasons from the exit codes, the audit result and the structured runtime failures
     of a working directory (ledger.audit_problems on its regular files)."""
     workdir = Path(workdir)
-    return problems.audit_problems(native_exit, audit_exit, metrics.read_regular(workdir / problems.AUDIT_RESULT),
-                                   metrics.read_regular(workdir / problems.RUNTIME_ERRORS))
+    return problems.audit_problems(native_exit, audit_exit, paths.read_regular(workdir / problems.AUDIT_RESULT),
+                                   paths.read_regular(workdir / problems.RUNTIME_ERRORS))
 
 
 def _resolve_runtime(revision: Mapping, runtime: str | None) -> dict:
@@ -298,7 +299,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     is raised.
     """
     workdir = Path(workdir)
-    layout = image.LAYOUT
+    layout = LAYOUT
     stages: dict = {"native": None, "audit": None, "fingerprint": None}
     process: dict = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
     outcome = {"kind": "completed", "detail": None}
@@ -374,7 +375,7 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         _, argv, mounts = _prepare(output, source, entry_class, hashlib.sha256(source).hexdigest(), identity,
                                    inspection, exported, runner_argv)
-        layout = image.LAYOUT
+        layout = LAYOUT
         deadline = None if timeout is None else time.monotonic() + timeout
 
         def run(stage: str, module: str, stage_mounts: list, stage_argv: list[str]) -> int:
