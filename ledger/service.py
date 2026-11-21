@@ -66,15 +66,10 @@ PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the 
 EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt's clone of a repository with no data (2.4.2 and 2.7.2)
 
 
-def _environment(service_root: Path) -> dict:
-    # No usage events: Dolt writes them into its home from a background process after a command exits,
-    # which would refill a directory a failed bootstrap has just emptied (measured).
-    return {**os.environ, "DOLT_ROOT_PATH": str(service_root / "home"), "DOLT_DISABLE_EVENT_FLUSH": "true"}
-
-
 def _launch(binary: str, service_root: Path, log) -> subprocess.Popen:
     return subprocess.Popen([binary, "sql-server", "--config", str(service_root / "config.yaml")], cwd=service_root,
-                            env=_environment(service_root), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                            env=server.dolt_env(service_root / "home"), stdin=subprocess.DEVNULL, stdout=log,
+                            stderr=log)
 
 
 def _empty(directory: Path) -> bool:
@@ -149,7 +144,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         for directory in (service_root / "cfg", service_root / "home", data_dir):
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(service_root, 0o700)
-        environment = _environment(service_root)
+        environment = server.dolt_env(service_root / "home")
         server.dolt_home(service_root / "home", {**server.QUIET, **server.IDENTITY})
         if kind is not None:
             assert credentials is not None  # checked before any directory was created

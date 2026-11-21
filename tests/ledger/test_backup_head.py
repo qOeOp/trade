@@ -64,7 +64,7 @@ class BackupHeadTests(unittest.TestCase):
 
         def run(argv, **options):
             if argv[1] == "sql":
-                self.assertEqual(options["env"]["DOLT_DISABLE_EVENT_FLUSH"], "1")
+                self.assertEqual(options["env"]["DOLT_DISABLE_EVENT_FLUSH"], "true")
                 raise subprocess.TimeoutExpired(argv, options["timeout"])
             return self.run_dolt(argv, **options)
 

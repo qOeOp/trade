@@ -35,7 +35,7 @@ duties and the policy explanation it tests. Separate observed facts from conject
 choices need supporting evidence or an explicit statement that they are exploratory. Information
 value is the ability to distinguish competing explanations. Aim each change at an effect its
 comparison can detect: at or above the comparison's detectable difference (in `minimum_effect`
-units; one-sided alpha, so about 70% power against the two-sided intervals, and it scales with
+units; two-sided alpha, like the intervals, and it scales with
 position size as the effect does, so enlarging both sides does not make an effect detectable), or
 a grid whose points spread the change far enough to reach it. Moving one constant inside a range
 whose neighbours already read alike tests nothing new. Repeated metrics, labels and registrations

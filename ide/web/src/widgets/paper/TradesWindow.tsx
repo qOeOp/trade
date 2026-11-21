@@ -13,6 +13,8 @@ import { useShown } from "../../state/shown";
 import { paperTab } from "../../state/stage";
 import { Cycles } from "./Cycles";
 import { Events, EventsTools } from "./Events";
+import { Orders, useOrders } from "./Orders";
+import { ordersText } from "../../model/events";
 import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Compare, CompareTools } from "./Compare";
 import { Trades, useTradeRows } from "./Trades";
@@ -26,7 +28,7 @@ function useScope() {
   const s: Stream | null = stage === "paper" ? data?.s ?? null : null;
   const failures = s?.failures ?? [], sealed = !!s?.seal;
   const tab = (chosen === "compare" && !sealed) || (chosen === "exceptions" && !failures.length) ? "trades" : chosen;
-  return { stage, s, only: data && data.view !== "equity" ? data.view : null, tab, failures, sealed, candidate: data?.run.candidate ?? null };
+  return { stage, s, only: data?.scope ?? null, tab, failures, sealed, candidate: data?.run.candidate ?? null };
 }
 
 /** The Trades window's header: its tabs, the first naming the window (its title alone where the stage
@@ -45,12 +47,13 @@ export function TradesTools() {
   return (
     <>
       {/* pulled left by a tab's own padding, so its text sits on the island's inset as a title's does */}
-      <div className="-ml-2 min-w-0"><Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
+      <div className="-ml-2 min-w-0"><Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "orders", label: "Orders" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
         ...(failures.length ? [{ id: "exceptions" as const, label: "Exceptions", dot: "fail" as const }] : []),
         ...(sealed ? [{ id: "compare" as const, label: "Comparison", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} /></div>
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
         {tab === "events" && <EventsTools s={s} only={only} />}
         {tab === "trades" && <TradeCount s={s} only={only} />}
+        {tab === "orders" && <OrderCount s={s} only={only} />}
         {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
         {tab === "compare" && <CompareTools r={r} paperId={s.paperId} />}
         {only && <TextButton onClick={() => paperTab.set("equity")}>Show all</TextButton>}
@@ -64,10 +67,14 @@ function TradeCount({ s, only }: { s: Stream; only: string | null }) {
   return <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {done.length} closed{ended.length > 0 && ` · ${ended.length} at stop`}</span>;
 }
 
+function OrderCount({ s, only }: { s: Stream; only: string | null }) {
+  return <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {ordersText(useOrders(s, only))}</span>;
+}
+
 const Note = ({ children }: { children: string }) => <p className="grid h-full place-items-center p-6 text-dense text-fg-faint">{children}</p>;
 
 /** The bottom Trades window (⌥9): what the stage the Runs page shows traded. For the backtest its cycles;
- *  for a paper run its trades,
+ *  for a paper run its trades, every order it placed,
  *  its events, its exceptions once the strategy raised and its comparison with a replay once
  *  sealed, of the contract the chart shows or of all on Equity. */
 export function TradesWindow() {
@@ -88,7 +95,7 @@ export function TradesWindow() {
   }
   return (
     <div className="@container/page">
-      {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
+      {tab === "trades" ? <Trades s={s} only={only} /> : tab === "orders" ? <Orders s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
         : tab === "logs" ? <Logs key={s.paperId} paperId={s.paperId} />
         : tab === "exceptions" ? <Exceptions failures={failures} sealed={sealed} only={only} candidate={candidate} />
         : <Compare r={r} paperId={s.paperId} only={only} digits={digits} />}

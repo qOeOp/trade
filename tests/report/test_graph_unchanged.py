@@ -11,7 +11,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, judgments, lines, problems, strategies, targets
+from ledger import db, execution, judgments, lines, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck
@@ -36,7 +36,7 @@ class UnchangedTests(unittest.TestCase):
         root, (cls.control_ref,) = registered_grid(world, ["control"])
         cls.control = entry.run(world.profile, world.market, MARKET_DAY, cls.control_ref, None, RUNNER_ARGV, registration=root)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
-        child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
+        child = world.publish("child", parent=cls.control_ref, difference="widen the stop", changed=("F3",))
         cls.child_ref, cls.child_source = child["candidate"], child["source"]
         mechanism = [{"slice": "trade_structure", "measure": "win_rate", "direction": "up", "duty": "F3", "reason": "fixture"}]
         registration = world.register(world.body(
@@ -193,11 +193,11 @@ class UnchangedTests(unittest.TestCase):
     def test_targets_and_a_new_line_answer_changed(self):
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.line_id, 0.15, 0.2)
+            lines.set_targets(conn, self.line_id, 0.15, 0.2)
         self.answers(since, False)
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.other_line_id, 0.15, 0.2)
+            lines.set_targets(conn, self.other_line_id, 0.15, 0.2)
         self.answers(since, False, same=True)
         since = self.head()
         with pinned(date(2026, 2, 2), date(2026, 3, 1)):

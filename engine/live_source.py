@@ -229,7 +229,8 @@ def _gated(name: str, method):
             return None
         if kind == "bar":
             self._live.evidence.bar(args[0])
-            live_connection.bar(self._live, args[0])
+            if live_connection.bar(self._live, args[0]):
+                return None  # a repeated bar: the source decided on it already
             if live_connection.held_bar(self._live, args[0]):
                 return None  # the run ends before the source decides again (engine.live_connection.held_bar)
             if live_connection.rewarm_due(self._live) and live_connection.rewarm_pending(

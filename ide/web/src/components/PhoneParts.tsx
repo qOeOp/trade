@@ -74,6 +74,10 @@ export function HeldLine({ held }: { held: Held }) {
   );
 }
 
+/** A contract's name that may break before its quote asset (1000PEPE·USDT) when the table is too narrow for it. */
+export const Contract = ({ symbol }: { symbol: string }) => { const [, base, quote] = /^(.+?)(USDT|USDC)?$/.exec(symbol) ?? [];
+  return quote ? <>{base}<wbr />{quote}</> : <>{symbol}</>; };
+
 /** A held position's entry price, with its mark under it when the table holds several (one mark is the heading's):
  *  a sixth column does not fit a phone's width. */
 export function EntryMark({ held, several, places }: { held: Held; several: boolean; places?: number }) {
@@ -86,14 +90,16 @@ export const heldAside = (held: readonly Held[], approx: boolean): ReactNode =>
   !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark)}`;
 
 /** A plain table of a few columns at the page's edges: the first column left, the others right; a row of one cell
- *  is a note under the row above it, across the columns. */
+ *  is a note under the row above it, across the columns. The page's 12 px margin is kept at its edges only: five
+ *  columns padded 12 px a side do not fit a 393 px phone. */
 export function PhoneTable({ head, rows }: { head: readonly string[]; rows: readonly (readonly ReactNode[])[] }) {
+  const pad = (i: number) => `py-2 ${i ? "text-right" : ""} ${i === 0 ? "pl-3 pr-1.5" : i === head.length - 1 ? "pl-1.5 pr-3" : "px-1.5"}`;
   return (
     <table className="w-full border-collapse text-dense tabular-nums">
-      <thead><tr className="text-left text-fg-faint">{head.map((h, i) => <th key={h} className={`border-b border-line px-3 py-2 font-normal ${i ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+      <thead><tr className="text-left text-fg-faint">{head.map((h, i) => <th key={h} className={`border-b border-line font-normal ${pad(i)}`}>{h}</th>)}</tr></thead>
       <tbody>{rows.map((row, r) => <tr key={r}>{row.length === 1
         ? <td colSpan={head.length} className="border-b border-line px-3 pb-2 pt-1.5">{row[0]}</td>
-        : row.map((cell, i) => <td key={i} className={`border-b border-line px-3 py-2 ${i ? "text-right" : "font-semibold"}`}>{cell}</td>)}</tr>)}</tbody>
+        : row.map((cell, i) => <td key={i} className={`border-b border-line ${pad(i)} ${i ? "" : "font-semibold"}`}>{cell}</td>)}</tr>)}</tbody>
     </table>
   );
 }

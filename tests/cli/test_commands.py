@@ -39,7 +39,8 @@ DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 5, "resamples":
           "seed": 7, "alpha": 0.05, "minimum_effect": 0.01, "design_reason": "five-day blocks for weekly cycles"}
 OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, change control",
             "loss": "lower priority", "zero_activity": "check the volume cap", "invalid": "fix and retry"}
-SOURCE = ('"""A command line fixture strategy."""\nfrom nautilus_trader.trading import Strategy\n\n\n'
+STOP = "F3 Dynamic protective / profit boundaries: adopted | stop at 2% | implementer"
+SOURCE = (f'"""A command line fixture strategy.\n\n{STOP}\n"""\nfrom nautilus_trader.trading import Strategy\n\n\n'
           'class Fixture(Strategy):\n    pass\n')
 CHILD_RETURNS = [0.004, -0.001, 0.002, 0.003, -0.002, 0.001]
 
@@ -328,7 +329,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(older["judgment_history"]["entries"], [])
 
         # The child, registered against the root run as its control
-        child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True"))
+        child_file = self.write("child.py", SOURCE.replace("pass", "WIDER = True").replace("2%", "4%"))
         child = self.ok("candidate", "publish", *ledger, "--file", child_file, "--strategy-id", "fixture",
                         "--entry-class", "Fixture", "--description", "the wider child", "--parent", "fixture@1",
                         "--difference", "widen the stop")

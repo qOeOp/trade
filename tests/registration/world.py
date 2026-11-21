@@ -214,8 +214,10 @@ class World:
 
     # Candidates and prechecks
 
-    def publish(self, tag: str, parent: str | None = "rsi@1", difference: str | None = "cap volume at 5%") -> dict:
-        data = source(tag)
+    def publish(self, tag: str, parent: str | None = "rsi@1", difference: str | None = "cap volume at 5%",
+                changed: tuple[str, ...] = ("G3",)) -> dict:
+        """A candidate whose header changes the `changed` duty lines of a root's (none for a root)."""
+        data = source(tag, *(changed if parent else ()))
         published = strategies.publish_candidate(self.profile, data, "rsi", "Fixture", f"variant {tag}",
                                                  parent=parent, difference=difference if parent else None)
         return {**published, "source": data}

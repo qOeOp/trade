@@ -1,4 +1,4 @@
-"""Command line: check, compare and serve research graphs (standard library only)."""
+"""Command line: check, compare and serve research graphs (the check uses jsonschema)."""
 from __future__ import annotations
 
 import argparse

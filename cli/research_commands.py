@@ -15,7 +15,7 @@ from cli.common import (AT, CANDIDATE_HELP, LEDGER, MARKET, MARKET_DAY, OP_ID, R
                         _count, _json_file, _new_temporary, _regular_file, _utc_time, command, one_of, option,
                         refusal_json)
 from cli.ledger_commands import ledger_export
-from ledger import db, evidence, execution, judgments, lines, strategies, targets
+from ledger import db, evidence, execution, judgments, lines, strategies
 from shared import profiles
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -341,7 +341,7 @@ def line_select(args):
 def line_targets(args):
     with db.connect(_research(args), "writer") as conn:
         line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
-        return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
+        return lines.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
 
 
 def line_history(args):
@@ -758,11 +758,13 @@ COMMANDS = [
         "product_commit; comparison (the line's comparison table: line, dev_start, dev_end, universe_rule, "
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
-        "execution_identity {runtime_contract, execution, image_digest, keys}, measures, deflated_sharpe "
+        "execution_identity {runtime_contract, execution, image_digest, keys}, measures (annual_return, "
+        "mark_max_drawdown, sharpe_365, plan_win_rate, breakeven_fee_multiple), deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
         "daily_sharpe_variance; null without that reading), worst_dev_year_return and return_without_best_year "
         "(replay report dev_years, display only), dominated_by, non_dominated}] (dominance only within one "
-        "identity), candidates (those of the line's identity, which a "
+        "identity and only on dominance_measures: annual_return, mark_max_drawdown, sharpe_365; the plan win rate "
+        "and breakeven_fee_multiple are shown only), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"), LEDGER,

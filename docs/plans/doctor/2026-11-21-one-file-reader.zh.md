@@ -12,7 +12,7 @@
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261121-26 | 宇宙文件读不出时，`engine/config.py` `read_universe_bytes` 报 `UNIVERSE_FILE_UNREADABLE`，`engine/load.py` `read_regular_file` 报 `SOURCE_UNREADABLE`；两个函数做同一件事（前者不在打开后再查 `fstat`），而 `SOURCE_UNREADABLE` 的目录文字已写明覆盖 universe | `engine/config.py:489-498`、`engine/load.py:174-187`、`engine/config.py:216`（`305f7dc54`） | authority（删一个拒绝码；委托决定） | none | in PR |
+| 20261121-26 | 宇宙文件读不出时，`engine/config.py` `read_universe_bytes` 报 `UNIVERSE_FILE_UNREADABLE`，`engine/load.py` `read_regular_file` 报 `SOURCE_UNREADABLE`；两个函数做同一件事（前者不在打开后再查 `fstat`），而 `SOURCE_UNREADABLE` 的目录文字已写明覆盖 universe | `engine/config.py:489-498`、`engine/load.py:174-187`、`engine/config.py:216`（`305f7dc54`） | authority（删一个拒绝码；委托决定） | none | fixed aaf80c754 [#3310](https://github.com/qOeOp/trade/pull/3310) |
 
 ## 决定
 
