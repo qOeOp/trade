@@ -15,9 +15,9 @@
 | 20261121-03 | 改技能文字时找不出覆盖被改段落的已有评测用例（244 个用例，只跑新增或改动的） | measure（数近期技能 PR 漏跑的覆盖用例） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-04 | 20 个高曝光技能段落的专有标识符在加载后的会话里从未被用到（`skill_heat.py`） | measure（逐段查零命中原因） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-05 | 用户 10-31 不用宿主钩子的前提是 Codex 不支持；现在 Claude Code、Codex、Gemini CLI、Antigravity 都有可拦截工具调用的钩子，但写法各异 | question（是否改用钩子做部分拦截） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-06 | 桌面 Live 的 `Request stop` 一点就发，不先列出会撤的单与会平的仓（手机端是确认单加按住） | question（桌面停止的形式；改外观先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-07 | 桌面 Live 不显示当前持仓与在途止损：图只在缺止损时画持仓线，不画工作单 | question（是否像手机一样按原生事件显示） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-08 | 选中已有 Live 运行时新建运行只能从 ⌘K 进入，工具栏注释说运行选择器里也有 | fix（可见入口或改注释；加入口先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-06 | 桌面 Live 的 `Request stop` 一点就发，不先列出会撤的单与会平的仓（手机端是确认单加按住） | question（桌面停止的形式；改外观先给截图） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
+| 20261121-07 | 桌面 Live 不显示当前持仓与在途止损：图只在缺止损时画持仓线，不画工作单 | question（是否像手机一样按原生事件显示） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
+| 20261121-08 | 选中已有 Live 运行时新建运行只能从 ⌘K 进入，工具栏注释说运行选择器里也有 | fix（可见入口或改注释；加入口先给截图） | doctor | unknown | in PR [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
 | 20261121-09 | 研究图服务把产品命令 stderr 整段当 JSON 解析，`uv` 先打警告时拒绝码丢失、页面显示 `PRODUCT_FAILED` | fix | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-10 | Paper 与回测的成交表、周期表、对照表点一行不会把图移到那笔交易（只有图到表） | fix（改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-11 | K 线周期随缩放自动切换，不能固定（写明的做法） | question（是否加周期固定开关） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
