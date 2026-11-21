@@ -43,6 +43,10 @@ MEASURE_NOTES = {
     "residual_after_top5_days": "Sum of daily log contributions after removing up to five in the direction "
                                 "of their total: the largest when total >= 0, the smallest when total < 0. "
                                 "This is descriptive concentration, not evidence for a filter or forecast horizon.",
+    "net_without_top_instrument": "Closed-cycle net PnL after removing the one instrument that contributes most in the "
+                                  "direction of the total: the largest net when total >= 0, the smallest when total < 0; "
+                                  "`instrument` names it. This is descriptive concentration, not evidence for removing "
+                                  "that instrument.",
     **dict.fromkeys(("beta_basket", "alpha_basket", "up_month_notional", "down_month_notional", "high_vol_days",
                      "high_vol_mean_log", "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"),
                     BASKET_NOTE),
@@ -350,6 +354,16 @@ def residual_after_top(values: Sequence[float]) -> float | None:
     return total - sum(ordered[:TOP])
 
 
+def without_top(nets: Mapping[str, Decimal]) -> tuple[str | None, Decimal | None]:
+    """(instrument, residual): the sum left after removing the one instrument that contributes most in the
+    direction of the total (ties go to the first name in order)."""
+    if not nets:
+        return None, None
+    total = sum(nets.values(), Decimal(0))
+    name = (max if total >= 0 else min)(sorted(nets), key=nets.__getitem__)
+    return name, total - nets[name]
+
+
 def top_share(values: Sequence, top: int = TOP) -> float | None:
     """The share of the `top` largest absolute values in the sum of all absolute values."""
     absolute = sorted((abs(value) for value in values), reverse=True)
@@ -560,6 +574,9 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     put("top5_abs_share", top_share(list(nets.values())), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed "
                                                                                     "cycle")
     put("one_side_instruments", None, "instruments", len(nets), "COMPARISON_ONLY: counted across two runs")
+    top_name, rest = without_top(nets)
+    put("net_without_top_instrument", metrics.money(rest), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed cycle")
+    found["net_without_top_instrument"]["instrument"] = top_name
     for name, side in (("long_net", "long"), ("short_net", "short")):
         put(name, metrics.money(sum((Decimal(cycle["realized_pnl"]) for cycle in closed if cycle["side"] == side),
                             Decimal(0))), "closed_cycles", sum(1 for cycle in closed if cycle["side"] == side))
