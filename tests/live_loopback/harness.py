@@ -8,7 +8,7 @@
         run.stop()                        # the STOP file, as `live stop` writes it
         run.wait_exit()
 
-The credential is a throwaway test key the fake venue checks signatures with; no real credential, host or network
+The credential is a fixed throwaway test key (KEY, SECRET) the fake venue checks signatures with; no real credential, host or network
 is involved. Output (events.jsonl, the runner's stdout and stderr) stays in a temporary directory removed on exit.
 """
 
@@ -35,6 +35,8 @@ from tests.live_loopback.venue import Venue
 
 ROOT = Path(__file__).resolve().parents[2]
 SYMBOL = "BTCUSDT"
+# The throwaway test key the fake venue checks signatures with; the credentials file holds the same literal.
+KEY, SECRET = "loopback-key", "loopback-secret"
 TERMS = {"price": "76000", "tick": "0.10", "step": "0.001", "min_notional": "50"}
 # rc7 keeps Nautilus's cache in Redis in the runtime image; a host without its Redis runs with Nautilus's in-memory
 # cache instead (tests.live_loopback.runner.MemoryCache): such a run proves nothing about persistence.
@@ -46,7 +48,10 @@ class Loopback:
         self.temp = tempfile.TemporaryDirectory(prefix="live-loopback-")
         self.root = Path(self.temp.name)
         self.output = self.root / "run"
-        self.credentials = Credentials("loopback-key-" + os.urandom(6).hex(), "loopback-secret-" + os.urandom(8).hex())
+        self.credentials_file = self.root / "credentials.json"  # the 0600 file `live serve` would prepare
+        self.credentials_file.write_bytes(b'{"api_key":"loopback-key","api_secret":"loopback-secret"}')
+        os.chmod(self.credentials_file, 0o600)
+        self.credentials = Credentials(KEY, SECRET)
         self.venue = Venue(api_key=self.credentials.api_key, api_secret=self.credentials.api_secret,
                            symbols={SYMBOL: dict(TERMS, **(terms or {}))}, wallet=wallet)
         self.process: subprocess.Popen | None = None
@@ -77,12 +82,9 @@ class Loopback:
             self.temp.cleanup()
 
     def _prepare(self, source: str, wallet: str) -> dict:
-        strategy, universe, credentials = self.root / "source.py", self.root / "universe.json", self.root / "credentials.json"
+        strategy, universe = self.root / "source.py", self.root / "universe.json"
         strategy.write_text(source)
         universe.write_text(json.dumps({"membership": {SYMBOL: [[0, 9999999999999999999]]}}))
-        credentials.write_text(json.dumps({"api_key": self.credentials.api_key,
-                                           "api_secret": self.credentials.api_secret}))
-        os.chmod(credentials, 0o600)
         image = "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64
         manifest = {
             "format": MANIFEST_FORMAT, "run_id": "loopback-" + os.urandom(4).hex(), "trader_id": "LIVE-001",
@@ -111,7 +113,7 @@ class Loopback:
         command = [sys.executable, "-m", "tests.live_loopback.runner", "--http", self.venue.http_origin,
                    "--ws", self.venue.ws_origin, *(["--memory-cache"] if MEMORY_CACHE else []), "--",
                    "--manifest", str(self.root / "manifest.json"), "--credentials-file",
-                   str(self.root / "credentials.json"), "--output", str(self.output), "--mode", mode]
+                   str(self.credentials_file), "--output", str(self.output), "--mode", mode]
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith(("BINANCE", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"))}
         environment["NO_PROXY"] = environment["no_proxy"] = "127.0.0.1"
