@@ -138,3 +138,16 @@ test("Validate's message names the line and the version and asks the Agent to re
   assert.equal(ask, "On the Line-close history page I picked mom@3 of line momentum: its closing history test meets the targets. "
     + "I want to register out-of-sample validation for it. Read its verdict in `research history`, then propose a window rule and universe.");
 });
+
+test("a cell's colour follows the measure shown; the headers that order the rows", () => {
+  const m = cell("veto", "2020", 0.5, 0.35).measures;
+  assert.equal(h.metricStep("annual_return", m), 3, "a 50% year is the brightest up");
+  assert.equal(h.metricStep("mark_max_drawdown", m), -3, "the same year's 35% drawdown is the deepest down, not its return's colour");
+  assert.deepEqual([0.02, 0.1, 0.2, 0.3].map((dd) => h.metricStep("mark_max_drawdown", { ...m, mark_max_drawdown: dd })), [0, -1, -2, -3]);
+  assert.deepEqual([-2.5, 0.1, 1.2, null].map((s) => h.metricStep("sharpe_365", { ...m, sharpe_365: s })), [-3, 0, 2, null]);
+  assert.match(h.colourWords("mark_max_drawdown"), /^max drawdown/);
+  assert.equal(h.headerOrder("holdout", "mark_max_drawdown"), "holdout_drawdown");
+  assert.equal(h.headerOrder("holdout", "annual_return"), "holdout_return");
+  assert.deepEqual(["development", "Median", "Meeting", "2021", "Verdict"].map((c) => h.headerOrder(c, "sharpe_365")),
+    ["development", "median", "meeting", null, null]);
+});
