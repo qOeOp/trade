@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
+  DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
+  market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
+
 - Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
   check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
   start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).

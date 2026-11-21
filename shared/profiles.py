@@ -11,9 +11,9 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 from typing import Literal, get_args
 
+from shared.files import atomic_write
 from shared.refusals import refuse
 
 
@@ -86,8 +86,4 @@ def market(value: str | None) -> dict:
 def private_write(path: Path, value: dict) -> None:
     """Replace `path` atomically with `value` as JSON, readable by the owner only."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
-    with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as stream:
-        json.dump(value, stream, indent=2, ensure_ascii=False)
-        stream.write("\n")
-    os.replace(temporary, path)
+    atomic_write(path, (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode(), 0o600)
