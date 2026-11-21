@@ -38,6 +38,14 @@ DOLT_HOST = "TRADE_DOLT_HOST"
 # Seconds a new connection waits for the server's greeting and login replies. A serving Dolt answers
 # in milliseconds; the statements' own read timeout (600 s for ledger commands) applies only after.
 HANDSHAKE_TIMEOUT = 30
+# A connection that may reach a running service but got no answer or was not accepted (a stall from a long
+# write, a burst of connections) is tried again after each pause while the time spent stays within
+# CONNECT_PATIENCE seconds; the refusal comes after that.
+CONNECT_PAUSES = (5, 10, 20, 25, 30)
+CONNECT_PATIENCE = 90
+# Client-side "no answer / not accepted" codes (CR_CONNECTION_ERROR, CR_CONN_HOST_ERROR, CR_SERVER_GONE_ERROR,
+# CR_SERVER_LOST) and the server's "too many connections"; an account, database or other error is final.
+UNANSWERED = frozenset({1040, 2002, 2003, 2006, 2013})
 SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
 REMOTE = "origin"  # the one Dolt remote a ledger publishes to (ledger.publish) or a replica syncs from
 IDENTITY = {"user.name": "Research Ledger", "user.email": "research-ledger@example.invalid"}
@@ -188,16 +196,41 @@ def service_connection(config: dict, **options) -> pymysql.Connection:
     return raw
 
 
-def connection_error(exc: pymysql.MySQLError) -> Refusal:
-    """The refusal of a connection the service did not accept."""
+def connection_error(exc: pymysql.MySQLError, waited: str = "") -> Refusal:
+    """The refusal of a connection the service did not accept; `waited` says how long it was retried."""
     code = exc.args[0] if exc.args else None
     if code in (1044, 1045, 1227):
         return refuse("LEDGER_PERMISSION", "the ledger service refused this account")
     if code == 1049:
         return refuse("UNKNOWN_REF", "the ledger has no such branch")
     if isinstance(exc, NoAnswer):
-        return refuse("LEDGER_UNAVAILABLE", exc.args[1])
-    return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
+        return refuse("LEDGER_UNAVAILABLE", exc.args[1] + waited)
+    return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections" + waited)
+
+
+def patient_connection(config: dict, **options) -> pymysql.Connection:
+    """`service_connection`, tried again after each of CONNECT_PAUSES while the service may be running (compose's,
+    one reached over TCP, or a server process of this host) and the failure is UNANSWERED, within
+    CONNECT_PATIENCE seconds; any other failure, or a socket service whose server this host does not run (a
+    stopped one), is connection_error's refusal at once; after retries it says how often and how long."""
+    started, retries = time.monotonic(), 0
+    while True:
+        try:
+            return service_connection(config, **options)
+        except pymysql.MySQLError as exc:
+            spent = time.monotonic() - started
+            pause = CONNECT_PAUSES[retries] if retries < len(CONNECT_PAUSES) else None
+            if (pause is not None and spent + pause <= CONNECT_PATIENCE and exc.args and exc.args[0] in UNANSWERED
+                    and _may_run(config)):
+                time.sleep(pause)
+                retries += 1
+                continue
+            raise connection_error(exc, f" (tried {retries + 1} times over {spent:.0f} s)" if retries else "") \
+                from exc
+
+
+def _may_run(config: dict) -> bool:
+    return managed(config) or bool(os.environ.get(DOLT_HOST)) or _server_here(Path(config["socket"]).parent) is not None
 
 
 def connect_root(config: dict, password: str | None = None, database: str | None = None) -> pymysql.Connection:

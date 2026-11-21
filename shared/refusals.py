@@ -26,11 +26,12 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "LEDGER_KIND": ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
                     "--name paper --kind isolated --holds paper --service-root DIR`.",),
     "LEDGER_UNAVAILABLE": ("When the message says the service did not answer, it is running and starting it again "
-                           "does not help: rerun the same command once after a minute or two, since a stall from a "
-                           "long write clears by itself. If it still does not answer, check the host with `docker "
-                           "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
-                           "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
-                           "rolls back a write in progress; then rerun the same command.",
+                           "does not help. When it says the connection was tried several times, the command already "
+                           "waited the minute or two in which a stall from a long write clears by itself; otherwise "
+                           "rerun the same command once after a minute or two. If it still does not answer, check "
+                           "the host with `docker ps` (one that does not return means Docker itself is hung) and ask "
+                           "the user to restart the ledger service (`docker compose restart ledger`) or Docker, "
+                           "saying that a restart rolls back a write in progress; then rerun the same command.",
                            "Otherwise start it with `ledger service start`, then rerun the same command."),
     "LEDGER_PERMISSION": ("Write only through the declared commands; they use the writer account.",),
     "SCHEMA_MISMATCH": ("Use the product version that matches the ledger's schema generation (README); never "

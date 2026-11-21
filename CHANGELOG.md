@@ -33,6 +33,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
   with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
 
+- Ledger connections (`ledger.db.connect`): a service that may be running but does not answer or accept a
+  connection (no greeting, connection refused or lost, too many connections) is tried again after pauses of 5, 10,
+  20, 25 and 30 s while the wait stays within about 90 s; only then is it `LEDGER_UNAVAILABLE`, whose message says
+  how often and how long it tried. An account or branch error, and a socket service whose server this host does not
+  run (a stopped one), are refused at once as before.
 - Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
   DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
   market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
