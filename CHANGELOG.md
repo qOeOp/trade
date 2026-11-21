@@ -26,6 +26,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
+  OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
+  `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
+  and fills with no account change between them take the next as many account changes in order, one each, instead of
+  only a lone fill matching its change, so a burst no longer reads as `FUNDING_BALANCE_MISMATCH`. Anything else stays
+  a finding; the replay audit is unchanged. Paper run 3 (`pa-trend-second-entry@52`) failed its seal audit on these
+  alone (12 and 14 findings).
+
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
   still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`
