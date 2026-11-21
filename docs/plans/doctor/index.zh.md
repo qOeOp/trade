@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261116-01 | Web 的产品读取按固定上限 3 个并发，不按容器内存：11-19 生产 Web 容器（1.5 GiB）里内核杀了 9 个读取子进程，页面只见 `PRODUCT_FAILED`（[复发](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | fix（按 cgroup 内存余量与读取峰值放行，被杀的读取答 `OUT_OF_MEMORY`） | doctor | minutes | recurred [记录](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发) | 2026-11-16 | 2026-11-19 |
 | 20261121-01 | 单次运行读数只给出场类别集中度 `top_exit_share`，不给各出场类别净盈亏（`exit_net` 已算出后丢弃） | measure（数会话手算出场拆分的次数，再定产品读数还是留在技能） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | none（观察，攒例子再定） | user（Data and usage cost） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-03 | 改技能文字时找不出覆盖被改段落的已有评测用例（244 个用例，只跑新增或改动的） | measure（数近期技能 PR 漏跑的覆盖用例） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
@@ -121,7 +122,6 @@
 | 20261116-06 | 有缺陷的发布控制代码挡住自己的修复 | doctor | hours | verified `tests/deploy/test_control.py` `TickTests` 的新增用例（控制代码在准备、恢复时出错仍先交接；没有修复会失败）（fixed b37165b61 [#3138](https://github.com/qOeOp/trade/pull/3138)；手动退路 [#3130](https://github.com/qOeOp/trade/pull/3130)）；原 open [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261116-09 | Agent 工具调用子进程并发无上限 | doctor | minutes | verified `ide/agent/src/tools.test.ts` 的并发用例（没有修复会失败：6 个命令同时运行）（fixed 44ba3d825 [#3129](https://github.com/qOeOp/trade/pull/3129)）；原 open [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261116-10 | 主机与 dockerd 重启从没演练 | doctor | hours | verified 主机重启演练（[记录](2026-11-16-release-weak-points.zh.md)「主机重启演练」）：2026-11-17 01:42 UTC 按用户授权打开 Docker `live-restore` 并重启主机，01:44 起 Web、Agent、Paper 控制器、Live 控制、ledger、market-import、docker-api、路由都自动起来，发布 tick 正常；演练发现的 20261117-04、-05 另列（[#3148](https://github.com/qOeOp/trade/pull/3148)、[#3149](https://github.com/qOeOp/trade/pull/3149)）；原 open [记录](2026-11-16-release-weak-points.zh.md) |
-| 20261116-01 | Web 对每个产品读取起一个子进程且并发无上限，研究线页面的一批读取让容器内存超限 | doctor | minutes | verified `tests/research_graph/test_serve.py` `ProductReadsTests`（没有修复会失败：12 != 3）（fixed 0db634a6f [#3127](https://github.com/qOeOp/trade/pull/3127)）；原 open [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261116-02 | Market 概览进程在 Web 容器里无人监督，死后一直 502 | doctor | minutes | verified `tests/deploy/test_entrypoint.py`（没有修复会失败）（fixed 064e232d2 [#3131](https://github.com/qOeOp/trade/pull/3131)）；原 open [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261116-08 | Paper runner 内存已到 522/640 MiB，超出上限依据的测量 | doctor | none | rejected [记录](2026-11-16-release-weak-points.zh.md) |
 | 20261115-01 | 关线历史检验的 `holdout_prior_trials` 只数本账本：上一代账本在当前线留出期上的 2432 个试验（含同名一族 572 个）读不到（[后续](2026-11-15-pre-production-audit-followup.zh.md)） | doctor | unknown | rejected：用户 2026-11-15 定"不用把上一代账本的重叠试验数带进来"，研究在新账本上从头开始 |
