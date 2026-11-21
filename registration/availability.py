@@ -23,7 +23,7 @@ from pathlib import Path
 
 from ledger import db, execution, metrics, problems, review_activity, trials
 from shared.refusals import refuse
-from registration import precheck
+from registration import precheck, seams
 from registration.comparability import COMPARABLE_PURPOSES
 
 
@@ -58,7 +58,6 @@ def _checker_source() -> str:
 def report_revision() -> str:
     """The product commit a read-time report computes with: the product checkout's HEAD, whatever
     its work tree holds. The checkout is the registration seam's (`registration.seams.current.checkout`)."""
-    from registration import seams
     return metrics.product_commit(seams.current.checkout())
 
 

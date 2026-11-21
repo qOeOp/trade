@@ -15,7 +15,7 @@ from cli.common import (AT, CANDIDATE_HELP, LEDGER, MARKET, MARKET_DAY, OP_ID, R
                         _count, _json_file, _new_temporary, _regular_file, _utc_time, command, one_of, option,
                         refusal_json)
 from cli.ledger_commands import ledger_export
-from ledger import db, evidence, execution, judgments, lines, strategies, targets
+from ledger import db, evidence, execution, judgments, lines, strategies
 from shared import profiles
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -341,7 +341,7 @@ def line_select(args):
 def line_targets(args):
     with db.connect(_research(args), "writer") as conn:
         line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
-        return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
+        return lines.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
 
 
 def line_history(args):

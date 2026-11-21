@@ -13,10 +13,10 @@ from unittest.mock import patch
 from engine import config as engine_config
 from shared.errors import Refusal
 from runtime import container, image
+from runtime.identity import LAYOUT, validate_identity
 
 
 CONTRACT = engine_config.RUNTIME_CONTRACT
-LAYOUT = image.LAYOUT
 SOURCE_PATHS = LAYOUT["source_paths"]
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/arm64", "runtime_contract": CONTRACT}
@@ -36,10 +36,10 @@ class IdentityTests(unittest.TestCase):
                       {**IDENTITY, "extra": 1}, {key: IDENTITY[key] for key in ("image_ref", "image_digest")},
                       {**IDENTITY, "build_revision": "short"}):
             with self.subTest(value=value):
-                refused(self, "RUNTIME_IDENTITY_INVALID", image.validate_identity, value)
-        refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "platform": "windows/amd64"})
-        refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "runtime_contract": "replay-contract@v5"})
-        self.assertEqual(image.validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
+                refused(self, "RUNTIME_IDENTITY_INVALID", validate_identity, value)
+        refused(self, "RUNTIME_UNSUPPORTED", validate_identity, {**IDENTITY, "platform": "windows/amd64"})
+        refused(self, "RUNTIME_UNSUPPORTED", validate_identity, {**IDENTITY, "runtime_contract": "replay-contract@v5"})
+        self.assertEqual(validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
 
 
 class ProbeTests(unittest.TestCase):
