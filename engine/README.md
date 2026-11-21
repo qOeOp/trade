@@ -1106,7 +1106,7 @@ not evidence of a flat account. See [the implementation and storage decision](..
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `replay-contract@v8`; no image or seal of an earlier contract is read
+`runtime.image` knows only `replay-contract@v8` (`engine.config.RUNTIME_CONTRACT`); no image or seal of an earlier contract is read
 or executed.
 
 ## Recovery boundaries
