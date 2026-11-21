@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (registrations): the registration body no longer takes `prediction.interaction`, and the comparison
+  report no longer reads a declared two-by-two (`attribution.interaction`, its four-corner shape check and
+  contributions, the `INTERACTION_UNATTESTED` refusal). A body that still declares one is refused with
+  `REGISTRATION_INVALID`; none of the active ledger's 81 registrations declared one (user 2026-11-21).
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto

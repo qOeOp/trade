@@ -29,7 +29,7 @@
 
 | Mechanism | Risk it guards | Covered by | Sessions show | Proposal |
 |---|---|---|---|---|
-| 本次无 | | | | |
+| 登记预测的二乘二交互 `prediction.interaction`（`registration/register.py` 的 schema、`report/comparison.py` 的 `interaction_of` 与四角读取、`report/attribution.py` 的 `merge3` 与 `contributions`、拒绝码 `INTERACTION_UNATTESTED`、技能 `research-round/references/attribution.md` 的 Interactions 一节、第 10.3 节） | 事后挑四个版本凑二乘二；四角形状不符时把交互当作证据读 | 无其他机制；交互只作归因，不进任何判定、拒绝或推荐 | 第二代账本 81 次登记中 0 次声明（2026-11-21 以 `ledger sql` 在活动账本 `rah0i0u9ehq2besq95isujpun0lkqerm` 复核：`prediction.interaction` 0 次，正文含 `interaction` 0 次）；PR #3201 初稿的 -17 也读到第一、二代共 114 次登记 0 次 | 删除（本 PR）；带 `interaction` 的登记正文改由 `additionalProperties: false` 以 `REGISTRATION_INVALID` 拒绝 |
 
 ## Decisions
 
@@ -38,4 +38,5 @@
 - authority 行（`20261120-01`、`-03`、`-05`、`-06`、`-07`）尚待用户决定。
 - 2026-11-21 用户对含 `20261120-07` 的清单答复「我都授权」：开发期改为按覆盖分级，取 C − 8（留出期）− 4（否决段）个季度，最少 4、最多 12；留出期长度与位置不变，C < 12 仍以 `LINE_HISTORY_SHORT` 拒绝，已开的线保留存下的开发期。C ≥ 24 与 C ≤ 16 与原规则相同，C 在 17～23 之间开发期为 C − 12 个季度、否决段 4 个季度（覆盖 23 个季度得 11 个季度）。
 - 2026-11-21 `20261120-09` 计量后关闭，动作 none：在隔离的临时账本与临时市场上用 `replay explore` 计量（不是完整的封存 `line history` 路径），每段市场导出 1.4–4.2 秒，约占一段回放的 2–13%，按日交易的候选 8–12%。按导出身份共享最多省几个百分点，且只在预热、合约与 `include_*` 旗标都相同时可行，不改。
+- 2026-11-21 用户把需要拍板的事项交给 Claude（「需要我拍板的都按照你的建议来」）：删除登记预测的二乘二交互（Removal list 一行），含登记正文契约收紧。
 - 2026-11-21 `20261120-04` 只修了 `validation` 运行（[#3216](https://github.com/qOeOp/trade/pull/3216)）。`history` 运行仍不能在 `Runs` 里绘制：`registration/availability.py` 对非 `research`、`validation` 用途给出 `PURPOSE_NOT_COMPARABLE`，`replay report` 因此遮蔽其读数、`--tables` 拒绝。放开属于改拒绝与可用性判定，需用户授权；不放开时，历史段读数只在 `Line-close history` 页面（`research history`）可读。
