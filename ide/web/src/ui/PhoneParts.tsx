@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { fixed, signed } from "../lib/paperApi";
 import { Icon } from "../icons/Icon";
 import { pnlClass, textClass, wash, type DataRole } from "../theme/roles";
-import type { Held } from "../model/phoneRuns";
+import type { Held } from "../model/runSnapshot";
 import { MISSING, signedPct } from "../lib/format";
 
 /** A card that opens a page: the desktop's card surface, its chevron at the top right. */

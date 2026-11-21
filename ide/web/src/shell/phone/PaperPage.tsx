@@ -8,7 +8,7 @@ import { lineOf } from "../../lib/lines";
 import { fixed, precisions, signed, type PaperRun } from "../../lib/paperApi";
 import { orders, ordersText, priceText, quantityText } from "../../model/events";
 import { follow, useStream } from "../../state/paperStream";
-import { paperEquity, paperHeld, paperIssues } from "../../model/phoneRuns";
+import { paperEquity, paperHeld, paperIssues } from "../../model/runSnapshot";
 import { usePaperRuns } from "../../state/paper";
 import { closeRun } from "../../state/phone";
 import { useResearchLines } from "../../state/researchLines";

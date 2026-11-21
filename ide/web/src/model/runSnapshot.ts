@@ -1,5 +1,6 @@
-// What a phone shows of a run at a glance (docs/plans/ide-phone-scope-20261111.zh.md): its equity, the last
-// fill, what it holds and its working orders, and for Live how much of its loss threshold is used. Live's rows
+// What a run stands at now, as the desktop and the phone both show it (docs/plans/ide-phone-scope-20261111.zh.md):
+// its equity, the last fill, what it holds with the stop protecting it and its working orders, and for Live how much
+// of its loss threshold is used. Live's rows
 // are its native events as they are (live/views.py keeps the last of them): a position's latest event, an
 // order's latest event while it has not ended. Paper's come from the listing (paper/serve.py held()).
 import type { LiveEventRow } from "../lib/liveTradingDto";
@@ -10,7 +11,8 @@ import { heldOnInterruption, HELD_ON_RESTART, unprotected, UNPROTECTED } from ".
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
 
-export type Held = { key: string; symbol: string; long: boolean; qty: number; entry: number | null; mark: number | null; pnl: number | null };
+/** A held position; `stop` is the trigger of the working order protecting it (null: none, or not known). */
+export type Held = { key: string; symbol: string; long: boolean; qty: number; entry: number | null; mark: number | null; pnl: number | null; stop: number | null };
 export type Working = { key: string; symbol: string; buy: boolean | null; qty: number | null; type: string; trigger: number | null; price: number | null; reduceOnly: boolean };
 export type Fill = { ms: number; symbol: string; buy: boolean | null; qty: number | null; px: number | null };
 /** A Live run's money: the equity it armed with, now, the result; its highest equity, how far below it equity is now
@@ -39,7 +41,7 @@ export function liveHeld(run: LiveRun): Held[] {
   return latest(run.positions ?? [], (r) => r.position_id).flatMap((r) => {
     const signed = num(r.signed_qty) ?? 0;
     if (r.event_type === "PositionClosed" || r.side === "FLAT" || signed === 0) return [];
-    return [{ key: r.position_id!, symbol: symbolOf(r.instrument_id), long: signed > 0, qty: Math.abs(signed), entry: num(r.avg_px_open), mark: null, pnl: null }];
+    return [{ key: r.position_id!, symbol: symbolOf(r.instrument_id), long: signed > 0, qty: Math.abs(signed), entry: num(r.avg_px_open), mark: null, pnl: null, stop: null }];
   });
 }
 
@@ -69,6 +71,17 @@ export function liveWorking(run: LiveRun): Working[] {
   }]);
 }
 
+/** A Live run now: what it holds (marked at the overview's price, each with its stop), its working orders split into
+ *  the stops protecting a position and the entries, its fills, money, state and when it was last observed. */
+export type LiveSnapshot = { held: Held[]; working: Working[]; stops: Working[]; entries: Working[]; fill: Fill | null; fills: number;
+  money: Money | null; status: LiveStatus; observed: number | null };
+export function liveSnapshot(run: LiveRun, coins?: readonly Coin[]): LiveSnapshot {
+  const working = liveWorking(run), open = liveHeld(run), stops = working.filter((o) => protects(o, open));
+  const held = marked(open, coins).map((h) => ({ ...h, stop: stopFor(h, stops)?.trigger ?? null }));
+  return { held, working, stops, entries: working.filter((o) => !stops.includes(o)), fill: lastFill(run),
+    fills: (run.orders ?? []).filter((o) => o.event_type === "OrderFilled").length, money: liveMoney(run), status: liveStatus(run), observed: liveObserved(run) };
+}
+
 /** The run's last native fill. */
 export function lastFill(run: LiveRun): Fill | null {
   const fills = (run.orders ?? []).filter((r) => r.event_type === "OrderFilled" && Number.isFinite(at(r)));
@@ -76,15 +89,13 @@ export function lastFill(run: LiveRun): Fill | null {
   return r ? { ms: at(r), symbol: symbolOf(r.instrument_id), buy: r.order_side == null ? null : r.order_side === "BUY", qty: num(r.last_qty), px: num(r.last_px) } : null;
 }
 
-const factOf = (facts: readonly { label: string; value: string | null }[], label: string) => facts.find((f) => f.label === label)?.value ?? null;
-
 export function liveMoney(run: LiveRun): Money | null {
-  const start = run.equity?.budget ?? amount(factOf(run.config, "Equity at start (USDT)"));
-  if (start == null) return null;
+  const start = run.equity?.budget ?? run.brake?.start ?? null;
+  if (start === null) return null;
   const known = (run.equity?.minutes ?? []).flatMap(([, v]) => (v === null ? [] : [v]));
-  const equity = known.at(-1) ?? null, brake = amount(factOf(run.config, "Drawdown brake"));
+  const equity = known.at(-1) ?? null, brake = run.brake?.ratio ?? null;
   // The brake counts from the highest equity it read; the chart's minutes are its own estimate between reads.
-  const peak = Math.max(amount(factOf(run.config, "Highest equity (USDT)")) ?? start, ...known);
+  const peak = Math.max(run.brake?.peak ?? start, ...known);
   let high = start, deepest = 0;
   for (const v of known) { high = Math.max(high, v); deepest = Math.max(deepest, high - v); }
   return { start, equity, result: equity === null ? null : equity - start, peak, drawdown: equity === null ? null : Math.max(0, peak - equity),
@@ -92,9 +103,8 @@ export function liveMoney(run: LiveRun): Money | null {
 }
 
 /** The run's state as one coloured word, as the desktop's run picker says it. */
-export const stopRequested = (run: LiveRun) => factOf(run.ending, "Stop requested") === "Yes";
 export function liveStatus(run: LiveRun): LiveStatus {
-  const state = run.hostState, stopping = stopRequested(run);
+  const state = run.hostState, stopping = run.stopRequested === true;
   if (state === "unresolved") return { word: "Unresolved", tone: "fail" };
   if (run.running) return stopping ? { word: "Stopping", tone: "misses" }
     : run.heldAlert ? { word: run.heldAlert.word, tone: run.heldAlert.tone }
@@ -120,7 +130,7 @@ export function paperHeld(run: PaperRun): Held[] {
   return (run.readings?.held?.positions ?? []).flatMap((p) => {
     const signed = amount(p.signed_qty) ?? 0;
     return signed === 0 ? [] : [{ key: p.position_id, symbol: symbolOf(p.instrument_id), long: signed > 0, qty: Math.abs(signed),
-                                  entry: amount(p.avg_px_open), mark: amount(p.mark), pnl: amount(p.unrealized_pnl) }];
+                                  entry: amount(p.avg_px_open), mark: amount(p.mark), pnl: amount(p.unrealized_pnl), stop: null }];
   });
 }
 

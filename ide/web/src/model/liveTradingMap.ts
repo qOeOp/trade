@@ -22,6 +22,8 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
 
 /** The equity the run armed with and its minute results as the account the chart draws (that plus the result), by
  *  time in seconds. */
+const number = (v: string | null | undefined) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
 function equityOf(run: LiveRunDto): LiveRun["equity"] {
   const budget = Number(run.brake?.start ?? NaN);
   if (!run.minute_results || !(budget > 0)) return null;
@@ -107,6 +109,8 @@ export function liveRunPresentation(run: LiveRunDto, review?: LiveRunDto): LiveR
     sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
+    stopRequested: run.stop_requested === true,
+    brake: { ratio: number(run.config.drawdown_brake), start: number(run.brake?.start), peak: number(run.brake?.peak) },
     config: [fact("Drawdown brake", run.config.drawdown_brake), fact("Equity at start (USDT)", run.brake?.start ?? null),
       fact("Highest equity (USDT)", run.brake?.peak ?? null), fact("Duration (seconds)", run.config.duration_seconds),
       fact("Leverage", run.config.leverage)],
