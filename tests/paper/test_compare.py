@@ -54,8 +54,13 @@ def journal(events: list[dict], minutes: int, skip: tuple[int, ...] = (), closes
     return lines + [{"kind": "order", "wall_ns": event["ts_event"], **event} for event in events]
 
 
+def record(lines: list[dict], settled: list[dict], **parts) -> dict:
+    """The run record `paper compare` builds from a journal (replay.comparison.run_record, paper.compare.parts)."""
+    return shared.run_record(lines, **compare.parts(lines, settled, **parts))
+
+
 def compared(lines: list[dict], replay: list[dict], archive: dict, end: int) -> dict:
-    return shared.compare(compare.run_record(lines, []), replay, archive, None, START, end)
+    return shared.compare(record(lines, []), replay, archive, None, START, end)
 
 
 class Compare(unittest.TestCase):
@@ -111,7 +116,7 @@ class Compare(unittest.TestCase):
             with self.subTest(at=at, since=since):
                 replay = [initialized("R1", "ENTRY"), {**filled("R1", at, "100.0", "1")}]
                 replay[0]["ts_event"] = at
-                found = shared.compare(compare.run_record([undeclared, *rest], [], held=since), replay, {"BTCUSDT": archived(5)},
+                found = shared.compare(record([undeclared, *rest], [], held=since), replay, {"BTCUSDT": archived(5)},
                                        None, START, START + 5 * MINUTE)
                 group = found["groups"][0]
                 self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, cause == "unexplained"))
@@ -135,7 +140,7 @@ class Compare(unittest.TestCase):
                                 ((0,), close_of(4), "missing_bar")):
             with self.subTest(skip=skip):
                 replay = [{**initialized("R1", "ENTRY"), "ts_event": at}, filled("R1", at, "100.0", "1")]
-                found = shared.compare(compare.run_record(run(skip), [], held=held), replay,
+                found = shared.compare(record(run(skip), [], held=held), replay,
                                        {"BTCUSDT": archived(7)}, None, START, START + 7 * MINUTE)
                 group = found["groups"][0]
                 self.assertEqual((group["class"], group["cause"]), ("replay_only", cause))
@@ -151,9 +156,9 @@ class Compare(unittest.TestCase):
         self.assertEqual(found["inputs"]["BTCUSDT"]["bars"]["differing"][0]["fields"], {"close": ["100.5", "100.0"]})
 
     def test_the_journals_warm_up_is_the_runs(self):
-        lines = journal([], 2) + [{"kind": "warmup", "instrument_id": BTC, "period": "1-HOUR", "fetched_ns": 1,
-                                   "bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}]
-        self.assertEqual(compare.run_record(lines, [])["warmup"],
+        lines = journal([], 2) + [{"kind": "warmup", "instrument_id": BTC, "period": "1-HOUR", "bars": 4,
+                                   "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}]
+        self.assertEqual(record(lines, [])["warmup"],
                          {BTC: {"1-HOUR": {"bars": 4, "first_ts_event": 1, "last_ts_event": 2, "sha256": "h"}}})
 
     def test_the_side_connections_states_and_each_process_start_are_the_runs(self):
@@ -161,7 +166,7 @@ class Compare(unittest.TestCase):
         `started` and each `resumed` mark where."""
         side = {"kind": "kline_socket", "state": "up", "at_ns": START + 10**9, "wall_ns": START + 2 * 10**9}
         lines = [{"kind": "started", "wall_ns": START - 10**9}, side, {"kind": "resumed", "wall_ns": START + MINUTE}]
-        run = compare.run_record(lines, [])
+        run = record(lines, [])
         self.assertEqual((run["kline_sockets"], run["side_starts"]), ([side], [START - 10**9, START + MINUTE]))
 
     def test_the_metrics_the_journal_holds_are_checked_as_live_compare_checks_them(self):
@@ -179,7 +184,7 @@ class Compare(unittest.TestCase):
                                    {"kind": "metrics_unsubscribed", "instrument_id": BTC, "wall_ns": fives[2] - MINUTE}]
         stored = {"BTCUSDT": [[at - shared.METRICS_VISIBLE_NS, "97897.565", "3.6904", "1.8441", None, {}]
                               for at in fives]}
-        run = compare.run_record(lines, [])
+        run = record(lines, [])
         self.assertEqual([line["kind"] for line in run["metrics"]], ["metrics", "metrics", "metrics_unsubscribed"])
         found = shared.compare(run, [], {"BTCUSDT": archived(20)}, None, START, START + 20 * MINUTE,
                                archived_metrics=stored)
@@ -204,7 +209,7 @@ class Compare(unittest.TestCase):
         lines = journal([initialized("P-1", "ENTRY"), filled("P-1", START + 2 * MINUTE + 900 * 10**6, "100.0", "1")], 3)
         lines += [{"kind": "snapshot", "minute_ns": START + i * MINUTE, "wall_ns": START + (i + 1) * MINUTE - 10**8,
                    "balance_total": "100", "unrealized_pnl": "0"} for i in range(3)]
-        found = shared.compare(compare.run_record(lines, []), replayed, {"BTCUSDT": archived(3)}, None, START, START + 3 * MINUTE)
+        found = shared.compare(record(lines, []), replayed, {"BTCUSDT": archived(3)}, None, START, START + 3 * MINUTE)
         groups = found["groups"]
         self.assertEqual(groups[0]["class"], "same")
         cuts = {START + i * MINUTE: START + (i + 1) * MINUTE - 10**8 for i in range(3)}
@@ -232,7 +237,7 @@ class Compare(unittest.TestCase):
                        else value) for minute, value in replayed.items()]
         for held, causes in ((resumed, ["unexplained", "held", "unexplained"]), (None, ["unexplained"] * 3)):
             with self.subTest(held=held):
-                run = compare.run_record(lines, [], held=held)
+                run = record(lines, [], held=held)
                 explained = shared.equity_differences(run_equity, replayed, [], run["taken"], run["paused"])
                 self.assertEqual([(item["minute_ns"], item["cause"]) for item in explained],
                                  list(zip((START + MINUTE, START + 2 * MINUTE, START + 4 * MINUTE), causes,

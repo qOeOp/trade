@@ -331,9 +331,11 @@ initialization. They are not the authority for entry cash or a claim of full col
 Each Live run keeps what a replay of its source needs for comparison in `evidence/` of its private output
 (`engine/live_evidence.py`), never the ledger:
 
-- `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
-  history request delivered), each funding settlement of its declared history (`historical_funding`: `ts_event`,
-  `rate`) and each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
+- `market.jsonl`, the market rows Paper journals (`engine.realtime.MarketRows`): every one-minute bar the source
+  received (`bar`; an aggregation is built from them and not kept), per contract and period the digest of each
+  history its warm-up delivered (`warmup`: `bars`, `first_ts_event`, `last_ts_event`, `sha256`; period `FUNDING` for
+  the funding settlements), Binance's time for each closed kline and its side connection's state (`kline_event`,
+  `kline_socket`), each metrics row it received (`metrics`: `ts_event` and the four values, a missing ratio null; it
   reached the source at `ts_event + 5 min`), and each unsubscribe from a contract's metrics it followed
   (`metrics_unsubscribed`: `instrument_id`). What arrives after a stop request reaches neither the source nor the
   file. Quotes, trades, MARKs and funding rates are not kept: `live compare` settles funding at Binance's published

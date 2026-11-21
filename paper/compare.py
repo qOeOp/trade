@@ -98,21 +98,13 @@ def interruptions(lines: list[dict], held: int) -> dict[str, list[tuple[int, int
     return found
 
 
-def run_record(lines: list[dict], settled: list[dict], terms: Mapping | None = None,
-               fees: Mapping | None = None, held: int | None = None) -> dict:
-    """The journal as replay.comparison.compare reads a run, with the funding `settled`, when it was `held`, the
-    interruptions it was held over and when it was paused."""
-    warmup: dict[str, dict[str, dict]] = {}
-    for line in lines:
-        if line["kind"] == "warmup":
-            warmup.setdefault(line["instrument_id"], {})[line["period"]] = {
-                key: line.get(key) for key in ("bars", "first_ts_event", "last_ts_event", "sha256")}
-    return {"bars": [line for line in lines if line["kind"] == "bar"], "warmup": warmup,
-            "kline_events": [line for line in lines if line["kind"] == "kline_event"],
-            "kline_sockets": [line for line in lines if line["kind"] == "kline_socket"],
-            "side_starts": [line["wall_ns"] for line in lines if line["kind"] in ("started", "resumed")
+def parts(lines: list[dict], settled: list[dict], terms: Mapping | None = None, fees: Mapping | None = None,
+          held: int | None = None) -> dict:
+    """The run's own parts of the record replay.comparison.run_record reads with its journal's market rows: its
+    processes' starts, order events and equity path with the funding `settled`, when each minute's snapshot was
+    taken, when it was `held`, the interruptions it was held over and when it was paused."""
+    return {"side_starts": [line["wall_ns"] for line in lines if line["kind"] in ("started", "resumed")
                             and isinstance(line.get("wall_ns"), int)],
-            "metrics": [line for line in lines if line["kind"] in ("metrics", "metrics_unsubscribed")],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
             "equity": records.equity_path(lines, settled)[0],
             "taken": {line["minute_ns"]: line["wall_ns"] for line in lines
@@ -145,11 +137,12 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
     start, end = window(lines, seal)
     symbols = list(row["symbols"])
     opened = files.open_market(market, "reader")
-    run = run_record(lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
-                     # Each contract's terms at the run's market day, and the account's one rate on each.
-                     {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
-                     {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
-                     held_since(lines))
+    run = shared.run_record(lines, **parts(
+        lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
+        # Each contract's terms at the run's market day, and the account's one rate on each.
+        {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
+        {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,
+        held_since(lines)))
     fetched = None
     if preliminary:
         from replay import preliminary as rest

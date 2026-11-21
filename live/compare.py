@@ -3,8 +3,8 @@
 
 The run is read from its private directory: the source and manifest it was prepared with (inputs/), its journal
 (out/events.jsonl: the warm-up's T, the account observation it started from, its position events and each minute's
-result) and its evidence pack (out/evidence/: the bars and warm-up bars its source received, and the native
-reports of its last process). The replay runs that source on the run's image over the minutes the
+result) and its evidence pack (out/evidence/: the market rows its source received, in Paper's
+journal format (engine.realtime.MarketRows), and the native reports of its last process). The replay runs that source on the run's image over the minutes the
 source received, warmed at the same T, on the run's contracts at its leverage, starting from the USDT wallet the
 run started with. Nothing reaches a ledger: the comparison stays in a new temporary directory, and Live's execution
 records never leave the private root (AGENTS.md).
@@ -35,7 +35,7 @@ import math
 from pathlib import Path
 import secrets
 
-from engine.config import instrument_id, utc_text
+from engine.config import utc_text
 from ledger import paper as records
 from live import state
 from replay import comparison as shared
@@ -161,7 +161,7 @@ def window(pack: Mapping) -> tuple[int, int]:
     if warmed is None:
         raise refuse("LIVE_COMPARE_EMPTY", "the run's journal has no warm-up: its source never started",
                      missing=("warmup",))
-    closes = [row["ts_event"] for row in pack["market"] if row.get("kind") == "bar" and row.get("bar_type") in _minutes(pack)]
+    closes = [row["ts_event"] for row in pack["market"] if row.get("kind") == "bar"]
     start = warmed["at_ns"]
     end = max(closes, default=start) + shared.MILLISECOND_NS
     if end <= start + shared.MINUTE_NS:
@@ -181,11 +181,6 @@ def wallet(pack: Mapping) -> tuple[str, dict]:
     return format(value.normalize(), "f"), snapshot
 
 
-def _minutes(pack: Mapping) -> set[str]:
-    """The one-minute bar type of each of the run's contracts."""
-    return {f"{instrument_id(symbol)}-{shared.MINUTE_BAR}" for symbol in pack["manifest"]["symbols"]}
-
-
 def _fees(snapshot: Mapping, symbols: list[str]) -> dict:
     """{symbol: {maker, taker}}: the account's commission on each contract the observation reported."""
     found = {}
@@ -199,9 +194,7 @@ def _fees(snapshot: Mapping, symbols: list[str]) -> dict:
 def journal(pack: Mapping, start: int) -> list[dict]:
     """The pack as a Paper journal's lines, for ledger.paper's funding: the start, each contract's one-minute bars and
     the position events, in the order they were written."""
-    minutes = _minutes(pack)
-    rows = [(row.get("wall_ns") or 0, {**row, "kind": "bar"}) for row in pack["market"]
-            if row.get("kind") == "bar" and row.get("bar_type") in minutes]
+    rows = [(row.get("wall_ns") or 0, row) for row in pack["market"] if row.get("kind") == "bar"]
     rows += [(row.get("observed_ns") or 0, {**row["native"], "kind": "position"}) for row in pack["events"]
              if row.get("event") == "position" and isinstance(row.get("native"), dict)]
     return [{"kind": "started", "input_start_ns": start}] + [line for _, line in sorted(rows, key=lambda item: item[0])]
@@ -222,22 +215,19 @@ def gate(events: list[dict]) -> dict:
                         and row.get("held_ns") is not None and isinstance(row.get("ts_init"), int)]}
 
 
-def run_record(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
-    """The pack as replay.comparison.compare reads a run."""
+def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
+    """The run's own parts of the record replay.comparison.run_record reads with its evidence pack's market rows:
+    its native order events, the entries its gate changed, its process's start, its equity path from `balance` with
+    the funding `settled`, its contracts' terms and the account's fee rates in `snapshot`."""
     equity, _ = records.with_funding(sorted(
         ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
          and row.get("result") is not None), key=lambda point: point[0]), settled)
-    return {"bars": [row for row in pack["market"] if row.get("kind") == "bar"], "gate": gate(pack["events"]),
-            "kline_events": [row for row in pack["market"] if row.get("kind") == "kline_event"],
-            # One process (segment): its side connection is down from its first journal line to its first up.
-            "kline_sockets": [row for row in pack["market"] if row.get("kind") == "kline_socket"],
-            "side_starts": [row["observed_ns"] for row in pack["events"][:1] if isinstance(row.get("observed_ns"), int)],
-            "warmup": shared.received_warmup(row for row in pack["market"]
-                                             if row.get("kind") in ("historical_bar", "historical_funding")),
-            "metrics": [row for row in pack["market"] if row.get("kind") in ("metrics", "metrics_unsubscribed")],
-            "events": pack["orders"], "settlements": settled, "equity": equity,
-            "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}), "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
+    # One process (segment): its side connection is down from its first journal line to its first up.
+    return {"side_starts": [row["observed_ns"] for row in pack["events"][:1] if isinstance(row.get("observed_ns"), int)],
+            "events": pack["orders"], "gate": gate(pack["events"]), "settlements": settled, "equity": equity,
+            "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}),
+            "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 
 
 def _percentile(values: list[int], share: float) -> int | None:
@@ -305,7 +295,8 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     balance, snapshot = wallet(pack)
     market_day, archived = shared.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
     lines = journal(pack, start)
-    run = run_record(pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end)))
+    run = shared.run_record(pack["market"], **parts(
+        pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end))))
     output, replayed, compared = shared.replay_and_compare(
         run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
         start, end, manifest["config"]["leverage"], balance, output,
