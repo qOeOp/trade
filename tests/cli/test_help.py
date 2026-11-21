@@ -21,10 +21,10 @@ def _commands(parser):
 class HelpTests(unittest.TestCase):
     def test_every_command_has_a_contract(self):
         """Its --help epilog is built from CONTRACTS, so one entry per command and none stale."""
-        self.assertEqual({(noun, verb) for noun, verb, _ in _commands(main._parser())}, set(main.CONTRACTS))
+        self.assertEqual({(noun, verb) for noun, verb, _ in _commands(main.build_parser())}, set(main.CONTRACTS))
 
     def test_every_option_has_help(self):
-        for noun, verb, command in _commands(main._parser()):
+        for noun, verb, command in _commands(main.build_parser()):
             for action in command._actions:
                 if not isinstance(action, argparse._HelpAction):
                     with self.subTest(command=f"{noun} {verb}", option=action.option_strings or action.dest):

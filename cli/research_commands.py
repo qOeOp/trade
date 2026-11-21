@@ -407,9 +407,11 @@ def validation_registration(profile: db.LedgerProfile, candidate: str, window_st
                             retry_of: int | None, op: str | None, tsa_url: str | None) -> dict:
     """validation registration: one out-of-sample registration, then its time witness."""
     from registration import validation
+    from report import history
     registered = validation.validation_register(profile, candidate, _utc_time(window_start), _utc_time(window_end),
                                                 universe_rule, market_at, _json_file(design, "DESIGN_INVALID"),
-                                                retry_of, op, market_profile=market, tsa_url=tsa_url)
+                                                retry_of, op, market_profile=market,
+                                                unfalsified=history.require_unfalsified, tsa_url=tsa_url)
     stamped = registered["witness"]
     next_actions = [] if stamped["status"] == "stamped" else [
         "Run `ledger witness` before the window starts; a registration without a witness older than its window "
@@ -732,7 +734,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "registration_id, candidate, window, registered_at, ledger_commit, witness {status, stamped_at, error}, "
         "replayed, next_actions",
         "DESIGN_INVALID; WINDOW_INVALID; REGISTRATION_TOO_LATE (--window-start not after now; retries exempt); "
-        "CANDIDATE_UNKNOWN; MARKET_DAY_UNRESOLVED; RETRY_NOT_ALLOWED; OP_ID_CONFLICT; the universe rule is "
+        "CANDIDATE_UNKNOWN; CANDIDATE_FALSIFIED (its line's closing history test judged it not meeting the "
+        "targets); HISTORY_UNDECIDED (no history test of it, or one that has not decided it: missing names what it "
+        "lacks); MARKET_DAY_UNRESOLVED; RETRY_NOT_ALLOWED; OP_ID_CONFLICT; the universe rule is "
         "checked only when a replay binds the registration"),
     ("validation", "report"): (
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
@@ -750,7 +754,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the research record nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the research record nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     candidate = verbs("candidate", "candidates")
     command = verb(candidate, "publish", "publish one single-file source as a candidate")
     _ledger_option(command)

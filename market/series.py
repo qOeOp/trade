@@ -42,7 +42,7 @@ def _same_row(a: dict, b: dict) -> bool:
 PRICE_TYPES = ("LAST", "MARK")
 
 
-def _ms_day(value: int) -> date:
+def ms_day(value: int) -> date:
     return datetime.fromtimestamp(value / 1000, UTC).date()
 
 
@@ -51,7 +51,7 @@ def _day_ms(value: date) -> int:
 
 
 def _months(start_ms: int, end_ms: int) -> list[str]:
-    first, last = _ms_day(start_ms).replace(day=1), _ms_day(end_ms - 1).replace(day=1)
+    first, last = ms_day(start_ms).replace(day=1), ms_day(end_ms - 1).replace(day=1)
     return [month.strftime("%Y-%m") for month in universe.months(first, last)]
 
 
@@ -62,7 +62,7 @@ def _bounds(period: str) -> tuple[int, int]:
 
 
 def _days(start_ms: int, end_ms: int, month: str | None = None) -> list[str]:
-    found, day = [], _ms_day(start_ms)
+    found, day = [], ms_day(start_ms)
     while _day_ms(day) < end_ms:
         if month is None or day.strftime("%Y-%m") == month:
             found.append(day.isoformat())
@@ -222,7 +222,7 @@ def no_source(cache: Path, symbol: str, start_ms: int, end_ms: int, onboard: int
     the contract did not trade then: the month ended before its onboard time, or the contract no longer trades and
     the month after next has begun (a month's archives come out early in the next one). A relisted contract's months
     before its latest onboard time keep their archives, so they are no such month."""
-    month = _ms_day(start_ms).replace(day=1)
+    month = ms_day(start_ms).replace(day=1)
     settled = universe.next_month(universe.next_month(month)) <= datetime.now(UTC).date()
     if not (onboard is not None and end_ms <= onboard or not trading and settled):
         return False

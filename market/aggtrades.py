@@ -150,14 +150,14 @@ def month_rows(cache: Path, symbol: str, start: int, end: int, earlier: bool):
     day before) carries the id sequence into the month; it may be unpublished only when the market holds no earlier
     file of the contract (not `earlier`), and the sequence then starts on the first day."""
     state = State()
-    eve = series._ms_day(start - store.DAY).isoformat()
+    eve = series.ms_day(start - store.DAY).isoformat()
     key = sources.aggtrades_key(symbol, eve)
     path = sources.fetch_archive(cache, key) if earlier else sources.published(cache, key)
     if path is not None:
         for _ in batches(path, symbol, eve, state, {}):
             pass
     for moment in range(start, end, store.DAY):
-        day = series._ms_day(moment).isoformat()
+        day = series.ms_day(moment).isoformat()
         yield from batches(sources.fetch_archive(cache, sources.aggtrades_key(symbol, day)), symbol, day, state, {})
 
 
@@ -166,8 +166,8 @@ def trade_month(job: dict) -> dict:
     started = time.monotonic()
     symbol, cache, start, end = job["symbol"], Path(job["cache"]), job["start"], job["end"]
     if job["held"]:  # this contract only: the others of the call go on
-        raise _refuse(f"the market already holds {series._ms_day(start):%Y-%m} aggTrades of {symbol}", "MONTH_EXISTS",
-                      missing=(f"{series._ms_day(start):%Y-%m}",))
+        raise _refuse(f"the market already holds {series.ms_day(start):%Y-%m} aggTrades of {symbol}", "MONTH_EXISTS",
+                      missing=(f"{series.ms_day(start):%Y-%m}",))
     total = 0
 
     def rows():
@@ -176,7 +176,7 @@ def trade_month(job: dict) -> dict:
             total += len(found)
             yield record_batch(found)
 
-    written = files.write_file(store.worker_market(job), "agg_trade", series._ms_day(start), symbol, rows())
-    return {"written": written, "result": {"month": series._ms_day(start).strftime("%Y-%m"), "symbols": [symbol],
+    written = files.write_file(store.worker_market(job), "agg_trade", series.ms_day(start), symbol, rows())
+    return {"written": written, "result": {"month": series.ms_day(start).strftime("%Y-%m"), "symbols": [symbol],
                                            "codec": CODEC, "trade_rows": total,
                                            "seconds": round(time.monotonic() - started, 1)}}

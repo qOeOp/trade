@@ -41,7 +41,7 @@ def _link(real: files.Market, root: Path, table: str, symbols: list[str] | None)
 
 
 def _month(ms: int) -> date:
-    return series._ms_day(ms).replace(day=1)
+    return series.ms_day(ms).replace(day=1)
 
 
 def _months(rows: Iterable[tuple], at: Callable[[tuple], int]) -> dict[date, list[tuple]]:

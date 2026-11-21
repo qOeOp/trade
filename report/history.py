@@ -18,7 +18,8 @@ invalid or missing, or lacks one of the two readings, a part veto year without a
 reading leaves the combined verdict undecided (None), and the summary's `missing` names each. A control that does
 not reproduce the research run voids the row: it has no summary. A whole year not replayed yet has no trial to read
 here and cannot be told from one the market does not cover; `line history` replays a participant's veto years
-before its control, and without a control run nothing is decided.
+before its control, and without a control run nothing is decided. A validation registration takes only a candidate
+whose verdict is decided and true (require_unfalsified, 20261120-05, user 2026-11-21).
 
 A line's participants (ledger.lines.history_participants) are its sources with a passed research run. The test
 replays and judges those whose run carries economic evidence now, the judgment `research status` reads
@@ -47,6 +48,7 @@ from ledger import db, execution, lines
 from ledger import targets as line_targets
 from registration import availability, precheck, reproduction
 from report import candidates as report_candidates, measures, status
+from shared.refusals import refuse
 
 
 SHORT_DAYS = 90  # about three months
@@ -246,12 +248,12 @@ def qualified(conn: db.LedgerConnection, line_id: int) -> list[dict]:
     return candidates(conn, line_id)[0]
 
 
-def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict], checker: Mapping,
+def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict] | None, checker: Mapping,
                  records: list) -> dict:
     """One line's closing history test: its candidates (candidates) with their history cells and summaries,
     ordered by development-period Sharpe, and the participants without economic evidence; the line's targets in
     force, its research trial count and the earlier searches of its holdout among `counted`
-    (status.counted_trials' counted trials)."""
+    (status.counted_trials' counted trials; None: not read, `holdout_prior_trials` None)."""
     record = lines.read_line(conn, line)
     dev_start, dev_end = lines.dev_window(record)
     held = datetime.combine(lines.holdout_end(dev_end.date()), time())
@@ -283,9 +285,50 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     return {"line": record["name"], "closed": record["closed"], "dev_start": record["dev_start"],
             "dev_end": record["dev_end"], "targets": targets, "participants": len(rows),
             "research_trials": research["n"] if research else 0, "discount": discount,
-            "holdout_prior_trials": _prior_trials(conn, record["line_id"], dev_end, held,
-                                                  {row["trial_id"] for row in found}, counted),
+            "holdout_prior_trials": None if counted is None else _prior_trials(
+                conn, record["line_id"], dev_end, held, {row["trial_id"] for row in found}, counted),
             "rows": rows, "without_economic_evidence": without}
+
+
+def verdict(source_sha256: str, tested: list[dict]) -> dict:
+    """The closing history test's verdict on one source from the readings (line_history) of the lines that tested it
+    (`tested`): {line, judged_on} of a line that judged it meeting the targets, else a refusal. CANDIDATE_FALSIFIED
+    when a line judged it not meeting them (meets_targets false); HISTORY_UNDECIDED when no line decided it, its
+    `missing` naming per line what the verdict lacks: the summary's `missing`, `control` for a control that does not
+    reproduce the research run (no summary), `economic evidence` for a source the test no longer judges; or
+    `line history` when no line has a history trial of it."""
+    undecided: list[str] = []
+    passed = None
+    for found in tested:
+        row = next((row for row in found["rows"] if row["source_sha256"] == source_sha256), None)
+        if row is None:
+            undecided.append(f"{found['line']}: economic evidence")
+        elif row["summary"] is None:
+            undecided.append(f"{found['line']}: control")
+        elif row["summary"]["meets_targets"] is False:
+            raise refuse("CANDIDATE_FALSIFIED", f"{row['candidate']} does not meet the targets of {found['line']} in "
+                                                f"its closing history test (judged on the {row['summary']['judged_on']})",
+                         missing=(found["line"],))
+        elif row["summary"]["meets_targets"] is None:
+            undecided += [f"{found['line']}: {item}" for item in row["summary"]["missing"]]
+        elif passed is None:
+            passed = {"line": found["line"], "judged_on": row["summary"]["judged_on"]}
+    if passed is None:
+        missing = tuple(undecided) or ("line history",)
+        raise refuse("HISTORY_UNDECIDED", "the closing history test has not decided this candidate: "
+                                          + "; ".join(missing), missing=missing)
+    return passed
+
+
+def require_unfalsified(conn: db.LedgerConnection, source_sha256: str) -> dict:
+    """verdict() over every line with a history trial of this source, read on `conn`: a validation registration
+    takes only a candidate that its line's closing history test decided and did not falsify
+    (20261120-05, user 2026-11-21)."""
+    checker, records = availability.check_identity(), precheck.review_records(conn)
+    tested = [line_history(conn, line_id, None, checker, records) for (line_id,) in conn.rows(
+        "SELECT DISTINCT line_id FROM trial WHERE purpose = 'history' AND source_sha256 = %s ORDER BY line_id",
+        (source_sha256,))]
+    return verdict(source_sha256, tested)
 
 
 def research_history(ledger, at: str | None = None, line: str | None = None) -> dict:

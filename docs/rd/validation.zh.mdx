@@ -52,7 +52,7 @@
 
 #### 样本外验证只由你发起，产品和研究循环都不会自动触发 [#X-1-1-1]
 
-你在报告里认可某个候选后，Agent 问你要不要做样本外验证，并说明它检验什么、不检验什么，然后停下来等你指定。产品不会自己登记或回放；研究循环的任何一步都不以它为前提。结果出来后，Agent 再来找你（见 <Ref id="X.2.1.4" />）。
+路线关线后，你在关线历史页面或 `line close` 之后挑中一个关线历史检验判为达标的候选，Agent 问你要不要做样本外验证，并说明它检验什么、不检验什么，然后停下来等你指定；研究中认可候选不触发这个问题。产品不会自己登记或回放；研究循环的任何一步都不以它为前提。结果出来后，Agent 再来找你（见 <Ref id="X.2.1.4" />）。
 
 要不要验、验哪一版，是看完报告后的判断，属于你。让 Agent 或产品自己发起，就会在你还没认可的时候消耗掉一段新行情。
 
@@ -95,6 +95,20 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 </div>
 
 <div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_registration">validation_registration</Ref> `registration.validation_register` `ledger.witness`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+
+#### 只有关线历史检验判为达标的候选才能登记样本外验证 [#X-1-2-3]
+
+登记时读候选所在路线的关线历史结论：被判不达标（证伪）就拒绝（`CANDIDATE_FALSIFIED`）；还没有历史检验、结论缺读数、对照没复现研究运行，或候选已失去经济证据，都算未判定，也拒绝（`HISTORY_UNDECIDED`），并列出缺的是什么。
+
+一段样本外窗口只能用一次，不该花在已被历史证伪、或历史还没判定的候选上。
+
+<div className="rd-example">
+
+比如路线关线后 `carry-root@4` 的留出期年化 0.12，低于目标 0.30，登记它会被拒绝；`carry-root@6` 否决年和留出期都达标，才能登记。一条还没跑完 `line history` 的路线，它的候选登记时会被告知缺哪一段。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.history.require_unfalsified` `registration.validation_register`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 样本外窗口必须在登记凭证的时间之后才开始 [#X-1-2-2]
 

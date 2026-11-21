@@ -243,6 +243,12 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "PRECHECK_CAPTURE_MISSING": ("Run `replay precheck` for the source and review that trial.",),
     # Validation (registration/validation.py)
     "CANDIDATE_UNKNOWN": ("Pass a candidate shown by `candidate list` as strategy_id@revision.",),
+    # The closing history test's verdict (report/history.py), required by validation and Live
+    "CANDIDATE_FALSIFIED": ("Pick another candidate whose line's closing history test meets the targets "
+                            "(`research history`); a falsified candidate takes no validation or Live run.",),
+    "HISTORY_UNDECIDED": ("Supply what the message names: `line history` for the candidate's line (it resumes "
+                          "where it stopped), the line's targets, or the economic evidence of its research run; then "
+                          "read `research history` and pick a candidate it decided.",),
     "DESIGN_INVALID": ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
                        "design_reason.",),
     "RETRY_NOT_ALLOWED": ("Retry only attempts whose replay was captured without a run, invalid or without "
@@ -296,8 +302,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "COMPARISON_UNAVAILABLE": ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
                                "are never repaired.",),
     "CLOCK_MISMATCH": ("Compare runs of the same trading window; days are never filled or resampled.",),
-    "INTERACTION_UNATTESTED": ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
-                               "b; read the comparison without the interaction otherwise.",),
     # Replay stage containers (replay/seams.py, runtime.container_command)
     "MODULE_NOT_IN_LAYOUT": ("Run only the modules runtime.layout declares for the image's contract.",),
     "MOUNT_HOST_PATH_INVALID": ("Mount only the replay's own working directory and exported inputs.",),

@@ -21,7 +21,7 @@ import threading
 import pymysql
 
 from ledger import db, publish, service
-from shared.errors import Refusal
+from shared.errors import Refusal, printed_refusal
 from shared.refusals import refuse
 
 HISTORY = 10
@@ -172,8 +172,12 @@ class Sync:
             try:
                 done = subprocess.run([sys.executable, "-m", "cli.main", "ledger", "sync", "--ledger",
                                        self.profile.name], capture_output=True, text=True, check=False, timeout=600)
-                value = json.loads(done.stderr if done.returncode else done.stdout)
-                result = {"state": "error", "error": value} if done.returncode else {"state": "ready", **value}
+                if done.returncode:
+                    if (refusal := printed_refusal(done.stderr)) is None:
+                        raise ValueError
+                    result = {"state": "error", "error": refusal}
+                else:
+                    result = {"state": "ready", **json.loads(done.stdout)}
             except (OSError, ValueError, subprocess.TimeoutExpired):
                 result = {"state": "error", "error": {"code": "REPLICA_SYNC_FAILED", "message": "sync did not finish"}}
             with self.lock:
