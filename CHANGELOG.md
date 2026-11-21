@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE equity chart: the backtest's yearly rows along the top are removed again, as the user first asked, to give the
+  chart the room (each year's return, its buy and hold's, and its P&L by contract; `equityRows`, `equityYears`,
+  `equityShares` and the `--series-1..5` tokens). Each development year's return is in Details' development-year
+  table, which now covers any development period over one year, and the buy and hold stays on the chart as its area
+  and in the legend.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
