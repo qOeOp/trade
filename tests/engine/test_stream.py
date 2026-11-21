@@ -19,7 +19,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from engine import strategy as strategy_runtime
+from engine import order_rules, strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
 from engine.fill import fill_model
@@ -356,7 +356,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
     node = BacktestNode([config])
     node.build()
     for registry in (strategy_runtime.STRATEGIES, strategy_runtime.DECLARED, run.OBSERVERS, run.history.STATES,
-                     run.history.ACTORS, run.order_rules.WARMING):
+                     run.history.ACTORS, order_rules.WARMING):
         registry.clear()
     planned, _ = run.plan_instances(rows, window, loaded, run.history_stamps(rows, window, loaded, output))
     if any(period != "1-MINUTE" for period, _ in loaded.warmup):

@@ -23,7 +23,6 @@ from engine.config import MINUTE_NS, Refusal
 
 PERIODS = {"1-MINUTE": 1, "3-MINUTE": 3, "5-MINUTE": 5, "15-MINUTE": 15, "30-MINUTE": 30, "1-HOUR": 60,
            "2-HOUR": 120, "4-HOUR": 240, "6-HOUR": 360, "8-HOUR": 480, "12-HOUR": 720, "1-DAY": 1440}  # minutes
-EXPORTED = frozenset({"1-MINUTE", "1-DAY"})  # the market export holds these; a replay derives the others
 MILLISECOND_NS = 1_000_000
 FUNDING = "FUNDING"  # WARMUP's key for the number of funding settlements
 

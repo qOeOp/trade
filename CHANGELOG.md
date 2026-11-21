@@ -61,6 +61,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 - `research-round`: a recommendation that first reaches both targets no longer tells the user validation is
   theirs to start; it raises no validation question, which comes only after the line's closing history test.
+- Live: a source's runtime failure record now names its contract instead of `unconstructed`, and a Live start
+  rewrites `runtime_failures.jsonl` with the final counts when it ends (it kept only the counts at the last power of
+  two). Replay, Paper and Live begin a run through one reset (`engine.strategy.begin_run`), so each starts with every
+  process registry empty; Paper's warm-up and held-start reads retry the network through one helper
+  (`engine.history.read_until`).
+- **Breaking:** a sealed Paper run's `seal.json` no longer carries the `readings` version stamp
+  (`paper-readings@2026-11-15`), which nothing read. The unread `engine.config.INTEGRITY_CODES` catalogue and
+  `engine.warmup.EXPORTED` are gone.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
