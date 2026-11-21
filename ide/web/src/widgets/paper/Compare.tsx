@@ -7,7 +7,8 @@ import { Skeleton, TableSkeleton } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
-import { CELL, HEAD } from "./table";
+import { pickTrade, usePickedTrade } from "../../state/paperStream";
+import { CELL, HEAD, usePickedScroll } from "./table";
 import { compare, type Cause, type Comparison, type Group, type OrderRow, type RowClass, type SideDown, type Stage } from "../../state/compare";
 
 const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
@@ -52,21 +53,23 @@ function differs(g: Group): string {
   return row && g.stage ? `${STAGE[g.stage]} ${KIND[row.class]}` : "Differs";
 }
 
+/** When an order row happened (ns): the earlier side's fill, else its order; a group's span (ms) and the id it is picked by. */
+const atNs = (row: OrderRow) => Math.min(...[row.run, row.replay].flatMap((s) => (s ? [s.fill?.ts_ns ?? s.init_ns] : [])));
+const spanOf = (g: Group, ms = g.orders.map((o) => Math.floor(atNs(o) / 1e6)), from = Math.min(...ms)) => ({ id: `compare:${g.instrument}:${from}`, from, to: Math.max(...ms) });
+
 /** One order of a group: its fill (or its order when it never filled) on each side. The group's result stands on its
- *  first difference's row (its first row when that is funding); its other rows are grey. */
+ *  first difference's row (its first row when that is funding); its other rows are grey. A click picks the group: its rows highlighted, its span marked on the chart. */
 function Row({ g, row, i, only, p }: { g: Group; row: OrderRow; i: number; only: boolean; p: Precision }) {
-  const zone = useTimeZone();
+  const zone = useTimeZone(), span = spanOf(g), picked = usePickedTrade() === span.id, ref = usePickedScroll<HTMLTableRowElement>(picked && i === 0);
   const same = g.class === "same", suspect = !!g.look_ahead_suspect, follows = g.cause === "consequence";
   const lead = i === (g.first ?? 0);
   const price = (side: OrderRow["run"]) => {
     const value = side?.fill?.px ?? side?.price ?? side?.trigger;
     return value ? <span className={side?.fill ? "" : "text-fg-faint"}>{fixed(value, p.price) ?? value}</span> : <span className="text-fg-ghost">{MISSING}</span>;
   };
-  const sides = [row.run, row.replay].filter((s) => s);
-  const at = sides.map((s) => s!.fill?.ts_ns ?? s!.init_ns).sort((x, y) => x - y)[0]!;
-  const bps = row.price_bps ?? null, delay = row.delay_ms ?? row.decision_delay_ms ?? null;
+  const at = atNs(row), bps = row.price_bps ?? null, delay = row.delay_ms ?? row.decision_delay_ms ?? null;
   return (
-    <tr className={`transition-colors hover:bg-row-hover ${same || follows || !lead ? "text-fg-muted" : ""}`}>
+    <tr ref={ref} data-selected={picked ? "" : undefined} onClick={() => pickTrade(span.id, span.from, span.to)} className={`cursor-pointer transition-colors hover:bg-row-hover ${same || follows || !lead ? "text-fg-muted" : ""}`}>
       {!only && <td className={`${CELL} text-left`}>{lead ? symbolOf(g.instrument) : ""}</td>}
       <td className={`${CELL} text-left text-fg-muted`}>{row.side === "BUY" ? "Buy" : "Sell"} {ROLE[row.role] ?? row.role}</td>
       <td className={`${CELL} text-left text-fg-muted`}>{dateTime(Math.floor(at / 1e6), zone)}</td>

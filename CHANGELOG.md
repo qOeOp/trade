@@ -26,6 +26,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
+  (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
+  it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
+  highlighted; a Comparison click picks the whole order group.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
@@ -46,6 +50,7 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
+||||||| parent of 29d49f362 (feat(ide): a trade row click moves the chart to the trade and marks it)
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
