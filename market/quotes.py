@@ -24,8 +24,9 @@ import time
 import numpy as np
 import pyarrow as pa
 
-from market import aggtrades, files, series, sources, store
+from market import aggtrades, files, sources, store
 from market.sources import DAY, _refuse
+from shared import clock
 
 
 RULE = "binance-aggtrades-bbo-v1"
@@ -144,7 +145,7 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
     # One contract at a time: a contract-day's derivation is held whole.
     found = store.contract_files(market, jobs, quote_month, 1, log)
     per_symbol = {item["symbols"][0]: item["per_symbol"] for item in found}
-    return {"month": label, "through": series.ms_day(end_ms).isoformat(), "quote_rule": RULE,
+    return {"month": label, "through": clock.ms_day(end_ms).isoformat(), "quote_rule": RULE,
             "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
             "per_symbol": per_symbol, "market_day": files.latest_market_day(market),
             "seconds": round(time.monotonic() - started)}
@@ -170,7 +171,7 @@ def quote_month(job: dict) -> dict:
         return pa.Table.from_batches(found, files.AGG_TRADE.schema)
 
     state = State()
-    eve = series.ms_day(start - DAY).isoformat()
+    eve = clock.ms_day(start - DAY).isoformat()
     if any(entry.start_ms < start for entry in job["trades"]):
         derive(trades(start - DAY), tick, state, f"{symbol} {eve}")
         read_eve = True
@@ -190,7 +191,7 @@ def quote_month(job: dict) -> dict:
         # One day at a time: derive, write, drop (a month of BTCUSDT is tens of millions of states).
         nonlocal written_rows
         for low in range(start, end, DAY):
-            day = series.ms_day(low).isoformat()
+            day = clock.ms_day(low).isoformat()
             found, day_readings = derive(trades(low), tick, state, f"{symbol} {day}")
             if found:
                 identities, times, bids, asks = zip(*found, strict=True)
@@ -203,6 +204,6 @@ def quote_month(job: dict) -> dict:
             for key, value in day_readings.items():
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
 
-    written = files.write_file(market, "quote", series.ms_day(start), symbol, rows())
+    written = files.write_file(market, "quote", clock.ms_day(start), symbol, rows())
     return {"written": written, "result": {"symbols": [symbol], "quotes": written_rows, "per_symbol": {
         **readings, "quotes": written_rows, "eve": read_eve, "days": (end - start) // DAY}}}

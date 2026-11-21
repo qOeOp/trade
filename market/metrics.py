@@ -24,8 +24,9 @@ import zlib
 
 import pyarrow as pa
 
-from market import files, series, sources, store, universe
+from market import files, sources, store
 from market.sources import MarketError, _refuse
+from shared import clock
 
 
 COLUMNS = ("create_time", "symbol", "sum_open_interest", "sum_open_interest_value", "count_toptrader_long_short_ratio",
@@ -59,7 +60,7 @@ def exact(text: str, label: str) -> str:
 def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
     """One day's rows in time order, and its readings: rows kept, identical repeats merged, empty ratios."""
     label = f"{symbol} {day}"
-    low = series._day_ms(date.fromisoformat(day))
+    low = clock.day_ms(date.fromisoformat(day))
     found: dict[int, tuple] = {}
     repeated = 0
     empty = dict.fromkeys(RATIOS, 0)
@@ -103,7 +104,7 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
 
 def held_days(market: files.Market, symbol: str, month: date | None = None) -> set[date]:
     """The days `symbol` holds rows of, in `month` or at all."""
-    low, high = (series._day_ms(month), series._day_ms(universe.next_month(month))) if month else (None, None)
+    low, high = (clock.day_ms(month), clock.day_ms(clock.next_month(month))) if month else (None, None)
     found: set[date] = set()
     for entry in files.entries(market, "metrics", [symbol], low, high):
         for batch in files.file_batches(files.file_bytes(market, entry), files.METRICS):
@@ -123,7 +124,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
     if start >= end:
         raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     if first is not None:
-        start = max(start, series._day_ms(first))
+        start = max(start, clock.day_ms(first))
     market = files.open_market(profile, "import")
     imports: list[dict] = []
     with files.lock(market):
@@ -152,7 +153,7 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     """One contract's published days in [start, end) the file does not hold, added to the stored rows."""
     label = f"{month:%Y-%m}"
     held = held_days(market, symbol, month)
-    days = [day for at in range(start, end, store.DAY) if (day := series.ms_day(at)) not in held]
+    days = [day for at in range(start, end, store.DAY) if (day := clock.ms_day(at)) not in held]
     if not days:
         raise _refuse(f"the market already holds every closed day of {label} metrics of {symbol}",
                       "MONTH_EXISTS", missing=(label,))
@@ -176,8 +177,8 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
         if kept:
             new.append(batch(kept))
         log(f"{symbol} {day}: {len(kept)} metrics rows")
-    stored = list(files.scan(market, None, "metrics", [symbol], series._day_ms(month),
-                             series._day_ms(universe.next_month(month))))
+    stored = list(files.scan(market, None, "metrics", [symbol], clock.day_ms(month),
+                             clock.day_ms(clock.next_month(month))))
     merged = pa.Table.from_batches(stored + new, files.METRICS.schema).sort_by(
         [(name, "ascending") for name in files.METRICS.key]).combine_chunks()
     written = files.write_file(market, "metrics", month, symbol, merged.to_batches())

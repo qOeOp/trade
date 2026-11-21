@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 
 from market import files, instrument, lifecycle, metrics, series, store, universe
 from market.sources import MINUTE, _refuse
+from shared import clock
 
 
 FORMAT = "market-coverage-v1"
@@ -197,7 +198,7 @@ def _held(market: files.Market, market_day: str, table: str, symbol: str, start_
                 rows += batch.num_rows
                 for name in nulls:
                     counts[name] += batch.column(name).null_count
-        months.append({"month": series.ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
+        months.append({"month": clock.ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
                        **({"empty": counts} if nulls else {})})
         if at < entry.start_ms:
             uncovered.append([at, entry.start_ms])
@@ -214,16 +215,16 @@ def metrics_facts(market: files.Market, market_day: str, symbol: str, start_ms: 
     days it holds lacks, the empty ratios and the days up to the market day it does not hold, the first and last stored
     create_time in the interval and the parts with no row, missing days included."""
     found = _held(market, market_day, "metrics", symbol, start_ms, end_ms, metrics.RATIOS)
-    limit = series.ms_day(files.day_end("metrics", market_day))
+    limit = clock.ms_day(files.day_end("metrics", market_day))
     gaps = []
     for part in found["months"]:
         month = date.fromisoformat(f"{part['month']}-01")
         held = {day for day in metrics.held_days(market, symbol, month) if day < limit}
-        days = [month + timedelta(days=count) for count in range((universe.next_month(month) - month).days)]
+        days = [month + timedelta(days=count) for count in range((clock.next_month(month) - month).days)]
         part["missing_rows"] = len(held) * (store.DAY // metrics.STEP) - part["rows"]
         part["missing_days"] = [day.isoformat() for day in days if day not in held and day < limit]
         gaps += [[max(low, start_ms), min(low + store.DAY, end_ms)] for day in part["missing_days"]
-                 if (low := series._day_ms(date.fromisoformat(day))) < end_ms and low + store.DAY > start_ms]
+                 if (low := clock.day_ms(date.fromisoformat(day))) < end_ms and low + store.DAY > start_ms]
     merged: list[list[int]] = []
     for low, high in sorted(found["uncovered_intervals_ms"] + gaps):
         if merged and low <= merged[-1][1]:
@@ -249,8 +250,8 @@ def universe_members(profile: dict, at: str | None, start: str, end: str) -> lis
     """Every universe member of the months [start, end) touches, at the market day `at` names."""
     start_ms, end_ms = _ms(start), _ms(end)
     _interval(start_ms, end_ms)
-    first = series.ms_day(start_ms).replace(day=1)
-    last = series.ms_day(end_ms - 1).replace(day=1)
+    first = clock.ms_day(start_ms).replace(day=1)
+    last = clock.ms_day(end_ms - 1).replace(day=1)
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     return sorted({symbol for month, symbol in universe.months_of(market, market_day) if first <= month <= last})

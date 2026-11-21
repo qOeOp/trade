@@ -37,8 +37,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
-from market import coverage, files, instrument, lifecycle, series, universe
+from market import coverage, files, instrument, lifecycle, series
 from market.sources import DAY, MINUTE, _refuse
+from shared import clock
 
 
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
@@ -141,7 +142,7 @@ def price_grid(market: files.Market, market_day: str, symbol: str, increment: st
 def require_funding_files(market: files.Market, symbol: str, opens: np.ndarray) -> None:
     """Every month holding one of the window's LAST bars has its funding file: without it Nautilus would replay that
     month without a single settlement and no check would see it (FUNDING_FILE_MISSING)."""
-    months = sorted({series.ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
+    months = sorted({clock.ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
     held = {entry.relative for entry in files.entries(market, "funding")}
     absent = [files.relative_path("funding", month) for month in months
               if files.relative_path("funding", month) not in held]
@@ -316,11 +317,6 @@ def quote_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
     yield from _rows(market, market_day, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
 
-def _month_end(ts_ms: int) -> int:
-    """The first millisecond of the UTC month after the one holding `ts_ms`."""
-    return series._day_ms(universe.next_month(series.ms_day(ts_ms)))
-
-
 def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int) -> int:
     """market.write_trades: one TradeTick per stored aggregate trade (`rows` yields (ts_ms, agg_trade_id, price,
     quantity, is_buyer_maker) integer batches in (time, ID) order): the price and quantity exact at the
@@ -352,7 +348,7 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
         pending = np.concatenate((pending, block))
         while len(pending):
             if last is None or pending[0, 0] >= last:
-                last = _month_end(int(pending[0, 0]))
+                last = clock.month_end(int(pending[0, 0]))
             inside = int(np.searchsorted(pending[:, 0], last))
             if inside < len(pending):
                 flush(pending[:inside])  # the month ends here: its trades are complete

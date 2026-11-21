@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 from market import coverage, export, files, follow, instrument, lifecycle, read, series, sources, store, universe
 from market.sources import MarketError
 from registration import inputs
+from shared import clock
 from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 from tests.helpers import refused
@@ -43,7 +44,7 @@ def exchange() -> Exchange:
              "CCCUSDT": (day_ms(JAN), DELISTED)}
     for symbol, (low, high) in spans.items():
         for month in (JAN, FEB, MAR):
-            start, end = max(low, day_ms(month)), min(high, day_ms(universe.next_month(month)))
+            start, end = max(low, day_ms(month)), min(high, day_ms(clock.next_month(month)))
             if start >= end:
                 continue
             period = f"{month:%Y-%m}"
@@ -94,7 +95,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.market_days[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
-        self.assertEqual(self.market_days, {month: (universe.next_month(month) - timedelta(days=2)).isoformat()
+        self.assertEqual(self.market_days, {month: (clock.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
         root = Path(self.profile["root"])
         self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),

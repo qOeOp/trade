@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import aggtrades, files, follow, metrics, quotes, sources, store, universe
+from market import aggtrades, files, follow, metrics, quotes, sources, store
+from shared import clock
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
@@ -244,7 +245,7 @@ class BarsTests(unittest.TestCase):
 
     def importing(self, profile, month, cache, symbols=None, log=print):
         self.calls.append((month, symbols))
-        end = min(universe.next_month(month), self.today)
+        end = min(clock.next_month(month), self.today)
         return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 

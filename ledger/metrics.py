@@ -24,7 +24,6 @@ import io
 import json
 import math
 from pathlib import Path
-import re
 import subprocess
 from typing import Any
 
@@ -32,6 +31,7 @@ from engine.compare import TABLES
 from engine.native_csv import dict_reader
 from ledger import db, problems
 from shared import paths
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -48,14 +48,12 @@ PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 PRICE_PNL = "realized_pnl + commissions - funding AS price_pnl"
 CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
 REPORT_FILES = {name: file for name, (file, _) in TABLES.items()}  # the sealed native reports
 ENGINE_ORDERS = ("EXPIRATION-", "LIQUIDATION-")  # the engine's own settlement and liquidation orders
 SUMMARY = "summary.json"
 SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "data_interval_minutes",
                 "period_start_utc", "period_end_utc")
-_NANOSECONDS = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]00:?00)?\Z")
 
 
 class Unreconciled(Exception):
@@ -77,27 +75,6 @@ def _sample(items: Iterable) -> str:
 
 # Native values
 
-def moment_ns(moment: datetime) -> int:
-    """UTC nanoseconds of a stored time (naive means UTC)."""
-    moment = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
-
-
-def utc_ns(text: str) -> int:
-    """UTC nanoseconds of a native time: an integer, or ISO-8601 with up to nine fraction digits."""
-    text = str(text).strip()
-    if text.isdigit():
-        return int(text)
-    found = _NANOSECONDS.fullmatch(text)
-    if found is None:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if moment.utcoffset() != timedelta(0):
-            raise ValueError(f"{text!r} is not a UTC time")
-        return (moment - EPOCH) // timedelta(microseconds=1) * 1000
-    day, hour, minute, second, fraction, _ = found.groups()
-    base = datetime.fromisoformat(f"{day}T{hour}:{minute}:{second}+00:00")
-    return int((base - EPOCH).total_seconds()) * 10**9 + int((fraction or "").ljust(9, "0"))
-
 
 def utc_day(ns: int) -> str:
     """The UTC day (YYYY-MM-DD) of a time in nanoseconds."""
@@ -105,7 +82,7 @@ def utc_day(ns: int) -> str:
 
 
 def iso_minute(ns: int | None) -> str | None:
-    return None if ns is None else (EPOCH + timedelta(microseconds=ns // 1000)).isoformat()[:16]
+    return None if ns is None else (clock.EPOCH + timedelta(microseconds=ns // 1000)).isoformat()[:16]
 
 
 def _list(value: str) -> list:
@@ -372,7 +349,7 @@ def cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
             found.append({"closed": closed, "realized": _usdt(row["realized_pnl"]), "price": price,
                           "commissions": sum((_usdt(item) for item in _list(row.get("commissions", ""))), Decimal(0)),
                           "funding": funding, "event_ids": event_ids, "ts_last": int(row["ts_last"]),
-                          "ts_opened": min(times) if times else utc_ns(row["ts_opened"])})
+                          "ts_opened": min(times) if times else clock.utc_ns(row["ts_opened"])})
         except Unreconciled:
             raise
         except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError) as exc:
@@ -472,7 +449,7 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
         close, fill = settlement[0], mine[0]
         try:
             at, price = int(close["ts_event"]), Decimal(str(close["close_price"]))
-            same_time = utc_ns(fill["ts_event"]) == at and all(int(event["ts_event"]) == at
+            same_time = clock.utc_ns(fill["ts_event"]) == at and all(int(event["ts_event"]) == at
                                                                for event in events_of[order_id])
             same_price = Decimal(fill["last_px"]) == price
         except (KeyError, TypeError, ValueError, ArithmeticError):
@@ -552,7 +529,7 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
 def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: list[str]):
     """Trade-window UTC daily returns that compound to the summary's final equity when it names one (sealing: the
     native one); None with a named limitation otherwise."""
-    start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
+    start, end = clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"])
     window = [(ts, value) for ts, value in returns if ts >= start]
     if not window or any(value <= -1 for _, value in window):
         limitations.append("RETURN_SERIES_INVALID: the trade-window daily returns are empty or hold a value <= -1")
@@ -630,7 +607,7 @@ def _typed_exposures(rows) -> ExposureTable | None:
 def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
     """(bar step, bar labels of the trade window), the label offset taken from the exposure rows."""
     step = int(summary["data_interval_minutes"]) * 60 * 10**9
-    start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
+    start, end = clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"])
     offset = min(exposures.by_label) % step if exposures else step - 1_000_000
     first = start - start % step + offset
     if first < start:
@@ -646,7 +623,7 @@ def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
 def _account_states(account: list[dict], *fields: str) -> list[tuple]:
     """(UTC ns, Decimal fields...) per account row, ordered by time only: rows tied on a timestamp keep
     report order."""
-    return sorted(((utc_ns(row["ts_event"]), *(Decimal(row[field]) for field in fields)) for row in account),
+    return sorted(((clock.utc_ns(row["ts_event"]), *(Decimal(row[field]) for field in fields)) for row in account),
                   key=lambda state: state[0])
 
 
@@ -981,7 +958,7 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
 def daily_rows(reports: Reports) -> list[tuple[int, float, Decimal | None]]:
     """The run_return rows: trade-window native daily returns with the day's mean gross notional."""
     summary = reports.summary or {}
-    start = utc_ns(summary["period_start_utc"])
+    start = clock.utc_ns(summary["period_start_utc"])
     try:
         notional = daily_notional(equity_path(summary, reports.account, _typed_exposures(reports.exposures)))
     except Unreconciled:

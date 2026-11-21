@@ -29,6 +29,7 @@ import pyarrow.compute as pc
 
 from market import files, instrument, series, sources, universe
 from market.sources import DAY, MINUTE, MarketError, _refuse
+from shared import clock
 
 
 def default_cache() -> Path:
@@ -237,7 +238,7 @@ def _compare_bars(job: dict, price_type: str, reread: dict[str, np.ndarray]) -> 
     if not times:
         differs = np.nonzero(np.any([stored[name] != reread[name] for name in series.COLUMNS], axis=0))[0]
         times = stored["ts_open"][differs].tolist()
-    label = series.ms_day(job["start"]).strftime("%Y-%m")
+    label = clock.ms_day(job["start"]).strftime("%Y-%m")
     raise _refuse(f"{price_type}: the sources now differ from the stored {label} rows at {times[:5]}", "MONTH_EXISTS",
                   missing=(label, *map(str, times[:5])))
 
@@ -282,7 +283,7 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
     settlements in a slot refuses SOURCE_SHAPE."""
     if start >= end:
         return []
-    months = series._months(start, end)
+    months = clock.month_names(start, end)
     monthly = sources.monthly_archives(cache, "fundingRate", symbol, None, months)
     slots: dict[int, tuple[int, str]] = {}
 
@@ -303,7 +304,7 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
         add(sources.funding_rows(monthly[month]), f"the {month} archive")
     missing = [month for month in months if month not in monthly]
     if missing:
-        low = max(start, series._day_ms(date.fromisoformat(missing[0] + "-01")))
+        low = max(start, clock.day_ms(date.fromisoformat(missing[0] + "-01")))
         try:
             add(sources.rest_funding(symbol, low, end), "public REST")
         except MarketError as exc:
@@ -329,8 +330,8 @@ def month_bounds(month: date) -> tuple[int, int]:
     a malformed or future month)."""
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
-    start = series._day_ms(month)
-    end = min(series._day_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
+    start = clock.day_ms(month)
+    end = min(clock.day_ms(clock.next_month(month)), clock.day_ms(datetime.now(UTC).date()))
     if start > end:
         raise _refuse(f"{month:%Y-%m} has not begun", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     return start, end
@@ -340,7 +341,7 @@ def closed_month(month: date) -> tuple[int, int]:
     """[start, end) of a month an import takes only whole, once it has ended: its file is never written again, and
     nothing says a shorter one is short (MONTH_INVALID)."""
     start, end = month_bounds(month)
-    if end < series._day_ms(universe.next_month(month)):
+    if end < clock.day_ms(clock.next_month(month)):
         raise _refuse(f"{month:%Y-%m} has not ended; this table is imported a whole month at a time", "MONTH_INVALID",
                       missing=(f"{month:%Y-%m}",))
     return start, end
@@ -370,15 +371,15 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     if not through and start_ms == end_ms:
         raise _refuse(f"{label} has no closed UTC day yet, and the first import has no members to give",
                       "MONTH_INVALID", missing=(label,))
-    if through.get(month) == universe.next_month(month):
+    if through.get(month) == clock.next_month(month):
         raise _refuse(f"the market already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
     held = sorted(through)
     earliest, latest = (held[0], held[-1]) if held else (month, month)
     # Months extend at either end: the latest month completed or the month after it, or the month just
     # before the earliest (a backfill: the later months' files stay as they are).
-    backfill = bool(held) and universe.next_month(month) == earliest
-    if held and not backfill and (month not in (latest, universe.next_month(latest)) or (
-            month == universe.next_month(latest) and through[latest] != month)):
+    backfill = bool(held) and clock.next_month(month) == earliest
+    if held and not backfill and (month not in (latest, clock.next_month(latest)) or (
+            month == clock.next_month(latest) and through[latest] != month)):
         raise _refuse(f"the stored months run from {earliest:%Y-%m} to {latest:%Y-%m} through {through[latest]}; import "
                       f"the month after {latest:%Y-%m} or the month before {earliest:%Y-%m}", "MONTH_INVALID",
                       missing=(f"{earliest:%Y-%m}", f"{latest:%Y-%m}"))
@@ -386,7 +387,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     if backfill:
         _check_empty(market, month, start_ms, end_ms)
     # The days the month's file holds: its new file repeats them, compared with the sources.
-    held_ms = series._day_ms(through[month]) if month in through else None
+    held_ms = clock.day_ms(through[month]) if month in through else None
 
     observed, listed = sources.rest_exchange_info()
     by_symbol = {item["symbol"]: item for item in listed}
@@ -496,7 +497,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     # Bars last: the market's newest day comes from them.
     files.place(market, [item for item in (*member_files, funding_file, terms_file, bar_file) if item is not None])
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
-              "through": series.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
+              "through": clock.ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
               "gaps": dict(sorted(totals["gaps"].items())), "source_rows": totals["source_rows"], "excluded": excluded,
               "inferred_terms": sorted(totals["inferred_terms"]), "rounded_volumes": totals["rounded_volumes"],
@@ -638,7 +639,7 @@ def trading_days(market: files.Market, symbols: list[str], low: date, high: date
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     if not symbols:
         return found
-    for batch in files.scan(market, None, "bar", symbols, series._day_ms(low), series._day_ms(high)):
+    for batch in files.scan(market, None, "bar", symbols, clock.day_ms(low), clock.day_ms(high)):
         traded = batch.filter(pc.and_(pc.equal(batch.column("price_type"), "LAST"),
                                       pc.greater(batch.column("volume"), 0)))
         days = pa.table({"symbol": traded.column("symbol"),
@@ -653,14 +654,14 @@ def _first_members(first_month: date) -> date:
     LISTED_DAYS lies inside the held months."""
     first = first_month
     while first - timedelta(days=universe.LISTED_DAYS) < first_month:
-        first = universe.next_month(first)
+        first = clock.next_month(first)
     return first
 
 
 def _members(market: files.Market, month: date) -> set[str]:
     found: set[str] = set()
-    for batch in files.scan(market, None, "universe_month", None, series._day_ms(month),
-                            series._day_ms(universe.next_month(month))):
+    for batch in files.scan(market, None, "universe_month", None, clock.day_ms(month),
+                            clock.day_ms(clock.next_month(month))):
         found.update(batch.filter(pc.equal(batch.column("universe_rule"), universe.RULE)).column("symbol").to_pylist())
     return found
 
@@ -722,7 +723,7 @@ def _fill_universe(market: files.Market, month: date, earliest: date, latest: da
     filled, at = {}, _first_members(month)
     while at < _first_members(earliest) and at <= latest:
         filled[at] = _universe(market, at, month)[1]
-        at = universe.next_month(at)
+        at = clock.next_month(at)
     return filled
 
 
@@ -746,7 +747,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
                 newest = max(newest or 0, pc.max(opens).as_py())
         if newest is not None:
             break
-    complete_day = series.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
+    complete_day = clock.ms_day(newest + MINUTE) - timedelta(days=1) if newest is not None else None
     return {"market_day": market_day, "universe_months": [value.strftime("%Y-%m") for value in months],
             "latest_complete_day": complete_day}
 

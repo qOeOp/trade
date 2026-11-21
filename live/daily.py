@@ -11,7 +11,7 @@ failures (live.notify). An execution record: nothing reaches a ledger, and the c
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, datetime, timezone
+from datetime import date
 from decimal import Decimal
 import json
 import os
@@ -26,6 +26,7 @@ from engine.config import utc_text
 from engine.live_errors import LiveRefusal
 from ledger import metrics
 from live import runs, state
+from shared import clock
 from shared.errors import Refusal
 
 
@@ -44,10 +45,6 @@ CPUS = "1"
 LISTED = 20
 STAGE_PREFIX = "trade-live-compare-"
 CONTAINER_MARK = Path("/.dockerenv")
-
-
-def _ns(day: str) -> int:
-    return round(datetime.combine(date.fromisoformat(day), datetime.min.time(), timezone.utc).timestamp()) * 10**9
 
 
 # Records
@@ -185,7 +182,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     done_day = previous.get("done") if isinstance(previous.get("done"), str) else None
     bound = target + DAY_NS
     since = target - (WEEK - 1) * DAY_NS
-    fresh = max(_ns(done_day) + DAY_NS, since) if done_day else since  # decisions not reported before
+    fresh = max(clock.day_ns(date.fromisoformat(done_day)) + DAY_NS, since) if done_day else since  # decisions not reported before
     base = {"day": day, "attempted_ns": time.time_ns(), "done": done_day,
             "window": {"from": utc_text(since), "to": utc_text(bound)}}
     _write(root, run_id, {**base, "state": "running", "failures": streak})
@@ -297,7 +294,7 @@ def run(root: Path, market_root: Path, today: str) -> dict:
         try:
             for run_id in listed:
                 try:
-                    record = compare_run(root, market, run_id, _ns(today), attempt)
+                    record = compare_run(root, market, run_id, clock.day_ns(date.fromisoformat(today)), attempt)
                     if record is not None:
                         _write(root, run_id, record)
                         found[run_id] = record["state"]
