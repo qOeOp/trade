@@ -20,7 +20,7 @@ from unittest import mock
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from live import compare
-from replay import comparison as shared
+from replay import comparison as shared, rerun
 from tests.helpers import refused
 
 
@@ -43,7 +43,7 @@ def bar_row(i: int, close: str = "100.0") -> dict:
 def warmup_row(minutes: tuple[int, ...], wall_ns: int) -> dict:
     """The digest of the one-minute history the source received (engine.realtime.MarketRows.warmup)."""
     return {"kind": "warmup", "wall_ns": wall_ns, "instrument_id": BTC, "period": "1-MINUTE",
-            **shared.digest((close_of(i), "100.0", "101.0", "99.0", "100.0", "5.000") for i in minutes)}
+            **rerun.digest((close_of(i), "100.0", "101.0", "99.0", "100.0", "5.000") for i in minutes)}
 
 
 def order(name: str, tag: str, side: str, at: int, qty: str = "0.002", price: str | None = "100.0",
@@ -173,7 +173,7 @@ class Compare(unittest.TestCase):
         def replayed(market, market_day, source, entry_class, image_ref, symbols, start, end, leverage, balance,
                      output, name, timeout, received):
             given.update(source=source, entry_class=entry_class, image_ref=image_ref, symbols=symbols, start=start,
-                         end=end, leverage=leverage, balance=balance, history=shared.history_start(start, received))
+                         end=end, leverage=leverage, balance=balance, history=rerun.history_start(start, received))
             reports = Path(output) / "reports"
             reports.mkdir(parents=True)
             with (reports / "account.csv").open("w", newline="") as handle:
@@ -189,7 +189,7 @@ class Compare(unittest.TestCase):
             last = (int(shared.datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
             return {"market_day": "2026-11-11", "bars": {"rows": archived(first, last - first)}}
 
-        with mock.patch.object(shared, "replay", side_effect=replayed), \
+        with mock.patch.object(rerun, "replay", side_effect=replayed), \
                 mock.patch("market.read.stored_bars", side_effect=stored), \
                 mock.patch("market.files.open_market"), \
                 mock.patch("market.instrument.terms", return_value=TERMS), \
@@ -217,7 +217,7 @@ class Compare(unittest.TestCase):
             stream.write(json.dumps(row) + "\n")
         stored = [[START, "97897.565", "3.6904", "1.8441", None, {}],
                   [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1", {}]]
-        with mock.patch.object(shared, "archive_metrics", return_value=stored) as archive:
+        with mock.patch.object(rerun, "archive_metrics", return_value=stored) as archive:
             _, result = self.compared(pack)
         self.assertEqual(archive.call_args.args[2:], ("BTCUSDT", START, close_of(pack.minutes - 1) + 10**6))
         metrics = result["inputs"]["BTCUSDT"]["metrics"]
@@ -234,7 +234,7 @@ class Compare(unittest.TestCase):
         with (self.root / "runs" / pack.run_id / "out" / "evidence" / "market.jsonl").open("a") as stream:
             stream.write(json.dumps(received) + "\n" + json.dumps(unsubscribed) + "\n")
         stored = [[START, "97900", "3.6", "1.8", "3.1", {}], [START + 5 * MINUTE, "97900", "3.6", "1.8", "3.1", {}]]
-        with mock.patch.object(shared, "archive_metrics", return_value=stored):
+        with mock.patch.object(rerun, "archive_metrics", return_value=stored):
             _, result = self.compared(pack)
         metrics = result["inputs"]["BTCUSDT"]["metrics"]
         self.assertEqual((metrics["archive"], metrics["live"], metrics["missing"]), (1, 1, []))

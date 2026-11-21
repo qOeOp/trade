@@ -60,10 +60,6 @@ CONTRACT_SECONDS = 60  # while the contract is not TRADING, its status is read t
 ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
 ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
-# An aggregated bar received this long after its bucket's end: rc7 closes a time bar on a monotonic-clock timer, which
-# a host sleep or VM pause leaves behind for good (doctor 20261114-30); on time it comes BUILD_DELAY_US after the end.
-AGGREGATE_LATE_NS = 60_000_000_000
-HOUR_NS, DAY_NS = 3_600_000_000_000, 86_400_000_000_000
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
 IN_FLIGHT = frozenset({OrderStatus.SUBMITTED, OrderStatus.PENDING_UPDATE, OrderStatus.PENDING_CANCEL})
 
@@ -320,7 +316,10 @@ def bar(session, bar) -> bool:
     try:
         kind, step = str(bar.bar_type), bar.bar_type.spec.get_interval_ns()
         if not bar.bar_type.is_externally_aggregated():
-            late_aggregate(session, kind, step, bar.ts_event)
+            if history.late_aggregate(bar, time.time_ns()):
+                # The source would decide on a stale bucket; only a restart's fresh timers and warm-up (rewarm) put
+                # the aggregation back on time. The bar's late_aggregate row (engine.realtime) holds its timing.
+                close_entries(session, "bars_missing", bar_type=kind, received_ns=bar.ts_event)
             return False
     except Exception:
         return False
@@ -337,19 +336,6 @@ def bar(session, bar) -> bool:
         # protects a fill; positions keep their exits (design §3.2 item 3).
         close_entries(session, "bars_missing", bar_type=kind, after_ns=previous, received_ns=bar.ts_event)
     return False
-
-
-def late_aggregate(session, kind: str, step: int, stamped: int) -> None:
-    """An aggregated time bar received more than AGGREGATE_LATE_NS after its bucket's end closes entries as a missing
-    bar does: the source would decide on a stale bucket, and only a restart's fresh timers and warm-up (rewarm) put
-    the aggregation back on time. The bucket is the one the bar's stamp, less the build delay, falls in, so a timer that
-    slipped is judged by the bucket it should have closed; only steps the hour or the day divides align so."""
-    if not (step < HOUR_NS and HOUR_NS % step == 0 or step >= HOUR_NS and DAY_NS % step == 0):
-        return
-    end = (stamped - history.BUILD_DELAY_US * 1000) // step * step
-    late = time.time_ns() - end
-    if late > AGGREGATE_LATE_NS:
-        close_entries(session, "bars_missing", bar_type=kind, bucket_end_ns=end, late_ns=late)
 
 
 def rewarm_due(session) -> bool:

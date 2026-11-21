@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from nautilus_trader.common import DataActor
+from nautilus_trader.model import BarType
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
@@ -62,11 +63,43 @@ DEADLINE_NS = 45 * SECOND_NS  # the first live minute closes 60 s after T; its s
 START_MARGIN_NS = 30 * SECOND_NS  # a Paper or Live T leaves the node this long to start
 RETRY_NS = 2 * SECOND_NS
 HOUR_NS = 3600 * SECOND_NS
+DAY_NS = 24 * HOUR_NS
+# An aggregated bar received this long after its bucket's end is late: rc7 closes a time bar on a monotonic-clock
+# timer, which a host sleep or VM pause leaves behind for good (doctor 20261114-30); on time it comes BUILD_DELAY_US
+# after the end.
+AGGREGATE_LATE_NS = 60 * SECOND_NS
 WAIT = timedelta(milliseconds=200)
 
 # Per strategy ID: an instance's warm-up, out of the source's reach.
 STATES: dict[str, dict] = {}
 ACTORS: list[WarmupActor] = []
+
+
+def _aligned_step(bar_type: str) -> int | None:
+    """The step of an internally aggregated time bar type the hour (steps under an hour) or the day divides; None
+    for any other bar type: only those buckets align."""
+    kind = BarType.from_str(bar_type)
+    if kind.is_externally_aggregated() or not kind.spec.is_time_aggregated():
+        return None
+    step = kind.spec.get_interval_ns()
+    return step if step < HOUR_NS and HOUR_NS % step == 0 or step >= HOUR_NS and DAY_NS % step == 0 else None
+
+
+def bucket_end(bar_type: str, stamped: int) -> int | None:
+    """The end of the bucket an aggregated time bar of `bar_type` stamped `stamped` closes: the one its stamp, less
+    the build delay, falls in, so a timer that slipped is judged by the bucket it should have closed (None: no aligned
+    bucket, _aligned_step)."""
+    step = _aligned_step(bar_type)
+    return None if step is None else (stamped - BUILD_DELAY_US * 1000) // step * step
+
+
+def late_aggregate(bar, now: int) -> bool:
+    """Whether `bar`, received at `now`, is an aggregated time bar received more than AGGREGATE_LATE_NS after its
+    bucket's end (bucket_end)."""
+    if _aligned_step(str(bar.bar_type)) is None:
+        return False
+    end = bucket_end(str(bar.bar_type), bar.ts_event)
+    return end is not None and now - end > AGGREGATE_LATE_NS
 
 
 def clear() -> None:

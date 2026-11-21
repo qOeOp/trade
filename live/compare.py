@@ -38,7 +38,7 @@ import secrets
 from engine.config import utc_text
 from ledger import paper as records
 from live import state
-from replay import comparison as shared
+from replay import comparison as shared, rerun
 from shared.refusals import refuse
 
 
@@ -298,11 +298,11 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     symbols = list(manifest["symbols"])
     start, end = window(pack)
     balance, snapshot = wallet(pack)
-    market_day, archived = shared.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
+    market_day, archived = rerun.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
     lines = journal(pack, start)
     run = shared.run_record(pack["market"], **parts(
         pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end))))
-    output, replayed, compared = shared.replay_and_compare(
+    output, replayed, compared = rerun.replay_and_compare(
         run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
         start, end, manifest["config"]["leverage"], balance, output,
         f"trade-live-compare-{run_id}-{secrets.token_hex(4)}", timeout)

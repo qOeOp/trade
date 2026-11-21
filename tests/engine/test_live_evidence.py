@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
@@ -20,7 +20,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
-from engine import history, live, live_lifecycle, live_source as live_source_runtime, warmup
+from engine import history, live, live_lifecycle, live_source as live_source_runtime, realtime, warmup
 from engine.config import Refusal
 from engine.live_evidence import EVIDENCE, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
@@ -274,14 +274,26 @@ class LiveEvidenceTests(unittest.TestCase):
         finally:
             engine.dispose()
 
-    def test_an_aggregation_the_source_receives_is_not_recorded(self):
-        """Only the one-minute bars are market rows: an aggregation is built from them (engine.realtime.MarketRows)."""
+    def test_an_aggregation_received_late_is_recorded_while_entries_are_already_closed(self):
+        """Re-judge C-142 (user 2026-11-21, 「批准」): an aggregated bar received more than AGGREGATE_LATE_NS after its
+        bucket's end is a late_aggregate row (its OHLCV is not), so `live compare` can attribute what the source
+        decided on it, even when a missing bar closed entries before."""
         session, _ = self.session()
-        hour = Bar(BarType.from_str(f"{fixture.INSTRUMENT_ID}-1-HOUR-LAST-INTERNAL"),
-                   *[Price.from_str("100.00")] * 4, Quantity.from_str("40.000"), HOUR_NS, HOUR_NS)
-        session.evidence.market("bar", hour)
-        session.evidence.market("bar", bar(HOUR_NS))
-        self.assertEqual([(row["kind"], row["ts_event"]) for row in rows(self.output)], [("bar", HOUR_NS)])
+        session.connection.closed["bars_missing"] = 0.0
+        kind = BarType.from_str(f"{fixture.INSTRUMENT_ID}-1-HOUR-LAST-INTERNAL")
+        stamped = HOUR_NS + history.BUILD_DELAY_US * 1000
+        hour = Bar(kind, *[Price.from_str("100.00")] * 4, Quantity.from_str("40.000"), stamped, stamped)
+        source = SimpleNamespace(_live=session)
+        with patch.object(live_source_runtime.live_connection, "rewarm_due", return_value=False):
+            for late in (0, 1):  # not yet late, then late
+                with patch.object(realtime.time, "time_ns", return_value=HOUR_NS + history.AGGREGATE_LATE_NS + late):
+                    live_source_runtime._gated("on_bar", None)(source, hour)
+            live_source_runtime._gated("on_bar", None)(source, bar(HOUR_NS))
+        self.assertEqual([{key: value for key, value in row.items() if key not in ("wall_ns", "open", "high", "low",
+                                                                                    "close", "volume", "ts_init")}
+                          for row in rows(self.output)],
+                         [{"kind": "late_aggregate", "bar_type": str(kind), "ts_event": stamped},
+                          {"kind": "bar", "instrument_id": str(fixture.INSTRUMENT_ID), "ts_event": HOUR_NS}])
 
     def test_a_failed_write_is_journaled_once_and_never_fails_the_run(self):
         session, _ = self.session()

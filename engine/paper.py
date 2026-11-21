@@ -40,8 +40,8 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: the market rows Live's evidence pack holds too (engine.realtime.MarketRows:
-one-minute bars, the warm-up digests, Binance's time for each closed one-minute kline and its side connection's state,
-the metrics rows), data gaps, socket state, orders, positions, funding
+one-minute bars, late aggregated bars, the warm-up digests, Binance's time for each closed one-minute kline and its
+side connection's state, the metrics rows), data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
 minute's last mark, as a replay values a minute at its MARK bar's close), and protection gaps. ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
@@ -104,8 +104,7 @@ from nautilus_trader.common import CacheConfig, DataActor, Environment
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.model import (
-    AccountType, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId,
-    Venue,
+    AccountType, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId, Venue,
 )
 from nautilus_trader.trading import Strategy
 
@@ -510,7 +509,8 @@ def _repeated(self, bar) -> bool:
     """An external bar stamped no later than the latest of its type the source had: Binance pushing a closed kline
     again, revised or not (rc7's validate_data_sequence passes an equal stamp). It is journalled and the source does
     not see it, or it decides twice on one bar, as engine.live_connection.bar does for Live. A replay never repeats a
-    bar, so this keeps parity."""
+    bar, so this keeps parity. An aggregated bar received late is journalled first (MarketRows.aggregated)."""
+    MARKET.aggregated(bar)
     kind = bar.bar_type
     if not (isinstance(kind, BarType) and kind.is_externally_aggregated()):
         return False
