@@ -30,6 +30,12 @@ function Block({ text }: { text: string }) {
     : <p key={i} className="whitespace-pre-line">{withTokens(r.lines.join("\n"))}</p>)}</div>;
 }
 
+/** Long text whole, as paragraphs (split on blank lines) and lists, with no folding: for a body its own panel folds. */
+export function ProseBlocks({ text }: { text: string }) {
+  const leading = ZH.test(text) ? "leading-zh" : "leading-normal";
+  return <div className={`space-y-3 ${leading} wrap-anywhere`}>{text.trim().split(/\n\s*\n/).map((b, i) => <Block key={i} text={b} />)}</div>;
+}
+
 /** Long text as paragraphs (split on blank lines) and lists, folded to its first paragraph, or to the first
  *  sentence of a single one, with the rest behind Show more; hashes, IDs and paths in it as chips. */
 export function Prose({ text, unfolded = false }: { text?: string | null; unfolded?: boolean }) {

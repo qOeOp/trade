@@ -18,9 +18,12 @@ export function chartHistory(stage: Drawn, stretches: readonly Stretch[], backte
 
 const startedNs = (r: PaperRun) => chainStart([r]) ?? createdNs(r);
 
-/** A trial the backtest stage can draw: a research or validation replay with economic evidence (a history
- *  replay's report carries none, so it is read on the History page). */
-export const drawable = (t: Trial) => (t.purpose === "research" || t.purpose === "validation") && t.eligible === true;
+/** The purposes whose replay seals a run (ledger.trials.RUN_PURPOSES); a precheck or explore replay seals none. */
+export const RUN_PURPOSES: ReadonlySet<string> = new Set(["research", "validation", "history"]);
+
+/** A trial the backtest stage can draw: a sealed run (research, validation or a line-close history segment) with
+ *  economic evidence. */
+export const drawable = (t: Trial) => RUN_PURPOSES.has(t.purpose) && t.eligible === true;
 
 /** The replay the backtest stage draws: the one picked (`chosen`) while it can be, else the version's last
  *  research replay with economic evidence. */

@@ -30,6 +30,11 @@ from engine.config import ACCOUNT_CONTRACT
 MARKER = "paper-recovery"
 SECONDS = 10.0
 HEALTH_SECONDS = 2.0
+# How long PING may go unanswered by a cache whose process is alive before the run ends. A host that stalls (the
+# release host's VM did for seconds at a time on 2026-11-20, steal time to 9.8%) misses PINGs it answers again a moment
+# later; both checks must hold, so one late check after a long stall is not enough on its own.
+STALL_SECONDS = 30.0
+STALL_PINGS = 5
 # A dead cache must fail a read or write at once. rc7's defaults (20-second timeouts, 100 retries) leave its writer
 # task retrying, `close()` waits for that task, and `node.dispose()` then does not return (measured 2026-11-15: `paper
 # stop` took 92 s and ended in SIGKILL). Live sets the same four values (engine.live_cache.NATIVE_CONNECTION).
@@ -77,6 +82,8 @@ class NativeCache:
                 raise checkpoint.fail("the native cache service failed to load; its log and originals are retained"
                                       if exited else "the native cache service did not become ready")
         self.port = port
+        # (monotonic time of the first, count) of the PINGs unanswered in a row; None while the cache answers.
+        self.unanswered: tuple[float, int] | None = None
         self.config = RedisCacheConfig(host="127.0.0.1", port=port, **NATIVE_CONNECTION)
         try:
             self.reader = RedisCacheDatabase(
@@ -88,16 +95,26 @@ class NativeCache:
             raise
 
     def health(self) -> None:
-        """CacheUnavailable once the child exited or does not answer a PING within HEALTH_SECONDS. Nothing is written,
-        so the checkpoint's RDB holds Nautilus' keys only. A write the adapter lost to an alive cache is the
-        readback's to find (`_freeze`)."""
+        """CacheUnavailable once the child exited, or once PING has gone unanswered within HEALTH_SECONDS for at least
+        STALL_PINGS checks in a row spanning STALL_SECONDS; an answered PING clears the count. Nothing is written, so
+        the checkpoint's RDB holds Nautilus' keys only. A write the adapter lost to an alive cache is the readback's
+        to find (`_freeze`)."""
+        if self.process is not None and self.process.poll() is not None:
+            raise CacheUnavailable(f"OSError: the native cache process exited with {self.process.returncode}")
         try:
-            if self.process is not None and self.process.poll() is not None:
-                raise OSError(f"the native cache process exited with {self.process.returncode}")
             if redis_child.command(self.port, "PING", timeout=HEALTH_SECONDS) != b"PONG":
                 raise OSError("the native cache did not answer PING")
         except (OSError, ValueError) as exc:
-            raise CacheUnavailable(f"{type(exc).__name__}: {exc}") from None
+            now = time.monotonic()
+            since, count = self.unanswered or (now, 0)
+            count += 1
+            self.unanswered = (since, count)
+            print(f"paper: native cache PING unanswered ({count} in a row): {type(exc).__name__}: {exc}",
+                  file=sys.stderr, flush=True)
+            if count >= STALL_PINGS and now - since >= STALL_SECONDS:
+                raise CacheUnavailable(f"{type(exc).__name__}: {exc} ({count} in a row over {now - since:.0f} s)") from None
+            return
+        self.unanswered = None
 
     def state(self) -> dict | None:
         if not self.restored:

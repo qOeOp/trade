@@ -22,9 +22,10 @@ Five services on one Docker engine:
   `trade-paper-controller` volume. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
-  "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
+  "Unattended upkeep"): the bars of every eligible contract (or only those `--bar-symbols` names) daily, open interest and long/short ratios daily
   and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day, and
-  the open interest and ratios of any other contract a manual import added, from its last day. The
+  the open interest and ratios of any other contract a manual import added, from its last day (with
+  `--metrics-pool`, also of each newest month's universe members, from that month). The
   range is `TRADE_MARKET_ARGS` in `.env` (below) and the directory does not record it; unset, the service refuses and
   keeps restarting, and the rest of the deployment runs. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
@@ -52,7 +53,7 @@ user the services run as:
 
 ```bash
 printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_MARKET_ARGS="%s"\n' "$(id -u)" "$(id -g)" \
-  "$HOME/.local/share/trade" "--bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01" > deploy/.env
+  "$HOME/.local/share/trade" "--bars-from 2020-01" > deploy/.env
 D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/dolthub" "$D/market" "$D/paper-tmp"
 uv run --frozen python -m deploy.images --env deploy/.env   # names the images: see Image versions
 docker compose -f deploy/compose.yaml up -d   # waits for the first start: open http://127.0.0.1:8765/
@@ -89,14 +90,23 @@ and reload:
 ### What the market range costs
 
 `TRADE_MARKET_ARGS` holds the options of `market follow`. It starts downloading 5 minutes after `up`, so change it
-first if you want another range. The bars the `.env` above names are enough for a first replay.
+first if you want another range. The `.env` above imports the bars and funding of every eligible contract since
+2020-01, so the monthly universe and the report's equal-weight basket hold every contract the universe rule
+describes, delisted ones included. Its first import takes 10 to 15 hours. `--bar-symbols A B C` narrows the bars to a
+list for a quick start, and narrows the universe and the basket with it: a list chosen today is the survivors, so
+multi-year pool results and the basket then overstate.
 
 Add `--symbols BTCUSDT --metrics-from YYYY-MM-DD --trades-from YYYY-MM --quotes-from YYYY-MM` only when a strategy needs
-aggTrades, quotes or open interest. Measured on one deployment of 30 bar contracts and 3 `--symbols` contracts, 2026-11-07:
+aggTrades, quotes or open interest. Add `--metrics-pool` for the open interest and long/short ratios of the monthly
+pool: each member of the newest month is kept from that month's first day, and a contract entering the pool later
+from the month it enters; no earlier day is imported (`market import-metrics` backfills by hand). Metrics are small:
+the 9 contracts held on 2026-11-18 took 54 MB. Measured on one deployment of 30 bar contracts and 3 `--symbols`
+contracts, 2026-11-07:
 
 | Part | Stored | Note |
 |---|---|---|
-| bars and funding | 2.1 GB, up to 30 contracts since 2020-01 | |
+| bars and funding | 2.1 GB, up to 30 contracts since 2020-01 | the deployment's `--bar-symbols` list then |
+| bars and funding, every eligible contract | about 26 GB, 680 contracts since 2020-01 (about 250 universe members a month) | estimated from the archive listing on 2026-11-21, not yet imported whole; about 45 GB of kline archive cache, kept; 10 to 15 hours from empty |
 | aggTrades | 56 GB, 3 contracts since 2020-01 | 16 to 25 minutes to import a month; about 3 GB of archive cache a month, kept |
 | quotes | 23 GB, the same 3 contracts | |
 | ledger volume | 2.09 GB after 2,358 trials | about 0.9 MB a trial |

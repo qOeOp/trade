@@ -6,10 +6,12 @@ HEAD commit every read-time report names).
 A run is economic evidence when, by the current criterion, it is a passed run whose audit ran, whose
 original execution capture is complete and clean, whose sealed facts show real activity that
 reconciles with its native records, whose semantic fingerprint is recorded, and whose bound source
-reviews did not fail. The criterion is applied when a run is read, never written back: the same run
-can read differently under another check identity, which the identity explains. Native reports are
-not read; a fact the sealing did not record is named not evaluated (the caller reproduces the run
-through replay.reproduce to evaluate it), never passed or failed silently.
+reviews did not fail. A run of every purpose that seals one (ledger.trials.RUN_PURPOSES: research, validation and
+history) is read so; which of them a comparison or a line's candidates take stays theirs (registration.comparability,
+report.history). The criterion is applied when a run is read, never written back: the same run can read differently
+under another check identity, which the identity explains. Native reports are not read; a fact the sealing did not
+record is named not evaluated (the caller reproduces the run through replay.reproduce to evaluate it), never passed or
+failed silently.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ import functools
 import hashlib
 from pathlib import Path
 
-from ledger import db, execution, metrics, problems, review_activity
+from ledger import db, execution, metrics, problems, review_activity, trials
 from shared.refusals import refuse
 from registration import precheck
 from registration.comparability import COMPARABLE_PURPOSES
@@ -138,14 +140,14 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
     if reviewed["status"] == "failed":
         reasons.append("SOURCE_REVIEW_FAILED: " + ", ".join(str(item["review_id"]) for item in reviewed["reviews"]
                                                             if item["verdict"] == "failed"))
-    comparable = trial["purpose"] in COMPARABLE_PURPOSES
-    if not comparable:
+    if trial["purpose"] not in trials.RUN_PURPOSES:
         reasons.append(f"PURPOSE_NOT_COMPARABLE: a {trial['purpose']} trial is no run")
     return {"economic_evidence_available": not reasons, "reasons": reasons,
             "activity": _counts(row.get("fingerprints")), "stored_audit_status": row["status"],
             "source_check": reviewed, "execution_capture": view,
             "checker": dict(checker) if checker is not None else check_identity(),
-            "applicability": {"purpose": trial["purpose"], "comparable_purpose": comparable,
+            "applicability": {"purpose": trial["purpose"],
+                              "comparable_purpose": trial["purpose"] in COMPARABLE_PURPOSES,
                               "sealed_product_commit": (sealed or {}).get("product_commit")},
             "limitations": list(dict.fromkeys(limitations))}
 

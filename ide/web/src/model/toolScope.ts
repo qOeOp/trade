@@ -4,8 +4,8 @@ export const toolPage = (left: string): ToolPage => left === "market" || left ==
 export const DEFAULT_BOTTOM: Record<ToolPage, string | null> = { research: "progress", runs: "trades", market: "coins", history: null };
 
 export function bottomToolOnPage(id: string, page: ToolPage): boolean {
-  if (page === "history") return false;
   if (id === "coins" || id === "news") return page === "market";
-  if (id === "trades") return page === "runs";
+  // The History page picks a replay (state/stage.ts openTrial), whose trades Trades lists.
+  if (id === "trades") return page === "runs" || page === "history";
   return page === "research";
 }

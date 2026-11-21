@@ -547,7 +547,8 @@ def rest_exchange_info() -> tuple[int, list[dict]]:
 
 
 def contract_terms(item: dict) -> dict:
-    """One exchangeInfo contract's status, type, assets and terms (its filters verbatim)."""
+    """One exchangeInfo contract's status, type, assets, terms (its filters verbatim) and onboard time (ms; a
+    relisted contract's is its latest listing)."""
     try:
         filters = {entry["filterType"]: entry for entry in item["filters"]}
         price, lot = filters["PRICE_FILTER"], filters["LOT_SIZE"]
@@ -558,13 +559,17 @@ def contract_terms(item: dict) -> dict:
                  "price_increment": price["tickSize"], "size_increment": lot["stepSize"],
                  "min_quantity": lot.get("minQty"), "max_quantity": lot.get("maxQty"),
                  "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional"),
-                 "min_price": price.get("minPrice"), "max_price": price.get("maxPrice")}
+                 "min_price": price.get("minPrice"), "max_price": price.get("maxPrice"),
+                 "onboard_date": item.get("onboardDate")}
     except (KeyError, TypeError) as exc:
         raise _refuse(f"exchangeInfo contract {item.get('symbol') if isinstance(item, dict) else item!r} lacks a "
                       f"required field ({exc})", "SOURCE_SHAPE", missing=(str(exc),)) from exc
     if not all(isinstance(found[key], str) and found[key] for key in ("symbol", "status", "price_increment",
                                                                       "size_increment")):
         raise _refuse(f"exchangeInfo contract {found['symbol']!r} lacks its status or increments", "SOURCE_SHAPE",
+                      missing=(str(found["symbol"]),))
+    if found["onboard_date"] is not None and not isinstance(found["onboard_date"], int):
+        raise _refuse(f"exchangeInfo contract {found['symbol']!r} has a malformed onboardDate", "SOURCE_SHAPE",
                       missing=(str(found["symbol"]),))
     return found
 

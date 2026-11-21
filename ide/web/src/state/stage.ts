@@ -2,7 +2,7 @@
 // replay its backtest draws and the paper run picked (model/stage.ts), each kept per version for the session, so going back to a version finds
 // them as they were; and what the chart shows of the run: "equity", or a contract (null until the page
 // picks one). The trades follow the chart: a contract's alone, or all on Equity.
-import { lineOf, runHref } from "../lib/lines";
+import { lineOf, runHref, trialHref } from "../lib/lines";
 import type { PaperRun } from "../lib/paperApi";
 import type { Stage } from "../model/stage";
 import { atom } from "./atom";
@@ -46,6 +46,15 @@ export function restoreLiveRun(id: string, candidate: string | null): void {
 /** Shows the backtest of research replay `trial` of the selected version. */
 export const chooseTrial = (trial: number) => choose(selection.get(), { stage: "backtest", trial });
 
+/** Shows the backtest of replay `trial` (research or a line-close history segment) of `version` on line `line`: in this
+ *  view when it holds the version, else on that line's page, which picks it up from the address (`trial=`). */
+export function openTrial(line: string, version: string, trial: number): void {
+  if (!isKnown(version)) { window.location.assign(trialHref(window.location.href, line, version, trial)); return; }
+  forgetWanted();
+  if (selection.get() !== version) select(version, { reveal: true });
+  chooseTrial(trial);
+}
+
 /** Shows `run` and the paper stage: its version becomes the selected one first. A version of another
  *  line (lib/lines.ts lineOf) opens that line's page, the run picked there (pickWanted); one of no line
  *  leaves none selected. The chart keeps Equity, or a contract the run trades. */
@@ -70,6 +79,17 @@ export const openBacktest = (line: string, version: string, run: number) => wind
 /** The run the address names (`run=`, left by chooseRun opening its line) and the stage (`stage=`, left by openBacktest). */
 const address = new URLSearchParams(window.location.search);
 let wanted = Number(address.get("run")) || null;
+
+/** The replay the address names (`trial=`, left by openTrial opening its line) of the version it names (`#version`):
+ *  chosen for that version now, kept per version until the view shows it, and dropped from the address. */
+const linked = Number(address.get("trial")) || null;
+if (linked !== null) {
+  const version = decodeURIComponent(window.location.hash.slice(1));
+  if (version) choose(version, { stage: "backtest", trial: linked });
+  const url = new URL(window.location.href);
+  url.searchParams.delete("trial");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
 
 /** Consumes only the pending link identity, preserving the line, snapshot and version in the address. */
 function forgetWanted(): void {

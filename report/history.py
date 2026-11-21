@@ -7,11 +7,14 @@ two-year holdout after it, or the forward segment after the holdout. Whether a c
 targets is judged on the veto years and on the holdout apart, and it meets them when both pass
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
-annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A segment
-shorter than SHORT_DAYS is shown but counted in no summary.
+annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
+year (cut by the market's first day plus warm-up, or by the period's start) and a segment shorter than SHORT_DAYS are
+shown but read in no summary. A segment `line history` replayed again after an invalid run has one cell, its latest
+run; the earlier trials are named in the cell's `superseded`.
 
 A verdict needs every reading it is defined on (20261114-12, user 2026-11-15): a whole veto year whose run is
-invalid or missing, or lacks one of the two readings, a control without a run, or a holdout without a countable
+invalid or missing, or lacks one of the two readings, a part veto year without a passed run (20261120-01, user
+2026-11-21: an audit failure in it is not left out), a control without a run, or a holdout without a countable
 reading leaves the combined verdict undecided (None), and the summary's `missing` names each. A control that does
 not reproduce the research run voids the row: it has no summary. A whole year not replayed yet has no trial to read
 here and cannot be told from one the market does not cover; `line history` replays a participant's veto years
@@ -67,6 +70,21 @@ def _whole_year(row: dict) -> bool:
             and row["trade_end"] == datetime(start.year + 1, 1, 1))
 
 
+def _latest(rows: list[dict], kind) -> list[dict]:
+    """Each segment's latest history trial with a run (`rows` in trial order; a segment by its kind and, for a veto
+    segment, its year), else its latest trial: a rerun of an invalid segment (`line history`) supersedes it. Each
+    carries `superseded`, the segment's other history trials, which stay in the ledger."""
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        found = kind(row)
+        groups.setdefault((found, row["trade_start"].year if found == "veto" else None), []).append(row)
+    chosen = []
+    for group in groups.values():
+        pick = ([row for row in group if row["status"] is not None] or group)[-1]
+        chosen.append({**pick, "superseded": [row["trial_id"] for row in group if row is not pick]})
+    return sorted(chosen, key=lambda row: row["trial_id"])
+
+
 def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None) -> dict:
     """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial."""
     cell = {"trial_id": row["trial_id"], "kind": kind, "label": str(row["trade_start"].year) if kind == "veto"
@@ -109,17 +127,23 @@ def _read(measures: dict | None) -> bool:
 
 
 def _veto(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
-    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): those
-    without a passed run or without one of the two readings. `whole_years` counts every whole veto year replayed,
-    read or not; a year takes its first run with readings, so a trial left without a run does not hide its rerun."""
+    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): whole
+    years without a passed run or without one of the two readings, and part years without a passed run (an audit
+    failure such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a
+    year. `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with
+    readings, so a trial left without a run does not hide its rerun."""
     years: dict[str, dict | None] = {}
+    part: dict[str, bool] = {}
     for cell in cells:
         if cell["kind"] == "veto" and cell["whole_year"] and years.get(cell["label"]) is None:
             years[cell["label"]] = cell.get("measures")
+        elif cell["kind"] == "veto" and not cell["whole_year"]:
+            part[cell["label"]] = part.get(cell["label"], False) or cell["status"] == "passed"
     read = [measures for measures in years.values() if measures is not None]
     annual = [measures["annual_return"] for measures in read if measures["annual_return"] is not None]
     drawdown = [measures["mark_max_drawdown"] for measures in read if measures["mark_max_drawdown"] is not None]
-    missing = [f"veto {year}" for year, measures in years.items() if not _read(measures)]
+    missing = sorted([*(f"veto {year}" for year, measures in years.items() if not _read(measures)),
+                      *(f"veto {year}" for year, passed in part.items() if not passed)])
     found = {"whole_years": len(years), "profitable_years": sum(value > 0 for value in annual),
              "median_annual_return": statistics.median(annual) if annual else None,
              "worst_annual_return": min(annual) if annual else None,
@@ -237,8 +261,10 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     returns: dict[int, list[float]] = {}
     kept, without = candidates(conn, record["line_id"], checker, records)
     for participant in kept:
-        own = [row for row in found if row["source_sha256"] == participant["source_sha256"]]
-        cells = [_cell(conn, row, _kind(row, dev_start, dev_end, held), returns) for row in own]
+        own = _latest([row for row in found if row["source_sha256"] == participant["source_sha256"]],
+                      lambda row: _kind(row, dev_start, dev_end, held))
+        cells = [{**_cell(conn, row, _kind(row, dev_start, dev_end, held), returns), "superseded": row["superseded"]}
+                 for row in own]
         control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
         researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
                               (participant["trial_id"],))

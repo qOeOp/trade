@@ -526,8 +526,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "one history trial and its run per segment left (each calendar year before the development period as a "
         "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
         "segment after the holdout), candidates by development-period Sharpe; "
-        "a segment with a history run is skipped, so a rerun resumes",
-        "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants (the "
+        "a segment with a passed history run is skipped, so a rerun resumes; after the segments without a run, "
+        "one more history trial per segment whose latest history run is invalid (it supersedes that run, which "
+        "stays; a failure of the strategy's own fails again)",
+        "line, market_day, ran [{source_sha256, segment, run, history_trial_id, status, replaces (the invalid "
+        "history trial a rerun supersedes, else null)}], left (segments without a run), invalid_left (segments "
+        "with an invalid run not replayed this time: --limit), participants (the "
         "candidates), without_economic_evidence [{source_sha256, candidate, run, reasons}] (the participants left "
         "out), segments_without_trading",
         "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
@@ -642,7 +646,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
         "rows [{source_sha256, candidate (ID@N), run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
         "holdout or forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
-        "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only)}], control_reproduces, summary "
+        "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only), superseded (the segment's earlier "
+        "history trials: an invalid run `line history` replayed again)}], control_reproduces, summary "
         "{veto {whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
         "years_meeting_targets, meets_targets}, holdout {annual_return, mark_max_drawdown, meets_targets, "
         "deflated_sharpe}, meets_targets, judged_on (veto and holdout, holdout, or null), missing [veto YEAR, "
@@ -662,7 +667,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
         "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
         "needs every reading it is defined on: a whole veto year whose run is invalid or missing or lacks a reading, "
-        "a control without a run, a holdout without a countable reading and a line without targets are named in "
+        "a part veto year without a passed run (a passed one is read in no summary), a control without a run, a holdout without a countable reading and a line without targets are named in "
         "missing, and with anything missing meets_targets and judged_on are null, whatever the holdout's own verdict. "
         "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
@@ -850,7 +855,8 @@ def register(verbs, verb, runner) -> None:
                       "reproduce the run), the two-year holdout after it in one run and the forward segment after "
                       "the holdout: same source, image and configuration, another window. The sources that can "
                       "take part are fixed by the line's first history trial; one without economic evidence is left "
-                      "out and named. Rerun to resume; "
+                      "out and named. Rerun to resume; each call also replays once more every segment whose "
+                      "latest run is invalid; "
                       "`line close` needs every segment to have a run.")
     _ledger_option(command)
     _market_option(command)

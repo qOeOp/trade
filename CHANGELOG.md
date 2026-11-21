@@ -26,6 +26,44 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
+  holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
+  row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
+  page. Each closed line's closing summary sits folded under its header. New orders: the holdout's annual return,
+  Sharpe and max drawdown (lowest first). A Cause filter splits rows into sign flip (the development period made
+  money, the veto years' median or the holdout lost it), positive outside development (the holdout and the veto years'
+  median both made money) and other; it is derived on the page from the readings shown, nothing is stored. While a
+  Cause is chosen, rows with no edge show too; the header's Hidden count names each reason.
+
+- Paper: a host stall no longer ends a run with `PAPER_CACHE_UNAVAILABLE` (user 2026-11-21). The run ends when the
+  native cache process has exited, or when PING has gone unanswered at least 5 times in a row over at least 30
+  seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
+  answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
+
+- `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
+  2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
+  leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
+  supersedes the invalid one, which stays in the ledger. The output's `ran` items carry `replaces` (the invalid
+  trial a rerun supersedes) and `invalid_left` counts the invalid segments `--limit` left; `left` counts only
+  segments without a run. `research history` gives one cell per segment, its latest trial with a run, and names the
+  earlier ones in `superseded` (before, the IDE showed the first). Trial counts take such a rerun as a reproduction
+  (same source, image, windows, instruments, export and configuration as an earlier counted history trial), so it
+  is not counted twice.
+
+- Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
+  development period's start) without a passed run, such as one sealed invalid by an audit failure
+  (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
+  without readings is, so `research history` and the IDE's Line-close history leave the candidate's verdict
+  undecided instead of judging it on the other years or the holdout alone (doctor 20261120-01, user 2026-11-21). A
+  passed part year is still read in no summary. Breaking: a line whose part veto year sealed invalid now reads
+  undecided where it read a verdict before; `line close` is unchanged.
+
+- Reports and IDE: a sealed `history` run (a `line history` segment) now carries economic evidence under the same
+  criterion as a research or validation run (doctor 20261120-04, user 2026-11-21, 「我都授权」): `replay report` no
+  longer masks its readings with `PURPOSE_NOT_COMPARABLE`, `replay report --tables` reads it, and the IDE's Runs and
+  Details pages draw its equity, calendar and trades when picked. It still enters no comparison, ranking, research
+  run count or line candidate selection; a precheck or explore trial keeps the reason.
+
 - Breaking (registrations): the registration body no longer takes `prediction.interaction`, and the comparison
   report no longer reads a declared two-by-two (`attribution.interaction`, its four-corner shape check and
   contributions, the `INTERACTION_UNATTESTED` refusal). A body that still declares one is refused with
@@ -42,6 +80,25 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 - Market overview: the snapshot no longer carries each coin's `oiByVenue` (open interest per exchange), which the
   Market page stopped drawing on 2026-11-18.
+
+- `market import`: a contract's month that no source holds is no longer stitched. Before its onboard time, or after
+  it stopped trading once the month's archives are out, a month with no stored minutes and none of the contract's
+  monthly kline, mark-price or funding archives asks neither REST nor the daily archives (a relisted contract's
+  earlier months keep their archives and are imported as before). The files a month writes are unchanged; a
+  full-scope import from 2020 no longer waits hours on throttled REST requests for contracts not yet listed.
+
+- `market follow --metrics-pool`: keeps the open interest and long/short ratios of the newest month's universe
+  members, each from that month's first day, so a contract entering the monthly pool is followed from the month it
+  enters without a backfill of earlier days. Off by default; the deployment's `TRADE_MARKET_ARGS` is unchanged
+  (`deploy/README.md`).
+
+- Breaking (market scope, doctor 20261118-01): the deployment imports the bars of every eligible contract instead of
+  a `--bar-symbols` list chosen today (`deploy/README.md` example `.env`, `README.md`). The cutover is a new market
+  directory imported whole from 2020-01 with an empty bar list (about 26 GB, about 45 GB of archive cache, 10 to 15
+  hours), then made the active one. After it, the monthly universe and so `--universe pool` runs and the report's
+  basket (`beta_basket`, `alpha_basket`, regimes, up and down months) are computed over the full eligible set,
+  delisted contracts included; earlier pool runs no longer replay on the new `market` (their universe input
+  differs), and single-contract runs replay unchanged. The basket's definition note says so.
 
 ## 0.4.4 (2026-11-21)
 

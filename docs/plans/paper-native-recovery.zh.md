@@ -213,7 +213,7 @@ PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtim
 处置，三件互相独立：
 
 1. 读写两侧用 Live 同样的快速失败参数（`NATIVE_CONNECTION`：超时 1 秒、不重试），死掉的缓存立即读写失败，`dispose` 不再等重试。
-2. 运行中每秒检查缓存子进程：进程已退出，或 2 秒内不答 `PING`，运行以 `PAPER_CACHE_UNAVAILABLE` 结束：事件日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），封存 `reasons` 里有 `REFUSED:PAPER_CACHE_UNAVAILABLE`、`STOPPED:PAPER_CACHE_UNAVAILABLE`，状态 `complete`。检查不写任何键，检查点的 RDB 里仍只有 Nautilus 自己的键。守护进程只对暂停和没有概要的中断续跑，这个结束有概要，所以只封存。
+2. 运行中每秒检查缓存子进程：进程已退出，或 `PING`（每次等 2 秒）连续至少 5 次、跨至少 30 秒不答（用户 2026-11-21 放宽，之前是一次 2 秒不答就结束；主机卡顿造成的短暂未应答只记进 runner 日志，期间丢的写由检查点回读发现），运行以 `PAPER_CACHE_UNAVAILABLE` 结束：事件日志记一条 `refusal`，停止序列照常（撤单、写概要，持仓留着），封存 `reasons` 里有 `REFUSED:PAPER_CACHE_UNAVAILABLE`、`STOPPED:PAPER_CACHE_UNAVAILABLE`，状态 `complete`。检查不写任何键，检查点的 RDB 里仍只有 Nautilus 自己的键。守护进程只对暂停和没有概要的中断续跑，这个结束有概要，所以只封存。
 3. `try_cut` 接住切点路径上的任何异常，非 `Refusal` 的转成 `PAPER_RECOVERY_UNAVAILABLE` 的推迟，同一条消息只打印一次；不再有异常从定时器回调里出去。
 
 已知的限度：检查是节点线程上的定时器。若节点线程自己因别的原因停住，检查也不会运行；本次查清的触发原因（定时器回调抛异常）已堵上，别的停住原因没有观察到。
