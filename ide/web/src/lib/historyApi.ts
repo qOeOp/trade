@@ -2,7 +2,7 @@
 // the head or a full ledger commit (ide/research_graph/serve.py). Shapes as report/history.py writes them.
 import { getJson } from "./transport";
 
-export type HistoryMeasures = {
+type HistoryMeasures = {
   annual_return: number | null; mark_max_drawdown: number | null; sharpe_365: number | null; cycles: number | null; plan_win_rate: number | null;
 };
 /** One history run (a veto year, the control, the holdout or the forward part) or the research run itself

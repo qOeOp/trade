@@ -13,7 +13,7 @@ const POLL_MS = 30_000;
 
 /** "absent" when the server has no overview service, so the page has no Market button; with one,
  *  "present" while it answers and "offline" while it does not. */
-export const overviewService = atom<"checking" | "absent" | "offline" | "present">("checking");
+const overviewService = atom<"checking" | "absent" | "offline" | "present">("checking");
 const snapshot = atom<{ data: Snapshot; read: number } | null>(null);
 const marketPath = atom<Path>([]);
 export const marketCoin = atom<string | null>(null);

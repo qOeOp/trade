@@ -73,7 +73,7 @@ export type LiveRunDto = {
   failures: RuntimeFailure[] | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };
-export type LiveCompareDto = {
+type LiveCompareDto = {
   day: string; state: "running" | "done" | "waiting" | "failed" | "empty"; code?: string | null; failures?: number;
   unexplained_count?: number; unexplained_week?: number; measures?: { groups?: number } | null;
 };

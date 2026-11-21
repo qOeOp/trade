@@ -33,7 +33,7 @@ function heldUncoveredBody(row: Restart): string {
 }
 
 /** A held start's failed check, as Telegram words it (live/notify.py held_text). */
-export function heldUncoveredNotice(row: Restart): string {
+function heldUncoveredNotice(row: Restart): string {
   return "This run " + heldUncoveredBody(row);
 }
 
