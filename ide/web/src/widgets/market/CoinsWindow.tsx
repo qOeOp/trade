@@ -22,7 +22,7 @@ const signed = (key: "change1h" | "change4h" | "change24h" | "change7d" | "oiCha
 
 const COLUMNS: Column<Row>[] = [
   col.accessor("base", { header: "Coin", sortFn: "alphanumeric",
-    cell: (c) => <span className="inline-flex min-w-0 max-w-full gap-2"><span>{c.getValue()}</span><span className="truncate text-fg-faint">{c.row.original.name}</span></span> }) as Column<Row>,
+    cell: (c) => <span className="inline-flex min-w-0 max-w-full gap-2"><span>{c.getValue()}</span><span className="max-w-16 truncate text-fg-faint" title={c.row.original.name}>{c.row.original.name}</span></span> }) as Column<Row>,
   col.accessor((c) => (c.subsector ? `${c.sector} · ${c.subsector}` : c.sector), { id: "sector", header: "Sector", sortFn: "alphanumeric" }) as Column<Row>,
   col.accessor("price", { header: "Price", meta: { numeric: true }, cell: (c) => price(c.getValue()) }) as Column<Row>,
   signed("change1h", "1h", (x) => change(x)),
@@ -49,10 +49,13 @@ export function MarketPending({ children }: { children: ReactNode }) {
   return down ? <p className="p-4 text-fg-faint">{down}</p> : <>{children}</>;
 }
 
-/** The Local column: a mark on each coin the market directory holds bars of, its span in the tooltip. */
-const localColumn = (marketDay: string) => (col.accessor((c) => (c.local ? 1 : 0), { id: "local", header: "Local",
+/** The Local column, headed by its mark alone so the table keeps its width: the mark on each coin the market directory
+ *  holds bars of, its span in the tooltip; a coin it does not hold reads as any other empty cell. */
+const localMark = (label: string) => <span role="img" aria-label={label} className="inline-flex align-middle text-fg-muted"><Icon name="local-data" size={12} /></span>;
+const localColumn = (marketDay: string) => (col.accessor((c) => (c.local ? 1 : 0), { id: "local",
+  header: () => <Tip content="Bars held in the local market directory">{localMark("Local")}</Tip>,
   cell: (c) => { const held = c.row.original.local;
-    return held ? <Tip content={heldWords(held, marketDay)}><span role="img" aria-label="Bars held locally" className="inline-flex align-middle text-fg-muted"><Icon name="local-data" size={12} /></span></Tip> : null; } }) as Column<Row>);
+    return held ? <Tip content={heldWords(held, marketDay)}>{localMark("Bars held locally")}</Tip> : <Missing />; } }) as Column<Row>);
 
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row
  *  picks its coin as a tile does. Outside the Market page it says where it belongs. */
