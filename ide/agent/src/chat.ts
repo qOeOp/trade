@@ -6,7 +6,13 @@
 import { APICallError, convertToModelMessages, smoothStream, stepCountIs, streamText, type LanguageModel, type ToolSet, type UIMessage } from "ai";
 import { status, type Agent, type AgentStore } from "./agents.ts";
 
-export type Context = { version?: string | null; line?: string | null; ledger_commit?: string | null };
+/** What the page shows when the question is asked: its page (research graph, Runs, Market or History), the version
+ *  selected and its line, the ledger commit drawn, and on Runs the stage with its paper or Live run; the coin picked on
+ *  Runs (the chart's contract) or Market. */
+export type Context = {
+  page?: "research" | "runs" | "market" | "history" | null; version?: string | null; line?: string | null; ledger_commit?: string | null;
+  stage?: "backtest" | "paper" | "live" | null; paper_run?: number | null; live_run?: string | null; coin?: string | null;
+};
 export type ChatRequest = { messages: UIMessage[]; agent: string; model: string; context?: Context };
 export type Metadata = { agent: string; provider: string; model: string };
 
@@ -37,11 +43,18 @@ const LAST_STEP = `This is your last step: you have no more tool calls. Answer n
 If they do not settle the question, say what they show, what is still missing and which query or
 product command would find it.`;
 
+const PAGE = { research: "research graph", runs: "Runs page", market: "Market page", history: "History page (line-close replays)" } as const;
+
 function system(context: Context | undefined): string {
   const seen = [
+    context?.page && `the user is on the ${PAGE[context.page]}`,
     context?.version && `the selected version is ${context.version}`,
     context?.line && `the line is ${context.line}`,
     context?.ledger_commit && `the page shows ledger commit ${context.ledger_commit}`,
+    context?.stage && `the stage shown is ${context.stage}`,
+    context?.paper_run && `the paper run shown is ${context.paper_run}`,
+    context?.live_run && `the Live run shown is ${context.live_run}`,
+    context?.coin && `the coin picked is ${context.coin}`,
   ].filter(Boolean);
   return seen.length ? `${SYSTEM}\n\nOn the page: ${seen.join("; ")}.` : SYSTEM;
 }
