@@ -30,7 +30,6 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import universe
 from market.sources import DAY
 from shared import clock, paths, profiles
 from shared.refusals import refuse
@@ -616,8 +615,9 @@ def place(market: Market, written: Iterable[Written]) -> None:
         market.seen[item.relative] = _stamp(target)
 
 
-def data_tests(market: Market) -> list[str]:
-    """The three member and terms checks a bar import must leave standing; the names of those it fails."""
+def data_tests(market: Market, rule: str) -> list[str]:
+    """The three member and terms checks a bar import must leave standing, the newest members recorded under the
+    universe rule `rule`; the names of those it fails."""
     months = pa.Table.from_batches(list(read_table(market, None, "universe_month")), TABLES["universe_month"].schema)
     if not months.num_rows:
         return []
@@ -642,7 +642,7 @@ def data_tests(market: Market) -> list[str]:
         termed.update(batch.column("symbol").to_pylist())
     if every - termed:
         failed.append("universe_members_have_terms")
-    if set(newest.column("universe_rule").to_pylist()) != {universe.RULE}:
+    if set(newest.column("universe_rule").to_pylist()) != {rule}:
         failed.append("universe_rule_is_recorded")
     return failed
 

@@ -19,7 +19,7 @@ Nautilus Catalogs the runner reads. The tables are on the site's market database
 | `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a market day for source reviewers (`stored_bars`); a market day's universe months and latest complete day (`freshness`) |
 | `quotes.py` | best bid/ask inferred from the stored aggTrades under `RULE`, the checks it applies (`derive`) and the quote import (`import_quotes`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact integers at the trade scale, one file per contract month, several contracts of a month written at once |
-| `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
+| `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract; the same rows from public REST for the last 30 days (`rest_metrics`) |
 
 ## The market directory
 

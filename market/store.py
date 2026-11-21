@@ -509,7 +509,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     member_files = [_members_file(market, month, new)] if new else []
     filled = _fill_universe(market, month, earliest, latest) if backfill else {}
     member_files += [_members_file(market, at, found) for at, found in filled.items() if found]
-    failed = files.data_tests(market)
+    failed = files.data_tests(market, universe.RULE)
     if failed:
         raise refuse("DATA_TESTS_FAILED", f"the import fails {', '.join(failed)}", missing=tuple(failed))
     # Bars last: the market's newest day comes from them.
