@@ -304,6 +304,9 @@
   --shadow-badge: inset 0 1px 0 oklch(1 0 0 / 0.14), 0 1px 2px oklch(0 0 0 / 0.08);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
+  /* a column pinned while a table scrolls sideways: a short shadow cast over the cells that pass under it */
+  --shadow-pinned-left: 6px 0 6px -4px var(--shadow-far);
+  --shadow-pinned-right: -6px 0 6px -4px var(--shadow-far);
 
   /* a filter, so a tooltip's arrow casts the same shadow as its box */
   --drop-shadow-*: initial;
