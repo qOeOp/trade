@@ -340,6 +340,18 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(found["months_won_share"], 1.0)
         self.assertTrue(found["_reasons"]["beta_basket"].startswith("REGRESSION_UNAVAILABLE"), "four days are too few")
 
+    def test_each_exit_class_carries_its_closed_cycle_net(self):
+        found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
+        self.assertEqual(found["top_exit_share"]["exit_net"], {"LIMIT": "20.00000000", "STOP_MARKET": "-4.00000000"},
+                         "the open cycle has no exit class")
+
+    def test_a_wanted_measure_alone_reads_as_it_does_among_all(self):
+        market = {"days": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],
+                  "basket": [0.01, 0.01, -0.005, 0.0], "btc": [0.0, 0.01, 0.0, 0.0]}
+        every = measures.derive_measures(self.facts, market=market)
+        for name, item in every.items():
+            self.assertEqual(measures.derive_measures(self.facts, market=market, wanted=(name,)), {name: item}, name)
+
     def test_a_series_that_does_not_compound_empties_every_series_measure(self):
         broken = sealed()
         broken["activity"]["returns_compound_to_equity"] = {"passed": False, "code": "RETURN_SERIES_UNUSABLE"}

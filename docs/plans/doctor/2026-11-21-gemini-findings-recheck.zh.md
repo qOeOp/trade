@@ -49,6 +49,7 @@
 - 2026-11-21 用户要求保留真问题、不因 Gemini 的方法不对而丢掉；本记录据此复核并补记。
 - question 行（`20261121-05`、`-11`、`-12`）尚待用户决定。
 - 2026-11-21 用户「我都授权」：`20261121-09` 按取 stderr 末尾带 `code` 的 JSON 对象修，研究图服务、Paper 守护进程与镜像同步同一根因一并修（[#3243](https://github.com/qOeOp/trade/pull/3243)）。
+- 2026-11-21 `20261121-01` 按 0.5.0 计划 D9 做成产品读数（用户：「需要我定的部份最后也是一样由你决定按推荐做」）：单次报告交易结构的 `top_exit_share` 带 `exit_net`（各出场类别闭仓净盈亏），读时派生、不存，不改度量目录；`nautilus-report-analysis` 的出场拆分说明未改。
 - 2026-11-21 用户就 `20261121-10` 等一批事项答「我都授权」，并把做法交给 Claude 定：行点击把图移到该笔交易的时间段并标出（[#3244](https://github.com/qOeOp/trade/pull/3244)），改外观，不自动合并。
 - 2026-11-21 主检出里 Gemini 未提交的账本同步改动（放宽 `REPLICA_REQUIRED`，并改了 compose 与 vite 配置）先把 diff 备份到 `~/Documents/trade-wip-backups/gemini-ledger-sync-wip-20261121.diff`，再丢弃；这是用户的选择（先备份 diff，再丢弃）。
 - 2026-11-21 PR [#3200](https://github.com/qOeOp/trade/pull/3200) 关闭，不做。它的范围是网页上按钱包规模回放、新增存储字段 `LIVE_ROOT`、放宽 `LIVE_EVIDENCE_*` 拒绝；它要解决的根因（Live 启动按钮灰掉）已由 [#3214](https://github.com/qOeOp/trade/pull/3214) 修复。用户选择了版本号的路线。

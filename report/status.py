@@ -526,7 +526,8 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     null for a window of one year or less. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     identities, current, passed, without, candidates = _compared(conn, record, checker, records)
-    read = {trial_id: (measures.derive_measures(facts), deflated_range(facts, testing), measures.dev_years(facts))
+    read = {trial_id: (measures.derive_measures(facts, wanted=TABLE_MEASURES), deflated_range(facts, testing),
+                       measures.dev_years(facts))
             for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities[row["trial_id"]],
@@ -612,7 +613,7 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         listed = []
         derived: dict[int, dict] = {}  # each run's RUN_MEASURES only, so its series go with its chunk
         for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in found]):
-            measured = measures.derive_measures(facts)
+            measured = measures.derive_measures(facts, wanted=RUN_MEASURES)
             derived[trial_id] = {key: measured[key] for key in RUN_MEASURES}
         for row in found:
             measured = derived[row["trial_id"]]
@@ -724,7 +725,7 @@ def _subject_facts(conn: db.LedgerConnection, subject: Mapping, checker: Mapping
         value = report_candidates.assess_listed(conn, trial["trial_id"], checker, records)
         headline = None
         if trial["status"] == "passed" and value["economic_evidence_available"]:
-            derived = measures.derive_measures(measures.run_facts(conn, trial["trial_id"]))
+            derived = measures.derive_measures(measures.run_facts(conn, trial["trial_id"]), wanted=measures.HEADLINE)
             headline = {name: derived[name] for name in measures.HEADLINE}
         return {"trial": trial, "availability": value, "headline": headline}
     return {"registration_id": subject.get("research_registration_id")}
