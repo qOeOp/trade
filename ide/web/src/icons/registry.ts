@@ -54,6 +54,7 @@ import table from "lucide-static/icons/table.svg?raw";
 import trash from "lucide-static/icons/trash-2.svg?raw";
 import x from "lucide-static/icons/x.svg?raw";
 import languages from "lucide-static/icons/languages.svg?raw";
+import database from "lucide-static/icons/database.svg?raw";
 
 export const ICONS = {
   translate: { svg: languages },
@@ -110,6 +111,7 @@ export const ICONS = {
   warning: { svg: triangleAlert },
   info: { svg: info },
   star: { svg: star },
+  "local-data": { svg: database },
   // Run and stop drawn here as IntelliJ's new UI draws them: an outline at Lucide's stroke with a faint fill
   // of its own colour, so they sit with the outline icons beside them; the fill keeps the play from reading
   // as a media control and the square from reading as a checkbox.
