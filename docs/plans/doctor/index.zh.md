@@ -10,6 +10,20 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-01 | 单次运行读数只给出场类别集中度 `top_exit_share`，不给各出场类别净盈亏（`exit_net` 已算出后丢弃） | measure（数会话手算出场拆分的次数，再定产品读数还是留在技能） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | none（观察，攒例子再定） | user（Data and usage cost） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-03 | 改技能文字时找不出覆盖被改段落的已有评测用例（244 个用例，只跑新增或改动的） | measure（数近期技能 PR 漏跑的覆盖用例） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-04 | 20 个高曝光技能段落的专有标识符在加载后的会话里从未被用到（`skill_heat.py`） | measure（逐段查零命中原因） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-05 | 用户 10-31 不用宿主钩子的前提是 Codex 不支持；现在 Claude Code、Codex、Gemini CLI、Antigravity 都有可拦截工具调用的钩子，但写法各异 | question（是否改用钩子做部分拦截） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-06 | 桌面 Live 的 `Request stop` 一点就发，不先列出会撤的单与会平的仓（手机端是确认单加按住） | question（桌面停止的形式；改外观先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-07 | 桌面 Live 不显示当前持仓与在途止损：图只在缺止损时画持仓线，不画工作单 | question（是否像手机一样按原生事件显示） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-08 | 选中已有 Live 运行时新建运行只能从 ⌘K 进入，工具栏注释说运行选择器里也有 | fix（可见入口或改注释；加入口先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-09 | 研究图服务把产品命令 stderr 整段当 JSON 解析，`uv` 先打警告时拒绝码丢失、页面显示 `PRODUCT_FAILED` | fix | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-10 | Paper 与回测的成交表、周期表、对照表点一行不会把图移到那笔交易（只有图到表） | fix（改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-11 | K 线周期随缩放自动切换，不能固定（写明的做法） | question（是否加周期固定开关） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-12 | ⌘K 给每个没在跑的版本各列一条 `Run paper: <id>` | question | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-13 | 文档跟不上实现、同一事实多处复述，读起来费力 | restate（按[第三轮瘦身计划](../slimming-round-3-20261121.zh.md)分批，先量重复） | user（Product contracts and delivery） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-14 | 开发期逐年读数只在恰为三个整年时给出，按覆盖分级得到的 4–11 个季度开发期没有最差年与去最佳年读数 | fix（按实际长度切年，先定切法） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261120-01 | 关线证伪只看整年否决段：不是整年的否决段封存为 `invalid`（审计失败）也不进否决结论 | authority（改证伪判定规则） | doctor | unknown | fixed 0944d9465 [#3223](https://github.com/qOeOp/trade/pull/3223) | 2026-11-20 | 2026-11-20 |
 | 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | fixed 509f4dadd [#3215](https://github.com/qOeOp/trade/pull/3215) | 2026-11-20 | 2026-11-20 |
 | 20261120-03 | `line history` 把 `invalid` 历史段当作已完成，续跑不重跑，瞬时故障让候选永久缺项 | authority（改历史段重跑规则） | doctor | unknown | fixed bb2fa47aa [#3225](https://github.com/qOeOp/trade/pull/3225) | 2026-11-20 | 2026-11-20 |
