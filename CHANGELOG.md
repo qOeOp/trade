@@ -38,6 +38,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Market overview: the snapshot no longer carries each coin's `oiByVenue` (open interest per exchange), which the
   Market page stopped drawing on 2026-11-18.
 
+- `market import`: a contract's month that no source holds is no longer stitched. Before its onboard time, or after
+  it stopped trading once the month's archives are out, a month with no stored minutes and none of the contract's
+  monthly kline, mark-price or funding archives asks neither REST nor the daily archives (a relisted contract's
+  earlier months keep their archives and are imported as before). The files a month writes are unchanged; a
+  full-scope import from 2020 no longer waits hours on throttled REST requests for contracts not yet listed.
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its
