@@ -896,13 +896,20 @@ class SandboxConfigTests(unittest.TestCase):
         limit entry's ID from it would collide with a cached position (20261114-33); the execution engine's
         IDs live in the cache."""
         builder = mock.MagicMock()
-        with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+        with mock.patch.object(paper.LiveNode, "builder", return_value=builder), mock.patch.object(paper, "Recorder"), \
                 mock.patch.object(paper.history, "ACTORS", []):  # the warm-up actor registers itself here
             paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
                              Path("/nonexistent"), "3", {})
         configs = [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")]
         self.assertEqual(len(configs), 1)
         self.assertFalse(configs[0].use_position_ids)
+
+    def test_a_recorder_the_node_did_not_register_is_refused(self):
+        with mock.patch.object(paper.LiveNode, "builder", return_value=mock.MagicMock()), \
+                mock.patch.object(paper.history, "ACTORS", []), self.assertRaises(Refusal) as caught:
+            paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
+                             Path("/nonexistent"), "3", {})
+        self.assertEqual(caught.exception.code, "NATIVE_EXECUTION_FAILED")
 
 
     def test_a_checkpoint_without_source_state_restores_only_a_source_without_the_protocol_as_held(self):
@@ -924,7 +931,7 @@ class SandboxConfigTests(unittest.TestCase):
                                                   open_contracts=lambda: set())
                 builder = mock.MagicMock()
                 with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
-                        mock.patch.object(paper.history, "ACTORS", []), \
+                        mock.patch.object(paper, "Recorder"), mock.patch.object(paper.history, "ACTORS", []), \
                         mock.patch.object(paper.strategy_runtime, "configure_strategy") as configure:
                     if refused:
                         with self.assertRaises(paper.checkpoint.Refusal):
@@ -932,7 +939,7 @@ class SandboxConfigTests(unittest.TestCase):
                                              (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},
                                              session)
                         continue
-                    node = paper.build_node(planned, SimpleNamespace(warmup=()), None,
+                    node, _ = paper.build_node(planned, SimpleNamespace(warmup=()), None,
                                             (Decimal("0.0002"), Decimal("0.0005")), Path("/nonexistent"), "3", {},
                                             session)
                 added = node.add_strategy.call_args.args[0]
@@ -948,7 +955,7 @@ class SandboxConfigTests(unittest.TestCase):
         def configured() -> SimpleNamespace:
             builder = mock.MagicMock()
             with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
-                    mock.patch.object(paper.history, "ACTORS", []):
+                    mock.patch.object(paper, "Recorder"), mock.patch.object(paper.history, "ACTORS", []):
                 paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
                                  Path("/nonexistent"), "3", {})
             return [call.args[2] for call in builder.mock_calls if call[0].endswith("add_simulated_exec_client")][0]
