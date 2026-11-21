@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { PhonePage } from "../../components/PhoneBar";
 import { Skeleton } from "../../components/Missing";
-import { Amount, Change, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
+import { Amount, Change, Contract, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { health } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { lineOf } from "../../lib/lines";
@@ -85,7 +85,7 @@ export function PaperPage({ id }: { id: number }) {
         </div>
         <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, false)} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark" : "Entry", "P&L"]} rows={held.map((p) => [
-          p.symbol, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={2} />,
+          <Contract symbol={p.symbol} />, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={2} />,
           <span className={pnlClass(p.pnl)}>{signed(p.pnl)}</span>])} />}
         <PhoneHeading title="Orders" aside={s?.loaded ? (placed.length ? ordersText(placed) : "None yet") : <Skeleton className="w-24" />} />
         {placed.length > 0 && <PhoneTable head={["Contract", "Side", "Price", "State"]} rows={placed.slice(0, SHOWN).map((o) => {
