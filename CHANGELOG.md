@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE: a paper run's page lists every order the run placed, filled or not. The Trades window has an Orders tab
+  (placed, contract, side, type, price or trigger, quantity, state now — Filled, Partly filled, Canceled, Expired,
+  Rejected, Denied, Working or Open at stop — and when that state came; a click shows the order on its contract's
+  chart), the Trades tab of a run with no trades leads to it ("2 orders · 0 filled"), and a running run's phone page
+  lists its latest 20 orders. The Trades window now lists every contract unless one is picked: a run whose equity has
+  not moved opened on its first contract, which hid the orders and events of the others behind it, and "Show all" could
+  not undo that.
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
   Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host

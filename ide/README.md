@@ -75,7 +75,7 @@ only JSON bodies. `npm test` and `npm run check` in `agent/`. Design:
 
 With `--paper=URL`, requests under `/api/paper/` go to the paper daemon (`python -m cli.main paper
 serve`, the compose service `paper` on port 8767; `paper/serve.py`), and the page gets paper runs:
-▶ and ■ on each version, and the runs' charts, trades and events on the Runs page. A POST there must come from the
+▶ and ■ on each version, and the runs' charts, trades, orders and events on the Runs page. A POST there must come from the
 page itself (`Sec-Fetch-Site: same-origin`) and carry the token the service generated at start and
 put in the page (`X-Trade-Paper-Token`). The daemon reads the runs and their journals; it starts,
 stops and seals runs through the command line, and seals runs that ended on their own. Design:
