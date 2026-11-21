@@ -162,7 +162,7 @@ test("the account rows answer from the check: modes, funds, and a replay that st
   const floor = (wallet, available) => row(columns(view(), checked({ venue: { ...checked().venue, wallet, available } })), "budget");
   assert.deepEqual([floor("50", "50").value, floor("50", "50").mark], ["42.50", "pass"], "85% of the wallet, greyed, not a choice");
   assert.equal(floor("50", "40").mark, "fail", "more than is available");
-  assert.equal(floor("118", "118").mark, "fail", "the first trial's floor is at most 100 USDT");
+  assert.deepEqual([floor("5000", "5000").value, floor("5000", "5000").mark], ["4250.00", "pass"], "no fixed cap: the floor follows the wallet");
   assert.equal(row(columns(view()), "budget").mark, "wait");
   const far = columns(view(), checked({ venue: { ...checked().venue, wallet: "200", available: "200" } }));
   assert.equal(row(far, "near").mark, "fail");

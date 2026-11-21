@@ -279,8 +279,8 @@ def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *,
     try:
         if snapshot["config"]["canTrade"] is not True:
             raise Refusal("LIVE_ACCOUNT_MODE", "fresh arming requires trading enabled")
-        if budget is None or not budget.is_finite() or not 0 < budget <= 100:
-            raise Refusal("LIVE_BUDGET", "the initial trial admits a cash floor (85% of the USDT wallet) of at most 100 USDT")
+        if budget is None or not budget.is_finite() or not 0 < budget:
+            raise Refusal("LIVE_BUDGET", "the run requires a positive cash floor (85% of the USDT wallet)")
         assets = snapshot["account"]["assets"]
         names = set()
         usdt = None

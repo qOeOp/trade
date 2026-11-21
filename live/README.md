@@ -68,7 +68,7 @@ and instances coordinate legs through state the source shares between them (deci
 `docs/plans/cross-line-fusion-20261111.zh.md` §5–§7). Admission requires a flat account, Hedge/Multi-assets mode, and
 on every contract CROSS margin, the declared leverage, no automatic margin addition and Binance status `TRADING`. The
 venue's leverage is observed, never changed or copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
-and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet, at most 100 USDT).
+and eligible USDT wallet cash and available balance each covering the cash floor (85% of the USDT wallet).
 Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
 the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
@@ -250,7 +250,7 @@ the user's 15% maximum-drawdown target, or a tighter share the run was prepared 
 with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and is not started again. With a
 position open and no equity read for 60 seconds the brake cannot be applied: the run stops, failed
 (`drawdown_unverified`); so does a position with no mark price of its contract for 60 seconds (`mark_missing`). The cash floor is 85% of
-the USDT wallet at the first arming (the first trial admits at most 100 USDT, `LIVE_BUDGET`): each entry still needs
+the USDT wallet at the first arming: each entry still needs
 that much USDT wallet and available cash, a last line should the brake fail. The brake does not bound a gap or a
 rejected close; a trigger makes one close attempt. Do not transfer or trade by hand during a run.
 
