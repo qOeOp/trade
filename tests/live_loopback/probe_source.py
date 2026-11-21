@@ -6,7 +6,7 @@ It is ordinary source text, loaded and checked by the product like any reviewed 
      cancelled
   4  enter long with a GTD limit whose expiry has a fraction of a second (Live cannot send it)
   5  enter long with a GTD STOP_MARKET entry (Live cannot send it)
-Every order event and denial is printed to standard output as `probe <kind> <detail>` for the test to read.
+Every closed kline (with the cached instrument's price increment), order event and denial is printed to standard output as `probe <kind> <detail>` for the test to read.
 """
 
 SOURCE = '''from decimal import Decimal
@@ -27,7 +27,8 @@ class Probe(Strategy):
     def on_bar(self, bar):
         code = int(bar.volume.as_double())
         close = bar.close.as_decimal()
-        print(f"probe bar {bar.ts_event} {code} {close}", flush=True)
+        instrument = self.cache.instrument(self.iid)
+        print(f"probe bar {bar.ts_event} {code} {close} {instrument.price_increment}", flush=True)
         if code in (2, 4):
             expire = {}
             if code == 4:
