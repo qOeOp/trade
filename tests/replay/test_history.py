@@ -217,21 +217,29 @@ class DiscountTests(unittest.TestCase):
         returns = {1: [0.01, -0.005, 0.02, 0.0, 0.004] * 20, 2: [0.002, -0.01, 0.006, 0.001] * 25,
                    3: [-0.004, 0.003, -0.002, 0.001, 0.0] * 20}
         rows = [self.row(1, 1), self.row(2, 2), self.row(3, 3), self.row(4, None, summary=False)]
-        found = report_history._discount(rows, returns)
+        found = report_history._discount(rows, returns, 6)
         daily = [measures.sharpe_365(returns[trial]) / math.sqrt(365) for trial in (1, 2, 3)]
-        self.assertEqual(found, {"trials": 4, "holdouts_with_returns": 3, "daily_sharpe_variance": statistics.variance(daily)})
+        self.assertEqual(found, {"trials": 4, "trials_with_prior": 10, "holdouts_with_returns": 3,
+                                 "daily_sharpe_variance": statistics.variance(daily)})
         for row, trial in zip(rows[:3], (1, 2, 3), strict=True):
             self.assertEqual(row["summary"]["holdout"]["deflated_sharpe"],
                              measures.deflated_sharpe(returns[trial], 4, statistics.variance(daily)))
+            self.assertEqual(row["summary"]["holdout"]["deflated_sharpe_with_prior_trials"],
+                             measures.deflated_sharpe(returns[trial], 10, statistics.variance(daily)),
+                             "the trials that already looked at the holdout join the participants")
+            self.assertLess(row["summary"]["holdout"]["deflated_sharpe_with_prior_trials"],
+                            row["summary"]["holdout"]["deflated_sharpe"])
         self.assertGreater(rows[0]["summary"]["holdout"]["deflated_sharpe"], rows[2]["summary"]["holdout"]["deflated_sharpe"])
         self.assertIsNone(rows[3]["summary"], "a row whose control does not reproduce gets no summary")
 
     def test_a_short_or_missing_holdout_has_no_deflated_sharpe(self):
         rows = [self.row(1, 1, short=True), self.row(2, 2)]
-        found = report_history._discount(rows, {2: [0.01, -0.01, 0.02] * 10})
+        found = report_history._discount(rows, {2: [0.01, -0.01, 0.02] * 10}, None)
         self.assertEqual((found["holdouts_with_returns"], found["daily_sharpe_variance"]), (1, None))
         self.assertIsNone(rows[0]["summary"]["holdout"]["deflated_sharpe"])
         self.assertIsNone(rows[1]["summary"]["holdout"]["deflated_sharpe"], "one holdout leaves no variance")
+        self.assertIsNone(rows[1]["summary"]["holdout"]["deflated_sharpe_with_prior_trials"])
+        self.assertIsNone(found["trials_with_prior"], "no prior count read")
 
 
 @unittest.skipUnless(BINARY, SKIP)

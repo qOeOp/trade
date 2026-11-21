@@ -20,7 +20,7 @@ export function PriorTip({ line, lead }: { line: HistoryLine; lead?: string }) {
         : <p>{n === 0 ? "No counted trial in this ledger overlapped the holdout" : `${plural(n, "counted trial")} on the line's instruments overlapped the holdout`}
             {p && p.instruments.length > 0 && ` (${p.instruments.join(", ")})`}; its own history trials are left out</p>}
       {groups.map((g) => <p key={g}>{g}</p>)}
-      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The deflated Sharpe counts only this line's participants, not these searches.</p>
+      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The DSR column's second figure adds these searches to the participants as trials.</p>
     </div>
   );
 }
