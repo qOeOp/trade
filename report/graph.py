@@ -174,6 +174,11 @@ def line_list(profile, at: str | None = None, every: bool = False, readings: boo
     return listed
 
 
+# The paired test's readings a version's comparison passes on as they are (report.comparison.paired).
+COMPARISON_EVIDENCE = ("annual_return_difference", "annual_return_difference_interval", "max_drawdown_difference",
+                       "max_drawdown_difference_interval")
+
+
 def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: Mapping | None = None,
                 reviews: list | None = None,
                 bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
@@ -197,9 +202,14 @@ def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: 
                    for p in attribution.get("predictions") or []] or None
     if evidence is None:
         return None, predictions
+    alpha = (((attribution.get("slices") or {}).get("market_exposure") or {}).get("measures") or {}).get("alpha_basket") or {}
+    pairwise = alpha.get("pairwise") or {}
     return ({"vs_trial": found.get("control_trial_id"), "mean_daily_log_difference": evidence.get("mean_daily_log_difference"),
              "detectable": evidence.get("detectable_annual_return_difference_80pct_normal_approx"),
-             "intervals_cross_zero": comparison.intervals_cross_zero(evidence), "summary": None}, predictions)
+             "intervals_cross_zero": comparison.intervals_cross_zero(evidence),
+             **{key: evidence.get(key) for key in COMPARISON_EVIDENCE},
+             "alpha_basket_difference": pairwise.get("value"), "alpha_basket_difference_se": pairwise.get("standard_error"),
+             "summary": None}, predictions)
 
 
 def _reusing(read: Callable, failures: list[Refusal]) -> Callable:

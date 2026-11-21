@@ -441,7 +441,13 @@ class ReportTests(unittest.TestCase):
             shown = next(c["comparison"] for c in drawn["candidates"]
                          if c["registration"] == str(self.child_registration))
             self.assertEqual(graph.version_comparison(*args), {"comparison": shown}, "marked on the graph, so not refused")
-            self.assertEqual(graph.version_comparison(*args), clean, "what a browser keeps for this commit is what a read market gives")
+            unread = graph.version_comparison(*args)["comparison"]
+            alpha = ("alpha_basket_difference", "alpha_basket_difference_se")
+            self.assertEqual({key: value for key, value in unread.items() if key not in alpha},
+                             {key: value for key, value in clean["comparison"].items() if key not in alpha},
+                             "the paired test does not read the market")
+            self.assertEqual([unread[key] for key in alpha], [None, None], "the basket alpha needs the market, as a "
+                                                                          "trial report's does")
         with seams.use(market_returns=failing(environment)):
             self.assertIs(refused(graph.research_graph, self.profile, workers=1), environment)
             self.assertIs(refused(graph.version_comparison, *args), environment)
@@ -468,6 +474,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found, comparison.intervals_cross_zero(evidence))
         self.assertIsNotNone(found)
         self.assertEqual(attribute.call_count, 0)
+
+    def test_a_versions_comparison_gives_the_difference_intervals_and_the_alpha_difference(self):
+        found = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])
+        given = graph.version_comparison(self.profile, self.child_registration, self.candidate["trial_id"],
+                                         found["ledger_commit"])["comparison"]
+        alpha = found["attribution"]["slices"]["market_exposure"]["measures"]["alpha_basket"]["pairwise"]
+        self.assertEqual(given["vs_trial"], self.control["trial_id"])
+        self.assertEqual({key: given[key] for key in graph.COMPARISON_EVIDENCE},
+                         {key: found["evidence"][key] for key in graph.COMPARISON_EVIDENCE})
+        self.assertEqual(len(given["annual_return_difference_interval"]), 2)
+        self.assertIsNotNone(alpha["value"])
+        self.assertEqual((given["alpha_basket_difference"], given["alpha_basket_difference_se"]),
+                         (alpha["value"], alpha["standard_error"]))
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])
