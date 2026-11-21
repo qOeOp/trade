@@ -34,6 +34,18 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   passed part year is still read in no summary. Breaking: a line whose part veto year sealed invalid now reads
   undecided where it read a verdict before; `line close` is unchanged.
 
+- Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
+  from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
+  start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto
+  history taken out), at least 4 and at most 12: unchanged for C >= 24 and C <= 16, and 5 to 11 quarters for C 17 to
+  23 (23 quarters of coverage, such as a set with SOLUSDT, now gets 11 instead of 4). The holdout and the
+  `LINE_HISTORY_SHORT` refusal under 12 quarters are unchanged. Open lines keep their stored period; a line opened
+  after the upgrade on the same instruments in the same quarter may get a longer one, so a precheck without a line
+  may now trade in those earlier quarters.
+
+- Market overview: the snapshot no longer carries each coin's `oiByVenue` (open interest per exchange), which the
+  Market page stopped drawing on 2026-11-18.
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its

@@ -94,8 +94,10 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool 
 
 QUARTER_STARTS = (1, 4, 7, 10)
 HOLDOUT_QUARTERS = 8  # the two years before Q, replayed once when the line closes (user 2026-11-11)
-DEVELOPMENT_QUARTERS = (12, 4)  # standard, and with less coverage than STANDARD_COVERAGE (user 2026-11-11)
-STANDARD_COVERAGE, MINIMUM_COVERAGE = 24, 12  # complete quarters of coverage before Q (user 2026-11-11)
+DEVELOPMENT_QUARTERS = 12  # the standard development period, three years (user 2026-11-11)
+MINIMUM_DEVELOPMENT = 4  # the shortest one, a year (user 2026-11-11)
+VETO_RESERVE = 4  # quarters of veto history kept before any development period longer than MINIMUM_DEVELOPMENT
+MINIMUM_COVERAGE = HOLDOUT_QUARTERS + MINIMUM_DEVELOPMENT  # complete quarters of coverage before Q a line needs
 
 
 def _quarters_after(day: date, count: int) -> date:
@@ -146,9 +148,11 @@ def covered_from(selection: list[str] | None, members: list[tuple[str, str]]) ->
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
     """[first day, day after the last) of a line's development period (line-close-history-test-20261110.zh.md
     3.1). Q is the last calendar quarter end before `today` and within `latest_complete_day`; the holdout is the
-    HOLDOUT_QUARTERS quarters ending at Q and the development period the quarters right before it: 12 when the
-    instruments are covered (from `covered`, covered_from) for at least STANDARD_COVERAGE complete quarters
-    before Q, 4 when for at least MINIMUM_COVERAGE, LINE_HISTORY_SHORT otherwise."""
+    HOLDOUT_QUARTERS quarters ending at Q and the development period the quarters right before it. With C the
+    complete quarters the instruments are covered (from `covered`, covered_from) before Q, the period takes what
+    is left after the holdout and VETO_RESERVE quarters of veto history, between MINIMUM_DEVELOPMENT and
+    DEVELOPMENT_QUARTERS (user 2026-11-21): MINIMUM_DEVELOPMENT up to C = 16, one more quarter per quarter of
+    coverage up to DEVELOPMENT_QUARTERS from C = 24, and LINE_HISTORY_SHORT under MINIMUM_COVERAGE."""
     last = min(today - timedelta(days=1), latest_complete_day)
     after = last + timedelta(days=1)
     end = after if after.day == 1 and after.month in QUARTER_STARTS else date(last.year, 3 * ((last.month - 1) // 3) + 1, 1)
@@ -160,7 +164,7 @@ def development_period(today: date, latest_complete_day: date, covered: date | N
                                            f"before {end}; a line needs at least {MINIMUM_COVERAGE}",
                      expected=f"coverage from {_quarters_after(end, -MINIMUM_COVERAGE)} or earlier")
     dev_end = _quarters_after(end, -HOLDOUT_QUARTERS)
-    length = DEVELOPMENT_QUARTERS[0] if quarters >= STANDARD_COVERAGE else DEVELOPMENT_QUARTERS[1]
+    length = min(DEVELOPMENT_QUARTERS, max(MINIMUM_DEVELOPMENT, quarters - HOLDOUT_QUARTERS - VETO_RESERVE))
     return _quarters_after(dev_end, -length), dev_end
 
 
