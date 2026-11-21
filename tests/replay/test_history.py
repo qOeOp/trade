@@ -573,18 +573,26 @@ class ConcurrentHistoryTests(unittest.TestCase):
         return world
 
     @staticmethod
-    def at_once(record):
-        """A replay.seams.run that records the most stage processes running at one time."""
-        inner, lock, running = replay_seams.current.run, threading.Lock(), [0]
+    def at_once(record, overlap=False):
+        """A replay.seams.run that records the most stage processes running at one time.
+
+        With overlap, the first stage waits (up to 10 s) for a second one to start, so stand-in stages that finish
+        at once still show whether the runner started several together."""
+        inner, cond, running, met = replay_seams.current.run, threading.Condition(), [0], [False]
 
         def run(*args):
-            with lock:
+            with cond:
                 running[0] += 1
                 record.append(running[0])
+                if running[0] > 1:
+                    met[0] = True
+                    cond.notify_all()
+                elif overlap and not met[0]:
+                    cond.wait_for(lambda: met[0], timeout=10)
             try:
                 return inner(*args)
             finally:
-                with lock:
+                with cond:
                     running[0] -= 1
         return run
 
@@ -605,7 +613,7 @@ class ConcurrentHistoryTests(unittest.TestCase):
         for width in (1, 3):
             world = self.world(f"history-{width}")
             record: list[int] = []
-            with replay_seams.use(run=self.at_once(record)):
+            with replay_seams.use(run=self.at_once(record, overlap=width > 1)):
                 done = history.run_history(world.profile, world.market, MARKET_DAY, world.line["line"],
                                            memory=self.memory(width))
             found[width] = (done, self.sealed(world), max(record))
