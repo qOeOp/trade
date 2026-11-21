@@ -59,6 +59,11 @@ export function closeRun(): void {
     history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 }
+/** A tap on a tab: its page, or, again on Runs while a run's page is open, back to the list (iOS's convention). */
+export function choosePhoneTab(tab: PhoneTab): void {
+  if (tab === "runs" && phoneTab.get() === "runs" && phoneRun.get() !== null) closeRun();
+  else phoneTab.set(tab);
+}
 window.addEventListener("popstate", () => { pushed = false; phoneRun.set(null); });
 
 /** The address of what a phone shows, for the desktop: the run, else the line, else the page. */

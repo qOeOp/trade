@@ -1,5 +1,5 @@
 """Static hygiene of the Python sources, frozen at today's state: no new product module longer than MAX_LINES
-(the longer ones are listed in OVERSIZED, and the list only shrinks); no top-level function or class that nothing
+(the longer ones are listed in OVERSIZED with caps that only go down); no top-level function or class that nothing
 outside the tests uses; every third-party import is declared in pyproject.toml (product packages in the runtime
 dependencies, everything else in those or the dev group), every runtime dependency is imported by a product
 package, and deploy, which runs on the host's system Python, imports only the standard library."""
@@ -17,20 +17,20 @@ from tests.test_package_layers import ISOLATED, RANK, ROOT, module_name, product
 
 
 MAX_LINES = 800
-# Product modules over MAX_LINES (measured 2026-11-21). Remove a line once its module is under the limit; never add
-# one: split the new module instead.
-OVERSIZED = frozenset({
-    "cli/research_commands.py",
-    "deploy/release.py",
-    "engine/audit.py",
-    "engine/paper.py",
-    "engine/run.py",
-    "ide/research_graph/serve.py",
-    "ledger/metrics.py",
-    "paper/serve.py",
-    "replay/comparison.py",
-    "report/status.py",
-})
+# Product modules over MAX_LINES, each with the most lines it may have (measured 2026-11-21). Lower a cap when its
+# module shrinks and remove the entry once the module is under MAX_LINES; never raise one or add one: split instead.
+OVERSIZED = {
+    "cli/research_commands.py": 973,
+    "deploy/release.py": 875,
+    "engine/audit.py": 1099,
+    "engine/paper.py": 1246,
+    "engine/run.py": 945,
+    "ide/research_graph/serve.py": 1150,
+    "ledger/metrics.py": 995,
+    "paper/serve.py": 883,
+    "replay/comparison.py": 1016,
+    "report/status.py": 888,
+}
 # Runtime dependencies no product module imports by name: nautilus_trader.analysis imports plotly when loaded, and
 # Nautilus 2.0.0rc7 declares no dependencies of its own.
 INDIRECT = frozenset({"plotly"})
@@ -129,9 +129,10 @@ class SourceHygieneTests(unittest.TestCase):
     def test_no_new_oversized_module(self):
         lengths = {str(path.relative_to(ROOT)): len(path.read_text(encoding="utf-8").splitlines())
                    for _, path in product_files()}
-        oversized = {path for path, length in lengths.items() if length > MAX_LINES}
-        self.assertEqual(sorted(oversized - OVERSIZED), [], f"split these modules: each is over {MAX_LINES} lines")
-        self.assertEqual(sorted(OVERSIZED - oversized), [], "these are under the limit now: remove them from OVERSIZED")
+        over = {path: length for path, length in lengths.items() if length > OVERSIZED.get(path, MAX_LINES)}
+        self.assertEqual(over, {}, "split these modules: each is over its cap (OVERSIZED, else MAX_LINES)")
+        under = sorted(path for path in OVERSIZED if lengths.get(path, 0) <= MAX_LINES)
+        self.assertEqual(under, [], "these are under the limit now: remove them from OVERSIZED")
 
     def test_every_top_level_definition_is_used(self):
         self.assertEqual(unused_definitions(), [], "delete these: nothing outside the tests uses them")
