@@ -29,7 +29,7 @@ import jsonschema
 from ledger import db, evidence, execution as ledger_execution, lines, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, seams
+from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, runner, seams
 
 
 METHOD = "paired-circular-log-mean-v1"
@@ -561,19 +561,19 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     open line `line` (default: the only open line, ledger.open_line) in one write, which checks again that the
     line is open; the same body and execution identity again is an idempotent replay."""
     _check_shape(body)
-    seams.require_current()
+    runner.require_current(seams.current.checkout())
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
         lines.require_not_closing(conn, held["line_id"])
         identity = seams.current.resolve_runtime(runtime_ref)
-        runner = seams.runner_inputs(list(runner_argv))
-        exported = registration_inputs.market_inputs(market, held["market_day"], runner["window"],
-                                                     runner["selection"], runner.get("lifecycle_bundle"), True, profile,
-                                                     include_quotes=runner["execution"] == "quotes",
-                                                     include_trades=runner.get("trade_ticks", False),
-                                                     include_metrics=runner.get("metrics", False))
+        parsed = runner.runner_inputs(list(runner_argv))
+        exported = registration_inputs.market_inputs(market, held["market_day"], parsed["window"],
+                                                     parsed["selection"], parsed.get("lifecycle_bundle"), True, profile,
+                                                     include_quotes=parsed["execution"] == "quotes",
+                                                     include_trades=parsed.get("trade_ticks", False),
+                                                     include_metrics=parsed.get("metrics", False))
         try:
             inspection = seams.current.inspect_runtime(identity, list(runner_argv), exported)
         finally:  # the identity is taken; the fresh export and its membership file are not kept
@@ -584,9 +584,9 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                      "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
                      "export_sha256": inputs["export_content_sha256"],
                      "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
-                     "input_start": trials.utc(runner["window"]["start"]),
-                     "trade_start": trials.utc(runner["window"]["trade_start"]),
-                     "trade_end": trials.utc(runner["window"]["end"]),
+                     "input_start": trials.utc(parsed["window"]["start"]),
+                     "trade_start": trials.utc(parsed["window"]["trade_start"]),
+                     "trade_end": trials.utc(parsed["window"]["end"]),
                      "symbols": sorted(set(inputs.get("symbols") or ()))}
         body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:

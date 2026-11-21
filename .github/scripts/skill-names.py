@@ -59,7 +59,7 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # this checkout's product, whatever the cwd
     from cli import main as cli
     from engine import config
-    from registration import seams
+    from registration import runner
 
     def children(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
         for action in parser._actions:
@@ -77,8 +77,8 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
             tree[noun][verb] = options(verb_parser)
             if verb_parser.get_default("takes_runner"):
                 runners.add(f"{noun} {verb}")
-    runner_options = (options(config.build_parser()) | set(seams.ENTRY_OPTIONS) | set(seams.ENTRY_FLAGS)) - set(
-        seams.RESERVED_RUNNER_OPTIONS)
+    runner_options = (options(config.build_parser()) | set(runner.ENTRY_OPTIONS) | set(runner.ENTRY_FLAGS)) - set(
+        runner.RESERVED_RUNNER_OPTIONS)
     return tree, runners, runner_options
 
 

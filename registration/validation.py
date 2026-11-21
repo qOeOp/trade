@@ -1,5 +1,5 @@
 """Out-of-sample validation (`registration.validation_register`, `registration.validation_bind`,
-`registration.membership_unchanged`; the checkout gate is `registration.seams.require_fresh`).
+`registration.membership_unchanged`; the checkout gate is `registration.runner.require_fresh`).
 
 The user starts a validation: one candidate, a window that begins after the registration is both
 recorded and witnessed by an RFC 3161 token, a universe rule and a declared design. The one replay
@@ -19,7 +19,7 @@ from ledger import trials
 from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import register, seams
+from registration import register, runner, seams
 
 
 def _naive_utc(moment) -> datetime:
@@ -227,7 +227,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
     `row` is the trial row about to be written (open_trial's binder argument): its source, instruments, windows
     and coverage receipt (input identity, export receipts and effective configuration). `market` is the market
     profile the membership is reread from AS OF."""
-    seams.require_fresh()
+    runner.require_fresh(seams.current.checkout())
     seams.current.require_main_build(dict(identity), dict(inspection))
     if row["purpose"] != "validation":
         raise refuse("BINDING_NOT_ALLOWED", f"a {row['purpose']} trial takes no validation binder")
