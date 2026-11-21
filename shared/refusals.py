@@ -329,7 +329,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "RUNTIME_DIGEST_AMBIGUOUS": ("Pass the image by digest (`<image>@sha256:<digest>`).",),
     "RUNTIME_MISMATCH": ("Pull the image by digest again; report the image if the probe still disagrees.",),
     # The command line (cli/)
-    "USAGE_ERROR": ("Read `python -m cli.main <noun> <verb> --help` and rerun with the declared options.",),
+    "USAGE_ERROR": ("Rerun with the declared options; for the command line, its usage and options are listed under "
+                    "`expected`, and `python -m cli.main <noun> <verb> --help` adds its contract.",),
     "SOURCE_UNREADABLE": ("Pass the path of the single-file UTF-8 source itself.",),
     "WRITE_VIA_SQL": ("Write only through the declared commands; read with one SELECT.",),
     "PRECHECK_NOT_FOUND": ("Run `replay precheck` for the candidate on the image, then review that trial.",),
