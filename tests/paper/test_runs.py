@@ -14,6 +14,19 @@ from shared.errors import Refusal
 from paper import runs
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 
+# A source that declares Paper recovery as the runner checks it (engine.paper_session.declares_recovery).
+RECOVERING = b"""from nautilus_trader.trading import Strategy
+
+
+class Fixture(Strategy):
+    PAPER_RECOVERY = 1
+
+    def on_save(self):
+        return {}
+
+    def on_load(self, state):
+        pass
+"""
 RUNNING = [{"name": "a-runner", "running": True}, {"name": "a-egress", "running": True},
            {"name": "b-runner", "running": False}]
 
@@ -131,7 +144,7 @@ class StartFailureTests(unittest.TestCase):
     def start(self, root, failing):
         profile = SimpleNamespace(database="paper", service_root=root.parent)
         row = {"paper_id": 7, "write_status": "written", "source_sha256": "s" * 64, "ledger_commit": "l"}
-        found = {"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}
+        found = {"source_sha256": "s" * 64, "source": RECOVERING, "entry_class": "Fixture"}
         with mock.patch.object(runs.db, "connect"), mock.patch.object(runs.db, "read_as_of"), \
                 mock.patch.object(runs.strategies, "read_runnable", return_value=found), \
                 mock.patch.object(runs.records, "copy_source", return_value=found), \
@@ -174,14 +187,15 @@ class RefusedStartWritesNothingTests(unittest.TestCase):
         self.addCleanup(service.close)
         self.research = service.ledger("research")
         self.profile = service.ledger("paper", holds="paper")
-        strategies.publish_candidate(self.research, source("start"), "start", "Fixture", "template root")
-        self.sha = sha(source("start"))
+        strategies.publish_candidate(self.research, RECOVERING, "start", "Fixture", "template root")
+        strategies.publish_candidate(self.research, source("plain"), "plain", "Fixture", "no recovery")
+        self.sha = sha(RECOVERING)
 
     def copies(self) -> int:
         with db.connect(self.profile, "reader") as conn:
             return conn.rows("SELECT COUNT(*) FROM paper_source")[0][0]
 
-    def start(self, *, present=(), admit=None, declared=None):
+    def start(self, *, present=(), admit=None, declared=None, candidate="start@1"):
         with mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
                 mock.patch.object(runs, "containers", return_value=list(present)), \
                 mock.patch.object(runs, "selection", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
@@ -190,7 +204,7 @@ class RefusedStartWritesNothingTests(unittest.TestCase):
                     "budget": 3584, "reserved": 3584 if admit == "full" else 0, "host_available": None,
                     "free": 0 if admit == "full" else 3584}), \
                 mock.patch.object(runs.records, "open_paper_run", side_effect=declared or AssertionError("declared")):
-            runs.start.__wrapped__(self.profile, {}, None, "start@1", None, None, research=self.research)
+            runs.start.__wrapped__(self.profile, {}, None, candidate, None, None, research=self.research)
 
     def test_a_start_refused_for_memory_copies_no_source(self):
         with self.assertRaises(Refusal) as caught:
@@ -205,11 +219,54 @@ class RefusedStartWritesNothingTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.write_status), ("PAPER_RUN_ACTIVE", "not_written"))
         self.assertEqual(self.copies(), 0)
 
+    def test_a_source_without_paper_recovery_is_refused_before_its_copy(self):
+        with self.assertRaises(Refusal) as caught:
+            self.start(candidate="plain@1")
+        self.assertEqual((caught.exception.code, caught.exception.write_status, caught.exception.missing),
+                         ("PAPER_RECOVERY_UNDECLARED", "not_written", ("PAPER_RECOVERY", "on_save", "on_load")))
+        self.assertEqual(self.copies(), 0)
+
     def test_an_admitted_start_copies_the_source_once(self):
         """The control: the same start, admitted, reaches the copy (and stops at the declaration the test stubs)."""
         with self.assertRaises(RuntimeError):
             self.start(declared=RuntimeError("declared"))
         self.assertEqual(self.copies(), 1)
+
+
+class RecoveryNamesTests(unittest.TestCase):
+    """paper start's check never refuses a source the runner would find declaring recovery."""
+
+    def test_a_source_the_runner_finds_declaring_recovery_names_all_three(self):
+        from engine.paper_session import declares_recovery
+        shapes = {
+            "own": RECOVERING,
+            "base of the file, hooks bound by assignment": b"""from nautilus_trader.trading import Strategy
+
+
+def keep(self):
+    return {}
+
+
+class Base(Strategy):
+    on_save = keep
+    on_load = lambda self, state: None
+
+
+class Fixture(Base):
+    PAPER_RECOVERY = 2 - 1
+""",
+            "flag set after the class": RECOVERING.replace(b"    PAPER_RECOVERY = 1\n", b"") + b"Fixture.PAPER_RECOVERY = 1\n",
+        }
+        for shape, text in shapes.items():
+            with self.subTest(shape):
+                namespace: dict = {}
+                exec(compile(text, "<strategy>", "exec"), namespace)
+                self.assertTrue(declares_recovery(namespace["Fixture"]))
+                self.assertEqual(runs.unnamed_recovery(text), [])
+
+    def test_a_missing_name_is_reported(self):
+        self.assertEqual(runs.unnamed_recovery(RECOVERING.replace(b"on_load", b"on_restore")), ["on_load"])
+        self.assertEqual(runs.unnamed_recovery(source("plain")), ["PAPER_RECOVERY", "on_save", "on_load"])
 
 
 class MonthFileTests(unittest.TestCase):

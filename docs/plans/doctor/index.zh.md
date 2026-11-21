@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-27 | `paper start` 不检查源码是否声明恢复协议：没有 `PAPER_RECOVERY = 1` 与 `on_save`/`on_load` 的源码照常启动，远端运行 2、3、4 各在一次中断后结束 | authority（启动前拒绝缺这三个名字的源码；Claude 按用户委托决定） | doctor | unknown | in PR [#3306](https://github.com/qOeOp/trade/pull/3306)（[记录](2026-11-21-paper-start-recovery.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-25 | `bars` 执行下成交可超过该分钟市场总成交量（`above_volume`），推荐流程从不看这个读数 | authority（推荐须引用该读数并在 `quotes` 下复跑或写明成交不可信；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-24 | `research status` 比较表的非劣判定把计划胜率当第四个度量，胜率只是报告维度 | authority（支配只用年化、MARK 回撤、夏普；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-23 | 关线留出期 DSR 只按本线参与者数折扣，不计看过同一留出期的跨线试验；IDE 只对达标行显示 | authority（另给计入 `holdout_prior_trials` 的 DSR；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
@@ -20,7 +21,7 @@
 | 20261116-01 | Web 的产品读取按固定上限 3 个并发，不按容器内存：11-19 生产 Web 容器（1.5 GiB）里内核杀了 9 个读取子进程，页面只见 `PRODUCT_FAILED`（[复发](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | fix（按 cgroup 内存余量与读取峰值放行，被杀的读取答 `OUT_OF_MEMORY`） | doctor | minutes | fixed 7b41fbdc8 [#3256](https://github.com/qOeOp/trade/pull/3256)（2026-11-21 recurred 后的修复，[记录](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)；上线后读一周生产超限日志，见 [0.5.0 重判](../rejudge-0.5-20261121.zh.md) A-91） | 2026-11-16 | 2026-11-19 |
 | 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | none（观察，攒例子再定） | user（Data and usage cost） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-03 | 改技能文字时找不出覆盖被改段落的已有评测用例（244 个用例，只跑新增或改动的） | measure（数近期技能 PR 漏跑的覆盖用例） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-04 | 20 个高曝光技能段落的专有标识符在加载后的会话里从未被用到（`skill_heat.py`） | measure（逐段查零命中原因） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-04 | 20 个高曝光技能段落的专有标识符在加载后的会话里从未被用到（`skill_heat.py`） | measure（逐段查零命中原因） | doctor | unknown | in PR [#3329](https://github.com/qOeOp/trade/pull/3329) | 2026-11-21 | 2026-11-21 |
 | 20261121-06 | 桌面 Live 的 `Request stop` 一点就发，不先列出会撤的单与会平的仓（手机端是确认单加按住） | question（桌面停止的形式；改外观先给截图） | doctor | unknown | fixed 04ce4e2a8 [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
 | 20261121-07 | 桌面 Live 不显示当前持仓与在途止损：图只在缺止损时画持仓线，不画工作单 | question（是否像手机一样按原生事件显示） | doctor | unknown | fixed 04ce4e2a8 [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |
 | 20261121-08 | 选中已有 Live 运行时新建运行只能从 ⌘K 进入，工具栏注释说运行选择器里也有 | fix（可见入口或改注释；加入口先给截图） | doctor | unknown | fixed 04ce4e2a8 [#3240](https://github.com/qOeOp/trade/pull/3240) | 2026-11-21 | 2026-11-21 |

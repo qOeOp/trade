@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (Paper): `paper start` (and the IDE's Paper start) refuses a candidate whose source never names one of
+  `PAPER_RECOVERY`, `on_save` and `on_load` with `PAPER_RECOVERY_UNDECLARED`, before it copies the source or starts a
+  container: such a source cannot declare Paper recovery, so a release, host restart or short stall ended or held its
+  run (remote runs 2, 3 and 4). A source that names all three still starts, and the runner's own verdict
+  (`recovery_declared`) marks it as before. Sources without recovery can no longer start Paper; publish a new version
+  with the protocol (doctor 20261121-27, decided under the user's delegation of 2026-11-21).
+
 - Live account reads (doctor 20261114-29, delegated decision): a read that fails with HTTP 429, a 5xx or a
   dropped connection is sent again, at most three times in all, after Binance's `Retry-After` on a 429 (refused at
   once when it asks for more than 5 s); a ban (418) or another 4xx is still refused at once.
@@ -89,6 +96,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   control's own restart included; STOP still works. Upgrade: Live must be idle; an old `requests/` (and
   `universes/`) directory is no longer read and is left on disk
   ([decision](docs/plans/live-request-log-removal-20261121.zh.md)).
+
+- `research-round`: before weighing a change of approach, the Agent lists the duties no version of the line has
+  changed (`research graph`'s `duties`) and the recommended header's `default` duties, and at least one approach
+  changes one of them or says why none can act on the bottleneck (on the last ledger, 59 of 78 derivations changed
+  C2, F3, A3 or B1 and none of 12 changes of approach named the 8 duties never tried). The duty directory places
+  risk at a fixed fraction of current equity under E1, so E3 is `adopted` only when a rule changes that fraction
+  after gains, losses or drawdown (all four roots of the last ledger marked E3 adopted for fixed-fraction sizing;
+  `docs/plans/duty-directory-recheck-20261121.zh.md`).
 
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no

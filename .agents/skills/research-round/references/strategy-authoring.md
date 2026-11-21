@@ -67,8 +67,8 @@ header template, the entry class, the two hooks and a sizing helper.
   (adding it later is a new version): `on_save` returns all the source's own state as
   `dict[str, bytes]` and `on_load` sets it back. Before proposing it for Paper, check in a /tmp
   script that a new instance given `on_load` of the old one's `on_save` holds the same state.
-  Nothing refuses a source without it: `paper start` runs it, and only the running run is marked
-  `Held on restart`. Without it, after an interruption a run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
+  `paper start` refuses a source that never names all three (`PAPER_RECOVERY_UNDECLARED`); one that
+  names them but fails the runner's check starts and is marked `Held on restart`. Without it, after an interruption a run sends no new entry: holding a position, it keeps its stops and targets working until flat, then ends; flat, it
   ends at once. With the protocol a run resumes with its positions and working orders, unless the market
   reached one of them while it was down (a GTD that expired meanwhile: before its expiry; a trailing
   stop not yet activated: its activation price), and is held as above if the interruption crossed a

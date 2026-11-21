@@ -169,7 +169,11 @@ Whether a source declares the protocol is the runner's own verdict on the class 
 MRO above `Strategy`). A new run journals it on its `started` line as `recovery_declared` (user 2026-11-18); the
 page's mark, the listing's `held_since` and `unprotected`, and `paper compare`'s `held` cause read it from there and
 never read or run the source. A run whose `started` line has no such key (started before this change) has no verdict:
-it is never marked or taken as held.
+it is never marked or taken as held. `paper start` cannot load the class (only the runtime image runs a source), so
+before any write it refuses a source whose text never names one of `PAPER_RECOVERY`, `on_save` and `on_load`, as an
+identifier or a string (`PAPER_RECOVERY_UNDECLARED`, user delegation 2026-11-21): the source check refuses `getattr`,
+`setattr`, `vars`, `exec` and dunders, so such a source fails the runner's check unless it builds the name from
+pieces. One that names all three starts and gets the runner's verdict.
 
 A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
 following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it

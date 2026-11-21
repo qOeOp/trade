@@ -17,7 +17,7 @@ reference date.
 
 - `GET https://api.stlouisfed.org/fred/...` with `api_key=$(key FRED_API_KEY)&file_type=json`
   (the key can only go in the query string, so never show the expanded URL). No keyless access:
-  without the key every call returns 400. About 120 requests a minute.
+  without the key every call returns 400.
 - `series/search?search_text=...` to find IDs; `series?series_id=` for units, frequency and
   release; `series/observations?series_id=...&observation_start=&observation_end=`. Liquidity
   series include `SOFR`, `DFF`, `RRPONTSYD` (reverse repo), `WTREGEN` (Treasury General Account,
@@ -57,8 +57,8 @@ for `research-round`, never a replay input or a test result.
 ### Coinalyze — aggregates across venues
 
 - `GET https://api.coinalyze.net/v1/...` with the header `api_key: $(key COINALYZE_API_KEY)`.
-  No keyless access (401). 40 calls a minute; each symbol in `symbols` (at most 20) is one call; a
-  429 carries `Retry-After`.
+  No keyless access (401). Each symbol in `symbols` (at most 20) counts as one call against the
+  rate limit; a 429 carries `Retry-After`.
 - `exchanges` gives venue codes (Binance `A`, Bybit `6`, OKX `3`) and `future-markets` the
   symbols (`BTCUSDT_PERP.A`, `BTCUSDT.6`). `liquidation-history`, `open-interest-history`,
   `funding-rate-history`, `long-short-ratio-history` and `ohlcv-history` take `symbols`,
@@ -67,10 +67,9 @@ for `research-round`, never a replay input or a test result.
   liquidated, in the base asset (`oi_lq_vol_denominated_in`; `convert_to_usd=true` for USD). Empty
   buckets are left out, and the last row is the bucket still in progress: a bucket is complete
   only after it ends.
-- Intraday history is cut daily; its reach moves and differs by endpoint, so read the first row
-  returned. `liquidation-history` for BTCUSDT on 2026-11-07: `1min` 9.5 days (2–3 weeks on
-  2026-11-02), `5min` 23 days, `15min` 37, `1hour` 90, `4hour` 335, `12hour` 1001; `ohlcv-history`
-  `1min` 1.4 days. `daily` is kept in full (Binance from 2020-01).
+- Intraday history is cut daily, and its reach moves and differs by endpoint and interval (finer
+  intervals reach days to weeks back): measure it before planning a window by reading the first row
+  returned. `daily` is kept in full (Binance from 2020-01).
 - Its Binance liquidations are the same sampled stream as below, a lower bound. The API docs ask
   public users to cite Coinalyze.
 
@@ -78,8 +77,8 @@ for `research-round`, never a replay input or a test result.
 
 - `GET https://api.cryptohftdata.com/v1/download?file={exchange}/{YYYY-MM-DD}/{HH}/{symbol}_{type}.parquet`
   answers 302 to a signed storage URL: use `curl -L`, which drops the `Authorization` header on
-  the way; the storage refuses it (400), so a script follows the redirect without it. Keyless: 60 requests a minute per IP
-  (`RateLimit-*` headers, `Retry-After` on 429). With the key, never `api_key=` in the URL:
+  the way; the storage refuses it (400), so a script follows the redirect without it. Keyless calls are limited per IP: read the
+  `RateLimit-*` headers before a bulk pull (`Retry-After` on 429). With the key, never `api_key=` in the URL:
   exchange it in the same command and send the token (valid 4 hours) as a header. A 404
   `not_found` is an hour without rows, or a gap: check the gaps page below.
 

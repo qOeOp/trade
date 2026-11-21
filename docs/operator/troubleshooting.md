@@ -64,6 +64,7 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 | Code | What to do |
 |---|---|
 | `PAPER_MEMORY_FULL` | Running runs hold the 3.5 GiB memory budget. Stop one, then start again. |
+| `PAPER_RECOVERY_UNDECLARED` | The source does not declare Paper recovery, so an interruption would end its run. Ask the Agent for a new version with `PAPER_RECOVERY = 1`, `on_save` and `on_load`, and start that. |
 | `PAPER_START_FAILED` | The containers did not start; the run is sealed with the error in its `runner.log`. Fix Docker, then start a new run. |
 | `EMPTY_SYMBOLS` | An empty contract list or a repeated contract. |
 | `UNIVERSE_EMPTY` | No contracts given and the market has no members for the current month yet. |
