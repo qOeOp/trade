@@ -124,6 +124,7 @@ class Venue:
         self.errors: list[str] = []
         self.repeat_kline = 0
         self.market_silent = False
+        self.user_muted = False
         self.user_sockets: list[Socket] = []
         self.market_sockets: list[Socket] = []
         self.side_sockets: list[Socket] = []
@@ -171,6 +172,23 @@ class Venue:
         with self.lock:
             self.faults.append({"method": method, "path": path, "status": status, "times": times,
                                 "body": body or {"code": -1003, "msg": "Too many requests."}, "headers": headers or {}})
+
+    def lose(self, method: str, path: str, status: int = 503, *, times: int = 1) -> None:
+        """Handle the next `times` requests of `method path`, then answer `status` instead: the venue acted, its answer
+        was lost (Binance's 503 "execution status unknown")."""
+        with self.lock:
+            self.faults.append({"method": method, "path": path, "lose": status, "times": times,
+                                "body": {"code": -1007, "msg": "Timeout waiting for response from backend server. "
+                                                               "Send status unknown; execution status unknown."}})
+
+    def clear_faults(self) -> None:
+        """Answer every request normally again."""
+        with self.lock:
+            self.faults.clear()
+
+    def mute_user_streams(self, muted: bool = True) -> None:
+        """Send (or resume sending) nothing on the user data streams while they stay open."""
+        self.user_muted = muted
 
     def hang(self, method: str, path: str, seconds: float, *, times: int = 1) -> None:
         """Hold the next `times` requests of `method path` unanswered for `seconds`, then handle them."""
@@ -293,6 +311,8 @@ class Venue:
     # -- user data stream -----------------------------------------------------------------------------------------
 
     def _user(self, message: dict) -> None:
+        if self.user_muted:
+            return
         for found in list(self.user_sockets):
             found.send(message)
 
@@ -679,7 +699,10 @@ class Venue:
                 if fault is not None and "hang" in fault:
                     time.sleep(fault["hang"])
                     fault = None
-                if fault is not None:
+                if fault is not None and "lose" in fault:
+                    venue.answer(method, parts.path, params)
+                    status, answer, headers = fault["lose"], fault["body"], {}
+                elif fault is not None:
                     status, answer, headers = fault["status"], fault["body"], fault["headers"]
                 elif not public and parts.path != "/fapi/v1/listenKey" and \
                         not venue._signed(parts.query, body, self.headers):

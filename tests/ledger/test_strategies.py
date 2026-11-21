@@ -73,8 +73,7 @@ class PublishTests(unittest.TestCase):
 
     def test_roots_children_and_retries(self):
         root = self.publish(source("root"), "lineage")
-        self.assertEqual((root["candidate"], root["replayed"], root["runtime_contract"]),
-                         ("lineage@1", False, strategies.RUNTIME_CONTRACT))
+        self.assertEqual((root["candidate"], root["replayed"]), ("lineage@1", False))
         self.assertEqual(root["source_sha256"], hashlib.sha256(source("root")).hexdigest())
         child = self.publish(source("child"), "lineage", parent="lineage@1", difference="tighter stop")
         self.assertEqual(child["candidate"], "lineage@2")

@@ -1,8 +1,10 @@
 import type { HeldAlert } from "./liveHeld";
 import type { LiveRequest } from "../lib/liveTradingCommands";
-import type { LiveEventRow, LiveReviewDto } from "../lib/liveTradingDto";
+import type { LiveEnvironment, LiveEventRow, LiveReviewDto } from "../lib/liveTradingDto";
 import type { RuntimeFailure } from "../lib/paperApi";
 export type { LiveRequest } from "../lib/liveTradingCommands";
+export type { LiveEnvironment } from "../lib/liveTradingDto";
+export const ENVIRONMENT_NAMES: Record<LiveEnvironment, string> = { live: "Live", demo: "Demo" };
 
 /** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
  * this is not a backend schema and contains no venue credential or private path. */
@@ -33,6 +35,8 @@ export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastE
 type LivePlanField = { id: string; label: string; value: string };
 export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
+  /** The Binance environment it trades (null: its manifest does not say); a demo run is never the real account. */
+  environment: LiveEnvironment | null;
   id: string; candidate: string; sourceHash: string | null; entryClass: string | null;
   runtimeDigest: string | null; symbols: readonly string[] | null; config: readonly LiveFact[];
   host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
@@ -57,6 +61,11 @@ export type LiveRun = {
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
   /** The host reports the run ended, so Request stop has nothing to stop. */
   ended: boolean;
+  /** A stop was requested of the run. */
+  stopRequested?: boolean;
+  /** The drawdown brake as a fraction (0.15), the equity the run armed with and its highest equity so far, in USDT
+   *  (engine/live_brake.py); null where not known. */
+  brake?: { ratio: number | null; start: number | null; peak: number | null };
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
   /** The strategy's runtime failure receipts, as a paper run's; null when unreadable. */
   failures?: readonly RuntimeFailure[] | null;
@@ -70,15 +79,17 @@ export type LiveTradingView = {
   /** Why new actions are refused now, as a code (a failed read, or the service's write reason); null when they are
    *  accepted. The launch page words it plainly. */
   reason?: string | null;
-  credentials: readonly LiveCredential[]; planFields: readonly LivePlanField[];
+  /** Each environment's saved key versions: saving or removing one never touches the other's. */
+  credentials: Readonly<Record<LiveEnvironment, readonly LiveCredential[]>>; planFields: readonly LivePlanField[];
   runs: readonly LiveRun[]; requests: readonly LiveRequest[];
   notify?: LiveNotify | null;
 };
 /** Only explicit user interactions call these functions. No callbacks run on mount or refresh. */
 export type LiveTradingActions = {
-  saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
-  removeCredential?: (ref: string) => void | Promise<void>;
-  prepare?: (input: { candidate: string; symbols: readonly string[]; values: Readonly<Record<string, string>> }) => Promise<LiveRequest>;
+  saveCredentials?: (input: { environment: LiveEnvironment; api_key: string; api_secret: string }) => void | Promise<void>;
+  removeCredential?: (ref: string, environment: LiveEnvironment) => void | Promise<void>;
+  /** `environment`: the run's Binance environment, bound to that environment's selected key. */
+  prepare?: (input: { candidate: string; symbols: readonly string[]; environment: LiveEnvironment; values: Readonly<Record<string, string>> }) => Promise<LiveRequest>;
   /** Each resolves to the request as answered (or not), so a refusal can be said where it was asked. */
   preflight?: (runId: string) => void | Promise<LiveRequest | void>;
   start?: (runId: string, confirmRealOrders: string) => void | Promise<LiveRequest | void>;
@@ -104,14 +115,22 @@ export const labelUnit = (label: string): readonly [string, string | null] => {
 export const LIVE_UNAVAILABLE: LiveTradingView = {
   availability: "unavailable", reason: "LIVE_UNAVAILABLE",
   notice: "The Live service is not connected to this IDE. No request will be sent.",
-  credentials: [], planFields: [], runs: [], requests: [],
+  credentials: { live: [], demo: [] }, planFields: [], runs: [], requests: [],
 };
 
+/** Every saved key version, of both environments (a run names its own by ID). */
+export const allCredentials = (view: LiveTradingView) => [...view.credentials.live, ...view.credentials.demo];
+
+/** The key a new run of `environment` binds: its selected version, if not removed. */
+export const selectedCredential = (view: LiveTradingView, environment: LiveEnvironment) =>
+  view.credentials[environment].find((item) => item.selected && !item.removed);
+
 /** Whether `run` was prepared with exactly this candidate, these contracts and settings, so it can be started as it is. */
-export function preparedWith(run: LiveRun, candidate: string, symbols: readonly string[], values: Readonly<Record<string, string>>): boolean {
+export function preparedWith(run: LiveRun, candidate: string, symbols: readonly string[], environment: LiveEnvironment,
+  values: Readonly<Record<string, string>>): boolean {
   const config = Object.fromEntries(run.config.map((fact) => [fact.label, fact.value]));
-  const brake = config["Drawdown brake"], seconds = Number(values.duration_seconds || 0);
-  return run.candidate === candidate && (run.symbols ?? []).join(",") === symbols.join(",")
-    && brake != null && Math.abs(Number(brake) * 100 - Number(values.drawdown_brake)) < 1e-9
+  const brake = run.brake?.ratio ?? null, seconds = Number(values.duration_seconds || 0);
+  return run.environment === environment && run.candidate === candidate && (run.symbols ?? []).join(",") === symbols.join(",")
+    && brake !== null && Math.abs(brake * 100 - Number(values.drawdown_brake)) < 1e-9
     && (config["Duration (seconds)"] ?? null) === (seconds >= 1 ? String(seconds) : null) && config["Leverage"] === values.leverage;
 }

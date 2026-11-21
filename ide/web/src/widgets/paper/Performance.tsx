@@ -1,5 +1,5 @@
 import type { Account, TradeStats } from "../../model/account";
-import { Section } from "../../components/Section";
+import { Section } from "../../ui/Section";
 import { byContract, Contracts, Exits, Sides } from "./performanceParts";
 import { TradeStrip } from "./TradeStrip";
 

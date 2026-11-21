@@ -1,4 +1,4 @@
-"""The Live evidence pack records the bars the source receives and the native reports in the replay's own form; a
+"""The Live evidence pack records the market rows the source receives (engine.realtime.MarketRows) and the native reports in the replay's own form; a
 failed write never changes the run. Live warms its source at T from Binance's klines as replay and Paper do
 (engine.history), offline here: a BacktestEngine drives the Live wrapper and synthetic klines stand in for
 Binance's."""
@@ -16,7 +16,7 @@ from unittest.mock import Mock
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
-    Bar, CustomData, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
+    Bar, BarType, CustomData, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
 )
 from nautilus_trader.persistence import DataCatalogConfig
 
@@ -73,7 +73,7 @@ class LiveEvidenceTests(unittest.TestCase):
         manifest = dict(run_id="evidence", symbols=["AAAUSDT"], strategy_file=str(path), account_id="BINANCE-001",
                         universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-                        config=dict(duration_seconds=3600, drawdown_brake="0.15"), market=dict(market_day=MARKET_DAY))
+                        config=dict(environment="live", duration_seconds=3600, drawdown_brake="0.15"), market=dict(market_day=MARKET_DAY))
         session = live.Session(manifest, self.output, "run", account_verified=True)
         session.node = Mock()
         return session, live.source_for_run(manifest)
@@ -92,15 +92,12 @@ class LiveEvidenceTests(unittest.TestCase):
             first = history.STATES[str(source.strategy_id)]["at"] + MINUTE_NS - 1_000_000
             engine.add_data([bar(first), bar(first + MINUTE_NS, close="100.50")])
             engine.run()
-            earlier = bar(first - MINUTE_NS, close="99.50")
-            source._source_on_historical_bars([earlier])
             self.assertEqual(source.observed, ["start", "bar", "bar"])
             recorded = rows(self.output)
             self.assertEqual([(row["kind"], row["ts_event"], row["close"]) for row in recorded],
-                             [("bar", first, "100.00"), ("bar", first + MINUTE_NS, "100.50"),
-                              ("historical_bar", first - MINUTE_NS, "99.50")])
+                             [("bar", first, "100.00"), ("bar", first + MINUTE_NS, "100.50")])
             self.assertEqual({key: value for key, value in recorded[0].items() if key != "wall_ns"}, {
-                "kind": "bar", "bar_type": str(fixture.BAR_TYPE), "instrument_id": str(fixture.INSTRUMENT_ID),
+                "kind": "bar", "instrument_id": str(fixture.INSTRUMENT_ID),
                 "ts_event": first, "ts_init": first, "open": "100.00", "high": "101.00", "low": "99.00",
                 "close": "100.00", "volume": "40.000"})
             # A metrics row the source receives (engine.metrics), though it defines no on_data, a missing ratio null.
@@ -117,13 +114,13 @@ class LiveEvidenceTests(unittest.TestCase):
             source.unsubscribe_data(metrics_data_type(iid))
             source.unsubscribe_data(metrics_data_type(iid))  # no longer followed: nothing to record
             self.assertEqual([{key: value for key, value in row.items() if key != "wall_ns"}
-                              for row in rows(self.output)[4:]],
+                              for row in rows(self.output)[3:]],
                              [{"kind": "metrics_unsubscribed", "instrument_id": iid}])
             # After a stop request the source hears no further bar or row, and none is recorded as received.
             (self.output / "STOP").write_text("")
             source.on_bar(bar(first + 2 * MINUTE_NS))
             source.on_data(CustomData(metrics_data_type(iid), metered))
-            self.assertEqual(len(rows(self.output)), 5)
+            self.assertEqual(len(rows(self.output)), 4)
             self.assertEqual(source.observed, ["start", "bar", "bar"])
         finally:
             engine.dispose()
@@ -199,7 +196,7 @@ class LiveEvidenceTests(unittest.TestCase):
         self.assertEqual(observer.observe.call_count, 2)
 
     def test_live_warms_its_source_at_t_from_binance_klines_before_on_start(self):
-        def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             step = warmup.period_ns(period)
             kind = warmup.bar_type(instrument_id, period)
             prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
@@ -214,15 +211,20 @@ class LiveEvidenceTests(unittest.TestCase):
             ("15-MINUTE-LAST-EXTERNAL", [floor - quarter - 1_000_000, floor - 1_000_000]),
             "start", "bar", "bar"])
         self.assertFalse(session.failed or session.stopping)
-        warmed = next(event for event in events if event["event"] == "warmup")
-        self.assertEqual((warmed["at_ns"], warmed["bars"]), (at, {"1-MINUTE": 3, "15-MINUTE": 2}))
-        self.assertEqual([row["kind"] for row in rows(self.output)], ["historical_bar"] * 5 + ["bar"] * 2)
+        self.assertEqual([event["at_ns"] for event in events if event["event"] == "warmup"], [at])
+        # Each history the source received goes to the pack as Paper journals it: one digest per period.
+        recorded = rows(self.output)
+        self.assertEqual([row["kind"] for row in recorded], ["warmup"] * 2 + ["bar"] * 2)
+        self.assertEqual([(row["period"], row["bars"], row["first_ts_event"], row["last_ts_event"])
+                          for row in recorded[:2]],
+                         [("1-MINUTE", 3, at - 2 * MINUTE_NS - 1_000_000, at - 1_000_000),
+                          ("15-MINUTE", 2, floor - quarter - 1_000_000, floor - 1_000_000)])
 
     def test_live_refuses_a_start_whose_history_or_first_minute_does_not_hold(self):
-        def short(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def short(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             raise Refusal("WARMUP_INSUFFICIENT", "Binance holds fewer bars")
 
-        def whole(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def whole(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             step = warmup.period_ns(period)
             prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
             return [Bar(warmup.bar_type(instrument_id, period), *prices, Quantity.from_str("40.000"),
@@ -272,11 +274,20 @@ class LiveEvidenceTests(unittest.TestCase):
         finally:
             engine.dispose()
 
+    def test_an_aggregation_the_source_receives_is_not_recorded(self):
+        """Only the one-minute bars are market rows: an aggregation is built from them (engine.realtime.MarketRows)."""
+        session, _ = self.session()
+        hour = Bar(BarType.from_str(f"{fixture.INSTRUMENT_ID}-1-HOUR-LAST-INTERNAL"),
+                   *[Price.from_str("100.00")] * 4, Quantity.from_str("40.000"), HOUR_NS, HOUR_NS)
+        session.evidence.market("bar", hour)
+        session.evidence.market("bar", bar(HOUR_NS))
+        self.assertEqual([(row["kind"], row["ts_event"]) for row in rows(self.output)], [("bar", HOUR_NS)])
+
     def test_a_failed_write_is_journaled_once_and_never_fails_the_run(self):
         session, _ = self.session()
         (self.output / EVIDENCE).write_text("not a directory")
-        session.evidence.bar(bar(MINUTE_NS))
-        session.evidence.bar(bar(2 * MINUTE_NS))
+        session.evidence.market("bar", bar(MINUTE_NS))
+        session.evidence.market("bar", bar(2 * MINUTE_NS))
         session.evidence.reports(SimpleNamespace(), Venue("BINANCE"))
         events = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
         self.assertEqual([(row["event"], row["part"]) for row in events],

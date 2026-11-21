@@ -20,6 +20,7 @@ import time
 from urllib.parse import unquote, urlsplit
 
 from engine.live_errors import LiveRefusal
+from shared.http import send_json, trusted
 from live import authority, configuration, control, credentials, daily, notify, reconcile, release, runs, state
 
 
@@ -123,21 +124,12 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
             evidence: control.Evidence | None = None, reconciliation: reconcile.Reconciliation | None = None):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, status: int, value: dict):
-            body = state.encode(value)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.close_connection = True
             with suppress(OSError):
-                self.wfile.write(body)
+                send_json(self, status, state.encode(value), close=True)
 
         def route(self):
             url = urlsplit(self.path)
-            if self.headers.get("Host") != "live-control" or url.query or url.fragment:
+            if not trusted(self, ("live-control",)) or url.query or url.fragment:
                 raise configuration.fail()
             return url.path
 
@@ -240,8 +232,8 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
             with scope.mutation(maintenance=True) as root:
                 observed = runs.observe_locked(root, path.name)
                 if observed["state"] in ("running", "interrupted") and observed.get("mode") == "run":
-                    # the next month's membership, before a start reads it (engine.membership):
-                    # until it is written the runner denies entries on the contract; the next pass retries
+                    # the next month's membership, before a start reads it (engine.membership); until it is written
+                    # the runner denies entries on the contract, and the next pass retries
                     with suppress(Exception):
                         runs.write_months_locked(root, path.name, config.market_root, time.time_ns())
                 if observed["state"] == "interrupted":

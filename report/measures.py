@@ -212,7 +212,8 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth
     for the intercept (`lags`; `lag_selection` is the truncation that estimated it). Because the
     design has an intercept, the OLS residuals sum to zero and the fitted days' simple-return sum
-    splits into `alpha_return` (T * a) and `beta_return` (sum(b0 m_t + b1 m_(t-1)))."""
+    splits into `alpha_return` (T * a) and `beta_return` (sum(b0 m_t + b1 m_(t-1))); `beta_days` holds each
+    fitted day's b0 m_t + b1 m_(t-1)."""
     if len(y) != len(market) or len(y) < 5:
         raise ValueError("the regression needs two aligned series of at least five days")
     m = np.asarray(market, dtype=float)
@@ -221,9 +222,10 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict:
     target = np.asarray(y, dtype=float)[1:]
     lags, selection = coefficient_bandwidth(target, x, 0)
     beta, covariance = ols_newey_west(target, x, lags)
+    beta_days = x[:, 1:] @ beta[1:]
     return {"beta": float(beta[1] + beta[2]), "alpha": float(beta[0]), "alpha_se": float(math.sqrt(covariance[0, 0])),
-            "beta_return": float((x[:, 1:] @ beta[1:]).sum()), "alpha_return": float(beta[0] * days),
-            "lags": lags, "lag_selection": selection, "days": days}
+            "beta_return": float(beta_days.sum()), "alpha_return": float(beta[0] * days),
+            "beta_days": [float(value) for value in beta_days], "lags": lags, "lag_selection": selection, "days": days}
 
 
 def autocorrelations(values: Sequence[float], lags: int) -> list[float]:
@@ -465,6 +467,22 @@ def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]:
     return found
 
 
+def pnl_split(returns: list[tuple], starting: Decimal | None, beta_days: Sequence[float]) -> tuple[float | None, float | None]:
+    """The daily PnL sum in account currency split in two: the beta part weights each fitted day's market part
+    (market_regression beta_days, from the second day on) by the equity before that day; the alpha part is the rest
+    (intercept, residuals and the first day), so the two add up to the daily PnL sum. (None, None) without a
+    starting balance."""
+    if starting is None:
+        return None, None
+    equity, before, total = float(starting), [], 0.0
+    for _, value, _ in returns:
+        before.append(equity)
+        total += equity * value
+        equity *= 1 + value
+    beta = sum(weight * part for weight, part in zip(before[1:], beta_days, strict=True))
+    return beta, total - beta
+
+
 def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping | None = None,
                     wanted: Collection[str] | None = None) -> dict:
     """{name: {value, population, sample_size, null_reason}} of one run's stored facts (`run_facts`), for the
@@ -612,11 +630,12 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             except (ValueError, np.linalg.LinAlgError) as exc:
                 reason = f"REGRESSION_UNAVAILABLE: {exc}"
         if reason is None:
+            beta_pnl, alpha_pnl = pnl_split(returns, starting, fitted["beta_days"])
             put(beta_name, fitted["beta"], "account_days", fitted["days"])
-            found[beta_name].update(return_sum=fitted["beta_return"])
+            found[beta_name].update(return_sum=fitted["beta_return"], pnl_sum=beta_pnl)
             put(alpha_name, fitted["alpha"], "account_days", fitted["days"])
             found[alpha_name].update(standard_error=fitted["alpha_se"], return_sum=fitted["alpha_return"],
-                                     lags=fitted["lags"], lag_selection=fitted["lag_selection"])
+                                     pnl_sum=alpha_pnl, lags=fitted["lags"], lag_selection=fitted["lag_selection"])
         else:
             put(beta_name, None, "account_days", days, reason)
             put(alpha_name, None, "account_days", days, reason)
@@ -699,7 +718,7 @@ def market_for(run: Mapping) -> dict | None:
     from report import seams
     identity = run.get("input_identity") or {}
     try:
-        return seams.current.market_returns(identity.get("market_database"), identity.get("market_day"),
+        return seams.current.market_returns(identity.get("market_name"), identity.get("market_day"),
                                             identity.get("universe_rule"),
                                             datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
                                             - timedelta(days=REGIME_WINDOW),

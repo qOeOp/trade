@@ -7,7 +7,8 @@ opens (`/api/comparison`, at a full ledger commit), `research state --without-im
 review readings (`/api/state`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a market day, YYYY-MM-DD, on the market
-profile given or the active one), so this module imports no product package. Product processes start only while
+profile given or the active one), and `market coverage` for the contracts the market directory holds bars of
+(`/api/market/local`), so this module imports no product package. Product processes start only while
 the container's memory has room for their peak (`HEAVY` for a read of research data, `LIGHT` for a ledger head, status
 or line list), so a page's burst of reads fits it and further reads wait their turn; the kernel kills a product process
 before this server or the overview, and such a read is answered `OUT_OF_MEMORY`, which a page may ask again. While
@@ -22,7 +23,7 @@ stay in memory, keyed by commit, line and `since`, retaining a scope's newest li
 duplicates, so a named live page can show it while a newer head is still drawing.
 Every other product read (a trial's report, a version's comparison, a line's state or counts, the line index,
 `research history` for `/api/history`, the lines with their recommendations for `/api/readings`, a contract's daily
-bars) is kept by what it was read for in one cache of at most `KEPT` bytes of JSON, least recently used dropped first,
+bars, the market directory's contracts, read once per UTC day) is kept by what it was read for in one cache of at most `KEPT` bytes of JSON, least recently used dropped first,
 and the ledger's state `/api/about` gives (`ledger service status`) for the head for up to `STATUS_SECONDS`.
 A head whose history does not continue the one read before (the old head is not in its log: the ledger was replaced) drops every view, failure and read kept for the old history's commits.
 Nothing is written anywhere.
@@ -360,6 +361,17 @@ class Product:
         market = [f"--market={self.market}"] if self.market else []
         return self.run("market", "bars", *market, f"--market-day={market_day}", f"--symbol={symbol}", "--timeframe=1d", "--price-type=LAST",
                         f"--start={start}T00:00:00Z", f"--end={end}T00:00:00Z", f"--limit={days}")
+
+    def local(self, day: str) -> dict:
+        """The contracts the market directory holds bars of, for the Market page's marks: `market coverage` of the
+        universe members of UTC day `day`'s month, over that day's first minute (the window only picks the members;
+        each contract's first and last held LAST bar is its `listing_delisting.data_bounds_proxy`, whatever the
+        window), as {market_day, contracts: [{symbol, first_open_ms, last_open_ms}]}, a contract with no bar left out."""
+        market = [f"--market={self.market}"] if self.market else []
+        found = self.run("market", "coverage", *market, f"--start={day}T00:00:00Z", f"--end={day}T00:01:00Z")
+        held = [(row["symbol"], row["listing_delisting"]["data_bounds_proxy"]["last"]) for row in found["coverage"]]
+        return {"market_day": found["market_day"],
+                "contracts": [{"symbol": symbol, **bounds} for symbol, bounds in held if bounds is not None]}
 
 
 @dataclass(eq=False)
@@ -1006,6 +1018,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if url.path == "/api/about":
                 self.about()
+                return
+            if url.path == "/api/market/local":
+                # Yesterday (UTC): a whole day the market can hold, its month's members the contracts now listed.
+                self.kept("local", (datetime.now(UTC) - timedelta(days=1)).date().isoformat())
                 return
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))

@@ -1,7 +1,8 @@
-"""Live runs a candidate only with a replay of it behind the run (R2, user 2026-11-12): preparation refuses until the
-ledger holds a completed, audited replay of that source on Live's instruments in bars, inside a window its research
-already saw, by the replay code of the execution image, and records it; the runner then needs one that started near
-the USDT wallet. Throwaway Dolt only."""
+"""Live runs a candidate only with a replay of it behind the run (R2, user 2026-11-12): preparation records each
+completed, audited replay of that source on Live's instruments in bars, inside a window its research already saw, by the
+replay code of the execution image, and a run that records none is refused at its start; the runner then needs one that
+started near the USDT wallet. A run without one may still check the account, so the wallet a replay must start near is
+read first (G-69, 2026-11-21). Throwaway Dolt only."""
 
 from decimal import Decimal
 import hashlib
@@ -15,7 +16,7 @@ from engine.live_venue import EVIDENCE_TOLERANCE, require_evidence
 from ledger import db
 from live import control, runs, state
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP
-from tests.live.authority_fixture import install, prepare
+from tests.live.authority_fixture import install, launch, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.ledger.dolt import source
 from tests.registration.world import World, capture
@@ -45,7 +46,7 @@ class ReplayEvidenceTests(LiveFixture):
         registered = cls.world.register(cls.world.body(["rsi@1"], {"rsi@1": review}, comparison=None))
         cls.world.research_trial(registered["registration_id"], cls.candidate["source"])  # trades January 2026
 
-    def prepare(self, run_id: str, evidence_code: dict = CODE, **options) -> dict:
+    def prepare(self, run_id: str, evidence_code: dict = CODE, leverage: str = "3", **options) -> dict:
         """Preparation at the ledger's head; the execution image runs CODE, every replay image `evidence_code`."""
         described = lambda identity, _: CODE if identity["image_ref"] == IDENTITY["image_ref"] else evidence_code
         with patch("engine.load.read_universe"), \
@@ -55,7 +56,7 @@ class ReplayEvidenceTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
-                           scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                           scope=self.scope, environment="live", drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
                            market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-" + run_id,
                            **options)
 
@@ -73,6 +74,15 @@ class ReplayEvidenceTests(LiveFixture):
         self.assertFalse((state.directory(self.root, run_id) / "inputs" / "manifest.json").exists())
         return caught.exception.code
 
+    def unbacked(self, run_id: str, **options) -> str:
+        """Prepared with no replay recorded, then refused at its start, before any key or container; the runner
+        refuses it too. Returns the start's refusal code."""
+        manifest = self.prepare(run_id, **options)
+        self.assertEqual(manifest["evidence"], [])
+        self.assertEqual(refused(require_evidence, wallet("100"), manifest, error=LiveRefusal).code, "LIVE_EVIDENCE_MISSING")
+        with patch.object(runs, "_bound_credential", side_effect=AssertionError("key read")):
+            return refused(launch, self.root, run_id, self.credentials, "run", scope=self.scope, error=LiveRefusal).code
+
     def explore(self, symbols=("AAAUSDT",), days=2, **capture_options) -> int:
         """An explore trading `days` days from 2026-01-06."""
         data = self.candidate["source"]
@@ -81,16 +91,18 @@ class ReplayEvidenceTests(LiveFixture):
                 **capture_options)
         return trial_id
 
-    def test_preflight_is_refused_without_evidence_and_accepted_with_it(self):
-        self.assertEqual(self.refused("no-replay"), "LIVE_EVIDENCE_MISSING")
+    def test_a_start_is_refused_without_evidence_and_accepted_with_it(self):
+        self.assertEqual(self.unbacked("no-replay"), "LIVE_EVIDENCE_MISSING")
         self.assertEqual(self.read_ahead(), [])
         self.explore(audit_exit=1)  # its audit did not pass
         self.explore(symbols=("BBBUSDT",))  # not Live's instruments
         self.explore(days=40)  # runs past the research window's end: a window research never saw
-        self.assertEqual(self.refused("unbacked"), "LIVE_EVIDENCE_MISSING")
+        self.assertEqual(self.unbacked("unbacked"), "LIVE_EVIDENCE_MISSING")
         backing = self.explore()
         other_code = {**CODE, "audit_source_sha256": "4" * 64}
-        self.assertEqual(self.refused("other-replay-code", evidence_code=other_code), "LIVE_EVIDENCE_MISSING")
+        self.assertEqual(self.unbacked("other-replay-code", evidence_code=other_code), "LIVE_EVIDENCE_MISSING")
+        # The replay traded at leverage 3 (its effective configuration): it backs no run at another leverage.
+        self.assertEqual(self.unbacked("other-leverage", leverage="5"), "LIVE_EVIDENCE_MISSING")
 
         manifest = self.prepare("backed")
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
@@ -118,7 +130,7 @@ class ReplayEvidenceTests(LiveFixture):
                 self.assertEqual(self.refused("falsified"), "LIVE_CANDIDATE_FALSIFIED")
             with patch.object(history, "require_unfalsified", return_value={"line": "rsi-root", "judged_on": "holdout"}):
                 self.assertTrue(self.prepare("passed")["evidence"])
-    def test_preparation_needs_a_reconciled_paper_run_after_the_replay_evidence(self):
+    def test_preparation_needs_a_reconciled_paper_run(self):
         """20261120-06 (user 2026-11-21): the serving control's answer (live.reconcile.require), asked last."""
         asked = []
 
@@ -168,7 +180,7 @@ class EvidenceReadAheadTests(unittest.TestCase):
     def test_the_listing_names_no_candidate_or_contracts_and_offers_the_run_defaults(self):
         listing = control.listing(self.config)
         self.assertNotIn("sources", listing)
-        self.assertEqual(listing["defaults"], {"duration_seconds": None, "leverage": "3", "drawdown_brake": "0.15"})
+        self.assertEqual(listing["defaults"], {"environment": "live", "duration_seconds": None, "leverage": "3", "drawdown_brake": "0.15"})
 
     def test_only_asked_keys_are_read_checking_then_the_answer_and_only_an_unknown_one_again(self):
         evidence = control.Evidence()

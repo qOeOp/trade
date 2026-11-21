@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { ThreadPrimitive } from "@assistant-ui/react";
-import { AssistantMessage, UserMessage } from "../../components/chat/Messages";
-import { Composer } from "../../components/chat/Composer";
-import { KnownVersions } from "../../components/chat/Markdown";
-import { ModelPicker } from "../../components/chat/ModelPicker";
-import { ThreadViewport } from "../../components/chat/ThreadViewport";
-import { TextButton } from "../../components/TextButton";
+import { AssistantMessage, UserMessage } from "../../ui/chat/Messages";
+import { Composer } from "../../ui/chat/Composer";
+import { KnownVersions } from "../../ui/chat/Markdown";
+import { ModelPicker } from "../../widgets/agent/ModelPicker";
+import { ThreadViewport } from "../../ui/chat/ThreadViewport";
+import { TextButton } from "../../ui/TextButton";
 import type { LineageWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
 import { agentPane, chosen, currentChoice, modelOptions, useAgents, useChosen } from "../../state/agent";

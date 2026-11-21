@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -36,6 +37,56 @@ class HelpTests(unittest.TestCase):
             main.main(["--version"])
         self.assertEqual((done.exception.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
         self.assertRegex(main.product_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+class UsageRefusalTests(unittest.TestCase):
+    """A command line the parser refuses is USAGE_ERROR carrying that command's usage line and options, with a
+    note for runner arguments without -- and for --line on a command its registration binds; nothing runs."""
+
+    def refused(self, *argv: str) -> dict:
+        err, ran, dispatch = io.StringIO(), mock.Mock(), main._dispatch
+
+        def parsed(args, runner_argv):  # the parsed command would run `ran`, never the product
+            args.run = ran
+            return dispatch(args, runner_argv)
+        with contextlib.redirect_stderr(err), mock.patch.object(main, "_dispatch", parsed):
+            self.assertEqual(main.main(list(argv)), 1)
+        ran.assert_not_called()
+        refusal = json.loads(err.getvalue())
+        self.assertEqual(refusal["code"], "USAGE_ERROR")
+        self.assertIn("listed under `expected`", refusal["next_actions"][0])
+        return refusal
+
+    def test_the_refusal_carries_the_commands_usage_and_options(self):
+        refusal = self.refused("research", "state", "--bogus")
+        self.assertEqual(refusal["message"], "unrecognized arguments: --bogus")
+        self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main research state "))
+        self.assertIn("--history-before HISTORY_BEFORE", refusal["expected"])
+        self.assertNotIn("reads ", refusal["expected"])  # the contract stays in --help
+        refusal = self.refused("hypothesis", "compare", "--registration", "1")
+        self.assertEqual(refusal["message"], "the following arguments are required: --trial-id")
+        self.assertIn("--trial-id TRIAL_ID", refusal["expected"])
+        refusal = self.refused("candidate", "list", "--", "--start", "x")
+        self.assertEqual(refusal["message"], "candidate list takes no runner arguments after --")
+        self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main candidate list "))
+
+    def test_runner_arguments_without_the_separator_are_named(self):
+        refusal = self.refused("replay", "precheck", "--candidate", "s@1", "--market-day", "head", "--output", "/tmp/o",
+                               "--symbols", "BTCUSDT", "--start", "2024-01-01T00:00:00Z")
+        self.assertEqual(refusal["message"], "unrecognized arguments: --symbols BTCUSDT --start 2024-01-01T00:00:00Z; "
+                                             "runner arguments go after --")
+        refusal = self.refused("replay", "precheck", "--candidate", "s@1", "--market-day", "head", "--output", "/tmp/o",
+                               "--bogus", "--", "--start", "2024-01-01T00:00:00Z")
+        self.assertEqual(refusal["message"], "unrecognized arguments: --bogus")
+        self.assertNotIn("runner", self.refused("research", "state", "--start", "x")["message"])
+
+    def test_a_line_on_a_command_its_registration_binds_is_still_refused_and_says_why(self):
+        bound = "this command takes the research line from the registration (--registration), not --line"
+        refusal = self.refused("replay", "run", "--registration", "5", "--candidate", "s@1", "--line", "l")
+        self.assertEqual(refusal["message"], f"unrecognized arguments: --line l; {bound}")
+        refusal = self.refused("hypothesis", "compare", "--registration", "1", "--trial-id", "2", "--line=l")
+        self.assertEqual(refusal["message"], f"unrecognized arguments: --line=l; {bound}")
+        self.assertNotIn("registration", self.refused("candidate", "list", "--line", "l")["message"])
 
 
 class ClosedPipeTests(unittest.TestCase):

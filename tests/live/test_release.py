@@ -210,7 +210,7 @@ class LiveReleaseTests(LiveFixture):
         before = self.files()
         with patch.object(control, "_operation", side_effect=AssertionError("secret dispatched")):
             status, refused = control.execute(self.config, "credential_save", None, {
-                "request_id": "save-during-release", "api_key": "fake", "api_secret": "fake"}, binding=self.binding)
+                "request_id": "save-during-release", "environment": "live", "api_key": "fake", "api_secret": "fake"}, binding=self.binding)
         self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertEqual(before, self.files())
 
@@ -290,7 +290,7 @@ binding = release.Binding(metadata, sys.argv[3])
 config = authority.from_file(Path(sys.argv[4]), binding).config
 print("validated", flush=True)
 status, body = control.execute(config, "credential_save", None,
-                               {"request_id": "late-save-request", "api_key": "fake", "api_secret": "fake"},
+                               {"request_id": "late-save-request", "environment": "live", "api_key": "fake", "api_secret": "fake"},
                                binding=binding)
 print(body["error"]["code"] if status != 200 else "saved", flush=True)
 ''', self.root, self.release_state, OLD, self.authority.file)

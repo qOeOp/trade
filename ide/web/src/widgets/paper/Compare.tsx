@@ -3,10 +3,10 @@ import { useTimeZone } from "../../state/timeZone";
 import { useState, type ReactNode } from "react";
 import { fixed, symbolOf, type Precision } from "../../lib/paperApi";
 import { marketThrough, MISSING, plural } from "../../lib/format";
-import { Skeleton, TableSkeleton } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
-import { Tip } from "../../components/Tip";
-import { FormButton } from "../../components/chat/Field";
+import { Skeleton, TableSkeleton } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
+import { Tip } from "../../ui/Tip";
+import { FormButton } from "../../ui/chat/Field";
 import { pickTrade, usePickedTrade } from "../../state/paperStream";
 import { CELL, HEAD, usePickedScroll } from "./table";
 import { compare, type Cause, type Comparison, type Group, type OrderRow, type RowClass, type SideDown, type Stage } from "../../state/compare";
@@ -129,7 +129,7 @@ export function Compare({ r, paperId, only, digits }: {
   }
   if (r.state === "none") return <Prompt action={() => void compare(paperId)} label="Replay and compare">Replay this run on the archived bars of the same interval, with the same source, image and warm-up, and compare every order. Nothing is recorded.</Prompt>;
   if (r.state === "failed" || !r.result) {
-    const uncovered = r.error?.code === "PAPER_COMPARE_UNCOVERED";
+    const uncovered = r.error?.code === "COMPARE_UNCOVERED";
     return <Prompt action={() => void compare(paperId)} label="Try again"
       extra={uncovered && <TextButton size="form" onClick={() => void compare(paperId, true)}>Compare now on Binance REST</TextButton>}>
       <span className={uncovered ? "" : "text-fail-fg"}>{uncovered ? "The market does not hold this run's minutes yet. " : `${r.error?.code ?? "Failed"}: `}</span>{r.error?.message}

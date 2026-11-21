@@ -292,12 +292,6 @@ class Attribution(unittest.TestCase):
         late = self.replay_only(late=(2,), early=(3,))
         self.assertEqual((late["cause"], late["evidence"]["early_bars"]), ("late_bar", 1))
 
-    def test_a_live_aggregation_is_not_a_minute(self):
-        hour = {**bar(0), "bar_type": f"{BTC}-1-HOUR-LAST-INTERNAL@1-MINUTE-EXTERNAL", "close": "1"}
-        minute = {**bar(0), "bar_type": f"{BTC}-1-MINUTE-LAST-EXTERNAL"}
-        found = comparison.bars([hour, minute], {"BTCUSDT": archived(1)}, START, START + MINUTE)["BTCUSDT"]
-        self.assertEqual((found["live"], found["differing"]), (1, {}))
-
     def test_a_warm_up_unlike_the_archives_explains_a_difference_within_its_reach(self):
         got = {"bars": 3, "first_ts_event": START - 2 * MINUTE - 10**6, "last_ts_event": START - 10**6, "sha256": "a"}
         warm = {"warmup": {BTC: {"1-MINUTE": got}},
@@ -418,29 +412,23 @@ class Warmup(unittest.TestCase):
         received = {"1-HOUR": comparison.digest([rows[0], (*rows[1][:5], "30.001")])}
         self.assertFalse(comparison.warmup({BTC: received}, {"BTCUSDT": found})["BTCUSDT"]["same"])
 
-    def test_a_live_packs_historical_bars_are_digested_as_paper_journals_them(self):
-        rows = [{"instrument_id": BTC, "bar_type": f"{BTC}-1-MINUTE-LAST-EXTERNAL", "ts_event": close_of(i),
-                 "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "3.000"} for i in (1, 0)]
-        found = comparison.received_warmup(rows)[BTC]["1-MINUTE"]
+    def test_a_recorded_warm_up_is_digested_as_the_archives_bars_are(self):
+        """Paper and Live record a history as engine.realtime.warmup_digest; the archive's side is digest."""
         from nautilus_trader.model import Bar, BarType, Price, Quantity
-        from engine.paper import warmup_digest
-        journaled = warmup_digest([Bar(BarType.from_str(f"{BTC}-1-MINUTE-LAST-EXTERNAL"), Price.from_str("1.0"),
-                                       Price.from_str("2.0"), Price.from_str("0.5"), Price.from_str("1.5"),
-                                       Quantity.from_str("3.000"), close_of(i), close_of(i)) for i in (0, 1)])
-        self.assertEqual(found, journaled)
+        from engine.realtime import warmup_digest
+        recorded = warmup_digest([Bar(BarType.from_str(f"{BTC}-1-MINUTE-LAST-EXTERNAL"), Price.from_str("1.0"),
+                                      Price.from_str("2.0"), Price.from_str("0.5"), Price.from_str("1.5"),
+                                      Quantity.from_str("3.000"), close_of(i), close_of(i)) for i in (0, 1)])
+        self.assertEqual(recorded, comparison.digest((close_of(i), "1.0", "2.0", "0.5", "1.5", "3.000") for i in (0, 1)))
 
-    def test_a_funding_history_is_digested_alike_in_paper_live_and_the_archive_and_reaches_back(self):
-        from engine.paper import warmup_digest
+    def test_a_funding_history_is_digested_alike_in_a_run_and_the_archive_and_reaches_back(self):
+        from engine.realtime import warmup_digest
         from engine.warmup import FUNDING, funding_update
         hour = 3_600_000
         at = START // (hour * 10**6) * hour * 10**6
         stored = [((at // 10**6) - k * 8 * hour + (13 if k == 2 else 0), Decimal(rate))
                   for k, rate in ((3, "0.0000100000"), (2, "-0.0000250000"), (1, "0E-10"), (0, "0.0001000000"))]
         journaled = warmup_digest([funding_update(BTC, ms * 10**6, rate) for ms, rate in stored])
-        live = comparison.received_warmup({"kind": "historical_funding", "instrument_id": BTC, "ts_event": ms * 10**6,
-                                           "rate": str(funding_update(BTC, ms * 10**6, rate).rate)}
-                                          for ms, rate in stored)[BTC][FUNDING]
-        self.assertEqual(live, journaled)
         with mock.patch("market.files.open_market"), mock.patch("market.coverage.read_funding",
                                                                 return_value=stored) as read:
             archived = comparison.archive_funding({}, "2026-11-11", "BTCUSDT", at, 3)
@@ -502,7 +490,7 @@ class Replay(unittest.TestCase):
 
 class Metrics(unittest.TestCase):
     def test_the_rows_live_received_are_checked_against_the_replays_from_the_first_received(self):
-        """Live's evidence pack holds each metrics row its source received (engine.live_evidence.metrics)."""
+        """Live's evidence pack holds each metrics row its source received (engine.realtime.MarketRows.metrics)."""
         at = [START + i * 5 * MINUTE for i in range(6)]
         received = [metered(at[1]), metered(at[2], "1.8442"), metered(at[4], wall_ns=at[4] + comparison.LATE_NS + 1),
                     metered(at[5])]
@@ -520,7 +508,7 @@ class Metrics(unittest.TestCase):
         self.assertEqual(listed["inputs"]["BTCUSDT"]["metrics"]["live_only"], [utc_text(at[4])])
 
     def test_no_row_is_expected_after_an_unsubscribe_until_one_is_received_again(self):
-        """Live records the unsubscribe (engine.live_evidence.metrics_unsubscribed); a resubscription shows as the
+        """Live records the unsubscribe (engine.realtime.MarketRows.metrics_unsubscribed); a resubscription shows as the
         first row received after it."""
         at = [START + i * 5 * MINUTE for i in range(7)]
         quit_at = at[2] + MINUTE

@@ -2,7 +2,7 @@
 import { cycleTheme, theme, THEME_LABEL } from "../state/theme";
 import { requestFocus } from "../state/linking";
 import { showLineage } from "../state/editors";
-import { activeIsland, hideSide, paletteOpen, shell, showHistoryPage, showLivePage, showMarketPage, showRunsPage, SIDES, toggleSide, toggleToolWindow, type Side } from "../state/shell";
+import { activeIsland, hideSide, paletteOpen, shell, showHistoryPage, showLivePage, showMarketPage, showRunsPage, SIDES, toggleSide, toggleSplit, toggleToolWindow, type Side } from "../state/shell";
 import type { ToolWindow } from "./toolWindows";
 import { openLiveCredentials, openLiveLaunch } from "../state/liveWorkspace";
 
@@ -21,15 +21,16 @@ export function commands(windows: readonly ToolWindow[], market: boolean): Actio
       run: () => toggleToolWindow(w.id, w.side),
     })),
     ...(market ? [{ id: "market", label: "Toggle Market page",
-      run: () => (shell.get().last.left === "market" ? showLineage() : showMarketPage()) }] : []),
+      run: () => (shell.get().page === "market" ? showLineage() : showMarketPage()) }] : []),
     { id: "runs", label: "Toggle Runs page", keys: "⌥8", binding: "Alt+Digit8",
-      run: () => (shell.get().last.left === "runs" ? showLineage() : showRunsPage()) },
+      run: () => (shell.get().page === "runs" ? showLineage() : showRunsPage()) },
     { id: "history", label: "Toggle Line-close history page",
-      run: () => (shell.get().last.left === "history" ? showLineage() : showHistoryPage()) },
+      run: () => (shell.get().page === "history" ? showLineage() : showHistoryPage()) },
     { id: "live", label: "Open live runs", run: showLivePage },
     { id: "live:new", label: "New live run", run: openLiveLaunch },
     { id: "live:credentials", label: "Live settings…", run: openLiveCredentials },
     { id: "side:right", label: "Toggle right tool windows", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
+    ...(windows.some((w) => w.id === "agent") ? [{ id: "split", label: "Toggle the Agent under Details", run: toggleSplit }] : []),
     { id: "side:bottom", label: "Toggle bottom tool windows", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
     { id: "hide-active", label: "Hide active tool window", keys: "⇧Esc", binding: "Shift+Escape", run: () => {
       const side = activeIsland.get() as Side;

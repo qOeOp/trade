@@ -33,6 +33,12 @@ export type Candidate = {
     mean_daily_log_difference?: number | null;
     detectable?: number | null;
     intervals_cross_zero?: boolean | null;
+    annual_return_difference?: number | null;
+    annual_return_difference_interval?: number[] | null;
+    max_drawdown_difference?: number | null;
+    max_drawdown_difference_interval?: number[] | null;
+    alpha_basket_difference?: number | null;
+    alpha_basket_difference_se?: number | null;
     summary?: string | null;
   } | null;
   reviews?: { verdict?: string | null; at?: string | null; checks?: { name: string; status?: string | null; note?: string | null }[] }[] | null;
@@ -66,7 +72,7 @@ export type SummaryWidget = Widget & {
   recommendations: number;
   recommendations_unchanged: number;
   runs_since_recommendation_changed: number;
-  versions: number;
+  candidates: number;
   research_runs: number;
   trial_counts?: { research_trials: number; all_purpose_trials: number; sweep_variants: number; undeclared_sweeps: number[]; trials_with_sweeps: number } | null;
   masked_runs: number;

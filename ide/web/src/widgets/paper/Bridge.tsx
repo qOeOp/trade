@@ -5,8 +5,8 @@ import { MISSING } from "../../lib/format";
 import type { Account } from "../../model/account";
 import type { Bridge, Kind, Step } from "../../model/bridge";
 import { pnlClass } from "../../theme/roles";
-import { CoinLogo } from "../../components/CoinLogo";
-import { Tip } from "../../components/Tip";
+import { CoinLogo } from "../../ui/CoinLogo";
+import { Tip } from "../../ui/Tip";
 import { signed } from "../../lib/paperApi";
 
 // What a step is.

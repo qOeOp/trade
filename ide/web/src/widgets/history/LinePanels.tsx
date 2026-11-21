@@ -7,9 +7,9 @@ import { activeRun, startDialog, starting, usePaperRuns, usePaperService } from 
 import { useSelection } from "../../state/selection";
 import { useShown } from "../../state/shown";
 import { showRunsPage, showToolWindow } from "../../state/shell";
-import { ProseBlocks } from "../../components/Prose";
-import { Section } from "../../components/Section";
-import { TextButton } from "../../components/TextButton";
+import { ProseBlocks } from "../../ui/Prose";
+import { Section } from "../../ui/Section";
+import { TextButton } from "../../ui/TextButton";
 
 /** The replay Details shows, as the History page marks its cell: its version and trial. */
 export type Picked = { version: string | null; trial: number | null };
@@ -28,7 +28,7 @@ export function LineSummary({ text, colSpan }: { text: string; colSpan: number }
   return (
     <tr className="bg-island-alt">
       <td colSpan={colSpan} className="sticky left-0 px-0 pb-1.5">
-        <div className="sticky left-0 max-w-[min(calc(100vw-6rem),72rem)] px-2">
+        <div className="sticky left-0 max-w-[min(100cqw,72rem)] px-2">
           <Section title="Closing summary" open={false}>
             <div className="max-h-96 overflow-auto pr-2 text-dense"><ProseBlocks text={text} /></div>
           </Section>

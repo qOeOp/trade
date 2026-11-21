@@ -33,7 +33,9 @@ as the number of trials and the variance of the participants' per-day holdout Sh
 `holdout_prior_trials` counts the searches that already looked at the holdout (roundtable 2026-11-12, 20261112-17):
 counted trials (status.counted_trials) of any purpose and line on the line's instruments whose trading window overlaps
 the holdout (status.overlapping_trials), leaving out the line's own history trials. Lines opened in one quarter share
-a holdout, so another line's explore or closing replays count here; searches outside this ledger do not show.
+a holdout, so another line's explore or closing replays count here; searches outside this ledger do not show. Each
+holdout also carries its deflated Sharpe with those prior trials added to the participants as the number of trials
+(`deflated_sharpe_with_prior_trials`, same variance; Claude under the user's delegation, 20261121-23).
 """
 
 from __future__ import annotations
@@ -103,9 +105,11 @@ def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, li
     return cell
 
 
-def _discount(rows: list[dict], returns: dict[int, list[float]]) -> dict:
-    """The holdout deflated Sharpe of each row (in its summary's holdout) at the participant count, with the sample
-    variance of the participants' per-day holdout Sharpe ratios; the line's `discount` says both."""
+def _discount(rows: list[dict], returns: dict[int, list[float]], prior: int | None) -> dict:
+    """The holdout deflated Sharpe of each row (in its summary's holdout) at the participant count, and
+    (`deflated_sharpe_with_prior_trials`) at the participant count plus the `prior` trials that already looked at the
+    holdout (None when not read), both with the sample variance of the participants' per-day holdout Sharpe ratios;
+    the line's `discount` says the counts and the variance."""
     holdout = {row["run"]: next((cell["trial_id"] for cell in row["cells"] if cell["kind"] == "holdout"
                                  and not cell["short"] and cell["trial_id"] in returns), None) for row in rows}
     daily = [sharpe / math.sqrt(365) for trial in holdout.values() if trial is not None
@@ -114,9 +118,14 @@ def _discount(rows: list[dict], returns: dict[int, list[float]]) -> dict:
     for row in rows:
         if row["summary"] is not None:
             trial = holdout[row["run"]]
-            row["summary"]["holdout"]["deflated_sharpe"] = (
+            holdout_ = row["summary"]["holdout"]
+            holdout_["deflated_sharpe"] = (
                 measures.deflated_sharpe(returns[trial], len(rows), variance) if trial is not None else None)
-    return {"trials": len(rows), "holdouts_with_returns": len(daily), "daily_sharpe_variance": variance}
+            holdout_["deflated_sharpe_with_prior_trials"] = (
+                measures.deflated_sharpe(returns[trial], len(rows) + prior, variance)
+                if trial is not None and prior is not None else None)
+    return {"trials": len(rows), "trials_with_prior": None if prior is None else len(rows) + prior,
+            "holdouts_with_returns": len(daily), "daily_sharpe_variance": variance}
 
 
 def _passes(measures: dict, targets: dict) -> bool:
@@ -277,14 +286,15 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
                      "summary": _summary(cells, targets, reproduces is True) if reproduces is not False else None})
     rows.sort(key=lambda row: (row["development"]["measures"]["sharpe_365"] is None,
                                -(row["development"]["measures"]["sharpe_365"] or 0), row["run"]))
-    discount = _discount(rows, returns)
+    prior = None if counted is None else _prior_trials(
+        conn, record["line_id"], dev_end, held, {row["trial_id"] for row in found}, counted)
+    discount = _discount(rows, returns, None if prior is None else prior["trials"])
     research = conn.one("SELECT COUNT(*) AS n FROM trial WHERE purpose = 'research' AND line_id = %s",
                         (record["line_id"],))
     return {"line": record["name"], "closed": record["closed"], "dev_start": record["dev_start"],
             "dev_end": record["dev_end"], "targets": targets, "participants": len(rows),
             "research_trials": research["n"] if research else 0, "discount": discount,
-            "holdout_prior_trials": None if counted is None else _prior_trials(
-                conn, record["line_id"], dev_end, held, {row["trial_id"] for row in found}, counted),
+            "holdout_prior_trials": prior,
             "rows": rows, "without_economic_evidence": without}
 
 

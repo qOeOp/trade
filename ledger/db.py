@@ -432,13 +432,10 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
-    try:
-        raw = server.service_connection(config, user=accounts[role]["user"],
-                                 password=accounts[role]["password"], database=f"{profile.database}/{BRANCH}",
-                                 charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
-                                 write_timeout=600, max_allowed_packet=1 << 30)
-    except pymysql.MySQLError as exc:
-        raise server.connection_error(exc) from exc
+    raw = server.patient_connection(config, user=accounts[role]["user"], password=accounts[role]["password"],
+                                    database=f"{profile.database}/{BRANCH}", charset="utf8mb4", autocommit=True,
+                                    connect_timeout=5, read_timeout=600, write_timeout=600,
+                                    max_allowed_packet=1 << 30)
     conn = LedgerConnection(raw, profile, role)
     try:
         version, expected = _schema_version(conn), SCHEMAS[profile.holds][1]

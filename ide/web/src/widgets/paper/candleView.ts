@@ -1,17 +1,23 @@
 // The candle chart's periods, and which one a view takes. Binance's periods from a minute to a day, no
 // two neighbours more than three times apart, so whatever the span some period draws its candles between
-// LO and HI px wide (HI is three times LO). The chart never asks the user for one: when a pan or zoom has
+// LO and HI px wide (HI is three times LO). Unless the user pins one (Auto, the default): when a pan or zoom has
 // settled with the candles outside that band, it takes the period that brings them nearest TARGET px,
 // the moment under the pointer kept where it was (viewAnchor.ts). Within a gesture the candles may
 // widen to SPREAD times HI (a gesture's worth of zooming in) but the minute's no wider than HI, so a
 // screen always holds plenty of candles. When a run first shows, the period is the one that fits all of
-// it at TARGET px or more, a young run's candles HI wide with the newest at the right.
+// it at TARGET px or more, a young run's candles HI wide with the newest at the right. A pinned period stays
+// whatever the zoom, its views no narrower than LO px a candle.
 import type { IChartApi, ITimeScaleApi, LogicalRange, Time } from "lightweight-charts";
 import { stepFor } from "./equityResolution";
 import { spacing } from "./viewAnchor";
 
-const PERIODS = [60, 180, 300, 900, 1_800, 3_600, 7_200, 14_400, 21_600, 43_200, 86_400] as const;  // s: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
+export const PERIODS = [60, 180, 300, 900, 1_800, 3_600, 7_200, 14_400, 21_600, 43_200, 86_400] as const;  // s: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
 const LO = 4, HI = 12, TARGET = 7, SPREAD = 3;  // px, px, px, times
+/** The narrowest (px) a pinned period's candles are shown at when the chart picks the view; TARGET when it is picked. */
+export const PINNED_LEAST = LO, PINNED_WIDTH = TARGET;
+
+/** A period's name: 15m, 1h, 1d. */
+export const periodName = (minutes: number) => (minutes >= 1440 ? `${minutes / 1440}d` : minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`);
 
 /** The widest a candle of `step` seconds may be while the user zooms. */
 export const widest = (step: number) => (step === PERIODS[0] ? HI : HI * SPREAD);
@@ -25,6 +31,10 @@ export function periodFor(w: number, step: number, range: LogicalRange | null = 
   const near = (s: number) => Math.abs(Math.log(respaced(w, range, lead, step, s) / TARGET));
   return PERIODS.reduce((best, s) => (near(s) < near(best) ? s : best), step);
 }
+
+/** The period (s) after a pan or zoom: the pinned one (`pinned`, minutes; null for Auto), else periodFor's. */
+export const settledPeriod = (pinned: number | null, w: number, step: number, range: LogicalRange | null = null, lead = 0): number =>
+  pinned ? pinned * 60 : periodFor(w, step, range, lead);
 
 /** The period that fits `span` seconds into `width` px at TARGET px a candle or more. */
 export const firstPeriod = (span: number, width: number) => stepFor(span, width, 0, TARGET, PERIODS);
@@ -89,6 +99,11 @@ export function remember(key: string, minutes: number, range: LogicalRange | nul
   if (key && minutes && range && n) views.set(key, { minutes, from: range.from, to: range.to, n });
 }
 export const recall = (key: string): Saved | undefined => views.get(key);
+
+const pins = new Map<string, number>();
+/** Keeps under `key` the period (minutes) the user pinned, or Auto (null). */
+export function pin(key: string, minutes: number | null): void { if (minutes) pins.set(key, minutes); else pins.delete(key); }
+export const pinned = (key: string): number | null => pins.get(key) ?? null;
 
 /** The span from `from` to `to` (s, both candles in it) in view, and the room right of the newest when it
  *  holds the newest (`times`, the candles' places); its end alone where it does not fit at `least` px a candle. */

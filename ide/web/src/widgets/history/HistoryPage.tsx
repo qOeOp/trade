@@ -1,20 +1,28 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
-import { cause, CAUSES_SAID, cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, RETURN_RANGES, returnStep, vetoTip, type Cause, type Column, type Metric, type Order } from "../../model/history";
+import { cause, CAUSES_SAID, cellAt, colourWords, columns, headerOrder, meetsBoth, metricStep, noEdge, combinedTip, ordered, vetoTip, type Cause, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
 import { useResearchLines } from "../../state/researchLines";
 import { showToolWindow } from "../../state/shell";
 import { openTrial } from "../../state/stage";
-import { DropdownChoice } from "../../components/Dropdown";
-import { HistoryTile } from "../../components/HistoryTile";
-import { Skeleton } from "../../components/Missing";
+import { DropdownChoice } from "../../ui/Dropdown";
+import { HistoryTile } from "../../ui/HistoryTile";
+import { InfoTip } from "../../ui/InfoTip";
+import { Skeleton } from "../../ui/Missing";
+import { SortHead } from "../../ui/SortHead";
 import { LineHeader, PriorTip } from "./LineHeader";
 import { LineSummary, PickedBar, usePicked, type Picked } from "./LinePanels";
-import { Tip } from "../../components/Tip";
-import { Empty } from "../../components/Waiting";
+import { Tip } from "../../ui/Tip";
+import { Empty } from "../../ui/Waiting";
 
 const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "Worst DD", "Veto", "Holdout", "Verdict", "DSR"] as const;
+/** The Verdict and DSR columns stick to the right edge while the table scrolls sideways: DSR at the edge in a fixed
+ *  width, Verdict just left of it behind a gutter and a shadow over the columns passing under. The Participant column
+ *  sticks to the left edge the same way. */
+const STUCK: Partial<Record<(typeof SUMMARY_COLS)[number], string>> = {
+  Verdict: "sticky right-24 border-l border-line bg-island pl-4 shadow-pinned-right", DSR: "sticky right-0 w-24 min-w-24 bg-island" };
+const PINNED_LEFT = "sticky left-0 border-r border-line bg-island pl-2 pr-4 shadow-pinned-left";
 
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
                  { value: "sharpe_365", label: "Sharpe" }] as const;
@@ -48,7 +56,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
   );
 }
 
-/** One heatmap cell: the chosen metric over the annual return's colour, a star when the segment meets both of
+/** One heatmap cell: the chosen metric in its own colour, a star when the segment meets both of
  *  the line's targets, grey when it is too short to count, and words when there is nothing to read. */
 function Cell({ cell, row, column, line, metric, shortDays, picked }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number; picked: Picked }) {
   const base = "h-7 min-w-[4.75rem] px-1.5 text-center tabular-nums";
@@ -60,7 +68,7 @@ function Cell({ cell, row, column, line, metric, shortDays, picked }: { cell: Hi
   return (
     <td className="p-0.5">
       <Tip content={tip(cell, row, column, shortDays)}>
-        <HistoryTile step={cell.short || !traded ? null : returnStep(m!.annual_return)} quiet={cell.short || !traded} short={cell.short}
+        <HistoryTile step={cell.short || !traded ? null : metricStep(metric, m!)} quiet={cell.short || !traded} short={cell.short}
                      meets={meetsBoth(cell, line.targets)} partial={cell.kind === "veto" && !cell.whole_year && !cell.short}
                      picked={version !== null && picked.version === version && picked.trial === cell.trial_id} label={`Show trial ${cell.trial_id} in Details`}
                      onPick={version === null ? undefined : () => { openTrial(line.line, version, cell.trial_id); showToolWindow("inspector", "right"); }}>{text}</HistoryTile>
@@ -75,12 +83,12 @@ const Verdict = ({ ok, tip: why }: { ok: boolean | null | undefined; tip?: React
 };
 
 /** A row's summary as the command gives it: the veto years' counts and readings, the two verdicts and the combined one,
- *  and, on a row meeting the targets (the candidates "picked by this reading", line-close-history-test-20261110.zh.md 3.7),
- *  its holdout's Sharpe deflated at the line's participant count. */
+ *  and, on every row with a reading, its holdout's Sharpe deflated at the line's participant count and, after a slash,
+ *  at that count plus the line's earlier searches of the holdout. */
 function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
   const s = row.summary, td = "px-2 text-right tabular-nums whitespace-nowrap";
   if (!s) return <td colSpan={10} className="px-2 text-misses-fg">Control replay differs from the research run: no verdict</td>;
-  const veto = s.veto, dsr = s.holdout.deflated_sharpe;
+  const veto = s.veto, dsr = s.holdout.deflated_sharpe, prior = s.holdout.deflated_sharpe_with_prior_trials, withPrior = line.discount?.trials_with_prior;
   return (
     <>
       <td className={td}>{veto.whole_years}</td>
@@ -91,28 +99,33 @@ function Summary({ row, line }: { row: HistoryRow; line: HistoryLine }) {
       <td className={td}>{pct(veto.worst_mark_max_drawdown)}</td>
       <td className={td}><Verdict ok={veto.meets_targets} tip={vetoTip(s)} /></td>
       <td className={td}><Verdict ok={s.holdout.meets_targets} tip={<PriorTip line={line} lead={`Holdout ${pct(s.holdout.annual_return)} a year, drawdown ${pct(s.holdout.mark_max_drawdown)}`} />} /></td>
-      <td className={`${td} font-semibold`}><Verdict ok={s.meets_targets} tip={combinedTip(s)} /></td>
-      <td className={`${td} text-fg-muted`}>
-        {!s.meets_targets && <span className="text-fg-faint">{MISSING}</span>}
-        {s.meets_targets && <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck`} />}>
-          <span>{dsr == null ? MISSING : dsr.toFixed(2)}</span></Tip>}
+      <td className={`${td} ${STUCK.Verdict} font-semibold`}><Verdict ok={s.meets_targets} tip={combinedTip(s)} /></td>
+      <td className={`${td} ${STUCK.DSR} text-fg-muted`}>
+        {dsr == null ? <span className="text-fg-faint">{MISSING}</span>
+          : <Tip content={<PriorTip line={line} lead={`The holdout's deflated Sharpe with ${line.participants} participants as the trials: the probability its Sharpe beats the best of that many by luck${prior == null || withPrior == null ? "" : `; ${prior.toFixed(2)} with the ${withPrior} trials that include the earlier searches below`}`} />}>
+            <span>{dsr.toFixed(2)}{prior != null && <span className="text-fg-faint"> / {prior.toFixed(2)}</span>}</span></Tip>}
       </td>
     </>
   );
 }
 
-/** The column header row (`Participant`, the shared segment columns and the summary columns): once in the table's
+/** The column header row (`Participant`, the shared segment columns and the summary columns, those that order the rows
+ *  as sort buttons): once in the table's
  *  sticky `<thead>`, which stays at the top while scrolling, and again, not sticky, under each line's header strip so
  *  that line's rows read under their own labels. A sticky table cell is bounded by the whole table, not its `<tbody>`,
  *  so only the `<thead>` row may stick or every line's copy would pile up at the top. */
-function ColumnHeads({ cols, pinned }: { cols: readonly Column[]; pinned: boolean }) {
-  const th = "bg-island px-2 py-1 font-normal text-fg-faint whitespace-nowrap";
+function ColumnHeads({ cols, pinned, metric, order, onOrder }: { cols: readonly Column[]; pinned: boolean; metric: Metric; order: Order; onOrder: (o: Order) => void }) {
+  const th = "bg-island px-2 py-1 font-normal text-fg-faint whitespace-nowrap", z = pinned ? "z-30" : "z-10";
+  const label = (id: string, text: string, align?: "right") => {
+    const by = headerOrder(id, metric);
+    return by ? <SortHead active={order === by} dir={by === "holdout_drawdown" ? "asc" : "desc"} onSort={() => onOrder(by)} align={align}>{text}</SortHead> : text;
+  };
   return (
     <tr>
-      <th scope="col" className={`${th} sticky left-0 ${pinned ? "z-30" : "z-10"} text-left`}>Participant</th>
-      {cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{c.label}</th>)}
+      <th scope="col" className={`${th} ${PINNED_LEFT} ${z} text-left`}>Participant</th>
+      {cols.map((c) => <th scope="col" key={c.id} className={`${th} text-center ${c.kind === "development" ? "border-l border-line" : ""}`}>{label(c.id, c.label)}</th>)}
       {SUMMARY_COLS.map((h) =>
-        <th scope="col" key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""}`}>{h}</th>)}
+        <th scope="col" key={h} className={`${th} text-right ${h === "Whole yrs" ? "border-l border-line" : ""} ${STUCK[h] ? `${STUCK[h]} ${z}` : ""}`}>{label(h, h, "right")}</th>)}
     </tr>
   );
 }
@@ -120,8 +133,8 @@ function ColumnHeads({ cols, pinned }: { cols: readonly Column[]; pinned: boolea
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
  *  trials they came from, the earlier searches of its holdout, its targets and its development period, then the column
  *  labels over the line's participant rows (the first line reads under the sticky table header). */
-function LineRows({ line, first, cols, metric, order, all, only, shortDays, summary, picked }: {
-  line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; only: Causes; shortDays: number;
+function LineRows({ line, first, cols, metric, order, onOrder, all, only, shortDays, summary, picked }: {
+  line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; onOrder: (o: Order) => void; all: boolean; only: Causes; shortDays: number;
   summary: string | null | undefined; picked: Picked;
 }) {
   // A Cause shows its rows whatever their edge, so the no-edge filter applies only to All.
@@ -131,10 +144,10 @@ function LineRows({ line, first, cols, metric, order, all, only, shortDays, summ
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
       {summary && <LineSummary text={summary} colSpan={cols.length + 11} />}
-      {!first && <ColumnHeads cols={cols} pinned={false} />}
+      {!first && <ColumnHeads cols={cols} pinned={false} metric={metric} order={order} onOrder={onOrder} />}
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
-          <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
+          <th className={`${PINNED_LEFT} z-10 max-w-56 truncate text-left font-mono font-normal`}>
             <Tip content={<div className="space-y-0.5"><p>Research run {row.run} · source {row.source_sha256.slice(0, 12)}</p><p>{CAUSES_SAID[cause(row)][1]}</p></div>}>
               <span>{row.candidate ?? row.source_sha256.slice(0, 12)}</span></Tip>
           </th>
@@ -171,29 +184,27 @@ export function HistoryPage() {
               <input type="checkbox" checked={all} disabled={only !== "all"} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label></Tip>
           <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
           <DropdownChoice<Order> name="Order" label="Order" options={ORDERS} value={order} onChange={setOrder} />
+          <InfoTip label="How to read it" text={`Colour: ${colourWords(metric)} · star: the segment meets both targets${history ? ` · grey: under ${history.short_days} days, not counted` : ""} · hatched: part of a year. `
+            + "The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants."} />
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="@container min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
-          <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={cols} pinned /></thead>
-          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} only={only}
+          <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={cols} pinned metric={metric} order={order} onOrder={setOrder} /></thead>
+          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} onOrder={setOrder} all={all} only={only}
                                                           shortDays={history.short_days} summary={summaries.find((s) => s.name === l.line)?.summary} picked={picked} />) : (
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
-                  <th className="sticky left-0 z-10 bg-island px-2 py-1 text-left font-normal"><Skeleton className="w-32" /></th>
+                  <th className={`${PINNED_LEFT} z-10 py-1 text-left font-normal`}><Skeleton className="w-32" /></th>
                   {cols.map((c) => <td key={c.id} className="p-0.5"><div className="skeleton h-7 min-w-[4.75rem] rounded-badge opacity-45" /></td>)}
-                  {SUMMARY_COLS.map((h) => <td key={h} className="px-2 text-right"><Skeleton className="w-8" /></td>)}
+                  {SUMMARY_COLS.map((h) => <td key={h} className={`px-2 text-right ${STUCK[h] ?? ""}`}><Skeleton className="w-8" /></td>)}
                 </tr>
               ))}
             </tbody>
           )}
         </table>
       </div>
-      <p className="shrink-0 px-3 py-1.5 text-small text-fg-faint">
-        Colour: annual return ({RETURN_RANGES[0]} to {RETURN_RANGES[6]}) · star: the segment meets both targets{history && <> · grey: under {history.short_days} days, not counted</>} · hatched: part of a year.
-        The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants.
-      </p>
     </div>
   );
 }

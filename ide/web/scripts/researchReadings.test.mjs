@@ -18,8 +18,8 @@ test("20261113-106: the recommended menu names the trial it starts after, not it
   const { RecommendationWidget } = await loader({ stubs: {
     "model/view": { useWidget: (type) => widgets[type] },
     "state/selection": { select: empty },
-    "components/Dropdown": { Dropdown: pass, DropdownLabel: pass, DropdownItem: ({ hint }) => createElement("p", null, hint) },
-    "components/VersionLine": { VersionLine: empty },
+    "ui/Dropdown": { Dropdown: pass, DropdownLabel: pass, DropdownItem: ({ hint }) => createElement("p", null, hint) },
+    "widgets/VersionLine": { VersionLine: empty },
   } }).namespace("shell/toolbar/RecommendationWidget.tsx");
   const html = renderToStaticMarkup(createElement(RecommendationWidget));
   assert.match(html, /from trial 140 ·/, "the trial number at x 4, as the ruler labels that column");
@@ -37,8 +37,8 @@ test("20261113-106: a sealed run without a plan win rate shows none, never the c
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => false },
     "state/shown": { useShown: () => shown },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const render = (t) => {
     shown = { version: "a@2", trial: t };
@@ -58,8 +58,8 @@ test("readings being read show pulsing skeleton placeholders instead of missing 
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => runsPage },
     "state/shown": { useShown: () => shown },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const targets = { max_drawdown: 0.15, annual_return: 0.2 };
   const paperLoading = renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
@@ -82,8 +82,8 @@ test("a paper run whose stream has sent its first batch but no readings shows mi
     "state/paper": { usePaperService: () => "present" },
     "state/shell": { useOnRunsPage: () => true },
     "state/shown": { useShown: () => ({ stage: "paper", run, name: "Paper · BTCUSDT" }) },
-    "components/Eased": { Eased: pass },
-    "components/Tip": { Tip: pass },
+    "ui/Eased": { Eased: pass },
+    "ui/Tip": { Tip: pass },
   } }).namespace("widgets/detail/Readings.tsx");
   const targets = { max_drawdown: 0.15, annual_return: 0.2 };
   const render = () => renderToStaticMarkup(createElement(Readings, { c: { id: "a@2", trials: [] }, targets }));
@@ -104,10 +104,11 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
     "state/update": { viewStatus: {} },
     "state/selection": { useSelection: () => "a@1", select: empty },
     "state/comparison": { useComparison: () => ({ kind: "none" }) },
+    "state/editors": { openDiff: empty },
     "state/shell": { useOnMarketPage: () => false, useOnRunsPage: () => false },
     "state/shown": { useShown: () => ({ stage: "backtest", run: null, trial: null }) },
-    "components/Tip": { Tip: pass },
-    "components/TranslatedCardGroup": { TranslatedCardGroup: pass },
+    "ui/Tip": { Tip: pass },
+    "ui/TranslatedCardGroup": { TranslatedCardGroup: pass },
     "widgets/detail/Readings": { Readings: empty },
     "widgets/detail/ReplayTable": { ReplayTable: empty },
     "widgets/detail/StagePerformance": { StagePerformance: empty },
@@ -150,7 +151,7 @@ test("empty inspector cards default to collapsed and open when populated", async
 });
 
 test("backtest market_exposure and period slices parse and render Alpha vs Beta and time/regime breakdowns", async () => {
-  const env = loader({ stubs: { "icons/Icon": { Icon: empty }, "components/Tip": { Tip: pass } } });
+  const env = loader({ stubs: { "icons/Icon": { Icon: empty }, "ui/Tip": { Tip: pass } } });
   const { backtest } = await env.namespace("model/backtest.ts");
   const { MarketExposure, PeriodsAndRegimes } = await env.namespace("widgets/paper/MarketExposure.tsx");
   const parsed = backtest({
@@ -160,9 +161,9 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
     drawdown: null,
     capital: null,
     // dev_years and closed_by_year as report/splits.py's dev_years(run, 0.2) and closed_by_year(cycles) give
-    // them for the 2021-10-01..2024-10-01 window of tests/report/test_numerics.py DevYearTests and three
+    // them for the 2021-10-01..2024-10-01 window of tests/report/test_numerics.py DevYearTests with sealed yearly MARK drawdowns, and three
     // closed cycles (2022-03-01, 2022-07-01, 2024-02-01), printed by json.dumps.
-    dev_years: {"years": [{"start": "2021-10-01", "end": "2022-10-01", "return": -0.10373255989643182, "at_target": false, "short_by": 0.30373255989643183, "partial": false}, {"start": "2022-10-01", "end": "2023-10-01", "return": -0.035843665807902436, "at_target": false, "short_by": 0.23584366580790245, "partial": false}, {"start": "2023-10-01", "end": "2024-10-01", "return": 1.077715503584595, "at_target": true, "short_by": 0.0, "partial": false}], "annual_target": 0.2, "years_at_target": 1, "worst_year_return": -0.10373255989643182, "return_without_best_year": -0.07040765412682548},
+    dev_years: {"years": [{"start": "2021-10-01", "end": "2022-10-01", "return": -0.10373255989643182, "mark_max_drawdown": 0.1172, "peak_utc": "2021-11-09T00:00", "trough_utc": "2022-06-18T00:00", "partial": false, "at_target": false, "short_by": 0.30373255989643183}, {"start": "2022-10-01", "end": "2023-10-01", "return": -0.035843665807902436, "mark_max_drawdown": 0.0841, "peak_utc": "2022-10-04T00:00", "trough_utc": "2023-03-10T00:00", "partial": false, "at_target": false, "short_by": 0.23584366580790245}, {"start": "2023-10-01", "end": "2024-10-01", "return": 1.077715503584595, "mark_max_drawdown": 0.0563, "peak_utc": "2024-03-14T00:00", "trough_utc": "2024-05-01T00:00", "partial": false, "at_target": true, "short_by": 0.0}], "annual_target": 0.2, "years_at_target": 1, "worst_year_return": -0.10373255989643182, "return_without_best_year": -0.07040765412682548},
     closed_by_year: {"2022": {"closed_trades": 2, "price_pnl_usdt": "9.50000000", "fill_commissions_usdt": "0.60000000", "reported_funding_usdt": "-0.10000000"}, "2024": {"closed_trades": 1, "price_pnl_usdt": "8.00000000", "fill_commissions_usdt": "0.30000000", "reported_funding_usdt": "0.05000000"}},
     cost_basis: { account: { starting_balance_usdt: "10000", execution: "bar" } },
     availability: { economic_evidence_available: true, reasons: [] },
@@ -231,6 +232,9 @@ test("backtest market_exposure and period slices parse and render Alpha vs Beta 
   assert.match(periodsHtml, /2021-10-01 – 2022-10-01/);
   assert.match(periodsHtml, /−10\.4%/);
   assert.match(periodsHtml, /\+107\.8%/);
+  assert.deepEqual(parsed.periods.devYears.map((y) => y.drawdown), [0.1172, 0.0841, 0.0563], "each year's sealed MARK drawdown");
+  assert.match(periodsHtml, /Drawdown/);
+  assert.match(periodsHtml, /11\.72%/);
   assert.match(periodsHtml, /Ex best year \(annualized\)/);
   assert.match(periodsHtml, /−7\.0%/);
   assert.deepEqual(parsed.periods.closedYears.map((y) => [y.year, y.closed, y.price]), [["2022", 2, 9.5], ["2024", 1, 8]]);

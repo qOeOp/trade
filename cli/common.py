@@ -4,7 +4,7 @@ command declaration and the common options."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -86,8 +86,29 @@ def _new_temporary(path: str) -> Path:
 # Parser, command declarations and common options
 
 class Parser(argparse.ArgumentParser):
+    """A usage error is USAGE_ERROR whose `expected` is the command's usage line and options (its --help without
+    the description and contract), so the rerun needs no --help first."""
+
     def error(self, message):
-        raise refuse("USAGE_ERROR", message)
+        raise self.usage_error(message)
+
+    def usage_error(self, message: str, unrecognized: Sequence[str] = (), separated: bool = True) -> Refusal:
+        """`unrecognized`: the arguments the command does not declare; `separated`: the command line had --."""
+        declared = self._option_string_actions
+        options = {argument.split("=")[0] for argument in unrecognized if argument.startswith("-")}
+        bound = "--registration" in declared and "--line" not in declared and "--line" in options
+        notes = []
+        if self.get_default("takes_runner") and not separated and options - ({"--line"} if bound else set()):
+            notes.append("runner arguments go after --")
+        if bound:
+            notes.append("this command takes the research line from the registration (--registration), not --line")
+        formatter = self._get_formatter()
+        formatter.add_usage(self.usage, self._actions, self._mutually_exclusive_groups)
+        for group in self._action_groups:
+            formatter.start_section(group.title)
+            formatter.add_arguments(group._group_actions)
+            formatter.end_section()
+        return refuse("USAGE_ERROR", "; ".join((message, *notes)), expected=formatter.format_help().strip())
 
 
 Option = Callable[[Any], object]  # a parser or a mutually exclusive group

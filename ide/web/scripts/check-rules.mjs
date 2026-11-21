@@ -7,13 +7,14 @@ import { join, relative, dirname, resolve } from "node:path";
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), "../src");
 // recommended, meets, misses, fail, per theme (a single hex in tokens.css is both themes)
 const VALIDATED = { light: ["#3871E1", "#419368", "#B87701", "#A63D47"], dark: ["#3871E1", "#4AA87F", "#BE880A", "#BE5354"] };
-const MAX_LINES = 200;
+// A file's size in bytes (200 lines of about 100 characters): a line count alone pushed code into long lines.
+const MAX_BYTES = 20 * 1024;
 // Which top-level folders a folder may import from (App and main may import anything).
 const MAY = {
   theme: [], lib: [], model: ["lib"], icons: ["theme", "model"], state: ["lib", "model"],
-  components: ["theme", "icons", "lib", "model", "state"],
-  widgets: ["theme", "icons", "lib", "model", "state", "components"],
-  shell: ["theme", "icons", "lib", "model", "state", "components", "widgets"],
+  ui: ["theme", "icons", "lib", "model", "state"],
+  widgets: ["theme", "icons", "lib", "model", "state", "ui"],
+  shell: ["theme", "icons", "lib", "model", "state", "ui", "widgets"],
 };
 const CHART = /^widgets\/(lineage\/|Progress|Scatter)/;
 
@@ -38,12 +39,13 @@ for (const f of code) {
   if (f.rel !== "theme/roles.ts") withoutClasses(f.text).split("\n").forEach((l, i) => { if (/var\(--/.test(l)) fail(f, "var(--…) outside theme/roles.ts (use v() or a role class)", i + 1); });
   if (!f.rel.startsWith("icons/") && !CHART.test(f.rel)) lines(f, /<svg\b/, "<svg> outside icons/ and the chart widgets");
   if (f.rel !== "icons/Icon.tsx") lines(f, /dangerouslySetInnerHTML/, "dangerouslySetInnerHTML outside icons/Icon.tsx");
-  if (top !== "components") lines(f, /<button\b|\.Trigger\b/, "<button> or a Radix trigger outside components/");
-  if (top !== "components") lines(f, /style=\{\{[^}]*\b(color|background|fill|stroke|border\w*)\s*:/, "colour in an inline style outside components/");
+  // ui/ holds the generic controls; a feature composes them, so its <button>s all look and behave alike.
+  if (top !== "ui") lines(f, /<button\b|\.Trigger\b/, "<button> or a Radix trigger outside ui/");
+  if (top !== "ui") lines(f, /style=\{\{[^}]*\b(color|background|fill|stroke|border\w*)\s*:/, "colour in an inline style outside ui/");
   lines(f, /\b(text|rounded)-\[/, "arbitrary text-[…] or rounded-[…] class (use a token)");
   if (f.rel !== "lib/storage.ts") lines(f, /\blocalStorage\b/, "localStorage outside lib/storage.ts");
-  const n = f.text.split("\n").length;
-  if (n > MAX_LINES) fail(f, `${n} lines (at most ${MAX_LINES})`);
+  const size = Buffer.byteLength(f.text);
+  if (size > MAX_BYTES) fail(f, `${size} bytes (at most ${MAX_BYTES})`);
   for (const m of f.text.matchAll(/from "(\.{1,2}\/[^"]+)"/g)) {
     const target = relative(SRC, resolve(dirname(f.path), m[1])).split("/")[0];
     if (target === top || !(top in MAY)) continue;

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { FormButton } from "../../components/chat/Field";
-import { LiveActionFailure, useLiveAction } from "../../components/LiveActionState";
-import { LiveLaunchColumn } from "../../components/LiveLaunchColumn";
-import { LiveLaunchStart } from "../../components/LiveLaunchStart";
-import { LiveNoReply } from "../../components/LiveNoReply";
-import { TextButton } from "../../components/TextButton";
-import { checkBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
+import { FormButton } from "../../ui/chat/Field";
+import { LiveActionFailure, useLiveAction } from "./LiveActionState";
+import { LiveLaunchColumn } from "./LiveLaunchColumn";
+import { LiveLaunchStart } from "./LiveLaunchStart";
+import { LiveNoReply } from "./LiveNoReply";
+import { TextButton } from "../../ui/TextButton";
+import { checkBlocker, startBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
 import { preparedWith, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { useLaunchReading, useLiveEvidence, useLivePaper, useLiveSource } from "../../state/liveRun";
-import { FRESH_DRAFT, liveDraft, openLiveCredentials, showLiveRun, useLiveDraft, type LiveDraft } from "../../state/liveWorkspace";
+import { FRESH_DRAFT, liveDraft, openLiveCredentials, showLiveRun, useLiveDraft, useLiveEnvironment, type LiveDraft } from "../../state/liveWorkspace";
+import { LiveEnvironmentSwitch } from "./LiveEnvironment";
 
 // A prepared run that has not traded may still start (live/runs.py REPEATABLE).
 const STARTABLE = new Set(["prepared", "preflight_complete", "preflight_failed"]);
@@ -22,7 +23,7 @@ const LIMITS = ["drawdown_brake", "duration_seconds"];
  *  Where Live cannot take a run the columns are still drawn, greyed, each row saying why. */
 export function LiveLaunch({ version, view, actions }: { version: string | null; view: LiveTradingView; actions: LiveTradingActions }) {
   const held = useLiveDraft(), draft = held?.version === version ? held : null;
-  const { edits, preparedId } = draft ?? FRESH_DRAFT;
+  const { edits, preparedId, backed } = draft ?? FRESH_DRAFT;
   const update = (change: (draft: LiveDraft) => Partial<LiveDraft>) => {
     const base = draft ?? { ...FRESH_DRAFT, version };
     liveDraft.set({ ...base, ...change(base) });
@@ -31,7 +32,8 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   const evidence = useLiveEvidence(read, symbols), paper = useLivePaper(read, symbols), source = read && { ...read, evidence, paper };
   const checked = view.runs.find((run) => run.id === preparedId) ?? null;
   const { reading, targets } = useLaunchReading(source?.candidate ?? null);
-  const input = { view, source, edits, checked, reading, targets };
+  const environment = useLiveEnvironment();
+  const input = { view, source, edits, checked, reading, targets, environment };
   const columns = launchColumns(input), values = launchValues(view, edits);
   const closed = unavailableReason(view) !== null;
   const canStart = ready(columns) && Boolean(actions.prepare && actions.start);
@@ -43,7 +45,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   // The check's or start's request that had no reply, while it has none: its card offers Send again.
   const [unanswered, setUnanswered] = useState<string | null>(null);
   const unknown = view.requests.find((request) => request.request_id === unanswered && request.outcome === "no_reply") ?? null;
-  const shape = JSON.stringify([source?.candidate, symbols, values]);
+  const shape = JSON.stringify([source?.candidate, symbols, values, environment]);
   useEffect(() => { setArmed(false); say(null); }, [shape]);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -56,17 +58,19 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   /** Send again from the card: a preparation Live then answers becomes the run this page checks. */
   const sendAgain = async (id: string) => {
     const receipt = await actions.resend?.(id), run = receipt?.outcome === "effect_recorded" && receipt.action === "prepare" ? receipt.target.run_id : null;
-    if (run) update(() => ({ preparedId: run })); else answer(receipt, receipt?.action === "start" ? "start" : "check");
+    if (run) update(() => ({ preparedId: run, backed: source?.evidence?.state === "found" })); else answer(receipt, receipt?.action === "start" ? "start" : "check");
   };
   /** The run to check or start: the one this page prepared, while it has not traded and holds this candidate, these
    *  contracts and settings, or a new one prepared now (local only: it freezes the candidate at the research head, the
    *  contracts, key and settings, and connects to nothing). */
   const prepared = async (at: "check" | "start"): Promise<string | null> => {
     if (!source || source.read !== "found" || !symbols || !actions.prepare) return null;
-    if (checked && STARTABLE.has(checked.hostState ?? "") && preparedWith(checked, source.candidate, symbols, values)) return checked.id;
-    const receipt = await actions.prepare({ candidate: source.candidate, symbols, values });
+    // A run prepared before replay evidence existed records none and never starts: once evidence is found, prepare anew.
+    const evidence = source.evidence?.state === "found";
+    if (checked && STARTABLE.has(checked.hostState ?? "") && preparedWith(checked, source.candidate, symbols, environment, values) && (backed || !evidence)) return checked.id;
+    const receipt = await actions.prepare({ candidate: source.candidate, symbols, environment, values });
     const id = receipt.outcome === "effect_recorded" ? receipt.target.run_id ?? null : null;
-    if (id) update(() => ({ preparedId: id })); else answer(receipt, at);
+    if (id) update(() => ({ preparedId: id, backed: evidence })); else answer(receipt, at);
     return id;
   };
   const begin = () => { say(null); setUnanswered(null); };
@@ -105,6 +109,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
       <LiveLaunchColumn column={columns[0]!} index={0} closed={closed} edit={busy ? undefined : edit} />
       <LiveLaunchColumn column={columns[1]!} index={1} closed={closed} busy={running}>
         <div className="flex flex-wrap items-center gap-2">
+          <LiveEnvironmentSwitch disabled={busy || running} />
           <FormButton disabled={blocker !== null || busy || running} onClick={check}>
             {checking.busy ? "Checking…" : running ? "Checking the account…" : checked?.accountCheck ? "Check again" : "Check account"}</FormButton>
           <TextButton size="form" onClick={openLiveCredentials}>Manage keys…</TextButton>
@@ -113,7 +118,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
           : blocker && !closed && <p className="text-small text-fg-faint">{blocker}</p>}
       </LiveLaunchColumn>
       <LiveLaunchColumn column={columns[2]!} index={2} closed={closed} edit={edit}>
-        <LiveLaunchStart ready={canStart} waiting={closed ? null : waiting} armed={armed} busy={starting.busy} sourceHash={source?.sourceHash ?? null}
+        <LiveLaunchStart demo={environment === "demo"} ready={canStart} waiting={closed ? null : waiting} blocker={startBlocker(input)} armed={armed} busy={starting.busy} sourceHash={source?.sourceHash ?? null}
           refused={said?.at === "start" ? said.text : null}
           reset={limitsEdited && !busy ? () => update((base) => ({ edits: Object.fromEntries(Object.entries(base.edits).filter(([id]) => !LIMITS.includes(id))) })) : null}
           arm={() => { say(null); setArmed(true); }} disarm={() => setArmed(false)} start={start} />

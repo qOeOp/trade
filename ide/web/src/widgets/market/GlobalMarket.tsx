@@ -1,8 +1,8 @@
 import { change, price, usd } from "../../lib/format";
 import type { Global } from "../../model/market";
-import { KeyValues } from "../../components/KeyValues";
-import { Section } from "../../components/Section";
-import { Tip } from "../../components/Tip";
+import { KeyValues } from "../../ui/KeyValues";
+import { Section } from "../../ui/Section";
+import { Tip } from "../../ui/Tip";
 import { Signed } from "./CoinDetails";
 
 /** Blockchaincenter's thresholds: three in four beating Bitcoin is an altcoin season, one in four a Bitcoin

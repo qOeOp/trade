@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { Skeleton, TableSkeleton } from "../../components/Missing";
-import { Tabs } from "../../components/Tabs";
-import { TextButton } from "../../components/TextButton";
+import { Skeleton, TableSkeleton } from "../../ui/Missing";
+import { Tabs } from "../../ui/Tabs";
+import { TextButton } from "../../ui/TextButton";
 import { precisions } from "../../lib/paperApi";
 import { useAtom } from "../../state/atom";
 import { backtestNote, useBacktest } from "../../state/backtest";

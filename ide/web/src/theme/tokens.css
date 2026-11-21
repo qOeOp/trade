@@ -148,7 +148,9 @@
   --code-decorator: light-dark(#9E880D, #B3AE60);
   --code-gutter: var(--fg-ghost);
   --diff-inserted: color-mix(in oklch, var(--meets) 13%, transparent);
-  --diff-inserted-text: color-mix(in oklch, var(--meets) 32%, transparent);
+  /* light: a paler word tint and a darker comment grey on it, so a changed comment keeps its contrast */
+  --diff-inserted-text: light-dark(color-mix(in oklch, var(--meets) 24%, transparent), color-mix(in oklch, var(--meets) 32%, transparent));
+  --code-comment-changed: light-dark(color-mix(in oklch, var(--code-comment) 45%, var(--fg)), var(--code-comment));
   --diff-deleted: color-mix(in oklch, var(--fail) 11%, transparent);
   --diff-deleted-text: color-mix(in oklch, var(--fail) 30%, transparent);
 
@@ -304,6 +306,9 @@
   --shadow-badge: inset 0 1px 0 oklch(1 0 0 / 0.14), 0 1px 2px oklch(0 0 0 / 0.08);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
+  /* a column pinned while a table scrolls sideways: a short shadow cast over the cells that pass under it */
+  --shadow-pinned-left: 6px 0 6px -4px var(--shadow-far);
+  --shadow-pinned-right: -6px 0 6px -4px var(--shadow-far);
 
   /* a filter, so a tooltip's arrow casts the same shadow as its box */
   --drop-shadow-*: initial;

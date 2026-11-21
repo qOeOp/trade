@@ -1,6 +1,7 @@
 """Read-time splits of one run (`report.splits`): its closed cycles by close year and by instrument, and its
 trading window cut into development years or, under two years, quarters. Derived on read from the stored cycles and
-daily returns, never stored; the single-run report gives them beside the measures (report.measures).
+daily returns (each development year's MARK drawdown read from the sealed reading), never stored; the single-run
+report gives them beside the measures (report.measures).
 """
 
 from __future__ import annotations
@@ -53,31 +54,17 @@ def closed_by_instrument(cycles: list[dict]) -> dict:
 
 
 def _segments(run: Mapping, months: int) -> tuple[list[datetime], int, list[float]] | None:
-    """(cuts, whole, returns) of a run's trading window cut every `months` months from its trade start, a last part
-    segment when the window does not end on a cut: each segment's compound return over the stored daily returns
-    dated in it. None for a window of one whole segment or less, or a start whose day some month lacks."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
-    end = datetime.fromtimestamp(run["trade_end_ns"] // 10**9, UTC)
-
-    def shifted(k: int) -> datetime:
-        month = start.month - 1 + k * months
-        return start.replace(year=start.year + month // 12, month=month % 12 + 1)
-
-    cuts = [start]
-    try:
-        while (following := shifted(len(cuts))) <= end:
-            cuts.append(following)
-    except ValueError:  # a start on a day some month lacks (29-31) has no regular cuts
+    """(cuts, whole, returns) of a run's trading window cut every `months` months from its trade start
+    (metrics.segment_cuts), a last part segment when the window does not end on a cut: each segment's compound
+    return over the stored daily returns dated in it. None for a window of one whole segment or less, or a start
+    whose day some month lacks."""
+    found = metrics.segment_cuts(run["trade_start_ns"], run["trade_end_ns"], months)
+    if found is None:
         return None
-    whole = len(cuts) - 1
-    if end > cuts[-1]:
-        cuts.append(end)
-    if whole == 0 or len(cuts) < 3:
-        return None
-    bounds = [int(moment.timestamp()) * 10**9 for moment in cuts]
+    bounds, whole = found
     returns = [math.prod(1 + value for ts, value, _ in run["returns"] if low <= ts < high) - 1
                for low, high in itertools.pairwise(bounds)]
-    return cuts, whole, returns
+    return [datetime.fromtimestamp(ns // 10**9, UTC) for ns in bounds], whole, returns
 
 
 def _without_best(cuts: list[datetime], whole: int, returns: list[float]) -> float | None:
@@ -94,16 +81,21 @@ def dev_years(run: Mapping, annual_target: float | None = None) -> dict | None:
     returns dated in it, and with `annual_target` whether a whole year reaches the target or by how much it falls
     short, how many whole years reach it, the worst whole year's return and the window's annual return over its
     days without the best whole year (the part year's included). A part year is not read against the annual
-    target. A slice of one continuous run: positions and the equity peak carry across segments. None for a window
-    of one whole year or less."""
+    target. Each year also carries its sealed bar-close MARK drawdown with its peak and trough (null when the
+    reading has none). A slice of one continuous run: positions and the equity peak carry across segments, so a
+    year's drawdown may start from an earlier year's peak. None for a window of one whole year or less."""
     cut = _segments(run, 12)
     if cut is None:
         return None
     cuts, whole, returns = cut
+    sealed = ((run.get("sealed") or {}).get("drawdown") or {}).get("years") or {}
+    falls = sealed.get("value") or [{}] * len(returns)
     years = []
-    for k, ((begin, finish), value) in enumerate(zip(itertools.pairwise(cuts), returns, strict=True)):
+    for k, ((begin, finish), value, fall) in enumerate(zip(itertools.pairwise(cuts), returns, falls, strict=True)):
         item: dict[str, object] = {"start": begin.date().isoformat(), "end": finish.date().isoformat(),
-                                   "return": value, "partial": k >= whole}
+                                   "return": value, "mark_max_drawdown": fall.get("mark_max_drawdown"),
+                                   "peak_utc": fall.get("peak_utc"), "trough_utc": fall.get("trough_utc"),
+                                   "partial": k >= whole}
         if annual_target is not None and k < whole:
             item.update(at_target=value >= annual_target, short_by=max(annual_target - value, 0.0))
         years.append(item)

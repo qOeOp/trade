@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { PhoneBack, PhoneBar } from "../../components/PhoneBar";
+import { PhoneBack, PhoneBar } from "../../ui/PhoneBar";
 import { SettingsMenu } from "../toolbar/SettingsMenu";
 
 /** A phone page's bar: its title (or the way back), what it is at the right, and the settings at the end, which

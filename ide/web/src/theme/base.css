@@ -51,10 +51,10 @@ body {
 /* Tooltips fade in; menus, dropdowns and the palette open at once (frequent, so never animated). */
 @keyframes enter { from { opacity: 0; } }
 .enter { animation: enter var(--t-fast) var(--ease); }
-/* A typing status line's caret blinks; under reduced motion it is not drawn (components/Typing.tsx). */
+/* A typing status line's caret blinks; under reduced motion it is not drawn (ui/Typing.tsx). */
 @keyframes blink { 50% { opacity: 0; } }
 .caret { animation: blink 1s step-end infinite; }
-/* A reading's placeholder pulses while its report or stream is being read (components/Missing.tsx); under
+/* A reading's placeholder pulses while its report or stream is being read (ui/Missing.tsx); under
    reduced motion it stands still. */
 @keyframes skeleton-pulse { 50% { opacity: 0.35; } }
 .skeleton { background: var(--line-strong); animation: skeleton-pulse 1.2s ease-in-out infinite; }
@@ -83,7 +83,7 @@ body {
   .skeleton { animation: none !important; }
 }
 
-/* Scrollbars: a thin line on the scrolled region's edge (components/ScrollArea.tsx), widening under the
+/* Scrollbars: a thin line on the scrolled region's edge (ui/ScrollArea.tsx), widening under the
    pointer; it shows while the pointer is in the region and takes no space. Native ones elsewhere are thin. */
 .os-theme-island {
   --os-size: 10px;
@@ -118,3 +118,19 @@ body {
 :root[data-phone] header button { position: relative; }
 :root[data-phone] header button::after { content: ""; position: absolute; inset: -4px; }
 :root[data-phone] * { scrollbar-width: none; -webkit-tap-highlight-color: transparent; }
+
+/* A scroll region whose content is wider than it fades out over 24px at each side the content goes on past,
+   following the horizontal scroll (a scroll-driven animation, so no script measures it); content that fits has
+   no inline scroll timeline, the animation never applies and nothing fades. */
+@property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes scroll-fade {
+  0% { --fade-left: 0px; --fade-right: 24px; }
+  4%, 96% { --fade-left: 24px; --fade-right: 24px; }
+  100% { --fade-left: 24px; --fade-right: 0px; }
+}
+.scroll-fade {
+  mask-image: linear-gradient(to right, transparent, black var(--fade-left), black calc(100% - var(--fade-right)), transparent);
+  animation: scroll-fade linear both;
+  animation-timeline: scroll(self inline);
+}

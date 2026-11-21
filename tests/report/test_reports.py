@@ -30,7 +30,7 @@ CANDIDATE_RETURNS = [0.002, -0.001, 0.0015, -0.0005, 0.001]
 DAYS = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(31)]
 
 
-def market_returns(market_database, commit, universe_rule, start, end) -> dict:
+def market_returns(market_name, commit, universe_rule, start, end) -> dict:
     """A market stand-in: the basket and BTC daily returns over January 2026."""
     return {"days": list(DAYS), "basket": [0.01 * ((k % 4) - 1.5) for k in range(31)],
             "btc": [0.005 * ((k % 3) - 1) for k in range(31)]}
@@ -441,7 +441,13 @@ class ReportTests(unittest.TestCase):
             shown = next(c["comparison"] for c in drawn["candidates"]
                          if c["registration"] == str(self.child_registration))
             self.assertEqual(graph.version_comparison(*args), {"comparison": shown}, "marked on the graph, so not refused")
-            self.assertEqual(graph.version_comparison(*args), clean, "what a browser keeps for this commit is what a read market gives")
+            unread = graph.version_comparison(*args)["comparison"]
+            alpha = ("alpha_basket_difference", "alpha_basket_difference_se")
+            self.assertEqual({key: value for key, value in unread.items() if key not in alpha},
+                             {key: value for key, value in clean["comparison"].items() if key not in alpha},
+                             "the paired test does not read the market")
+            self.assertEqual([unread[key] for key in alpha], [None, None], "the basket alpha needs the market, as a "
+                                                                          "trial report's does")
         with seams.use(market_returns=failing(environment)):
             self.assertIs(refused(graph.research_graph, self.profile, workers=1), environment)
             self.assertIs(refused(graph.version_comparison, *args), environment)
@@ -468,6 +474,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found, comparison.intervals_cross_zero(evidence))
         self.assertIsNotNone(found)
         self.assertEqual(attribute.call_count, 0)
+
+    def test_a_versions_comparison_gives_the_difference_intervals_and_the_alpha_difference(self):
+        found = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])
+        given = graph.version_comparison(self.profile, self.child_registration, self.candidate["trial_id"],
+                                         found["ledger_commit"])["comparison"]
+        alpha = found["attribution"]["slices"]["market_exposure"]["measures"]["alpha_basket"]["pairwise"]
+        self.assertEqual(given["vs_trial"], self.control["trial_id"])
+        self.assertEqual({key: given[key] for key in graph.COMPARISON_EVIDENCE},
+                         {key: found["evidence"][key] for key in graph.COMPARISON_EVIDENCE})
+        self.assertEqual(len(given["annual_return_difference_interval"]), 2)
+        self.assertIsNotNone(alpha["value"])
+        self.assertEqual((given["alpha_basket_difference"], given["alpha_basket_difference_se"]),
+                         (alpha["value"], alpha["standard_error"]))
 
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])
@@ -510,6 +529,20 @@ class ReportTests(unittest.TestCase):
                           found["invalid_research_runs"], found["unfinished_research_attempts"]), (2, 1, 1, 0))
         self.assertGreater(found["trials"], found["research_attempts"], "prechecks and explorations count as trials")
         self.assertEqual(found["validation"], {"registered": 0, "bound": 0, "unbound": 0, "unwitnessed": 0})
+
+    def test_the_comparison_table_and_the_run_listing_give_the_reports_basket_alpha_and_beta(self):
+        table = status.research_status(self.profile)["comparison"]["runs"]
+        listed = {item["trial_id"]: item for item in status.research_runs(self.profile)["runs"]}
+        self.assertTrue(table)
+        for row in table:
+            exposure = next(item["measures"] for item in runs.run_report(self.profile, row["trial_id"])["slices"]
+                            if item["id"] == "market_exposure")
+            for name in ("alpha_basket", "beta_basket"):
+                self.assertIsNotNone(exposure[name]["value"], name)
+                self.assertEqual(row["measures"][name], exposure[name], name)
+                self.assertEqual(listed[row["trial_id"]]["measures"][name], exposure[name]["value"], name)
+            self.assertEqual(listed[row["trial_id"]]["alpha_basket_standard_error"],
+                             exposure["alpha_basket"]["standard_error"])
 
     def test_the_research_state_gives_judgments_unreviewed_trials_and_gates(self):
         found = status.research_state(self.profile, full=True)

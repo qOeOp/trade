@@ -297,12 +297,6 @@ test("the chain's return compounds and its equity carries on from the first star
   assert.equal(chain.chainReturn([running(2, { total: null })]), null);
 });
 
-test("Equity has moved only once the chain's return is known and not zero", () => {
-  assert.equal(chain.equityMoved([running(2, { total: null })]), false);
-  assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: 0 })]), false);
-  assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: -0.0001 })]), true);
-});
-
 test("a chain's closed trades add up over its runs, unknown until one has a reading", () => {
   const ended = sealed(1); ended.seal.positions_closed = 3;
   const now = running(2); now.readings.positions_closed = 2;

@@ -14,14 +14,14 @@ import { viewStatus } from "../state/update";
 import { useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
-import { Breadcrumbs } from "../components/Breadcrumbs";
-import { MarketImportStatus } from "../components/MarketImportStatus";
-import { PaperStartStatus } from "../components/PaperStartStatus";
-import { Tip } from "../components/Tip";
-import { UpdateStatus } from "../components/UpdateStatus";
-import { PublicCopyStatus, ReleaseStatus } from "../components/About";
-import { ResearchSyncStatus } from "../components/ResearchSync";
-import { VersionLine } from "../components/VersionLine";
+import { Breadcrumbs } from "../ui/Breadcrumbs";
+import { MarketImportStatus } from "../widgets/market/MarketImportStatus";
+import { PaperStartStatus } from "../widgets/paper/PaperStartStatus";
+import { Tip } from "../ui/Tip";
+import { UpdateStatus } from "../widgets/UpdateStatus";
+import { PublicCopyStatus, ReleaseStatus } from "../widgets/About";
+import { ResearchSyncStatus } from "../widgets/ResearchSync";
+import { VersionLine } from "../widgets/VersionLine";
 
 /** Where the stage the Runs page shows comes from. */
 const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills", live: " · native execution observations" } as const;
@@ -46,7 +46,7 @@ function StageSource({ className }: { className: string }) {
   return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail-fg" : ""}>{tested.text}</span></span>;
 }
 
-const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
+const lineCounts = (s: SummaryWidget) => `${plural(s.candidates, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
 
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left, then on the Runs page where the stage it shows

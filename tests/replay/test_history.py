@@ -9,15 +9,18 @@ import math
 from pathlib import Path
 import shutil
 import statistics
+import subprocess
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 from cli import research_commands
 from ledger import admin, lines, strategies
 from registration import precheck
-from replay import entry, history
+from replay import entry, history, seams as replay_seams
 from report import graph, history as report_history, measures, runs, status
+from runtime.container import STAGE_MEMORY_BYTES
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.test_register import second_line
@@ -217,27 +220,87 @@ class DiscountTests(unittest.TestCase):
         returns = {1: [0.01, -0.005, 0.02, 0.0, 0.004] * 20, 2: [0.002, -0.01, 0.006, 0.001] * 25,
                    3: [-0.004, 0.003, -0.002, 0.001, 0.0] * 20}
         rows = [self.row(1, 1), self.row(2, 2), self.row(3, 3), self.row(4, None, summary=False)]
-        found = report_history._discount(rows, returns)
+        found = report_history._discount(rows, returns, 6)
         daily = [measures.sharpe_365(returns[trial]) / math.sqrt(365) for trial in (1, 2, 3)]
-        self.assertEqual(found, {"trials": 4, "holdouts_with_returns": 3, "daily_sharpe_variance": statistics.variance(daily)})
+        self.assertEqual(found, {"trials": 4, "trials_with_prior": 10, "holdouts_with_returns": 3,
+                                 "daily_sharpe_variance": statistics.variance(daily)})
         for row, trial in zip(rows[:3], (1, 2, 3), strict=True):
             self.assertEqual(row["summary"]["holdout"]["deflated_sharpe"],
                              measures.deflated_sharpe(returns[trial], 4, statistics.variance(daily)))
+            self.assertEqual(row["summary"]["holdout"]["deflated_sharpe_with_prior_trials"],
+                             measures.deflated_sharpe(returns[trial], 10, statistics.variance(daily)),
+                             "the trials that already looked at the holdout join the participants")
+            self.assertLess(row["summary"]["holdout"]["deflated_sharpe_with_prior_trials"],
+                            row["summary"]["holdout"]["deflated_sharpe"])
         self.assertGreater(rows[0]["summary"]["holdout"]["deflated_sharpe"], rows[2]["summary"]["holdout"]["deflated_sharpe"])
         self.assertIsNone(rows[3]["summary"], "a row whose control does not reproduce gets no summary")
 
     def test_a_short_or_missing_holdout_has_no_deflated_sharpe(self):
         rows = [self.row(1, 1, short=True), self.row(2, 2)]
-        found = report_history._discount(rows, {2: [0.01, -0.01, 0.02] * 10})
+        found = report_history._discount(rows, {2: [0.01, -0.01, 0.02] * 10}, None)
         self.assertEqual((found["holdouts_with_returns"], found["daily_sharpe_variance"]), (1, None))
         self.assertIsNone(rows[0]["summary"]["holdout"]["deflated_sharpe"])
         self.assertIsNone(rows[1]["summary"]["holdout"]["deflated_sharpe"], "one holdout leaves no variance")
+        self.assertIsNone(rows[1]["summary"]["holdout"]["deflated_sharpe_with_prior_trials"])
+        self.assertIsNone(found["trials_with_prior"], "no prior count read")
+
+
+class WidthTests(unittest.TestCase):
+    def test_as_many_replays_as_stage_limits_fit_beside_what_docker_holds(self):
+        gib = 2**30
+        cases = {(62 * gib, gib): 3, (62 * gib, 30 * gib): 1, (8 * gib, 0): 1, (0, 0): 1, (200 * gib, 0): 5}
+        self.assertEqual({key: history.width(lambda key=key: key, 5) for key in cases}, cases,
+                         "62.7 GiB Docker VM: 3 at 16 GiB; never 0; never more than the segments")
+
+    def test_docker_memory_is_its_total_less_its_containers(self):
+        answers = {"info": "67305488384\n", "stats": "302.5MiB / 40GiB\n1.5GiB / 62.68GiB\n\n42kB / 3GiB\n"}
+
+        def run(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=answers[argv[1]])
+        with patch.object(history.subprocess, "run", run):
+            self.assertEqual(history.engine_memory(), (67305488384, int(302.5 * 2**20) + int(1.5 * 2**30) + 42_000))
+        answers["stats"] = "-- / --\n"
+        with patch.object(history.subprocess, "run", run):
+            self.assertEqual(history.engine_memory(), (0, 0), "an unreadable answer admits one replay at a time")
+        with patch.object(history.subprocess, "run", side_effect=OSError("no docker")):
+            self.assertEqual(history.engine_memory(), (0, 0))
+
+    def test_an_interrupt_stops_the_running_stages_and_starts_no_other(self):
+        stopped, started = [], threading.Event()
+        release = threading.Event()
+
+        def inner(command, stdout, stderr, timeout):
+            started.set()
+            release.wait(10)
+            return 137
+
+        stages = history._Stages(inner)
+        outcome = []
+
+        def stage():
+            try:
+                stages.run(["docker", "run", "--name", "replay-x-trial-7-native"], None, None, None)
+            except KeyboardInterrupt:
+                outcome.append("interrupted")
+        thread = threading.Thread(target=stage)
+        thread.start()
+        started.wait(10)
+        with replay_seams.use(stop=stopped.append):
+            stages.stop()
+        release.set()
+        thread.join(10)
+        self.assertEqual((stopped, outcome), (["replay-x-trial-7-native"], ["interrupted"]),
+                         "the container is stopped and its stage reads as interrupted, as entry._stage seals it")
+        with self.assertRaises(KeyboardInterrupt):
+            stages.run(["docker", "run", "--name", "replay-x-trial-8-native"], None, None, None)
 
 
 @unittest.skipUnless(BINARY, SKIP)
 class HistoryRunTests(unittest.TestCase):
     def setUp(self):
         self.world = ReplayWorld("history")
+        # Room for three replays at once, so these tests run the segments concurrently.
+        self.enterContext(patch.object(history, "engine_memory", lambda: (3 * STAGE_MEMORY_BYTES + history.MARGIN, 0)))
 
     def tearDown(self):
         self.world.close()
@@ -495,3 +558,101 @@ class HistoryRunTests(unittest.TestCase):
         with patch.object(research_commands, "_market_days", return_value=days):
             closed = research_commands.line_close(world.profile, line, b"summary", {})
         self.assertFalse(closed["replayed"], "`line close` requires the candidates' segments only")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class ConcurrentHistoryTests(unittest.TestCase):
+    """A-24: segments replay several at once; what they seal is what one at a time seals."""
+
+    @staticmethod
+    def memory(width):
+        return lambda: (width * STAGE_MEMORY_BYTES + history.MARGIN, 0)
+
+    def world(self, name):
+        world = ReplayWorld(name)
+        self.addCleanup(world.close)
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        registration, refs = registered_grid(world, ["first", "second"])
+        for returns in ([0.002, -0.001], [0.003, -0.001]):
+            world.scenario = {"returns": returns}
+            entry.run(world.profile, world.market, MARKET_DAY, refs.pop(0), None, RUNNER_ARGV,
+                      registration=registration)
+        world.scenario = {"returns": [0.002, -0.001]}
+        return world
+
+    @staticmethod
+    def at_once(record, overlap=False):
+        """A replay.seams.run that records the most stage processes running at one time.
+
+        With overlap, the first stage waits (up to 10 s) for a second one to start, so stand-in stages that finish
+        at once still show whether the runner started several together."""
+        inner, cond, running, met = replay_seams.current.run, threading.Condition(), [0], [False]
+
+        def run(*args):
+            with cond:
+                running[0] += 1
+                record.append(running[0])
+                if running[0] > 1:
+                    met[0] = True
+                    cond.notify_all()
+                elif overlap and not met[0]:
+                    cond.wait_for(lambda: met[0], timeout=10)
+            try:
+                return inner(*args)
+            finally:
+                with cond:
+                    running[0] -= 1
+        return run
+
+    @staticmethod
+    def sealed(world):
+        """Each history run's segment and what it sealed: status, reasons, fingerprints, reading and returns."""
+        rows = world.conn.dicts(
+            "SELECT t.trial_id, t.source_sha256, t.trade_start, t.trade_end, r.status, r.failure_reasons, r.fingerprints, "
+            "rr.report FROM trial t JOIN run r ON r.trial_id = t.trial_id LEFT JOIN run_reading rr ON rr.trial_id = "
+            "t.trial_id WHERE t.purpose = 'history' ORDER BY t.source_sha256, t.trade_start")
+        for row in rows:
+            row["returns"] = world.conn.rows("SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s "
+                                             "ORDER BY ts_event_ns", (row.pop("trial_id"),))
+        return rows
+
+    def test_concurrent_segments_seal_what_serial_ones_do(self):
+        found = {}
+        for width in (1, 3):
+            world = self.world(f"history-{width}")
+            record: list[int] = []
+            with replay_seams.use(run=self.at_once(record, overlap=width > 1)):
+                done = history.run_history(world.profile, world.market, MARKET_DAY, world.line["line"],
+                                           memory=self.memory(width))
+            found[width] = (done, self.sealed(world), max(record))
+        (serial, serial_rows, one), (parallel, parallel_rows, many) = found[1], found[3]
+        self.assertEqual((one, many > 1), (1, True), "one stage at a time, then several")
+        self.assertEqual(len(serial["ran"]), 6, "two candidates by three segments")
+        self.assertEqual([{**item, "history_trial_id": None} for item in parallel["ran"]],
+                         [{**item, "history_trial_id": None} for item in serial["ran"]],
+                         "the same segments in the same order, with the same status")
+        self.assertEqual({key: value for key, value in parallel.items() if key != "ran"},
+                         {key: value for key, value in serial.items() if key != "ran"})
+        self.assertEqual(parallel_rows, serial_rows, "item by item the same sealed status, reading and fingerprints")
+        self.assertTrue(all(row["status"] == "passed" for row in serial_rows))
+
+    def test_a_failing_segment_lets_the_others_seal_and_a_rerun_resumes(self):
+        world = self.world("history-resume")
+        line = world.line["line"]
+        export, failed = world.market.export_catalogs, threading.Event()
+
+        def flaky(market_day, symbols, start_ns, end_ns, *args, **kwargs):
+            if not failed.is_set():
+                failed.set()
+                raise RuntimeError("export failed")
+            return export(market_day, symbols, start_ns, end_ns, *args, **kwargs)
+        with patch.object(world.market, "export_catalogs", flaky):
+            with self.assertRaises(RuntimeError):
+                history.run_history(world.profile, world.market, MARKET_DAY, line, memory=self.memory(3))
+        sealed = len(self.sealed(world))
+        self.assertEqual(sealed, 2, "the two segments started beside the failing one sealed; none started after it")
+        rest = history.run_history(world.profile, world.market, MARKET_DAY, line, memory=self.memory(3))
+        self.assertEqual((len(rest["ran"]), rest["left"], len(self.sealed(world))), (4, 0, 6),
+                         "a rerun replays only the segments without a run")
+        self.assertEqual(history.run_history(world.profile, world.market, MARKET_DAY, line, memory=self.memory(3))["ran"],
+                         [], "and nothing once each has one")

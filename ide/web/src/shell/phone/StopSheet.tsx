@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react";
-import { FormButton } from "../../components/chat/Field";
-import { HoldButton } from "../../components/HoldButton";
-import { Sheet } from "../../components/Sheet";
-import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
-import { StopEffects } from "../../components/LiveStop";
+import { FormButton } from "../../ui/chat/Field";
+import { HoldButton } from "../../ui/HoldButton";
+import { Sheet } from "../../ui/Sheet";
+import { useLiveAction, LiveActionFailure } from "../../widgets/live/LiveActionState";
+import { StopEffects } from "../../widgets/live/LiveStop";
 import { Icon } from "../../icons/Icon";
 import { fixed } from "../../lib/paperApi";
 import type { LiveRun } from "../../model/liveTrading";
-import { liveHeld, liveStatus, liveWorking, marked, protects, type Held, type Working } from "../../model/phoneRuns";
+import { liveSnapshot, type LiveSnapshot } from "../../model/runSnapshot";
 import { useLiveTrading } from "../../state/liveTrading";
 import { useSnapshot } from "../../state/market";
 import { Version } from "./RunCards";
@@ -17,9 +17,8 @@ const ICON = { done: "passed", doing: "loading", todo: "untested", failed: "fail
 const TONE = { done: "meets", doing: "recommended", todo: "fg-faint", failed: "fail" } as const;
 
 /** Where a requested stop is, from the request and the run as Live reads it again. */
-function steps(run: LiveRun, outcome: string | undefined, held: readonly Held[], working: readonly Working[]): Step[] {
-  const refused = outcome === "refused", ended = run.ended, unresolved = liveStatus(run).word === "Unresolved";
-  const entries = working.filter((o) => !protects(o, held));
+function steps(run: LiveRun, outcome: string | undefined, { held, entries, status }: LiveSnapshot): Step[] {
+  const refused = outcome === "refused", ended = run.ended, unresolved = status.word === "Unresolved";
   return [
     { text: refused ? "Stop refused by Live" : outcome === "no_reply" ? "Stop · No reply received" : "Stop requested",
       state: refused || outcome === "no_reply" ? "failed" : outcome === "effect_recorded" ? "done" : "doing" },
@@ -32,7 +31,7 @@ function steps(run: LiveRun, outcome: string | undefined, held: readonly Held[],
 /** The sheet Request stop… opens: what stopping does now, held for 1.5 s to send; then where the stop is. */
 export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean; onClose: () => void }) {
   const { view, actions } = useLiveTrading(), action = useLiveAction(), [sent, setSent] = useState(false);
-  const held = marked(liveHeld(run), useSnapshot()?.coins), working = liveWorking(run);
+  const snap = liveSnapshot(run, useSnapshot()?.coins);
   const request = [...view.requests].reverse().find((r) => r.action === "stop" && r.target.run_id === run.id);
   const send = () => { setSent(true); void action.submit(() => actions.stop?.(run.id)); };
   return (
@@ -44,7 +43,7 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
         </div>
         {sent ? <>
           <ul className="space-y-2 text-dense">
-            {steps(run, request?.outcome, held, working).map((s, i) => (
+            {steps(run, request?.outcome, snap).map((s, i) => (
               <li key={i} className="flex gap-2"><span className="mt-0.5 shrink-0"><Icon name={ICON[s.state]} tone={TONE[s.state]} /></span>
                 <span className={s.state === "todo" ? "text-fg-muted" : ""}>{s.text}{s.state === "failed" && request?.code ? ` (${request.code})` : ""}</span></li>
             ))}
@@ -55,7 +54,7 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
           <p className="text-small text-fg-faint">You can close this. Telegram tells you when the run has ended.</p>
           <FormButton className="w-full" onClick={onClose}>Close</FormButton>
         </> : <>
-          <StopEffects phone held={held} working={working} />
+          <StopEffects phone snap={snap} />
           <HoldButton onHeld={send} disabled={!actions.stop || run.ended || action.busy}>Hold to stop</HoldButton>
           <FormButton className="w-full" onClick={onClose}>Cancel</FormButton>
         </>}

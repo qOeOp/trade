@@ -105,7 +105,7 @@ class Daily(unittest.TestCase):
         self.assertEqual({call[2] for call in self.calls}, {clock.day_ns(date.fromisoformat("2026-11-12"))})
 
     def test_an_uncovered_day_waits_and_is_tried_again_and_an_empty_one_is_final(self):
-        self.results = {1: refuse("LIVE_COMPARE_UNCOVERED", "not yet")}
+        self.results = {1: refuse("COMPARE_UNCOVERED", "not yet")}
         self.assertEqual((self.day()["state"], self.day()["state"]), ("waiting", "waiting"))
         self.results = {1: refuse("LIVE_COMPARE_EMPTY", "no minute"), 2: refuse("LIVE_COMPARE_EMPTY", "no minute")}
         self.assertEqual(self.day()["state"], "empty")

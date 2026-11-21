@@ -68,7 +68,7 @@ class LiveFixture(unittest.TestCase):
             "candidate": {"strategy_id": "example", "revision": 1},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
             "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
-            "config": {"memory": "2g", "duration_seconds": 60}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
+            "config": {"environment": "live", "memory": "2g", "duration_seconds": 60}, "credential_binding": hashlib.sha256(b"example-key").hexdigest(),
             "evidence": EVIDENCE,
         }
         state.write_new(self.directory / "inputs" / "strategy.py", b"source")
@@ -99,7 +99,7 @@ class LiveFixture(unittest.TestCase):
             mounts = [{"Type": "bind", "Source": str(self.directory / "egress"),
                        "Destination": "/reports", "RW": True}]
             networks["bridge"] = {"NetworkID": bridge["Id"]}
-            command = ["-m", "engine.egress", "--port", "3128", "--log", "/reports/egress.log"]
+            command = ["-m", "engine.egress", "--port", "3128", "--log", "/reports/egress.log", "--environment", "live"]
             memory = 256 * 1024 ** 2
         image = {"Id": "sha256:" + "b" * 64, "RepoDigests": [IDENTITY["image_ref"]],
                  "Os": "linux", "Architecture": "amd64", "Config": {"Env": ["PATH=/usr/bin"]}}
@@ -154,29 +154,29 @@ class LiveCustodyTests(LiveFixture):
         for leverage in ("0", "126", "03", "2.5", 3, None):
             with self.subTest(leverage=leverage):
                 self.assertEqual(refused(configuration.run_config,
-                                         {"drawdown_brake": "0.15", "duration_seconds": 8100, "leverage": leverage},
+                                         {"environment": "live", "drawdown_brake": "0.15", "duration_seconds": 8100, "leverage": leverage},
                                          error=LiveRefusal).code, "LIVE_CONFIG")
                 self.assertEqual(refused(prepare, self.root, "leverage-run", object(), "a" * 32, "original@2",
                                          ["BTCUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
-                                         scope=self.scope, drawdown_brake="0.15", duration_seconds=60, memory="2g",
+                                         scope=self.scope, environment="live", drawdown_brake="0.15", duration_seconds=60, memory="2g",
                                          leverage=leverage, market_root=Path("unused"), credential_ref="a" * 32,
                                          request_id="prepare-leverage", error=LiveRefusal).code, "LIVE_CONFIG")
         for leverage in ("1", "125"):
-            self.assertEqual(configuration.run_config({"drawdown_brake": "0.15",
+            self.assertEqual(configuration.run_config({"environment": "live", "drawdown_brake": "0.15",
                                                        "duration_seconds": 8100, "leverage": leverage})["leverage"],
                              leverage)
 
     def test_prepare_and_the_control_take_only_a_brake_at_most_the_drawdown_target(self):
-        self.assertEqual(configuration.run_config({"drawdown_brake": "0.05", "duration_seconds": None,
+        self.assertEqual(configuration.run_config({"environment": "live", "drawdown_brake": "0.05", "duration_seconds": None,
                                                    "leverage": "3"})["drawdown_brake"], "0.05")
         for limit in ("0", "NaN", "0.1501"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
-                configuration.run_config({"drawdown_brake": limit, "duration_seconds": None, "leverage": "3"})
+                configuration.run_config({"environment": "live", "drawdown_brake": limit, "duration_seconds": None, "leverage": "3"})
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
         for limit in ("0", "NaN", "0.1501"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
                 prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                        self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake=limit,
+                        self.credentials, IDENTITY["image_ref"], scope=self.scope, environment="live", drawdown_brake=limit,
                         duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                         credential_ref="a" * 32, request_id="prepare-limit")
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
@@ -188,7 +188,7 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(caught.exception.code, "LIVE_KEY_WITHDRAWAL")
         network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
-        self.key_limits.assert_called_once_with(self.credentials)  # a timed run's key is checked the same way
+        self.key_limits.assert_called_once_with(self.credentials, "live")  # a timed run's key is checked the same way
         self.key_limits.reset_mock()
         self.assertEqual(refused(launch, self.root, self.run_id, self.credentials, "reconcile", scope=self.scope,
                                  error=LiveRefusal).code, "LIVE_RUN_MISSING")
@@ -462,7 +462,7 @@ class LiveCustodyTests(LiveFixture):
             for now in (0.0, 10.0, 3600.0):  # the second is within the hour: no read
                 control.check_key_locked(self.root, self.run_id, now)
             self.assertEqual(self.key_limits.call_count, 2)
-            self.key_limits.assert_called_with(self.credentials)
+            self.key_limits.assert_called_with(self.credentials, "live")
             self.key_limits.side_effect = None
             control.check_key_locked(self.root, self.run_id, 7200.0)
             control.check_key_locked(self.root, self.run_id, 10800.0)
@@ -617,8 +617,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_prepare_captures_the_candidates_own_source_and_never_stores_credentials(self):
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
-                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
-                  "runtime_contract": RUNTIME_CONTRACT}
+                  "source": b"class Original: pass\n", "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch("engine.load.read_universe"), \
@@ -626,7 +625,7 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "inspect_runtime", return_value={}), \
                 patch.object(runs.image, "require_main_build"):
             manifest = prepare(self.root, "candidate-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                               self.credentials, IDENTITY["image_ref"], scope=self.scope, drawdown_brake="0.15",
+                               self.credentials, IDENTITY["image_ref"], scope=self.scope, environment="live", drawdown_brake="0.15",
                                duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                                credential_ref="a" * 32, request_id="prepare-candidate")
         self.assertEqual(read.call_args.args[1], "a" * 32)
@@ -644,13 +643,13 @@ class LiveCustodyTests(LiveFixture):
     def test_a_candidate_whose_source_does_not_load_is_no_source_to_prepare(self):
         for source, entry_class in ((b"not python (", "Original"), (b"class Other: pass\n", "Original")):
             found = {"strategy_id": "original", "revision": 2, "entry_class": entry_class, "source": source,
-                     "source_sha256": hashlib.sha256(source).hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+                     "source_sha256": hashlib.sha256(source).hexdigest()}
             with self.subTest(source=source), patch.object(runs.db, "read_as_of"), \
                     patch.object(runs.strategies, "read_candidate", return_value=found), \
                     patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                     self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
                 runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                                    self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
+                                    self.credentials, IDENTITY["image_ref"], environment="live", drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                                     credential_ref="a" * 32, request_id="prepare-unloadable",
                                     reconciled=lambda *_: None)
@@ -661,13 +660,12 @@ class LiveCustodyTests(LiveFixture):
     def test_a_stored_source_that_does_not_hash_to_its_source_sha256_is_never_prepared(self):
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"class Original: pass  # other\n",
-                  "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(),
-                  "runtime_contract": RUNTIME_CONTRACT}
+                  "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
         with patch.object(runs.db, "read_as_of"), patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch.object(runs.image, "resolve", side_effect=AssertionError("no image before the source")), \
                 self.scope.serialized(self.root) as root, self.assertRaises(LiveRefusal) as caught:
             runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], b"{}",
-                                self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
+                                self.credentials, IDENTITY["image_ref"], environment="live", drawdown_brake="0.15",
                                 duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
                                 credential_ref="a" * 32, request_id="prepare-declared", reconciled=lambda *_: None)
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
@@ -683,9 +681,9 @@ class LiveCustodyTests(LiveFixture):
         return stack.enter_context(patch.object(runs.db, "read_as_of"))
 
     ORIGIN = {"strategy_id": "original", "revision": 2, "entry_class": "Original", "source": b"class Original: pass\n",
-              "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest(), "runtime_contract": RUNTIME_CONTRACT}
+              "source_sha256": hashlib.sha256(b"class Original: pass\n").hexdigest()}
     SAME = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": b"{}", "runtime": IDENTITY["image_ref"],
-            "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
+            "environment": "live", "drawdown_brake": "0.15", "duration_seconds": 60, "memory": "2g", "leverage": "3",
             "market_root": Path("unused"), "credential_ref": "a" * 32, "request_id": "prepare-conflict"}
 
     def again(self, research_at="a" * 32, **changes):

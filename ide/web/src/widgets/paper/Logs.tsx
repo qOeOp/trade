@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { paperApi } from "../../lib/paperApi";
 import { polled } from "../../lib/polled";
-import { SkeletonLines } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
+import { SkeletonLines } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
 
 type Log = { paper_id: number; source: string; text: string; sealed: boolean };
 

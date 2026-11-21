@@ -18,7 +18,7 @@ class RequestIdTests(LiveFixture):
         state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id, request_id="prepare-original",
                      credential_ref=self.ref)
         with state.serialized(self.root) as root:
-            credentials.save_locked(root, self.ref, "example-key", "example-secret")
+            credentials.save_locked(root, "live", self.ref, "example-key", "example-secret")
         self.confirm = self.manifest["source"]["source_sha256"]
         self.runner = {"Id": "c" * 64, "State": {"Running": True, "Status": "running"}}
 
@@ -118,7 +118,7 @@ class RequestIdTests(LiveFixture):
 
     def test_a_saves_request_id_names_its_version_and_no_run_action(self):
         with state.serialized(self.root) as root:
-            credentials.save_locked(root, control._credential_ref("save-request-one"), "example-key", "example-secret")
+            credentials.save_locked(root, "live", control._credential_ref("save-request-one"), "example-key", "example-secret")
         for action in ("stop", "maintain"):
             status, refused = self.execute(action, "save-request-one")
             self.assertEqual((status, refused["error"]["code"]), (409, "LIVE_REQUEST_CONFLICT"))

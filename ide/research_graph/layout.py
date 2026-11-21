@@ -202,7 +202,7 @@ def build_view(graph: dict) -> dict:
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
-         "versions": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
+         "candidates": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
          "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
          "priority": {k: priority[k] for k in ("at", "ref", "text")} if priority else None},
         {"type": "lineage", "targets": targets,

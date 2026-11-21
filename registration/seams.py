@@ -64,7 +64,7 @@ class Market:
 
     def __init__(self, profile: dict):
         self.profile = profile
-        self.database = profile["name"]
+        self.name = profile["name"]
 
     def _open(self):
         from market import files

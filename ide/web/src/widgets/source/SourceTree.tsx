@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { openSource } from "../../state/editors";
+import { openSource, previewSource } from "../../state/editors";
 import { hoverProps } from "../../state/linking";
 import { sourceTreeControl } from "../../state/versionTree";
-import { TreeRow } from "../../components/TreeRow";
-import { ROOT, useSelectionTree } from "../../components/hooks/useSelectionTree";
-import { VersionMenu } from "../../components/VersionMenu";
+import { TreeRow } from "../../ui/TreeRow";
+import { ROOT, useSelectionTree } from "../useSelectionTree";
+import { VersionMenu } from "../runs/VersionMenu";
 
 const DIR = "dir:";
 
@@ -33,8 +33,9 @@ function files(items: readonly SourceItem[]): Map<string, Entry> {
   return entries;
 }
 
-// The versions' sources as files, like IntelliJ's Project view: a click selects the version everywhere,
-// a double-click or Enter opens its source in an editor tab. A version the graph holds no source for is faint.
+// The versions' sources as files, as VS Code's Explorer: a click or an arrow key selects the version everywhere
+// and previews its source in the editor; a double-click or Enter keeps it open. A version the graph holds no
+// source for is faint.
 export function SourceTree({ widget }: { widget: SourcesWidget }) {
   const entries = useMemo(() => files(widget.items), [widget]);
   const dirs = useMemo(() => [...entries.keys()].filter((id) => id.startsWith(DIR)), [entries]);
@@ -49,12 +50,13 @@ export function SourceTree({ widget }: { widget: SourcesWidget }) {
   });
 
   return (
-    <div {...tree.getContainerProps()} className="w-max min-w-full py-1 text-dense outline-none">
+    <div {...tree.getContainerProps()} onKeyDownCapture={(e) => { if (e.key.startsWith("Arrow")) previewSource(); }} className="w-max min-w-full py-1 text-dense outline-none">
       {tree.getItems().map((item) => {
         const entry = item.getItemData(), id = item.getId(), level = item.getItemMeta().level;
         const folder = entry.item === null;
         const row = (key?: string) => (
           <TreeRow key={key} {...item.getProps()} {...(folder ? {} : hoverProps(id))}
+                   onClickCapture={() => { if (!folder) previewSource(); }}
                    onDoubleClick={() => { if (!folder) openSource(id); }}
                    onKeyDown={(e) => { if (e.key === "Enter" && !folder) openSource(id); }}
                    level={level} folder={folder} expanded={item.isExpanded()} selected={item.isSelected()}>

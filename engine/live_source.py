@@ -10,6 +10,7 @@ from typing import Any
 from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
 from engine import history, metrics, strategy as strategy_runtime
+from engine.live_venue import VENUES
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal, read_regular_file
 from engine.live_errors import LiveRefusal as Refusal
@@ -58,7 +59,8 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         strategy_runtime.declare(self, loaded.warmup)
         self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, loaded.funding,
                             functools.partial(history.fetch, catalog=session.catalog(),
-                                              proxy_url=session.manifest["config"].get("proxy_url")),
+                                              proxy_url=session.manifest["config"].get("proxy_url"),
+                                              base=VENUES[session.manifest["config"]["environment"]]["rest"]),
                             follows=self._runner_reads_funding)
         self._metrics_setup(functools.partial(metrics.read, proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
@@ -71,7 +73,7 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         """An unsubscribe of metrics the source followed goes to the evidence pack: `live compare` expects no row after
         it (replay.comparison.compare_metrics)."""
         if instrument_id in self._metrics_followed:
-            self._live.evidence.metrics_unsubscribed(instrument_id)
+            self._live.evidence.market("metrics_unsubscribed", instrument_id)
         super()._metrics_unfollow(instrument_id)
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
@@ -191,14 +193,38 @@ class _LiveConfigured(history.Warming, metrics.Feed):
 
     def _warming_begin(self) -> None:
         state = self._warming_state()
-        # The bars and settlements themselves went to the evidence pack as the source received them (historical_bar,
-        # historical_funding).
-        self._live.event("warmup", strict=False, at_ns=state["at"], fetched_ns=state["fetched_ns"],
-                         bars={period: len(bars) for period, bars in state["delivered"].items()})
+        self._live.evidence.market("warmup", state["instrument_id"], state["delivered"])
+        self._live.event("warmup", strict=False, at_ns=state["at"])
         history.Warming._warming_begin(self)
 
 
 RATE_LIMITED = "RATE_LIMIT_EXCEEDED"  # Nautilus's reason for an order its risk engine denies over the submit rate
+
+
+# rc7's Binance futures adapter sends OrderRejected with this reason only when the request certainly left no order at
+# Binance: not sent (validation, credentials), or a definite venue answer that is neither retryable nor ambiguous
+# (crates/adapters/binance futures/execution.rs and common/failure.rs at v2.0.0rc7). A submit whose outcome it could
+# not learn stays in flight for reconciliation and may end INFLIGHT_TIMEOUT, when Binance may still have filled it.
+NOT_TAKEN = "submit-order-error: "
+CLOSE_RESENDS = 3  # a close rejected this often is left: the same answer would come again
+
+
+def resend_close(session, cache, event) -> None:
+    """The Observer's close of a position (engine.live_lifecycle) that never reached Binance is closed again on a
+    later tick: one the native submit rate denied, and up to CLOSE_RESENDS times one Binance certainly did not take
+    (NOT_TAKEN; re-judge D-155), so a transient refusal such as a price outside PERCENT_PRICE in a fast market does
+    not leave the position open. The denial or rejection itself still fails the run, as any other."""
+    name, reason = type(event).__name__, str(event.reason)
+    rejected = name == "OrderRejected" and reason.startswith(NOT_TAKEN)
+    if not (rejected or name == "OrderDenied" and reason == RATE_LIMITED):
+        return
+    position = str(cache.position_id(event.client_order_id))
+    if position not in session.exits or rejected and session.resent[position] >= CLOSE_RESENDS:
+        return
+    if rejected:
+        session.resent[position] += 1
+        session.event("close_resent", strict=False, position_id=position, reason=reason)
+    session.exits.discard(position)
 
 
 def native_event(event) -> dict:
@@ -214,10 +240,9 @@ def native_event(event) -> dict:
         for name in fields if (value := getattr(event, name, None)) is not None}}
 
 
-# The bars, funding history and metrics the source receives go to the evidence pack (engine.live_evidence), whether
-# or not it handles them.
-RECORDED = {"on_bar": "bar", "on_historical_bars": "historical_bar",
-                 "on_historical_funding_rates": "historical_funding", "on_data": "metrics"}
+# The bars and metrics the source receives go to the evidence pack (engine.live_evidence), whether or not it handles
+# them; its warm-up's histories go there as digests when it has warmed (_warming_begin).
+RECORDED = {"on_bar": "bar", "on_data": "metrics"}
 
 
 def _gated(name: str, method):
@@ -228,7 +253,7 @@ def _gated(name: str, method):
         if self._live.observe_stop_intent():
             return None
         if kind == "bar":
-            self._live.evidence.bar(args[0])
+            self._live.evidence.market("bar", args[0])
             if live_connection.bar(self._live, args[0]):
                 return None  # a repeated bar: the source decided on it already
             if live_connection.held_bar(self._live, args[0]):
@@ -243,15 +268,9 @@ def _gated(name: str, method):
                 return method(self, *args, **kwargs)
             finally:
                 self._live.deciding = None
-        elif kind == "historical_funding":
-            for update in args[0]:
-                self._live.evidence.settlement(update)
         elif kind == "metrics":
             if isinstance(getattr(args[0], "data", None), strategy_runtime.Metrics):
-                self._live.evidence.metrics(args[0].data)
-        elif kind is not None:
-            for bar in args[0]:
-                self._live.evidence.bar(bar, kind)
+                self._live.evidence.market("metrics", args[0].data)
         return method(self, *args, **kwargs) if method else None
     return call
 
@@ -326,10 +345,7 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
                     type(event).__name__ == "OrderDenied" and str(event.client_order_id) in self._live.denied):
                 self._live.native_order_failure, self._live.failed = True, True
                 self._live.begin_stop("native_order_failure")
-                if type(event).__name__ == "OrderDenied" and str(event.reason) == RATE_LIMITED:
-                    # Never sent: if it was the Observer's close of a position, the STOP path closes that position
-                    # again (engine.live_lifecycle). The denial itself still fails the run, as any other.
-                    self._live.exits.discard(str(native_cache(self).position_id(event.client_order_id)))
+                resend_close(self._live, native_cache(self), event)
             try:
                 payload = native_event(event)
             except Exception:

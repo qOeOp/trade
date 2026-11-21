@@ -4,14 +4,15 @@ import type { Candidate } from "../../model/types";
 import { PREDICTION, ROLE } from "../../model/semantics";
 import { when } from "../../lib/format";
 import { Icon } from "../../icons/Icon";
+import { openDiff } from "../../state/editors";
 import { select } from "../../state/selection";
 import { textClass } from "../../theme/roles";
-import { Skeleton } from "../../components/Missing";
-import { TextButton } from "../../components/TextButton";
-import { Tip } from "../../components/Tip";
+import { Skeleton } from "../../ui/Missing";
+import { TextButton } from "../../ui/TextButton";
+import { Tip } from "../../ui/Tip";
 
 /** The selected version's card: its name, role, prediction verdict, when it was published, its
- *  parent; its readings follow in the same card. */
+ *  parent and the way to its change from the parent's source; its readings follow in the same card. */
 export function Header({ c, loading = false, children }: { c: Candidate; loading?: boolean; children?: ReactNode }) {
   const zone = useTimeZone();
   const role = c.status ?? null;
@@ -29,6 +30,11 @@ export function Header({ c, loading = false, children }: { c: Candidate; loading
           // the line's edge where the link wraps to a line of its own, as the words above it do
           <TextButton className="-mx-1 min-w-0 max-w-full font-mono" title={c.parent} onClick={() => { const p = c.parent!; select(p, { reveal: true }); }}>
             <span className="-ml-0.5 flex"><Icon name="arrow-up" size={12} /></span><span className="truncate">{c.parent}</span>
+          </TextButton>
+        )}
+        {c.parent && (
+          <TextButton className="-mx-1" title={`Its source's change from ${c.parent}`} onClick={() => openDiff(c.id)}>
+            <Icon name="diff" size={12} />Diff
           </TextButton>
         )}
       </div>

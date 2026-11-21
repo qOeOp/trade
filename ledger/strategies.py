@@ -12,7 +12,6 @@ import ast
 import hashlib
 import re
 
-from engine.config import RUNTIME_CONTRACT  # in force at publication: the one the runtime images declare
 from ledger import db
 from shared.refusals import refuse
 
@@ -115,11 +114,10 @@ def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str
             raise refuse("SOURCE_EXISTS", f"these exact bytes are already candidate {ref}", expected=ref)
         (latest,), = conn.rows("SELECT MAX(revision) FROM candidate WHERE strategy_id = %s", (strategy_id,))
         revision = (latest or 0) + 1
-        conn.rows("INSERT INTO candidate (strategy_id, revision, source, entry_class, runtime_contract, description, "
-                  "parent_source_sha256, difference, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                  (strategy_id, revision, source, entry_class, RUNTIME_CONTRACT, description, parent_sha, difference,
-                   op))
-        return {"candidate": f"{strategy_id}@{revision}", "source_sha256": sha, "runtime_contract": RUNTIME_CONTRACT}
+        conn.rows("INSERT INTO candidate (strategy_id, revision, source, entry_class, description, "
+                  "parent_source_sha256, difference, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                  (strategy_id, revision, source, entry_class, description, parent_sha, difference, op))
+        return {"candidate": f"{strategy_id}@{revision}", "source_sha256": sha}
 
     def replay(conn, row):
         stored_parent = (name(candidate_by_sha(conn, row["parent_source_sha256"]))
@@ -128,8 +126,7 @@ def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str
                 strategy_id, sha, entry_class, parent):
             raise refuse("OP_ID_CONFLICT", f"operation {row['op_id']} already names another candidate",
                          missing=(row["op_id"],))
-        return {"candidate": f"{row['strategy_id']}@{row['revision']}", "source_sha256": row["source_sha256"],
-                "runtime_contract": row["runtime_contract"]}
+        return {"candidate": f"{row['strategy_id']}@{row['revision']}", "source_sha256": row["source_sha256"]}
 
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "publish_candidate", payload, "candidate", insert, replay, op_id=op_id)

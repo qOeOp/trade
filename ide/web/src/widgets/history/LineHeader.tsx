@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { MISSING, pct, plural } from "../../lib/format";
 import type { HistoryLine } from "../../lib/historyApi";
 import { priorGroups, priorTrials } from "../../model/history";
-import { Tip } from "../../components/Tip";
+import { Tip } from "../../ui/Tip";
 
 /** What a line's `holdout_prior_trials` says in words: the holdout's earlier searches in this ledger, which the holdout
  *  verdict and the deflated Sharpe are to be read with. The deflated Sharpe counts only this line's participants. */
@@ -20,7 +20,7 @@ export function PriorTip({ line, lead }: { line: HistoryLine; lead?: string }) {
         : <p>{n === 0 ? "No counted trial in this ledger overlapped the holdout" : `${plural(n, "counted trial")} on the line's instruments overlapped the holdout`}
             {p && p.instruments.length > 0 && ` (${p.instruments.join(", ")})`}; its own history trials are left out</p>}
       {groups.map((g) => <p key={g}>{g}</p>)}
-      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The deflated Sharpe counts only this line's participants, not these searches.</p>
+      <p>Searches outside this ledger are not counted, so none here does not mean the holdout is unseen. The DSR column's second figure adds these searches to the participants as trials.</p>
     </div>
   );
 }
@@ -45,13 +45,13 @@ function Field({ label, width, tip, children }: { label: string; width: string; 
 
 /** A line's header strip: its facts in the same columns for every line (label small above, value below), wrapping in two
  *  columns on a phone. The cell spans the whole table, so the strip is held to the visible width and sticks to the left:
- *  it wraps in view and stays there when the table scrolls sideways. */
+ *  it wraps in view and stays there when the table scrolls sideways. The visible width is the scroll pane's (`100cqw`), not the window's, so a tool window beside it does not cut it. */
 export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSpan: number; hidden: { edge: number; cause: number } }) {
   const t = line.targets, left = line.without_economic_evidence ?? [];
   return (
     <tr className="bg-island-alt">
       <th colSpan={colSpan} className="sticky left-0 px-0 py-1.5 text-left font-normal">
-        <div className="sticky left-0 flex max-w-[calc(100vw-6rem)] flex-wrap gap-x-6 gap-y-1.5 px-2">
+        <div className="sticky left-0 flex max-w-[100cqw] flex-wrap gap-x-6 gap-y-1.5 px-2">
           <Field label={line.closed ? "Closed" : "Closing"} width="w-full md:w-auto md:min-w-44"><span className="font-mono font-semibold">{line.line}</span></Field>
           <Field label="Participants" width="w-[calc(50%-0.75rem)] md:w-24">{line.participants}</Field>
           <Field label="Research trials" width="w-[calc(50%-0.75rem)] md:w-24">{line.research_trials}</Field>
@@ -59,8 +59,7 @@ export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSp
             <span className={priorTrials(line) ? "text-fg" : "text-fg-muted"}>{priorWords(line)}</span></Field>
           <Field label="Sources left out" width="w-[calc(50%-0.75rem)] md:w-28" tip={left.length ? <LeftOut left={left} /> : undefined}>
             {line.without_economic_evidence === undefined ? MISSING : left.length ? plural(left.length, "source") : <span className="text-fg-muted">none</span>}</Field>
-          <Field label="Target drawdown" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≤ ${pct(t.max_drawdown)}` : MISSING}</Field>
-          <Field label="Target return" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≥ ${pct(t.annual_return)}` : MISSING}</Field>
+          <Field label="Targets" width="w-full md:w-auto">{t ? `drawdown ≤ ${pct(t.max_drawdown)} · return ≥ ${pct(t.annual_return)}` : MISSING}</Field>
           <Field label="Development" width="w-full md:w-52">{line.dev_start} to {line.dev_end}</Field>
           {hidden.edge + hidden.cause > 0 && <Field label="Hidden" width="w-full md:w-28">
             {[hidden.edge && `${hidden.edge} with no edge`, hidden.cause && `${hidden.cause} by cause`].filter(Boolean).join(" · ")}</Field>}

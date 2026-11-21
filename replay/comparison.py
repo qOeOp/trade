@@ -1,7 +1,7 @@
 """An execution run against a replay of its own source on the archive, one tool for Paper and Live
 (docs/plans/execution-paths-replan-20261110.zh.md, R3.2; docs/plans/run-reconcile-20261112.zh.md).
 
-Paper (paper.compare) and Live (live.compare) read their run into one record: the one-minute bars its source
+Paper (paper.compare) and Live (live.compare) read their run into one record (run_record): the one-minute bars its source
 received, the warm-up it received, its native order events, its funding settlements, its equity path and the
 contract terms and fee rates it traded at. Each reads the archive's minutes for the run's window (`archive`, with its
 own refusal) and passes them with that record to `replay_and_compare`, then writes comparison.json with its own keys. The
@@ -71,7 +71,6 @@ PAIR_NS = 10 * MINUTE_NS  # an uncalibrated example value: entries further apart
 LISTED = 50  # bars listed per contract and kind; the counts are complete
 ROLES = {"ENTRY": "entry", "STOP_LOSS": "stop", "TAKE_PROFIT": "target"}
 BAR_FIELDS = ("open", "high", "low", "close", "volume")
-MINUTE_BAR = "1-MINUTE-LAST-EXTERNAL"
 CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "metrics", "warmup", "contract_terms", "window_end",
           "entry_gate", "held")  # in this order
 METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
@@ -357,9 +356,23 @@ def _alone(group: Mapping, sides: tuple[str, ...]) -> bool:
 
 # Inputs
 
-def _period(bar_type: str, instrument_id: str) -> str:
-    """'1-HOUR' of 'BTCUSDT-PERP.BINANCE-1-HOUR-LAST-EXTERNAL'."""
-    return bar_type[len(instrument_id) + 1:].rsplit("-", 2)[0]
+DIGEST = ("bars", "first_ts_event", "last_ts_event", "sha256")
+
+
+def run_record(market: Iterable[Mapping], **run) -> dict:
+    """A run as compare reads it: from its rows the market rows (engine.realtime.MarketRows: Paper's journal, Live's
+    evidence pack; other rows are passed over), and `run`'s own parts as given: side_starts (its processes' starts),
+    events (its native order events), settlements, equity, terms, fees, and Paper's taken, held, interrupted and
+    paused or Live's gate."""
+    rows = list(market)
+    warmup: dict[str, dict[str, dict]] = {}
+    for row in rows:
+        if row["kind"] == "warmup":
+            warmup.setdefault(row["instrument_id"], {})[row["period"]] = {key: row.get(key) for key in DIGEST}
+    return {"bars": [row for row in rows if row["kind"] == "bar"], "warmup": warmup,
+            "kline_events": [row for row in rows if row["kind"] == "kline_event"],
+            "kline_sockets": [row for row in rows if row["kind"] == "kline_socket"],
+            "metrics": [row for row in rows if row["kind"] in ("metrics", "metrics_unsubscribed")], **run}
 
 
 def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, end: int,
@@ -376,8 +389,6 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
     2026-11-14)."""
     live: dict[str, dict[int, dict]] = {}
     for line in run_bars:
-        if line.get("bar_type", f"{line['instrument_id']}-{MINUTE_BAR}") != f"{line['instrument_id']}-{MINUTE_BAR}":
-            continue  # an aggregation a Live source subscribed to
         if start < line["ts_event"] <= end:
             live.setdefault(symbol_of(line["instrument_id"]), {})[line["ts_event"]] = line
     sent = received([bar for rows in live.values() for bar in rows.values()], events, sockets, starts)
@@ -480,26 +491,11 @@ def archive_metrics(opened, market_day: str, symbol: str, low: int, end: int) ->
 
 
 def digest(rows: Iterable[tuple]) -> dict:
-    """A history as engine.paper.warmup_digest records it: rows (ts_event, open, high, low, close, volume) as text."""
+    """A history as engine.realtime.warmup_digest records it: rows (ts_event, open, high, low, close, volume) as text."""
     found = list(rows)
     text = "\n".join(",".join(str(value) for value in row) for row in found)
     return {"bars": len(found), "first_ts_event": found[0][0] if found else None,
             "last_ts_event": found[-1][0] if found else None, "sha256": hashlib.sha256(text.encode()).hexdigest()}
-
-
-def received_warmup(historical: Iterable[Mapping]) -> dict[str, dict[str, dict]]:
-    """The digest of each history (`historical_bar` and `historical_funding` rows of a Live evidence pack) per
-    contract and period, the funding settlements under FUNDING."""
-    from engine.warmup import FUNDING
-    found: dict[str, dict[str, list[tuple]]] = {}
-    for line in historical:
-        iid = line["instrument_id"]
-        if line.get("kind") == "historical_funding":
-            found.setdefault(iid, {}).setdefault(FUNDING, []).append((line["ts_event"], line["rate"]))
-            continue
-        found.setdefault(iid, {}).setdefault(_period(line["bar_type"], iid), []).append(
-            (line["ts_event"], *(line[name] for name in BAR_FIELDS)))
-    return {iid: {period: digest(sorted(rows)) for period, rows in periods.items()} for iid, periods in found.items()}
 
 
 def _places(increment: str) -> list[int]:
@@ -983,12 +979,9 @@ def replay(market: dict, market_day: str, source: bytes, entry_class: str, image
                                            output.with_name(output.name + "-metrics"), name, timeout, membership_end)
     reports = Path(replayed["path"]) / entry.REPORTS
     events_file = reports / "order_events.jsonl.gz"
-    events = None
-    if events_file.is_file():
-        with gzip.open(events_file) as stream:
-            events = [json.loads(raw) for raw in stream]
-    return (replayed, events,
-            reports if (reports / "account.csv").is_file() else None)
+    events = ([json.loads(raw) for raw in gzip.decompress(events_file.read_bytes()).splitlines()]
+              if events_file.is_file() else None)
+    return replayed, events, reports if (reports / "account.csv").is_file() else None
 
 
 def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Mapping[str, list[list]], source: bytes,

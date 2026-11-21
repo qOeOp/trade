@@ -39,12 +39,11 @@ The Sandbox matches with the replay's terms: its fill model, book type and bar o
 taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's assumed rates, which a replay
 reads from its export receipts).
 
-Its own record is ``<output>/events.jsonl``: bars, Binance's time for each closed one-minute kline (``kline_event``,
-from a second connection to the same public streams, and that connection's state, ``kline_socket``:
-engine.kline_events), data gaps, socket state, orders, positions, funding
+Its own record is ``<output>/events.jsonl``: the market rows Live's evidence pack holds too (engine.realtime.MarketRows:
+one-minute bars, the warm-up digests, Binance's time for each closed one-minute kline and its side connection's state,
+the metrics rows), data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
-minute's last mark, as a replay values a minute at its MARK bar's close), protection gaps, and the metrics rows the source was handed with
-its unsubscribes from them (``paper compare`` checks them, replay.comparison.compare_metrics). ``<output>/state.json`` holds the latest
+minute's last mark, as a replay values a minute at its MARK bar's close), and protection gaps. ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
 each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (the native cache's reports and order
 events as a replay writes them, which the sealing step audits) are written at the end. Sandbox
@@ -105,7 +104,7 @@ from nautilus_trader.common import CacheConfig, DataActor, Environment
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.model import (
-    AccountType, BarType, BookType, Currency, FundingRateUpdate, InstrumentId, Money, OmsType, Price, StrategyId,
+    AccountType, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId,
     Venue,
 )
 from nautilus_trader.trading import Strategy
@@ -119,7 +118,7 @@ from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
 from engine.signals import Signals
 from engine.cadence import Cadence
-from engine.realtime import node_base
+from engine.realtime import MarketRows, node_base
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, atomic, MINUTE_NS, Refusal, instrument_id, leverage_of,
                            runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
@@ -151,16 +150,6 @@ CREDENTIAL_NAME = re.compile(
 def credential_names(environ) -> list[str]:
     """engine.paper.credential_names: the environment variable names that may hold an exchange credential."""
     return sorted(name for name in environ if CREDENTIAL_NAME.search(name))
-
-
-def warmup_digest(bars: list) -> dict:
-    """A history the source received (engine.history), as the journal records it: bars, or funding settlements
-    (`bars` then counts the settlements)."""
-    text = "\n".join(f"{item.ts_event},{item.rate}" if isinstance(item, FundingRateUpdate) else
-                     f"{item.ts_event},{item.open},{item.high},{item.low},{item.close},{item.volume}" for item in bars)
-    return {"bars": len(bars), "first_ts_event": bars[0].ts_event if bars else None,
-            "last_ts_event": bars[-1].ts_event if bars else None,
-            "sha256": hashlib.sha256(text.encode()).hexdigest()}
 
 
 # The journal
@@ -233,10 +222,7 @@ def record_kline_events() -> None:
     """Journal the side connection's state changes and the closed klines' event times read since the last call
     (engine.kline_events), on the node's thread."""
     if KLINES is not None:
-        for state, at, reason in KLINES.drain_states():
-            journal("kline_socket", state=state, at_ns=at, **({"reason": reason} if reason else {}))
-        for iid, close, sent in KLINES.drain():
-            journal("kline_event", instrument_id=iid, ts_event=close, event_ns=sent)
+        MARKET.kline_events(KLINES)
 
 
 def disk(action) -> None:
@@ -276,6 +262,9 @@ def pausing() -> bool:
 def journal(kind: str, **fields) -> None:
     if JOURNAL is not None:
         JOURNAL.write(kind, **fields)
+
+
+MARKET = MarketRows(journal)  # the market rows `paper compare` reads, in Live's evidence format (engine.realtime)
 
 
 def bar_gap(previous_ns: int | None, ts_event: int) -> int:
@@ -402,7 +391,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         """An unsubscribe of metrics the source followed goes to the journal: `paper compare` expects no row after it
         (replay.comparison.compare_metrics), as Live's evidence pack does."""
         if instrument_id in self._metrics_followed:
-            journal("metrics_unsubscribed", instrument_id=str(instrument_id))
+            MARKET.metrics_unsubscribed(instrument_id)
         super()._metrics_unfollow(instrument_id)
 
     def unsubscribe_bars(self, bar_type, *args, **kwargs):
@@ -414,10 +403,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
     def _warming_begin(self):
         """Journal the history the source received; a recovering source then loads its saved state. The sources
         and the recorder start together once all have warmed (engine.paper_session.Session.start)."""
-        state = self._warming_state()
-        for period, bars in state["delivered"].items():
-            journal("warmup", instrument_id=self._paper_instrument_id, period=period, fetched_ns=state["fetched_ns"],
-                    **warmup_digest(bars))
+        MARKET.warmup(self._paper_instrument_id, self._warming_state()["delivered"])
         if SESSION:
             SESSION.restore_source(self, self._paper_instrument_id)
             SESSION.start(lambda: _begin(self))
@@ -566,9 +552,7 @@ def paper_callbacks(strategy_class: type) -> dict:
         row = getattr(data, "data", None)
         handed = isinstance(row, strategy_runtime.Metrics)
         if handed:
-            journal("metrics", instrument_id=str(row.instrument_id), ts_event=row.ts_event,
-                    **{name: None if (value := getattr(row, name)) is None else str(value)
-                       for name in metrics.ENDPOINTS})
+            MARKET.metrics(row)
         if source["on_data"]:
             _hold(self, source["on_data"], data, data, release=not handed)
 
@@ -743,8 +727,7 @@ class Recorder(DataActor):
             journal("data_gap", instrument_id=iid, missing_bars=missing, after_ts=self.last_bar[iid],
                     before_ts=bar.ts_event)
         self.last_bar[iid] = bar.ts_event
-        journal("bar", instrument_id=iid, ts_event=bar.ts_event, open=str(bar.open), high=str(bar.high),
-                low=str(bar.low), close=str(bar.close), volume=str(bar.volume), ts_init=bar.ts_init)
+        MARKET.bar(bar)
         if not self.checked_account:
             self._check_account()
 
