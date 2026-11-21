@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-42 | Live 停止时被拒的平仓单从不重发，运行以 `unresolved` 结束、仓位留在账户里（hedge-impl“仍未解决”） | authority（Binance 确定没收下的平仓在后续 tick 重发，每仓至多 3 次；结果不明的不重发；Claude 按用户委托决定） | doctor | unknown | open [记录](../live-close-retry-20261121.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-41 | 账本存的 `candidate.runtime_contract`、`trial.runtime_contract` 在一代账本里恒为常量（契约变更即开新账本），却撑着三处只在升级时卡住全部候选的检查 | authority（删两列，`RUNTIME_CONTRACT_MISMATCH` 改比代码常量；委托决定） | doctor | none | in PR [#3315](https://github.com/qOeOp/trade/pull/3315) [runtime_contract 记录](2026-11-21-runtime-contract-column.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-31 | Live 的 Binance 适配器发不出、回放与 Paper 照收的订单（O-02：TRAILING_STOP_LIMIT、MARKET_TO_LIMIT、DAY 等有效期、非基点的移动偏移、post-only 的 GTD、`close_position` 的 DAY 或 GTD），以及 600–605 秒的 GTD（20261114-26 留下的错位） | authority（订单规则 5 加挡；用户委托决定） | doctor | unknown | in PR [#3311](https://github.com/qOeOp/trade/pull/3311)（[记录](../order-rules-live-shapes-20261121.zh.md)） | 2026-11-14 | 2026-11-21 |
 | 20261121-40 | Live 与 Paper 把 `ts_event` 不晚于上一根的外部 K 线（重复或修订的收盘 K 线）照样交给源码，同一根 K 线决策两次（审计 T-15，回环 `s10_dup_live`） | authority（源码收到前丢弃并记 `bar_repeated`；Claude 按用户委托决定） | doctor | unknown | open [记录](../repeated-bar-20261121.zh.md) | 2026-11-14 | 2026-11-21 |

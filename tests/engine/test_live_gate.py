@@ -614,6 +614,29 @@ class GateTests(unittest.TestCase):
         self.assertEqual([(row["position_id"], row["venue"]) for row in self.events() if row["event"] == "venue_closed"],
                          [("B", "0.002"), ("C", "0")])
 
+    def test_a_close_binance_certainly_did_not_take_is_closed_again_a_few_times(self):
+        # Re-judge D-155: a rejected close was never sent again; the run ended unresolved with the position open.
+        cache = SimpleNamespace(position_id=lambda client_order_id: "P-" + client_order_id)
+        self.session.exits = {"P-1", "P-2", "P-3"}
+
+        def answer(name, client_order_id, reason):
+            event = type(name, (SimpleNamespace,), {})(client_order_id=client_order_id, reason=reason)
+            live_source.resend_close(self.session, cache, event)
+
+        for _ in range(live_source.CLOSE_RESENDS + 1):
+            self.session.exits.add("P-1")
+            answer("OrderRejected", "1", "submit-order-error: BinanceError code=-4131 PERCENT_PRICE")
+        self.assertEqual(self.session.resent["P-1"], live_source.CLOSE_RESENDS)
+        self.assertIn("P-1", self.session.exits)  # the same answer would come again: left to the timeout
+        answer("OrderRejected", "2", "INFLIGHT_TIMEOUT")  # Binance may have filled it
+        answer("OrderRejected", "3", "submit-order-error: x")
+        self.assertEqual(self.session.exits, {"P-1", "P-2"})
+        answer("OrderDenied", "2", live_source.RATE_LIMITED)  # never sent at all
+        self.assertEqual(self.session.exits, {"P-1"})
+        answer("OrderRejected", "9", "submit-order-error: x")  # no close of the Observer's: nothing to do
+        self.assertEqual([row["position_id"] for row in self.events() if row["event"] == "close_resent"],
+                         ["P-1"] * live_source.CLOSE_RESENDS + ["P-3"])
+
     def test_a_stop_asked_for_while_warming_up_again_ends_the_run(self):
         self.gap()
         live_connection.rewarm(self.session)
