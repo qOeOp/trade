@@ -33,6 +33,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - `research-round` strategy authoring: a source keeps its state bounded and updates it per input, never rescanning
   the whole history on each bar (doctor 20261121-02: a price-action root's replay time grew 37 times for a window
   3.3 times longer).
+
+- Breaking (line-close summary): `research-start` has the closing summary state that the three earlier ledger
+  generations searched the holdout 2024-10 to 2026-10 about 3,100 times, which the new ledger does not count; only
+  Paper and later data are unseen.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
