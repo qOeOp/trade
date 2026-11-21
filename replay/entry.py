@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 
+from engine.config import RUNTIME_CONTRACT
 from ledger import db, execution, lines, metrics, problems, strategies, trials
 from ledger.coverage import FORMAT as COVERAGE_FORMAT
 from shared import paths
@@ -202,13 +203,13 @@ def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | Non
                                    paths.read_regular(workdir / problems.RUNTIME_ERRORS))
 
 
-def _resolve_runtime(revision: Mapping, runtime: str | None) -> dict:
-    """The runtime image's identity, refused (RUNTIME_CONTRACT_MISMATCH) unless it is of the candidate's contract."""
+def _resolve_runtime(runtime: str | None) -> dict:
+    """The runtime image's identity, refused (RUNTIME_CONTRACT_MISMATCH) unless it is of this code's contract, the
+    one every candidate of the ledger runs under (a contract change starts a new ledger)."""
     identity = registration_seams.current.resolve_runtime(runtime)
-    if revision["runtime_contract"] != identity["runtime_contract"]:
-        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
-                                                  f"image is {identity['runtime_contract']}",
-                     expected=revision["runtime_contract"])
+    if identity["runtime_contract"] != RUNTIME_CONTRACT:
+        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"this product runs contract {RUNTIME_CONTRACT}, the image is "
+                                                  f"{identity['runtime_contract']}", expected=RUNTIME_CONTRACT)
     return identity
 
 
@@ -453,7 +454,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
         raise refuse("PRECHECK_WINDOW_TOO_LONG", f"the trading window is {trading_days:g} days; a precheck trades at "
                                                  f"most {source_precheck.PRECHECK_MAX_DAYS}",
                      missing=("--end",), expected=f"at most {source_precheck.PRECHECK_MAX_DAYS} trading days")
-    identity = _resolve_runtime(revision, runtime)
+    identity = _resolve_runtime(runtime)
     exported = None
     try:
         runner, exported = _export(market, at, runner_argv, True, ledger)
@@ -526,7 +527,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
                      expected="registration xor validation xor history")
     checkout = registration_seams.current.checkout()
     metrics.product_commit(checkout)  # a passed run records it; outside a checkout this raises before any trial
-    identity = _resolve_runtime(revision, runtime)
+    identity = _resolve_runtime(runtime)
     inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), inputs)
     found_config = trials.comparable_config_sha256(inspection.get("effective_config"))  # malformed: refused here
     if comparable_config is not None and found_config != comparable_config:

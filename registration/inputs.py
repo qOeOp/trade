@@ -230,7 +230,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         raise
     inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
     chosen: dict[str, bool | list[str]] = {"universe": True} if universe else {"symbols": list(symbols)}
-    identity = {"market_database": adapter.database, "market_day": market_day, "universe_rule": rule,
+    identity = {"market_name": adapter.name, "market_day": market_day, "universe_rule": rule,
                 "selection": chosen, "symbols": list(symbols), **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle

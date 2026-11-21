@@ -39,9 +39,9 @@ def bundle_insert(name: str, wait=None):
 
 def trial_insert(conn, op, purpose="explore", source_sha256="e" * 64, market_day="2026-03-01") -> int:
     """A trial row written directly (ledger.open_trial derives these columns from a coverage receipt)."""
-    conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, runtime_contract, platform, market_day, "
+    conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, platform, market_day, "
               "universe_rule, export_sha256, comparable_config_sha256, execution, starting_balance, input_start, "
-              "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'replay-contract@v7', 'linux/arm64', "
+              "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'linux/arm64', "
               "%s, 'pool-v1', %s, %s, 'bars', 100000, '2026-01-01', '2026-01-02', '2026-02-01', '[]', %s)",
               (purpose, source_sha256, "img@sha256:" + "a" * 64, market_day, "e" * 64, "c" * 64, op))
     (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")

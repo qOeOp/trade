@@ -166,8 +166,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "RUNNER_OPTION_RESERVED": ("Pass only the window and the instrument scope; the entry adds the rest.",),
     "RUNTIME_NOT_CI_BUILT": ("Use a runtime image CI built from a pushed branch or main "
                              "(`--runtime ghcr.io/qoeop/trade-runtime:main`).",),
-    "RUNTIME_CONTRACT_MISMATCH": ("Replay on an image of the candidate's contract, or publish the source for the "
-                                  "image's contract.",),
+    "RUNTIME_CONTRACT_MISMATCH": ("Replay on a runtime image this release built; a contract change starts a new "
+                                  "ledger.",),
     "REGISTRATION_REQUIRED": ("Pass --registration <id> or --validation <id>, not both.",),
     "EXPORT_CHANGED_BEFORE_EXECUTION": ("Export the inputs again (rerun the same command).",),
     "REPRODUCTION_IMAGE_DIFFERS": ("Reproduce it without --image, or precheck the source again on the new image.",),

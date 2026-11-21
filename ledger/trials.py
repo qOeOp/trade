@@ -21,7 +21,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from engine.config import config_sha256
+from engine.config import RUNTIME_CONTRACT, config_sha256
 from ledger import coverage, db, execution, metrics, problems, evidence
 from shared import paths
 from shared.errors import Refusal
@@ -142,6 +142,9 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
             or not runtime_identity["inspection"]:
         raise refuse("RUNTIME_NOT_PINNED", "the runtime image must be pinned by digest and carry its probe inspection",
                      missing=("runtime_identity",))
+    if identity["runtime_contract"] != RUNTIME_CONTRACT:  # the one contract of this ledger's generation
+        raise refuse("RUNTIME_CONTRACT_MISMATCH", f"this ledger runs contract {RUNTIME_CONTRACT}, the image is "
+                                                  f"{identity['runtime_contract']}", expected=RUNTIME_CONTRACT)
     missing = [f"window.{field}" for field in WINDOW_FIELDS
                if not isinstance(window, Mapping) or not isinstance(window.get(field), int)]
     if not isinstance(input_coverage, bytes) or not input_coverage:
@@ -173,7 +176,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
                          missing=(str(source_sha256),))
         row = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
                "image_digest": identity["image_ref"].rsplit("@", 1)[-1],
-               "runtime_contract": identity["runtime_contract"], "platform": identity["platform"],
+               "platform": identity["platform"],
                "build_revision": identity.get("build_revision"),
                **{key: value for key, value in columns.items() if key != "instruments"},
                "input_start": utc(window["start"]), "trade_start": utc(window["trade_start"]),
