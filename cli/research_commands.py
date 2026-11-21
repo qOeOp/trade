@@ -12,7 +12,7 @@ import shutil
 import tempfile
 
 from cli.common import (AT, CANDIDATE_HELP, LEDGER, MARKET, MARKET_DAY, OP_ID, RUNTIME_DEFAULT_HELP, RUNTIME_HELP,
-                        Command, _count, _json_file, _new_temporary, _regular_file, _utc_time, declarer, one_of, option,
+                        _count, _json_file, _new_temporary, _regular_file, _utc_time, command, one_of, option,
                         refusal_json)
 from cli.ledger_commands import ledger_export
 from ledger import db, evidence, execution, judgments, lines, strategies, targets
@@ -25,8 +25,6 @@ NOUNS = {"candidate": "candidates", "evidence": "Agent evidence bundles", "execu
          "judgment": "Agent judgments", "line": "research lines", "registration": "registrations",
          "hypothesis": "registered hypotheses", "research": "research facts", "source": "independent source reviews",
          "validation": "out-of-sample validations"}
-COMMANDS: list[Command] = []
-command = declarer(COMMANDS)
 CANDIDATE = option("--candidate", required=True, help=CANDIDATE_HELP)
 OUTPUT = option("--output", required=True, help="new directory under the temporary root")
 
@@ -62,21 +60,6 @@ def _require_absent(*targets: Path) -> None:
                          missing=(str(target),))
 
 
-@command("candidate", "publish", "publish one single-file source as a candidate", (
-        "--file (a regular UTF-8 Python file, parsed and compiled, never run); the parent and existing candidates "
-        "(writer, head)",
-        "one candidate row (revision = the strategy ID's highest + 1); the same strategy ID, source, entry class "
-        "and parent again is a replay returning the stored record",
-        "candidate, source_sha256, parent, runtime_contract, ledger_commit, replayed",
-        "SOURCE_EXISTS (these bytes are already a candidate); SOURCE_SYNTAX, SOURCE_SIZE; ENTRY_CLASS_NOT_UNIQUE "
-        "(not exactly one top-level class of that name); LINEAGE_INCOMPLETE (--parent and --difference go "
-        "together); UNKNOWN_CANDIDATE, BAD_REF (parent); OP_ID_CONFLICT"), LEDGER,
-         option("--file", required=True, help="the UTF-8 strategy source file"),
-         option("--strategy-id", required=True, help="strategy ID; a new one starts at revision 1"),
-         option("--entry-class", required=True, help="the entry class name in the file"),
-         option("--description", required=True, help="one line on what the candidate does"),
-         option("--parent", help="parent candidate as ID@N (omit for a root)"),
-         option("--difference", help="what changed from the parent"), OP_ID)
 def candidate_publish(args):
     """One single-file UTF-8 source as a candidate, a root without --parent."""
     source = _regular_file(args.file)
@@ -97,13 +80,6 @@ def _candidate_record(conn: db.LedgerConnection, row: Mapping, commit: str) -> d
 
 
 
-@command("candidate", "show", "a candidate record without its source", (
-        "the candidate at --at (reader); its source hash is recomputed",
-        "nothing",
-        "candidate, strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent, "
-        "difference, created_at, ledger_commit",
-        "BAD_REF (not ID@N); UNKNOWN_CANDIDATE; UNKNOWN_REF (--at); LEDGER_CORRUPT (source does not match its "
-        "hash)"), LEDGER, CANDIDATE, AT)
 def candidate_show(args):
     """The candidate record at a ledger version, without its source bytes."""
     strategies.parse_ref(args.candidate)
@@ -111,18 +87,6 @@ def candidate_show(args):
         return _candidate_record(conn, strategies.read_candidate(conn, args.candidate), conn.resolved_commit)
 
 
-@command("candidate", "export", "a candidate's source as a temporary working copy", (
-        "the candidate's source at --at (reader); the packaged working directory templates",
-        "the source file (--output, new, under the temporary root) and AGENTS.md and strategy-header.md beside "
-        "it; no ledger write",
-        "candidate, source_sha256, path, bytes, ledger_commit, notes (files written)",
-        "NOT_TEMPORARY_PATH; PATH_EXISTS (the source, AGENTS.md or strategy-header.md exists); "
-        "UNKNOWN_CANDIDATE, BAD_REF; LEDGER_CORRUPT (the file does not reread to the source hash)"), LEDGER,
-         CANDIDATE,
-         option("--output", required=True,
-                help="new source file under the temporary root, in a fresh candidate working directory; "
-                     "AGENTS.md and strategy-header.md beside it must also be absent"),
-         AT)
 def candidate_export(args):
     """The source bytes to a new file under the temporary root, with the working directory notes beside it."""
     candidate = args.candidate
@@ -216,26 +180,10 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
 
 
 
-@command("candidate", "new", "a strategy scaffold in a new temporary directory", (
-        "the packaged strategy header template; no database",
-        "a new directory under the temporary root with strategy.py (an entry class stub), AGENTS.md and "
-        "strategy-header.md; no ledger",
-        "output, files",
-        "NOT_TEMPORARY_PATH; PATH_EXISTS; ENTRY_CLASS_INVALID (not a Python class name)"),
-         OUTPUT, option("--strategy-id", required=True, help="strategy ID for the file header"),
-         option("--entry-class", default="Strategy1", help="entry class name (default: Strategy1)"))
 def _candidate_new(args):
     return candidate_new(args.output, args.strategy_id, args.entry_class)
 
 
-@command("candidate", "list", "every candidate with its registration attempts", (
-        "candidates, research trials of registration grid points, runs and source reviews at --at (reader); each "
-        "run's economic evidence availability",
-        "nothing",
-        "ledger_commit, checker, candidates [{strategy_id, revision, source_sha256, entry_class, "
-        "runtime_contract, description, parent_source_sha256, parent, difference, created_at, attempts "
-        "[{registration_id, trial_id, run_status, availability}], valid_evidence}]; large",
-        "UNKNOWN_REF (--at); a run whose records do not verify is listed as unavailable, not refused"), LEDGER, AT)
 def candidate_list(args):
     """Every candidate with its lineage and registration attempts (report.candidates)."""
     from report import candidates
@@ -244,16 +192,6 @@ def candidate_list(args):
 
 # evidence
 
-@command("evidence", "add", "append an evidence bundle", (
-        "--file paths (a directory is walked; links refused) and --note (stored as note.md)",
-        "one evidence bundle and its files (writer); the same name and content again is a replay",
-        "bundle, files {path: sha256}, write_status (written or replayed), ledger_commit",
-        "EMPTY_EVIDENCE (no files or note, or an empty file); BUNDLE_EXISTS; RESERVED_BUNDLE (a product "
-        "namespace: lifecycle-*, trial-N-*); "
-        "INVALID_EVIDENCE_PATH; MEDIA_NOT_KEPT (video or audio); EVIDENCE_TOO_LARGE (a file over 64 MiB)"), LEDGER,
-         option("--bundle", required=True, help="new bundle name"),
-         option("--file", action="append", dest="files", default=[], help="a file to add (repeatable)"),
-         option("--note", help="text stored as note.md"), OP_ID)
 def evidence_add(args):
     """An Agent evidence bundle of files and an optional note (note.md)."""
     with db.connect(_research(args), "writer") as conn:
@@ -274,12 +212,6 @@ def evidence_add(args):
             "ledger_commit": added["ledger_commit"]}
 
 
-@command("evidence", "export", "a bundle's files into a new temporary directory", (
-        "any bundle at --at (reader), product namespaces included; every hash is recomputed",
-        "the bundle's files into a new directory under the temporary root; no ledger write",
-        "bundle, at_commit, path, files [{name, sha256, bytes}]",
-        "NOT_TEMPORARY_PATH; PATH_EXISTS; UNKNOWN_BUNDLE; LEDGER_CORRUPT (a file does not match its hash)"), LEDGER,
-         option("--bundle", required=True, help="bundle name"), OUTPUT, AT)
 def evidence_export(args):
     """A bundle's files, each hash recomputed, into a new temporary directory."""
     target = _new_temporary(args.output)
@@ -299,18 +231,6 @@ def evidence_export(args):
 
 # execution, judgments, lines
 
-@command("execution", "recover", "append recovered bytes of a kept precheck directory", (
-        "the precheck trial and its start receipt (writer, head); --failure-receipt (an EXECUTION_CAPTURE_LIMIT "
-        "refusal); process.json and the capture files in --workdir (the receipt's own workdir)",
-        "the bundle trial-<id>-recovery (the files, recovery.json, host-error.json), marked recovery material; "
-        "the original capture stays missing; the same bytes again are a replay",
-        "trial_id, recovery_bundle, original_capture (missing), limitation, ledger_commit",
-        "RECOVERY_NOT_APPLICABLE (not a precheck, capture present, another workdir, or the trial has a run or "
-        "a registration relies on it); RECOVERY_INCOMPLETE (another receipt, or required reports absent); TRIAL_NOT_FOUND; "
-        "EXECUTION_IDENTITY; BUNDLE_EXISTS (a different recovery exists)"), LEDGER,
-         option("--trial-id", required=True, type=int, help="the precheck trial whose capture was refused"),
-         option("--workdir", required=True, help="the kept precheck directory"),
-         option("--failure-receipt", required=True, help="the failure receipt the refusal wrote"))
 def execution_recover(args):
     """Recovered bytes of a kept precheck directory, marked recovery material."""
     recovered = execution.recover_capture(_research(args), args.trial_id, Path(args.workdir),
@@ -344,27 +264,6 @@ def _subject(text: str) -> dict:
 
 
 
-@command("judgment", "add", "append one judgment", (
-        "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head); for a "
-        "recommendation, the line's comparison table at --based-on",
-        "one judgment row and its subject rows; the same content again is a replay",
-        "judgment_id, ledger_commit, replayed",
-        "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
-        "and start with a run of its execution identity in the comparison table at --based-on: its `candidates`); "
-        "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
-        "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
-        "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"), LEDGER,
-         option("--kind", required=True, help="recommendation, priority, interpretation or search_exposure"),
-         option("--line", required=True, help="research line name (its slug)"),
-         option("--based-on", required=True, help="the ledger commit the judgment reads"),
-         option("--body", required=True, help="UTF-8 text file of at most 65,535 bytes"),
-         option("--subject", action="append", dest="subjects", default=[],
-                help=f"{SUBJECT_FORM} (repeatable; {SUBJECT_ROLES_HELP})"),
-         option("--supersedes", type=int, help="the judgment ID this one replaces"), OP_ID,
-         epilog="A judgment binds to a line, its subjects and the --based-on commit and is never edited. --supersedes "
-                "corrects the same conclusion; an independent conclusion is a new judgment, and both stay readable "
-                "(research state --history).")
 def judgment_add(args):
     """One judgment (body from a UTF-8 file) and its subjects."""
     profile = _research(args)
@@ -419,7 +318,290 @@ def _market_days(market: dict) -> tuple[date, date]:
 
 
 
-@command("line", "list", "list the open research lines", (
+def line_list(args):
+    from report import graph
+    return graph.line_list(_research(args), args.at, args.all, args.readings)
+
+
+def line_select(args):
+    """The user's research line (start candidate, pinned market day; the development period is the product's rule)
+    and, when given, the user's targets for it."""
+    from registration import precheck
+    profile, market = _research(args), profiles.market(args.market)
+    with db.connect(profile, "writer") as conn:
+        selected = lines.select_line(conn, args.market_day, args.start, slug=args.slug, market=_market_facts(market),
+                                     reviews=precheck.review_records, targets=_targets(args))
+        line = lines.read_line(conn, selected["line_id"])
+    return {"line": selected["line"], "line_id": selected["line_id"], "start": args.start,
+            "window": {"start": line["dev_start"], "end": line["dev_end"]},
+            "market_day": selected["market_day"], "universe_rule": selected["universe_rule"],
+            "created": selected["created"], "targets": selected["targets"]}
+
+
+def line_targets(args):
+    with db.connect(_research(args), "writer") as conn:
+        line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
+        return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
+
+
+def line_history(args):
+    from replay import history
+    return history.run_history(_research(args), profiles.market(args.market), args.market_day, args.line, args.limit)
+
+
+def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dict) -> dict:
+    """line close: end the line, then sync the profile's backup (`ledger export --kind backup`). The closing
+    stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
+    backup as behind until a sync succeeds."""
+    from report import history as report_history
+    closed = lines.close_line(profile, line, summary, _market_days(market), report_history.qualified)
+    if profile.backup_root is None:
+        return {**closed, "backup": None}
+    try:
+        synced = ledger_export(profile, "backup", None, None)
+    except Refusal as exc:
+        return {**closed, "backup": None, "backup_failed": refusal_json(exc)}
+    return {**closed, "backup": {"ledger_commit": synced["ledger_commit"], "backup_path": synced["backup_path"]}}
+
+
+
+def _line_close(args):
+    return line_close(_research(args), args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
+                      profiles.market(args.market))
+
+
+# registration, hypothesis
+
+def registration_add(args):
+    """Lock the registration body, test conditions, grid and execution identity."""
+    from registration import register
+    profile = _research(args)
+    plan = _json_file(args.body, "REGISTRATION_INVALID")
+    registered = register.register(profile, plan, args.runtime, profiles.market(args.market), list(args.runner_argv),
+                                   [Path(item) for item in args.source or ()], args.line)
+    return {"registration_id": registered["registration_id"], "line": registered["line"],
+            "grid_points": len(plan["grid"]), "execution": registered["execution"],
+            "ledger_commit": registered["ledger_commit"], "replayed": registered["replayed"]}
+
+
+def hypothesis_compare(args):
+    """The comparison report of a grid run with its registered control (report.compare)."""
+    from report import comparison
+    return comparison.compare(_research(args), args.registration, args.trial_id, args.at)
+
+
+# research, source review
+
+# `research runs --by`: report.status.RUN_MEASURES, named here so the parser imports no report code.
+RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
+                "daily_turnover")
+
+
+
+def research_status(args):
+    from report import status
+    return status.research_status(_research(args), args.at, args.line)
+
+
+def research_state(args):
+    from registration import seams
+    from report import status
+    profile, current = _research(args), None
+    if not args.without_image:
+        try:
+            current = seams.current.resolve_runtime(None)["image_ref"]
+        except Refusal:
+            pass
+    return status.research_state(profile, args.line, args.at, history=args.history,
+                                 history_before=args.history_before, full=args.full, current_image=current)
+
+
+def research_runs(args):
+    from report import status
+    return status.research_runs(_research(args), args.at, args.line, args.by, args.limit)
+
+
+def research_history(args):
+    from report import history
+    return history.research_history(_research(args), args.at, args.line)
+
+
+def research_unchanged(args):
+    from report import graph
+    return graph.unchanged_since(_research(args), args.line, args.since, args.at)
+
+
+def research_counts(args):
+    from report import graph
+    return graph.line_counts(_research(args), args.line, args.at)
+
+
+def research_graph(args):
+    from report import graph
+    return graph.research_graph(_research(args), args.line, args.at, since=args.since, workers=args.workers,
+                                comparisons=not args.without_comparisons, counts=not args.without_counts)
+
+
+def research_comparison(args):
+    from report import graph
+    return graph.version_comparison(_research(args), args.registration, args.trial_id, args.at)
+
+
+def source_review(args):
+    """An independent review of a candidate's native precheck on one runtime image."""
+    from registration import precheck, seams
+    profile, candidate, runtime, precheck_trial = _research(args), args.candidate, args.runtime, args.trial_id
+    with db.connect(profile, "reader") as conn:
+        row = strategies.read_candidate(conn, candidate)
+        try:
+            identity = seams.current.resolve_runtime(runtime)
+        except Refusal as exc:
+            raise refuse("RUNTIME_UNRESOLVED", f"{runtime} does not resolve to an image digest ({exc.code})",
+                         missing=(str(runtime),)) from exc
+        trial = conn.one(f"SELECT purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (precheck_trial,))
+    if trial is None or (trial["purpose"], trial["source_sha256"], trial["image_digest"]) != (
+            "precheck", row["source_sha256"], identity["image_digest"]):
+        raise refuse("PRECHECK_NOT_FOUND", f"trial {precheck_trial} is no precheck of {candidate} on "
+                                           f"{identity['image_ref']}", missing=(str(precheck_trial),))
+    review_items = _json_file(args.items, "REVIEW_INVALID")
+    body = {"trial_id": precheck_trial, "verdict": args.verdict,
+            **{name: review_items.get(name) for name in precheck.ITEMS}}
+    extra = sorted(set(review_items) - set(precheck.ITEMS))
+    if extra:
+        raise refuse("REVIEW_INVALID", "the review items hold unknown fields: " + ", ".join(extra), missing=tuple(extra))
+    recorded = precheck.record_review(profile, body, args.reviewer)
+    return {"review_id": recorded["review_id"], "candidate": candidate, "source_sha256": recorded["source_sha256"],
+            "image_digest": recorded["image_digest"], "precheck_trial": precheck_trial, "verdict": args.verdict,
+            "ledger_commit": recorded["ledger_commit"], "replayed": recorded["replayed"]}
+
+
+# validation
+
+def validation_registration(args):
+    """One out-of-sample registration, then its time witness."""
+    from registration import validation
+    from report import history
+    profile = _research(args)
+    registered = validation.validation_register(
+        profile, args.candidate, _utc_time(args.window_start), _utc_time(args.window_end), args.universe_rule,
+        args.market_day, _json_file(args.design, "DESIGN_INVALID"), args.retry_of, args.op_id,
+        market_profile=profiles.market(args.market), unfalsified=history.require_unfalsified, tsa_url=args.tsa_url)
+    stamped = registered["witness"]
+    next_actions = [] if stamped["status"] == "stamped" else [
+        "Run `ledger witness` before the window starts; a registration without a witness older than its window "
+        "start is refused as REGISTRATION_TOO_LATE when a validation replay binds it."]
+    return {"registration_id": registered["registration_id"], "candidate": args.candidate,
+            "window": {"start": args.window_start, "end": args.window_end}, "registered_at": registered["created_at"],
+            "ledger_commit": registered["ledger_commit"], "witness": stamped, "replayed": registered["replayed"],
+            "next_actions": next_actions}
+
+
+def validation_report(args):
+    from report import comparison
+    return comparison.validation_report(_research(args), args.validation, args.at)
+
+
+COMMANDS = [
+    command(candidate_publish, "candidate", "publish", "publish one single-file source as a candidate", (
+        "--file (a regular UTF-8 Python file, parsed and compiled, never run); the parent and existing candidates "
+        "(writer, head)",
+        "one candidate row (revision = the strategy ID's highest + 1); the same strategy ID, source, entry class "
+        "and parent again is a replay returning the stored record",
+        "candidate, source_sha256, parent, runtime_contract, ledger_commit, replayed",
+        "SOURCE_EXISTS (these bytes are already a candidate); SOURCE_SYNTAX, SOURCE_SIZE; ENTRY_CLASS_NOT_UNIQUE "
+        "(not exactly one top-level class of that name); LINEAGE_INCOMPLETE (--parent and --difference go "
+        "together); UNKNOWN_CANDIDATE, BAD_REF (parent); OP_ID_CONFLICT"), LEDGER,
+         option("--file", required=True, help="the UTF-8 strategy source file"),
+         option("--strategy-id", required=True, help="strategy ID; a new one starts at revision 1"),
+         option("--entry-class", required=True, help="the entry class name in the file"),
+         option("--description", required=True, help="one line on what the candidate does"),
+         option("--parent", help="parent candidate as ID@N (omit for a root)"),
+         option("--difference", help="what changed from the parent"), OP_ID),
+    command(candidate_show, "candidate", "show", "a candidate record without its source", (
+        "the candidate at --at (reader); its source hash is recomputed",
+        "nothing",
+        "candidate, strategy_id, revision, source_sha256, entry_class, runtime_contract, description, parent, "
+        "difference, created_at, ledger_commit",
+        "BAD_REF (not ID@N); UNKNOWN_CANDIDATE; UNKNOWN_REF (--at); LEDGER_CORRUPT (source does not match its "
+        "hash)"), LEDGER, CANDIDATE, AT),
+    command(candidate_export, "candidate", "export", "a candidate's source as a temporary working copy", (
+        "the candidate's source at --at (reader); the packaged working directory templates",
+        "the source file (--output, new, under the temporary root) and AGENTS.md and strategy-header.md beside "
+        "it; no ledger write",
+        "candidate, source_sha256, path, bytes, ledger_commit, notes (files written)",
+        "NOT_TEMPORARY_PATH; PATH_EXISTS (the source, AGENTS.md or strategy-header.md exists); "
+        "UNKNOWN_CANDIDATE, BAD_REF; LEDGER_CORRUPT (the file does not reread to the source hash)"), LEDGER,
+         CANDIDATE,
+         option("--output", required=True,
+                help="new source file under the temporary root, in a fresh candidate working directory; "
+                     "AGENTS.md and strategy-header.md beside it must also be absent"),
+         AT),
+    command(_candidate_new, "candidate", "new", "a strategy scaffold in a new temporary directory", (
+        "the packaged strategy header template; no database",
+        "a new directory under the temporary root with strategy.py (an entry class stub), AGENTS.md and "
+        "strategy-header.md; no ledger",
+        "output, files",
+        "NOT_TEMPORARY_PATH; PATH_EXISTS; ENTRY_CLASS_INVALID (not a Python class name)"),
+         OUTPUT, option("--strategy-id", required=True, help="strategy ID for the file header"),
+         option("--entry-class", default="Strategy1", help="entry class name (default: Strategy1)")),
+    command(candidate_list, "candidate", "list", "every candidate with its registration attempts", (
+        "candidates, research trials of registration grid points, runs and source reviews at --at (reader); each "
+        "run's economic evidence availability",
+        "nothing",
+        "ledger_commit, checker, candidates [{strategy_id, revision, source_sha256, entry_class, "
+        "runtime_contract, description, parent_source_sha256, parent, difference, created_at, attempts "
+        "[{registration_id, trial_id, run_status, availability}], valid_evidence}]; large",
+        "UNKNOWN_REF (--at); a run whose records do not verify is listed as unavailable, not refused"), LEDGER, AT),
+    command(evidence_add, "evidence", "add", "append an evidence bundle", (
+        "--file paths (a directory is walked; links refused) and --note (stored as note.md)",
+        "one evidence bundle and its files (writer); the same name and content again is a replay",
+        "bundle, files {path: sha256}, write_status (written or replayed), ledger_commit",
+        "EMPTY_EVIDENCE (no files or note, or an empty file); BUNDLE_EXISTS; RESERVED_BUNDLE (a product "
+        "namespace: lifecycle-*, trial-N-*); "
+        "INVALID_EVIDENCE_PATH; MEDIA_NOT_KEPT (video or audio); EVIDENCE_TOO_LARGE (a file over 64 MiB)"), LEDGER,
+         option("--bundle", required=True, help="new bundle name"),
+         option("--file", action="append", dest="files", default=[], help="a file to add (repeatable)"),
+         option("--note", help="text stored as note.md"), OP_ID),
+    command(evidence_export, "evidence", "export", "a bundle's files into a new temporary directory", (
+        "any bundle at --at (reader), product namespaces included; every hash is recomputed",
+        "the bundle's files into a new directory under the temporary root; no ledger write",
+        "bundle, at_commit, path, files [{name, sha256, bytes}]",
+        "NOT_TEMPORARY_PATH; PATH_EXISTS; UNKNOWN_BUNDLE; LEDGER_CORRUPT (a file does not match its hash)"), LEDGER,
+         option("--bundle", required=True, help="bundle name"), OUTPUT, AT),
+    command(execution_recover, "execution", "recover", "append recovered bytes of a kept precheck directory", (
+        "the precheck trial and its start receipt (writer, head); --failure-receipt (an EXECUTION_CAPTURE_LIMIT "
+        "refusal); process.json and the capture files in --workdir (the receipt's own workdir)",
+        "the bundle trial-<id>-recovery (the files, recovery.json, host-error.json), marked recovery material; "
+        "the original capture stays missing; the same bytes again are a replay",
+        "trial_id, recovery_bundle, original_capture (missing), limitation, ledger_commit",
+        "RECOVERY_NOT_APPLICABLE (not a precheck, capture present, another workdir, or the trial has a run or "
+        "a registration relies on it); RECOVERY_INCOMPLETE (another receipt, or required reports absent); TRIAL_NOT_FOUND; "
+        "EXECUTION_IDENTITY; BUNDLE_EXISTS (a different recovery exists)"), LEDGER,
+         option("--trial-id", required=True, type=int, help="the precheck trial whose capture was refused"),
+         option("--workdir", required=True, help="the kept precheck directory"),
+         option("--failure-receipt", required=True, help="the failure receipt the refusal wrote")),
+    command(judgment_add, "judgment", "add", "append one judgment", (
+        "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head); for a "
+        "recommendation, the line's comparison table at --based-on",
+        "one judgment row and its subject rows; the same content again is a replay",
+        "judgment_id, ledger_commit, replayed",
+        "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
+        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
+        "and start with a run of its execution identity in the comparison table at --based-on: its `candidates`); "
+        "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
+        "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
+        "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"), LEDGER,
+         option("--kind", required=True, help="recommendation, priority, interpretation or search_exposure"),
+         option("--line", required=True, help="research line name (its slug)"),
+         option("--based-on", required=True, help="the ledger commit the judgment reads"),
+         option("--body", required=True, help="UTF-8 text file of at most 65,535 bytes"),
+         option("--subject", action="append", dest="subjects", default=[],
+                help=f"{SUBJECT_FORM} (repeatable; {SUBJECT_ROLES_HELP})"),
+         option("--supersedes", type=int, help="the judgment ID this one replaces"), OP_ID,
+         epilog="A judgment binds to a line, its subjects and the --based-on commit and is never edited. --supersedes "
+                "corrects the same conclusion; an independent conclusion is a new judgment, and both stay readable "
+                "(research state --history)."),
+    command(line_list, "line", "list", "list the open research lines", (
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
         "with --readings the recommendation judgments and each recommended version's latest research run; no market",
         "nothing",
@@ -433,13 +615,8 @@ def _market_days(market: dict) -> tuple[date, date]:
          option("--all", action="store_true", help="list the closed lines too"),
          option("--readings", action="store_true",
                 help="add each line's recommendation as its research graph's summary reads it, without the graph"),
-         AT)
-def line_list(args):
-    from report import graph
-    return graph.line_list(_research(args), args.at, args.all, args.readings)
-
-
-@command("line", "select", "record the user's research line", (
+         AT),
+    command(line_select, "line", "select", "record the user's research line", (
         "the market at --market-day (reader): market day, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
@@ -461,23 +638,8 @@ def line_list(args):
                 "period the C - 12 quarters before the holdout, at least 4 and at most 12, where C is the quarters the "
                 "start's precheck instruments are covered before Q (under 12, no line). Lines opened in one quarter "
                 "share it; the holdout, the history before the period and the forward segment after Q are replayed "
-                "only when the line closes.")
-def line_select(args):
-    """The user's research line (start candidate, pinned market day; the development period is the product's rule)
-    and, when given, the user's targets for it."""
-    from registration import precheck
-    profile, market = _research(args), profiles.market(args.market)
-    with db.connect(profile, "writer") as conn:
-        selected = lines.select_line(conn, args.market_day, args.start, slug=args.slug, market=_market_facts(market),
-                                     reviews=precheck.review_records, targets=_targets(args))
-        line = lines.read_line(conn, selected["line_id"])
-    return {"line": selected["line"], "line_id": selected["line_id"], "start": args.start,
-            "window": {"start": line["dev_start"], "end": line["dev_end"]},
-            "market_day": selected["market_day"], "universe_rule": selected["universe_rule"],
-            "created": selected["created"], "targets": selected["targets"]}
-
-
-@command("line", "targets", "record the user's research targets for an open line or the default", (
+                "only when the line closes."),
+    command(line_targets, "line", "targets", "record the user's research targets for an open line or the default", (
         "the targets in force for the line or the default (writer, head)",
         "one line_target row superseding the one in force; values equal to it write nothing (written false)",
         "max_drawdown, annual_return, source (line or default), target_id, created_at, line, written, commit",
@@ -489,14 +651,8 @@ def line_select(args):
          *_target_options(None),
          epilog="The targets are the user's, recorded only as the user states them; they guide reading reports, never "
                 "candidate eligibility. A change supersedes the targets in force, and the same targets again write "
-                "nothing. A line without its own targets reads the ledger default.")
-def line_targets(args):
-    with db.connect(_research(args), "writer") as conn:
-        line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
-        return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return)
-
-
-@command("line", "history", "run the line's closing history test", (
+                "nothing. A line without its own targets reads the ledger default."),
+    command(line_history, "line", "history", "run the line's closing history test", (
         "the open line, its passed research runs with their economic evidence and its history trials (writer, "
         "head); the market at --market-day "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
@@ -522,29 +678,8 @@ def line_targets(args):
                 "and configuration, another window. The sources that can take part are fixed by the line's first "
                 "history trial; one without economic evidence is left out and named. Rerun to resume; each call also "
                 "replays once more every segment whose latest run is invalid; `line close` needs every segment to "
-                "have a run.")
-def line_history(args):
-    from replay import history
-    return history.run_history(_research(args), profiles.market(args.market), args.market_day, args.line, args.limit)
-
-
-def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dict) -> dict:
-    """line close: end the line, then sync the profile's backup (`ledger export --kind backup`). The closing
-    stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
-    backup as behind until a sync succeeds."""
-    from report import history as report_history
-    closed = lines.close_line(profile, line, summary, _market_days(market), report_history.qualified)
-    if profile.backup_root is None:
-        return {**closed, "backup": None}
-    try:
-        synced = ledger_export(profile, "backup", None, None)
-    except Refusal as exc:
-        return {**closed, "backup": None, "backup_failed": refusal_json(exc)}
-    return {**closed, "backup": {"ledger_commit": synced["ledger_commit"], "backup_path": synced["backup_path"]}}
-
-
-
-@command("line", "close", "end a line with its summary", (
+                "have a run."),
+    command(_line_close, "line", "close", "end a line with its summary", (
         "--summary (a regular UTF-8 file, at most 32 KB); the line, its passed research runs with their economic "
         "evidence, its history trials and its closing at the head "
         "(writer); the market's first and latest complete day at the newest day",
@@ -559,15 +694,8 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
          option("--summary", required=True,
                 help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, what was "
                      "tried, results with their run IDs, failures and why, lessons and advice; numbers stay in the "
-                     "reports"))
-def _line_close(args):
-    return line_close(_research(args), args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
-                      profiles.market(args.market))
-
-
-# registration, hypothesis
-
-@command("registration", "add", "lock a registration", (
+                     "reports")),
+    command(registration_add, "registration", "add", "lock a registration", (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned market day (reader); the runtime image, resolved to its digest and probed",
         "one research_registration row with its grid points and comparison design, and one source-<sha256> "
@@ -594,20 +722,8 @@ def _line_close(args):
                 "must match replay run. body.prechecks names each grid candidate's passed source review by review_id. "
                 "Parent and change are the grid candidates' (--parent, --difference); the window is the line's. "
                 "Changing source, intent or grid needs a new registration; a consumed point is retried by a new one "
-                "naming its registration_id in retry_of.")
-def registration_add(args):
-    """Lock the registration body, test conditions, grid and execution identity."""
-    from registration import register
-    profile = _research(args)
-    plan = _json_file(args.body, "REGISTRATION_INVALID")
-    registered = register.register(profile, plan, args.runtime, profiles.market(args.market), list(args.runner_argv),
-                                   [Path(item) for item in args.source or ()], args.line)
-    return {"registration_id": registered["registration_id"], "line": registered["line"],
-            "grid_points": len(plan["grid"]), "execution": registered["execution"],
-            "ledger_commit": registered["ledger_commit"], "replayed": registered["replayed"]}
-
-
-@command("hypothesis", "compare", "a grid run against its registered control", (
+                "naming its registration_id in retry_of."),
+    command(hypothesis_compare, "hypothesis", "compare", "a grid run against its registered control", (
         "the registration, the grid run and its control at --at (reader); market daily returns from the run's "
         "market (a market failure only empties the market measures)",
         "nothing",
@@ -619,22 +735,8 @@ def registration_add(args):
         "COMPARABILITY_MISMATCH, ECONOMIC_EVIDENCE_UNAVAILABLE (either side); CLOCK_MISMATCH; "
         "COMPARISON_UNAVAILABLE (too few usable days)"), LEDGER,
          option("--registration", required=True, type=int, help="research registration ID"),
-         option("--trial-id", required=True, type=int, help="a grid run of that registration"), AT)
-def hypothesis_compare(args):
-    """The comparison report of a grid run with its registered control (report.compare)."""
-    from report import comparison
-    return comparison.compare(_research(args), args.registration, args.trial_id, args.at)
-
-
-# research, source review
-
-# `research runs --by`: report.status.RUN_MEASURES, named here so the parser imports no report code.
-RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
-                "daily_turnover")
-
-
-
-@command("research", "status", "research fact counts and the line's comparison table", (
+         option("--trial-id", required=True, type=int, help="a grid run of that registration"), AT),
+    command(research_status, "research", "status", "research fact counts and the line's comparison table", (
         "trials, runs, research trials of registrations, source reviews and validations of the whole ledger at --at "
         "(reader); no market",
         "nothing",
@@ -664,13 +766,8 @@ RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo",
         "recommendation names), without_economic_evidence; null without a line)",
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"), LEDGER,
-         option("--line", help="research line name of the comparison table (default: the only open line)"), AT)
-def research_status(args):
-    from report import status
-    return status.research_status(_research(args), args.at, args.line)
-
-
-@command("research", "state", "the line record and its current judgments with read-time facts", (
+         option("--line", help="research line name of the comparison table (default: the only open line)"), AT),
+    command(research_state, "research", "state", "the line record and its current judgments with read-time facts", (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market day (reader)",
         "nothing in the ledger; pulls the main runtime image each time, which moves the local "
@@ -703,21 +800,8 @@ def research_status(args):
                      "status as facts (default: those after the current recommendation, earlier ones counted)"),
          option("--without-image", action="store_true",
                 help="pull no runtime image: current_image and runs_behind_image are null (the IDE's read)"),
-         AT)
-def research_state(args):
-    from registration import seams
-    from report import status
-    profile, current = _research(args), None
-    if not args.without_image:
-        try:
-            current = seams.current.resolve_runtime(None)["image_ref"]
-        except Refusal:
-            pass
-    return status.research_state(profile, args.line, args.at, history=args.history,
-                                 history_before=args.history_before, full=args.full, current_image=current)
-
-
-@command("research", "runs", "every research run with its measures, by one measure", (
+         AT),
+    command(research_runs, "research", "runs", "every research run with its measures, by one measure", (
         "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
         "nothing",
         "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
@@ -735,13 +819,8 @@ def research_state(args):
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"), LEDGER,
          option("--line", help="only that line's comparison table (default: the open lines' runs)"),
          option("--by", choices=RUN_MEASURES, help="order by this measure (default: by trial ID)"),
-         option("--limit", type=_count, help="keep the first N runs (default: all)"), AT)
-def research_runs(args):
-    from report import status
-    return status.research_runs(_research(args), args.at, args.line, args.by, args.limit)
-
-
-@command("research", "history", "a line's closing history test, by year", (
+         option("--limit", type=_count, help="keep the first N runs (default: all)"), AT),
+    command(research_history, "research", "history", "a line's closing history test, by year", (
         "the line's research and history trials, their runs, captures and stored facts, the source reviews and its "
         "targets at --at (reader); no market",
         "nothing",
@@ -774,13 +853,8 @@ def research_runs(args):
         "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
         "LINE_UNKNOWN"), LEDGER,
-         option("--line", help="one research line (default: every line with history trials)"), AT)
-def research_history(args):
-    from report import history
-    return history.research_history(_research(args), args.at, args.line)
-
-
-@command("research", "unchanged", "whether a line's graph is the same at two ledger commits", (
+         option("--line", help="one research line (default: every line with history trials)"), AT),
+    command(research_unchanged, "research", "unchanged", "whether a line's graph is the same at two ledger commits", (
         "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
         "nothing",
         "unchanged, reason (what reaches the line, or null), since, ledger_commit",
@@ -788,13 +862,8 @@ def research_history(args):
          LEDGER, option("--line", required=True, help="research line name"),
          option("--since", required=True, help="the ledger commit of the graph held"), AT,
          epilog="From what changed between the commits, without drawing: any change it does not recognize answers "
-                "false. Lets the IDE keep a graph it holds. Writes nothing.")
-def research_unchanged(args):
-    from report import graph
-    return graph.unchanged_since(_research(args), args.line, args.since, args.at)
-
-
-@command("research", "counts", "a line's trial counts, as `research graph` gives them", (
+                "false. Lets the IDE keep a graph it holds. Writes nothing."),
+    command(research_counts, "research", "counts", "a line's trial counts, as `research graph` gives them", (
         "the line's research trials and every counted trial with its capture manifest at --at (reader)",
         "nothing",
         "trial_counts (research_trials, all_purpose_trials, sweep_variants, undeclared_sweeps, trials_with_sweeps, "
@@ -803,13 +872,8 @@ def research_unchanged(args):
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"), LEDGER,
          option("--line", required=True, help="research line name"), AT,
          epilog="They cover the whole ledger's trials on the line's contracts, so they move with trials the rest of "
-                "the graph never reads. Lets the IDE keep a graph it holds and still show them. Writes nothing.")
-def research_counts(args):
-    from report import graph
-    return graph.line_counts(_research(args), args.line, args.at)
-
-
-@command("research", "graph", "the line as a research-graph@4 document, read from the ledger only", (
+                "the graph never reads. Lets the IDE keep a graph it holds and still show them. Writes nothing."),
+    command(research_graph, "research", "graph", "the line as a research-graph@4 document, read from the ledger only", (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
         "nothing",
@@ -833,27 +897,16 @@ def research_counts(args):
          AT,
          epilog="Composes the product's readers and adds no rule, so one ledger commit gives one graph. The targets "
                 "are the ones in force for the line at that commit (`line targets`); --since marks where the scope "
-                "under study starts. Check, render and compare it with ide/ide.py. Writes nothing.")
-def research_graph(args):
-    from report import graph
-    return graph.research_graph(_research(args), args.line, args.at, since=args.since, workers=args.workers,
-                                comparisons=not args.without_comparisons, counts=not args.without_counts)
-
-
-@command("research", "comparison", "one version's comparison, as `research graph` gives it", (
+                "under study starts. Check, render and compare it with ide/ide.py. Writes nothing."),
+    command(research_comparison, "research", "comparison", "one version's comparison, as `research graph` gives it", (
         "one registered run, its control and their source reviews at --at (reader); market daily returns",
         "nothing",
         "comparison: the object `research graph` gives that version, or null when it has none",
         "UNKNOWN_REF (--at); MARKET_UNREACHABLE (other comparison refusals give comparison null)"),
          LEDGER, option("--registration", type=int, required=True, help="the research registration ID"),
          option("--trial-id", type=int, required=True, help="the registered run"), AT,
-         epilog="Names the version by its registration and its last research run. Writes nothing.")
-def research_comparison(args):
-    from report import graph
-    return graph.version_comparison(_research(args), args.registration, args.trial_id, args.at)
-
-
-@command("source", "review", "record an independent source review of a precheck", (
+         epilog="Names the version by its registration and its last research run. Writes nothing."),
+    command(source_review, "source", "review", "record an independent source review of a precheck", (
         "the candidate and the precheck trial at the head (reader); the runtime image, resolved to its digest; "
         "--items (JSON) and the precheck's original capture (writer)",
         "one source_review row (the verdict, items and reviewer); the same content again is a replay",
@@ -869,38 +922,8 @@ def research_comparison(args):
          option("--reviewer", required=True, help="the reviewer's name, not the author's"),
          epilog="Records the review in the ledger. A failed review removes economic evidence from every run of the "
                 "same source and image, including runs sealed before it; their reports then give the reason instead "
-                "of measures.")
-def source_review(args):
-    """An independent review of a candidate's native precheck on one runtime image."""
-    from registration import precheck, seams
-    profile, candidate, runtime, precheck_trial = _research(args), args.candidate, args.runtime, args.trial_id
-    with db.connect(profile, "reader") as conn:
-        row = strategies.read_candidate(conn, candidate)
-        try:
-            identity = seams.current.resolve_runtime(runtime)
-        except Refusal as exc:
-            raise refuse("RUNTIME_UNRESOLVED", f"{runtime} does not resolve to an image digest ({exc.code})",
-                         missing=(str(runtime),)) from exc
-        trial = conn.one(f"SELECT purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (precheck_trial,))
-    if trial is None or (trial["purpose"], trial["source_sha256"], trial["image_digest"]) != (
-            "precheck", row["source_sha256"], identity["image_digest"]):
-        raise refuse("PRECHECK_NOT_FOUND", f"trial {precheck_trial} is no precheck of {candidate} on "
-                                           f"{identity['image_ref']}", missing=(str(precheck_trial),))
-    review_items = _json_file(args.items, "REVIEW_INVALID")
-    body = {"trial_id": precheck_trial, "verdict": args.verdict,
-            **{name: review_items.get(name) for name in precheck.ITEMS}}
-    extra = sorted(set(review_items) - set(precheck.ITEMS))
-    if extra:
-        raise refuse("REVIEW_INVALID", "the review items hold unknown fields: " + ", ".join(extra), missing=tuple(extra))
-    recorded = precheck.record_review(profile, body, args.reviewer)
-    return {"review_id": recorded["review_id"], "candidate": candidate, "source_sha256": recorded["source_sha256"],
-            "image_digest": recorded["image_digest"], "precheck_trial": precheck_trial, "verdict": args.verdict,
-            "ledger_commit": recorded["ledger_commit"], "replayed": recorded["replayed"]}
-
-
-# validation
-
-@command("validation", "registration", "register one out-of-sample validation", (
+                "of measures."),
+    command(validation_registration, "validation", "registration", "register one out-of-sample validation", (
         "--design (JSON); the candidate (writer, head); --market-day in the market (reader)",
         "one validation_registration row; then sends the commit hash's SHA-256 to the RFC 3161 authority and "
         "records a verified token as a second commit (a failed witness keeps the registration and reports "
@@ -925,27 +948,8 @@ def source_review(args):
          epilog="Records the user's candidate, window and universe rule and requests an RFC 3161 timestamp; ledger "
                 "witness retries a missing one. replay run --validation runs it once. Binding derives account terms "
                 "from research sealed at the original registration commit; later research and retry registrations "
-                "cannot replace that baseline.")
-def validation_registration(args):
-    """One out-of-sample registration, then its time witness."""
-    from registration import validation
-    from report import history
-    profile = _research(args)
-    registered = validation.validation_register(
-        profile, args.candidate, _utc_time(args.window_start), _utc_time(args.window_end), args.universe_rule,
-        args.market_day, _json_file(args.design, "DESIGN_INVALID"), args.retry_of, args.op_id,
-        market_profile=profiles.market(args.market), unfalsified=history.require_unfalsified, tsa_url=args.tsa_url)
-    stamped = registered["witness"]
-    next_actions = [] if stamped["status"] == "stamped" else [
-        "Run `ledger witness` before the window starts; a registration without a witness older than its window "
-        "start is refused as REGISTRATION_TOO_LATE when a validation replay binds it."]
-    return {"registration_id": registered["registration_id"], "candidate": args.candidate,
-            "window": {"start": args.window_start, "end": args.window_end}, "registered_at": registered["created_at"],
-            "ledger_commit": registered["ledger_commit"], "witness": stamped, "replayed": registered["replayed"],
-            "next_actions": next_actions}
-
-
-@command("validation", "report", "the out-of-sample report of a registration", (
+                "cannot replace that baseline."),
+    command(validation_report, "validation", "report", "the out-of-sample report of a registration", (
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
         "window and universe rule; market daily returns (a failure only empties the market measures)",
         "nothing",
@@ -959,7 +963,5 @@ def validation_registration(args):
         "REGISTRATION_UNKNOWN; LEDGER_CORRUPT (the binding names a missing trial); UNKNOWN_REF (--at)"), LEDGER,
          option("--validation", required=True, type=int, help="validation registration ID"), AT,
          epilog="The same measures and masking as development reports, with intervals, p and the Holm correction "
-                "over the window's registrations; no verdict.")
-def validation_report(args):
-    from report import comparison
-    return comparison.validation_report(_research(args), args.validation, args.at)
+                "over the window's registrations; no verdict."),
+]

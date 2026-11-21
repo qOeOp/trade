@@ -108,16 +108,11 @@ class Command:
     runner: bool = False
 
 
-def declarer(table: list[Command]):
-    """`@command(noun, verb, help, contract, *options, epilog=, runner=)`: declares the function it decorates as
-    that command's handler, in `table` (the --help order)."""
-    def command(noun: str, verb: str, help: str, contract: tuple[str, str, str, str], *options: Option,
-                epilog: str | None = None, runner: bool = False):
-        def declare(run):
-            table.append(Command(noun, verb, help, contract, options, run, epilog, runner))
-            return run
-        return declare
-    return command
+def command(run: Callable[[argparse.Namespace], dict | tuple[dict, int]], noun: str, verb: str, help: str,
+            contract: tuple[str, str, str, str], *options: Option, epilog: str | None = None,
+            runner: bool = False) -> Command:
+    """One row of a group's COMMANDS table (the --help order): `run` handles `noun verb`."""
+    return Command(noun, verb, help, contract, options, run, epilog, runner)
 
 
 def option(*flags: str, **settings) -> Option:

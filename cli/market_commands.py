@@ -10,15 +10,13 @@ from pathlib import Path
 import re
 import sys
 
-from cli.common import LEDGER, MARKET, MARKET_DAY, OP_ID, Command, _count, _new_temporary, declarer, option
+from cli.common import LEDGER, MARKET, MARKET_DAY, OP_ID, _count, _new_temporary, command, option
 from ledger import db
 from shared import profiles
 from shared.refusals import refuse
 
 
 NOUNS = {"market": "market data"}
-COMMANDS: list[Command] = []
-command = declarer(COMMANDS)
 MONTH = option("--month", required=True, help="UTC month, YYYY-MM")
 CACHE = option("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
 UNIVERSE_SYMBOLS = option("--symbols", nargs="+", help="contracts (default: the month's universe members)")
@@ -57,7 +55,110 @@ def _day_arg(value: str) -> date:
         raise argparse.ArgumentTypeError(f"{value!r} is not YYYY-MM-DD") from None
 
 
-@command("market", "init", "create an empty market directory and its profile", (
+def market_init(args):
+    """An empty market directory and its profile (market.init_market); `--kind active` needs the user's authority,
+    isolated and temporary markets are plain directories."""
+    from market import files
+    return files.init_market(args.name, Path(args.root), args.kind)
+
+
+def market_import(args):
+    """One UTC month of Binance public data; --symbols narrows the contracts."""
+    from market import store
+    first = _month_start(args.month)
+    return store.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.workers,
+                              args.symbols, log=_market_log)
+
+
+def market_import_quotes(args):
+    """One ended UTC month of best bid/ask inferred from the stored aggTrades (market.quotes.RULE); --symbols
+    defaults to the month's universe members."""
+    from market import quotes
+    first = _month_start(args.month)
+    return quotes.import_quotes(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
+                                log=_market_log)
+
+
+def market_import_trades(args):
+    """One ended UTC month of complete source aggTrades of each named contract, written at once."""
+    from market import aggtrades
+    first = _month_start(args.month)
+    return aggtrades.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
+                                  log=_market_log)
+
+
+def market_import_metrics(args):
+    """The days of one UTC month of open interest and long/short ratios not yet held, per contract."""
+    from market import metrics
+    first = _month_start(args.month)
+    return metrics.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
+                                log=_market_log)
+
+
+def market_follow(args):
+    """Keep the configured range of the market's bars and the named contracts' metrics, complete aggTrades and quotes
+    imported, unattended; runs until stopped."""
+    from market import follow
+    firsts = (args.metrics_from, args.trades_from, args.quotes_from)
+    if args.symbols and None in firsts:
+        raise refuse("USAGE_ERROR", "--symbols needs --metrics-from, --trades-from and --quotes-from",
+                     missing=("--metrics-from", "--trades-from", "--quotes-from"))
+    # With no --symbols nothing reads the three first dates.
+    metrics_from, trades_from, quotes_from = firsts if args.symbols else (args.bars_from,) * 3
+    scope = follow.Scope(symbols=args.symbols, bars_from=args.bars_from, metrics_from=metrics_from,
+                         trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols,
+                         metrics_pool=args.metrics_pool)
+    return follow.follow(profiles.market(args.market), scope, _market_cache(args.cache_root),
+                         Path(args.status) if args.status else follow.default_status(), log=_market_log,
+                         report=lambda line: print(line, flush=True))
+
+
+def market_lifecycle(args):
+    """The lifecycle evidence bundle lifecycle-<market_day> of a market day, from its manifest and the exchange
+    notices it cites (registration.record_lifecycle)."""
+    from registration import inputs
+    profile = db.profile(args.ledger, holds="research")
+    return inputs.record_lifecycle(profile, profiles.market(args.market), args.market_day, Path(args.manifest),
+                                   [Path(item) for item in args.notices or ()], args.op_id)
+
+
+def market_coverage(args):
+    """Per-contract coverage facts at a market day, with lifecycle receipts."""
+    from market import coverage, files as market_files
+    from registration import inputs, seams
+    market, at, symbols, start, end = profiles.market(args.market), args.market_day, args.symbols, args.start, args.end
+    lifecycle = None
+    if args.lifecycle_bundle is not None:
+        if args.ledger is None:
+            raise refuse("USAGE_ERROR", "--lifecycle-bundle needs --ledger")
+        market_day = market_files.resolve_day(market_files.open_market(market, "reader"), at)
+        _, files = inputs.load_lifecycle(db.profile(args.ledger), args.lifecycle_bundle, market_day,
+                                         market=seams.current.market(market))
+        lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
+    expanded = symbols is None
+    if symbols is None:
+        symbols = coverage.universe_members(market, at, start, end)
+    found = coverage.diagnose_coverage(market, at, list(symbols), start, end, lifecycle)
+    found["scope"] = {"symbols": list(symbols), "start": start, "end": end, "expanded": expanded}
+    return found
+
+
+def market_bars(args):
+    """One contract's stored bars and funding settlements at a market day, inline up to --limit bar periods or whole
+    into a new temporary file."""
+    from market import read
+    target = _new_temporary(args.output) if args.output else None
+    found = read.stored_bars(profiles.market(args.market), args.market_day, args.symbol, args.price_type,
+                             args.timeframe, args.start, args.end, None if target else args.limit)
+    if target is None:
+        return {**found, "output": None}
+    target.write_text(json.dumps(found, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {**found, "output": str(target), "bars": {key: value for key, value in found["bars"].items() if key != "rows"},
+            "funding": {key: value for key, value in found["funding"].items() if key != "rows"}}
+
+
+COMMANDS = [
+    command(market_init, "market", "init", "create an empty market directory and its profile", (
         "the profile directory",
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
         "file {name, holds: market, kind, root}",
@@ -69,15 +170,8 @@ def _day_arg(value: str) -> date:
          option("--name", required=True, help="profile name"),
          option("--kind", required=True, choices=profiles.KINDS,
                 help="active (needs the user's authority), isolated or temporary"),
-         option("--root", required=True, type=Path, help="the market directory (absent or empty)"))
-def market_init(args):
-    """An empty market directory and its profile (market.init_market); `--kind active` needs the user's authority,
-    isolated and temporary markets are plain directories."""
-    from market import files
-    return files.init_market(args.name, Path(args.root), args.kind)
-
-
-@command("market", "import", "import one month of bars, funding and terms", (
+         option("--root", required=True, type=Path, help="the market directory (absent or empty)")),
+    command(market_import, "market", "import", "import one month of bars, funding and terms", (
         "the stored bars, funding, terms and members (import role, holding the import lock); Binance public "
         "data: exchangeInfo, monthly and daily 1m kline and mark price archives (checked against their "
         "published CHECKSUM and cached under --cache-root), REST fill-ins and funding",
@@ -98,16 +192,8 @@ def market_init(args):
         "SOURCE_UNREACHABLE"), MARKET, MONTH,
          option("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)"),
          option("--workers", type=_count, default=4, help="parallel import processes (default: 4)"),
-         option("--symbols", nargs="+", help="only these contracts (default: every eligible contract)"))
-def market_import(args):
-    """One UTC month of Binance public data; --symbols narrows the contracts."""
-    from market import store
-    first = _month_start(args.month)
-    return store.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.workers,
-                              args.symbols, log=_market_log)
-
-
-@command("market", "import-quotes", "import one ended month of best bid/ask inferred from the stored aggTrades",
+         option("--symbols", nargs="+", help="only these contracts (default: every eligible contract)")),
+    command(market_import_quotes, "market", "import-quotes", "import one ended month of best bid/ask inferred from the stored aggTrades",
          (
         "the month's universe members, each contract's newest stored terms, stored quotes and the stored aggTrades of "
         "the month and the day before it (import role, holding the import lock): every month, an earlier one included, "
@@ -124,17 +210,8 @@ def market_import(args):
         "file of the month: market import-trades first); the first refused contract's refusal, naming the contracts "
         "written; CONCURRENT_IMPORT; CHECK_FAILED"), MARKET, MONTH,
          option("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)"),
-         UNIVERSE_SYMBOLS)
-def market_import_quotes(args):
-    """One ended UTC month of best bid/ask inferred from the stored aggTrades (market.quotes.RULE); --symbols
-    defaults to the month's universe members."""
-    from market import quotes
-    first = _month_start(args.month)
-    return quotes.import_quotes(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
-                                log=_market_log)
-
-
-@command("market", "import-trades", "import one ended month of complete source aggTrades, one file per contract",
+         UNIVERSE_SYMBOLS),
+    command(market_import_trades, "market", "import-trades", "import one ended month of complete source aggTrades, one file per contract",
          (
         "one explicit ended month of one or more named contracts (import role, one worker process per contract written "
         "at once while this one holds the import lock); official daily aggTrades ZIPs and the eve, checksum-verified "
@@ -149,16 +226,8 @@ def market_import_quotes(args):
         "SCALE_LOSS (any value is inexact or outside signed int64: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
         "CONCURRENT_IMPORT; CHECK_FAILED"), MARKET, MONTH,
-         option("--symbols", required=True, nargs="+", help="USD-M perpetual contracts, written at once"), CACHE)
-def market_import_trades(args):
-    """One ended UTC month of complete source aggTrades of each named contract, written at once."""
-    from market import aggtrades
-    first = _month_start(args.month)
-    return aggtrades.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
-                                  log=_market_log)
-
-
-@command("market", "import-metrics", "import the days of one month of open interest and long/short ratios not yet "
+         option("--symbols", required=True, nargs="+", help="USD-M perpetual contracts, written at once"), CACHE),
+    command(market_import_metrics, "market", "import-metrics", "import the days of one month of open interest and long/short ratios not yet "
          "held, one file per contract", (
         "one explicit month of the named contracts (default: the month's universe members) and the days its file holds "
         "(import role, holding the import lock); official daily metrics ZIPs, checksum-verified under --cache-root",
@@ -173,16 +242,8 @@ def market_import_trades(args):
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "
         "create_time; identical repeats are merged and counted); SCALE_LOSS (a value needs more than 16 decimals or 22 "
         "integer digits: no rounding); the first refused contract's refusal, naming the contracts written; "
-        "MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; CHECK_FAILED"), MARKET, MONTH, UNIVERSE_SYMBOLS, CACHE)
-def market_import_metrics(args):
-    """The days of one UTC month of open interest and long/short ratios not yet held, per contract."""
-    from market import metrics
-    first = _month_start(args.month)
-    return metrics.import_month(profiles.market(args.market), first, _market_cache(args.cache_root), args.symbols,
-                                log=_market_log)
-
-
-@command("market", "follow", "keep the configured range of the bars, and the named contracts' metrics, quotes and "
+        "MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; CHECK_FAILED"), MARKET, MONTH, UNIVERSE_SYMBOLS, CACHE),
+    command(market_follow, "market", "follow", "keep the configured range of the bars, and the named contracts' metrics, quotes and "
          "complete aggTrades, imported, until stopped", (
         "each round: what the market directory holds, from its paths and footers (reader), the daily archives each "
         "import reads downloaded into --cache-root (bars: the last closed day's klines of every contract; metrics; "
@@ -227,26 +288,8 @@ def market_import_metrics(args):
                 "What is due is what the configured range lacks on disk, so an empty directory fills from the "
                 "configured starts. The first round starts 5 minutes after start. The healthcheck is "
                 "market.follow.check(): unhealthy while anything is stopped, lagging or unknown, or the status is "
-                "older than 26 hours; skipped months are not.")
-def market_follow(args):
-    """Keep the configured range of the market's bars and the named contracts' metrics, complete aggTrades and quotes
-    imported, unattended; runs until stopped."""
-    from market import follow
-    firsts = (args.metrics_from, args.trades_from, args.quotes_from)
-    if args.symbols and None in firsts:
-        raise refuse("USAGE_ERROR", "--symbols needs --metrics-from, --trades-from and --quotes-from",
-                     missing=("--metrics-from", "--trades-from", "--quotes-from"))
-    # With no --symbols nothing reads the three first dates.
-    metrics_from, trades_from, quotes_from = firsts if args.symbols else (args.bars_from,) * 3
-    scope = follow.Scope(symbols=args.symbols, bars_from=args.bars_from, metrics_from=metrics_from,
-                         trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols,
-                         metrics_pool=args.metrics_pool)
-    return follow.follow(profiles.market(args.market), scope, _market_cache(args.cache_root),
-                         Path(args.status) if args.status else follow.default_status(), log=_market_log,
-                         report=lambda line: print(line, flush=True))
-
-
-@command("market", "lifecycle", "write the lifecycle bundle of a market day", (
+                "older than 26 hours; skipped months are not."),
+    command(market_lifecycle, "market", "lifecycle", "write the lifecycle bundle of a market day", (
         "the market day of --market-day (reader); --manifest and each --notice, validated against that market day before "
         "anything is written",
         "the ledger bundle lifecycle-<market day> (lifecycle.json and the notices); the same content again is "
@@ -256,17 +299,8 @@ def market_follow(args):
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market day); "
         "MARKET_DAY_UNRESOLVED"),
          LEDGER, MARKET, MARKET_DAY, option("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)"),
-         option("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites"), OP_ID)
-def market_lifecycle(args):
-    """The lifecycle evidence bundle lifecycle-<market_day> of a market day, from its manifest and the exchange
-    notices it cites (registration.record_lifecycle)."""
-    from registration import inputs
-    profile = db.profile(args.ledger, holds="research")
-    return inputs.record_lifecycle(profile, profiles.market(args.market), args.market_day, Path(args.manifest),
-                                   [Path(item) for item in args.notices or ()], args.op_id)
-
-
-@command("market", "coverage", "per-contract coverage facts at a market day", (
+         option("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites"), OP_ID),
+    command(market_coverage, "market", "coverage", "per-contract coverage facts at a market day", (
         "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --market-day "
         "(reader); without --symbols, every member of the months [--start, --end) touches; with --lifecycle-bundle, "
         "that ledger bundle",
@@ -295,29 +329,8 @@ does not hold)}], first_ms, last_ms (create_time), uncovered_intervals_ms (missi
 coverage[].terms: the terms row a replay of the market day trades on for the whole window, the latest
 observed at the market day (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
 inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
-max_price (null for inferred terms).""")
-def market_coverage(args):
-    """Per-contract coverage facts at a market day, with lifecycle receipts."""
-    from market import coverage, files as market_files
-    from registration import inputs, seams
-    market, at, symbols, start, end = profiles.market(args.market), args.market_day, args.symbols, args.start, args.end
-    lifecycle = None
-    if args.lifecycle_bundle is not None:
-        if args.ledger is None:
-            raise refuse("USAGE_ERROR", "--lifecycle-bundle needs --ledger")
-        market_day = market_files.resolve_day(market_files.open_market(market, "reader"), at)
-        _, files = inputs.load_lifecycle(db.profile(args.ledger), args.lifecycle_bundle, market_day,
-                                         market=seams.current.market(market))
-        lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
-    expanded = symbols is None
-    if symbols is None:
-        symbols = coverage.universe_members(market, at, start, end)
-    found = coverage.diagnose_coverage(market, at, list(symbols), start, end, lifecycle)
-    found["scope"] = {"symbols": list(symbols), "start": start, "end": end, "expanded": expanded}
-    return found
-
-
-@command("market", "bars", "one contract's stored bars and funding at a market day", (
+max_price (null for inferred terms)."""),
+    command(market_bars, "market", "bars", "one contract's stored bars and funding at a market day", (
         "bar, funding and instrument at --market-day (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
         "nothing in any database; with --output, one new file under the temporary root",
@@ -344,16 +357,5 @@ aggregates the minutes natively, stamped on close. Funding rows are the settleme
 delivered at its funding_time_ms. Without --output at most --limit bar periods from --start are
 returned and next_start names where the rest begins (null when the interval is complete); with
 --output the whole interval goes to the file, rows included, and the printed result keeps only the
-counts. Lifecycle episodes are not applied (one contract as stored).""")
-def market_bars(args):
-    """One contract's stored bars and funding settlements at a market day, inline up to --limit bar periods or whole
-    into a new temporary file."""
-    from market import read
-    target = _new_temporary(args.output) if args.output else None
-    found = read.stored_bars(profiles.market(args.market), args.market_day, args.symbol, args.price_type,
-                             args.timeframe, args.start, args.end, None if target else args.limit)
-    if target is None:
-        return {**found, "output": None}
-    target.write_text(json.dumps(found, ensure_ascii=False) + "\n", encoding="utf-8")
-    return {**found, "output": str(target), "bars": {key: value for key, value in found["bars"].items() if key != "rows"},
-            "funding": {key: value for key, value in found["funding"].items() if key != "rows"}}
+counts. Lifecycle episodes are not applied (one contract as stored)."""),
+]
