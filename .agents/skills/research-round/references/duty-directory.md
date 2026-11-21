@@ -82,7 +82,9 @@ Apply the boundary of each duty when one action affects several responsibilities
 
 #### E3 Risk budget after equity changes: after losses/gains, does the scale of future risk change?
 
-**Boundary** The user's research targets do not change because of this; linked with E1 and H reserves.
+**Boundary** The user's research targets do not change because of this; linked with E1 and H reserves. Risk at a
+fixed fraction of current equity is E1's rule; E3 is `adopted` only when a rule changes that fraction after
+gains, losses or drawdown.
 
 #### E4 Allocation across opportunities / strategies (hard contract): among candidates competing at the same time for the same risk, capital or liquidity, which gets how much first?
 

@@ -51,7 +51,10 @@ the user, not an option to close the line. Next name the one bottleneck (opportu
 quality, costs, capital use or tail drawdown) and the report slice and measure that show it (such
 as `trade_structure.cycles` or `fee_stress.breakeven_fee_multiple`); when two fit, the first step
 tells them apart. Then weigh two or three approaches inside this line,
-never one an earlier `Change of approach.` judgment chose unless you name it and the new evidence. Each
+never one an earlier `Change of approach.` judgment chose unless you name it and the new evidence. First list the
+duties no version of the line has changed (`duties` in `research graph --line LINE --without-comparisons
+--without-counts`) and the recommended header's `default` duties: at least one approach changes one of them, or say
+in one line why none can act on the bottleneck. Each
 changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
 undistinguished does not mean no better) and keeps the control's contracts and inputs
