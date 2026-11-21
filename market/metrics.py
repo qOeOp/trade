@@ -188,3 +188,45 @@ def batch(found: list[tuple]) -> pa.RecordBatch:
         [pa.array([row[0] for row in found], pa.string()), pa.array([row[1] for row in found], pa.int64()),
          *(pa.array([None if row[index] is None else Decimal(row[index]) for row in found], schema.field(index).type)
            for index in range(2, len(schema)))], schema=schema)
+
+
+# The metrics table's columns and the public endpoint (and its field) each comes from, as engine.metrics reads them.
+ENDPOINTS = {"sum_open_interest": ("openInterestHist", "sumOpenInterest"),
+             "count_toptrader_long_short_ratio": ("topLongShortAccountRatio", "longShortRatio"),
+             "sum_toptrader_long_short_ratio": ("topLongShortPositionRatio", "longShortRatio"),
+             "count_long_short_ratio": ("globalLongShortAccountRatio", "longShortRatio")}
+PAGE = 500
+DESCRIBES_MS = 5 * sources.MINUTE  # REST stamps a row at the archive's create_time + 5 min (engine.metrics)
+
+
+def rest_metrics(symbol: str, start_ms: int, end_ms: int, patient: bool = True) -> list[tuple]:
+    """market.rest_metrics: the rows with create_time in [start_ms, end_ms) from the public futures/data endpoints
+    (the last 30 days only), as market.metrics.rows gives an archive's: (symbol, create_time, open interest, the three
+    ratios) as decimal texts, a ratio REST lacks None; a row without open interest is left out, as no archive row
+    lacks it."""
+    sources.check_symbol(symbol)
+    found: dict[int, dict[str, str]] = {}
+    for name, (endpoint, field) in ENDPOINTS.items():
+        cursor, last = start_ms + DESCRIBES_MS, end_ms + DESCRIBES_MS - 1
+        while cursor <= last:
+            page = sources._rest(f"/futures/data/{endpoint}", {"symbol": symbol, "period": "5m", "startTime": cursor,
+                                                                "endTime": last, "limit": PAGE}, patient)
+            if not isinstance(page, list):
+                raise refuse("SOURCE_SHAPE", f"{endpoint} for {symbol} did not answer a list", missing=(symbol,))
+            if not page:
+                break
+            for item in page:
+                if not isinstance(item, dict) or not str(item.get("timestamp", "")).isdigit():
+                    raise refuse("SOURCE_SHAPE", f"{endpoint} for {symbol}: {item!r} has no timestamp",
+                                 missing=(symbol,))
+                created = int(item["timestamp"]) - DESCRIBES_MS
+                if start_ms <= created < end_ms and item.get(field) not in (None, ""):
+                    found.setdefault(created, {})[name] = str(item[field])
+            following = int(page[-1]["timestamp"]) + 1
+            if following <= cursor:
+                break
+            cursor = following
+    return [(symbol, created, exact(values["sum_open_interest"], f"{symbol} sum_open_interest"),
+             *(exact(values[name], f"{symbol} {name}") if name in values else None
+               for name in RATIOS))
+            for created, values in sorted(found.items()) if "sum_open_interest" in values]
