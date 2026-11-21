@@ -4,7 +4,7 @@ import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
 import { Icon } from "../../icons/Icon";
 import { useAtom } from "../../state/atom";
-import { useSelection } from "../../state/selection";
+import { select, useSelection } from "../../state/selection";
 import { useComparison } from "../../state/comparison";
 import { useOnMarketPage, useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
@@ -14,6 +14,7 @@ import { KeyValues } from "../../ui/KeyValues";
 import { Missing, Skeleton, SkeletonLines } from "../../ui/Missing";
 import { Prose } from "../../ui/Prose";
 import { CardGroup, Section } from "../../ui/Section";
+import { TextButton } from "../../ui/TextButton";
 import { Tip } from "../../ui/Tip";
 import { Token } from "../../ui/Token";
 import { Header } from "./Header";
@@ -21,6 +22,7 @@ import { Readings } from "./Readings";
 import { ReplayTable } from "./ReplayTable";
 import { measureLabel } from "../../model/measures";
 import { StagePerformance } from "./StagePerformance";
+import { controlVersion, perDay, withInterval } from "./versus";
 import { TranslatedCardGroup } from "../../ui/TranslatedCardGroup";
 import { MarketDetails } from "../market/MarketDetails";
 import { LiveRunDetails } from "../live/LiveRunDetails";
@@ -43,7 +45,7 @@ const SIDE = "@3xl:pt-0";
 const PLACEHOLDER: Candidate = { id: "", status: null, prediction_class: "none" };
 
 /** One version's detail, as the inspector shows the selected one. */
-function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets: Targets | null; loading?: boolean }) {
+function VersionDetail({ c, targets, versions = [], loading = false }: { c: Candidate; targets: Targets | null; versions?: readonly Candidate[]; loading?: boolean }) {
   // The version's own fields wait only for the first view (`loading`); what the shown stage's report or
   // stream gives (its readings and performance, the comparison with its control) waits for that too (`busy`).
   const zone = useTimeZone(), stageReading = useStageReading(), runsPage = useOnRunsPage();
@@ -52,6 +54,10 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
   const compared = useComparison(c);
   const cmp = !busy && compared.kind === "ready" ? compared.comparison : null;
   const comparing = busy || compared.kind === "reading";
+  const control = controlVersion(versions, cmp?.vs_trial);
+  const annual = withInterval(cmp?.annual_return_difference, cmp?.annual_return_difference_interval);
+  const drawdown = withInterval(cmp?.max_drawdown_difference, cmp?.max_drawdown_difference_interval);
+  const alpha = perDay(cmp?.alpha_basket_difference, cmp?.alpha_basket_difference_se);
   return (
     <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c} loading={loading}><Readings c={c} targets={targets} loading={loading} /></Header>
@@ -102,7 +108,12 @@ function VersionDetail({ c, targets, loading = false }: { c: Candidate; targets:
       <Section title="Versus control" open={!!cmp || comparing || compared.kind === "failed"}>
         {cmp || comparing ? (
           <KeyValues items={[
-            ["Control", cmp ? (cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null) : <Skeleton />],
+            ["Control", cmp ? (cmp.vs_trial == null ? null : control
+              ? <span className="inline-flex min-w-0 items-baseline gap-1"><TextButton className="-mx-1" title={`Select ${control}`} onClick={() => select(control, { reveal: true })}>trial {cmp.vs_trial}</TextButton><span className="truncate font-mono text-fg-faint">{control}</span></span>
+              : <span>trial {cmp.vs_trial}</span>) : <Skeleton />],
+            ["Annual return difference", cmp ? (annual && <Tip content="The annual return over the control, with its paired block-bootstrap interval"><span className="flex flex-wrap gap-x-2"><span className="whitespace-nowrap">{annual[0]}</span>{annual[1] && <span className="whitespace-nowrap text-fg-faint">{annual[1]}</span>}</span></Tip>) : <Skeleton />],
+            ["Drawdown difference", cmp ? (drawdown && <Tip content="The maximum drawdown of the daily closes minus the control's, with its paired block-bootstrap interval: above zero is deeper. The MARK drawdown of each run is in its readings"><span className="flex flex-wrap gap-x-2"><span className="whitespace-nowrap">{drawdown[0]}</span>{drawdown[1] && <span className="whitespace-nowrap text-fg-faint">{drawdown[1]}</span>}</span></Tip>) : <Skeleton />],
+            ["Alpha difference", cmp ? (alpha && <Tip content="The intercept of the daily return difference regressed on the equal-weight basket (with the previous day's), with its Newey-West standard error: what the change adds beyond following the market"><span>{alpha}</span></Tip>) : <Skeleton />],
             ["Mean daily difference", cmp ? (cmp.mean_daily_log_difference != null
               ? <Tip content="The mean of the daily log return differences over the control, as a daily percent"><span>{daily(cmp.mean_daily_log_difference)}</span></Tip> : null) : <Skeleton />],
             ["Detectable annual difference", cmp ? <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? <Missing />}</span></Tip> : <Skeleton />],
@@ -158,7 +169,7 @@ function SelectedDetail({ widget }: { widget: DetailWidget }) {
   const runsPage = useOnRunsPage(), { run } = useShown();
   const loose = !waiting && runsPage && run !== null && selected === null;
   const c = loose ? undefined : widget.items.find((item) => item.id === (selected ?? widget.default));
-  if (c) return <VersionDetail c={c} targets={targets} />;
+  if (c) return <VersionDetail c={c} targets={targets} versions={widget.items} />;
   if (waiting) return <VersionDetail c={{ ...PLACEHOLDER, id: run?.candidate ?? selected ?? "" }} targets={targets} loading />;
   return <p className="p-4 text-fg-faint">{loose ? "No version of this line declared for this run" : "Pick a version in the lineage, the table or the scatter."}</p>;
 }

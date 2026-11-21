@@ -41,7 +41,7 @@
 | 20261121-16 | 手机上从运行详情再点一次 Runs 标签不回到列表 | fix（再点当前标签时关闭运行详情，与 iOS 惯例一致；改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-17 | 权益读数不动时 Equity 开关被禁用，看不了那条平的权益线 | question（权益未动时是否仍可切到 Equity） | doctor | unknown | in PR [#3371](https://github.com/qOeOp/trade/pull/3371)（[记录](2026-11-21-gemini-findings-recheck.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-18 | 研究页 Details 的 Replays 表点行不切换试验，只有 Runs 页面可以 | question（研究页点行是否切到 Runs 页面并选中该试验） | doctor | unknown | in PR [#3368](https://github.com/qOeOp/trade/pull/3368) | 2026-11-21 | 2026-11-21 |
-| 20261121-19 | SourceTree 打开版本时不默认显示与父版本的 Diff | question（有父版本时是否默认对比） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-19 | SourceTree 打开版本时不默认显示与父版本的 Diff | question（有父版本时是否默认对比） | doctor | unknown | in PR [#3369](https://github.com/qOeOp/trade/pull/3369)（[记录](2026-11-21-gemini-findings-recheck.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261120-01 | 关线证伪只看整年否决段：不是整年的否决段封存为 `invalid`（审计失败）也不进否决结论 | authority（改证伪判定规则） | doctor | unknown | fixed 0944d9465 [#3223](https://github.com/qOeOp/trade/pull/3223) | 2026-11-20 | 2026-11-20 |
 | 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | fixed 509f4dadd [#3215](https://github.com/qOeOp/trade/pull/3215) | 2026-11-20 | 2026-11-20 |
 | 20261120-03 | `line history` 把 `invalid` 历史段当作已完成，续跑不重跑，瞬时故障让候选永久缺项 | authority（改历史段重跑规则） | doctor | unknown | fixed bb2fa47aa [#3225](https://github.com/qOeOp/trade/pull/3225) | 2026-11-20 | 2026-11-20 |

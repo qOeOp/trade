@@ -55,15 +55,15 @@ export function Checklist({ items, checked, onToggle, star, onStar }: {
   return (
     <ul className="max-h-56 overflow-auto rounded-control border border-line-strong py-0.5">
       {items.map((item) => (
-        <li key={item} className="group flex h-(--row-h) items-center gap-2 px-2 hover:bg-row-hover">
+        <li key={item} className="flex h-(--row-h) items-center gap-2 px-2 hover:bg-row-hover">
           <label className="flex min-w-0 flex-1 cursor-default items-center gap-2">
             <input type="checkbox" checked={checked.has(item)} onChange={() => onToggle(item)} className="accent-(--focus)" />
             <span className="truncate font-mono text-dense">{item}</span>
           </label>
-          {/* The default is a label; another chosen model offers "make default" on hover or keyboard focus. */}
+          {/* The default is a label; every other chosen model offers "make default", always shown so it is found. */}
           {item === star ? <span className="shrink-0 text-small text-fg-muted">default</span> : checked.has(item) && (
             <button type="button" onClick={() => onStar(item)}
-              className="shrink-0 rounded-badge px-1 text-small text-fg-faint opacity-0 transition-colors group-hover:opacity-100 hover:bg-hover hover:text-fg focus-visible:opacity-100">
+              className="shrink-0 rounded-badge px-1 text-small text-fg-faint transition-colors hover:bg-hover hover:text-fg">
               make default
             </button>
           )}

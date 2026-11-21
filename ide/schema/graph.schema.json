@@ -348,6 +348,52 @@
                   "null"
                 ]
               },
+              "annual_return_difference": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "annual_return_difference_interval": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "max_drawdown_difference": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "max_drawdown_difference_interval": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "alpha_basket_difference": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "alpha_basket_difference_se": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "summary": {
                 "type": [
                   "string",

@@ -1,0 +1,3 @@
+- The Agent knows what the page shows: each question carries the page (research graph, Runs, Market or History), the stage and its paper or Live run on Runs, and the coin picked, besides the version, line and ledger commit.
+- The Agent folds consecutive commands that answered into one line naming them; a running or failed command stays a card of its own.
+- An agent's other chosen models show "make default" at all times, not only on hover.

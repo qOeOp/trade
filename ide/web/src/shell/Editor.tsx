@@ -20,11 +20,11 @@ import { Island } from "./Island";
 export function Editor() {
   const lineage = useWidget<LineageWidget>("lineage");
   const sources = useWidget<SourcesWidget>("sources");
-  const { id, diff } = useOpenFile();
+  const { id, diff, pinned } = useOpenFile();
   const left = useShell().last.left;
   const files = left === "sources", runs = left === "runs", market = left === "market", history = left === "history";
   const Lineage = RENDERERS.lineage.Component;
-  const code = files && id ? { id, diff, widget: sources } : null;
+  const code = files && id ? { id, diff, pinned, widget: sources } : null;
   const none = !useView().line.name, status = useAtom(viewStatus);
   return (
     <Island id="editor" header={code && <SourceBar {...code} />}>
@@ -34,7 +34,7 @@ export function Editor() {
       {history && <HistoryPage />}
       {code && <SourceBody key={id} {...code} />}
       {none && !runs && !market && !history && <Waiting {...status} />}
-      {!none && files && !code && <p className="grid h-full place-items-center text-dense text-fg-faint">Double-click a version to open its source</p>}
+      {!none && files && !code && <p className="grid h-full place-items-center text-dense text-fg-faint">Click a version to open its source</p>}
     </Island>
   );
 }

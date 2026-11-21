@@ -104,6 +104,7 @@ test("Detail calls every hook whether waiting for the first view or showing a lo
     "state/update": { viewStatus: {} },
     "state/selection": { useSelection: () => "a@1", select: empty },
     "state/comparison": { useComparison: () => ({ kind: "none" }) },
+    "state/editors": { openDiff: empty },
     "state/shell": { useOnMarketPage: () => false, useOnRunsPage: () => false },
     "state/shown": { useShown: () => ({ stage: "backtest", run: null, trial: null }) },
     "ui/Tip": { Tip: pass },
