@@ -116,6 +116,9 @@ header template, the entry class, the two hooks and a sizing helper.
   (SMA, highest high) are exact once the window is full. A path-dependent state rebuilt from the
   first input (swing points, a trend state machine) is ready only at the input count from which two
   different warm-up starts give the same state; gate decisions on that count.
+- Keep state bounded and update it per input: hold histories (bars, swing points, levels) in a
+  `deque(maxlen=...)` or prune them past the longest lookback, and never rescan the whole history
+  on each bar, which makes replay time grow faster than the window.
 
 ## Trades and metrics
 
