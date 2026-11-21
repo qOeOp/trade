@@ -25,7 +25,7 @@ from shared import clock, paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
-from report import measures
+from report import measures, splits
 
 
 UNVERIFIED = "unsealed, source unverified, not evidence"
@@ -82,13 +82,12 @@ def cost_basis(facts: Mapping) -> dict | None:
     sides = ((facts.get("sealed") or {}).get("fees_by_liquidity_side"))
     if not isinstance(sides, Mapping):
         return None
-    by_side, fills = {}, sum(int(item.get("fills") or 0) for item in sides.values())
+    by_side: dict[str, dict] = {}
     for side, item in sides.items():
         notional = Decimal(item["notional"]) if item.get("notional") else Decimal(0)
         by_side[side] = {**item, "observed_rate": float(Decimal(item["commissions"]) / notional) if notional else None}
     notional = sum((Decimal(item["notional"]) for item in sides.values() if item.get("notional")), Decimal(0))
     return {"account": (facts.get("effective_config") or {}).get("account"), "by_liquidity_side": by_side,
-            "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None,
             "slippage_stress": slippage_stress(facts, notional)}
 
 
@@ -128,14 +127,17 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
               "failure_reasons": run["failure_reasons"] or [], "populations": (sealed or {}).get("populations"),
               "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel"),
               "plans": plans(sealed),
-              "headline": None, "slices": None, "closed_by_year": None, "dev_years": None, "drawdown": None,
+              "headline": None, "slices": None, "closed_by_year": None, "closed_by_instrument": None,
+              "dev_years": None, "dev_quarters": None, "drawdown": None,
               "capital": None, "cost_basis": None}
     if run["status"] == "passed" and value["economic_evidence_available"]:
         derived = measures.derive_measures(facts, catalogue, measures.market_for(facts))
         targets = line_targets.targets_for(conn, trial.get("line_id"))
         output.update(headline={name: derived[name] for name in measures.HEADLINE},
-                      slices=slices_of(derived, catalogue), closed_by_year=measures.closed_by_year(facts["cycles"]),
-                      dev_years=measures.dev_years(facts, targets["annual_return"] if targets else None),
+                      slices=slices_of(derived, catalogue), closed_by_year=splits.closed_by_year(facts["cycles"]),
+                      closed_by_instrument=splits.closed_by_instrument(facts["cycles"]),
+                      dev_years=splits.dev_years(facts, targets["annual_return"] if targets else None),
+                      dev_quarters=splits.dev_quarters(facts),
                       drawdown=(sealed or {}).get("drawdown"), capital=(sealed or {}).get("capital"),
                       cost_basis=cost_basis(facts))
     output["limitations"] = dedupe((sealed or {}).get("limitations"), value.get("limitations"))

@@ -22,15 +22,17 @@ from ledger import targets as line_targets
 from shared import clock
 from shared.errors import Refusal
 from registration import availability, comparability, precheck, register, reproduction
-from report import candidates as report_candidates, comparison, measures, seams
+from report import candidates as report_candidates, comparison, measures, seams, splits
 
 
 SINGLE_KINDS = ("recommendation", "priority")
 MANY_KINDS = ("interpretation", "search_exposure")
-# The comparison table's measures (the single-run report's), and those where less is better.
-TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
+# The comparison table's measures (the single-run report's), those dominance compares (the plan win rate and the
+# fee breakeven multiple are shown only: win rate is a report dimension, not a target) and those where less is better.
+TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate", "breakeven_fee_multiple")
+DOMINANCE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
-# Display-only columns of the development years (measures.dev_years); no dominance.
+# Display-only columns of the development years (splits.dev_years); no dominance.
 DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
 IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, runtime_contract, execution, comparable_config_sha256, "
                     f"export_sha256, input_start, trade_start, trade_end, {db.IMAGE_DIGEST}")
@@ -478,9 +480,9 @@ def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: 
 
 
 def _dominates(better: Mapping, worse: Mapping) -> bool:
-    """Whether `better` is at least as good on all four measures and better on one; None never compares."""
+    """Whether `better` is at least as good on every dominance measure and better on one; None never compares."""
     pairs = []
-    for name in TABLE_MEASURES:
+    for name in DOMINANCE_MEASURES:
         mine, theirs = better[name]["value"], worse[name]["value"]
         if mine is None or theirs is None:
             return False
@@ -516,8 +518,8 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
                      testing: Mapping | None = None) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
-    its execution identity (_identities), the four measures of its report and whether another run of
-    the same identity dominates it on them. `non_dominated` is null for a run missing a measure.
+    its execution identity (_identities), the table measures of its report and whether another run of
+    the same identity dominates it on the dominance measures. `non_dominated` is null for a run missing one.
     `execution_identity` is the line's (line_identity) and `candidates` (_compared) the candidates with a run of it among the line's own trials (line_trials), and the line's start
     with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. With the
@@ -527,7 +529,7 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     identities, current, passed, without, candidates = _compared(conn, record, checker, records)
     read = {trial_id: (measures.derive_measures(facts, wanted=TABLE_MEASURES), deflated_range(facts, testing),
-                       measures.dev_years(facts))
+                       splits.dev_years(facts))
             for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities[row["trial_id"]],
@@ -538,14 +540,15 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities[row["trial_id"]], "reasons": row["reasons"]} for row in without]
     for item in found:
-        complete = all(item["measures"][name]["value"] is not None for name in TABLE_MEASURES)
+        complete = all(item["measures"][name]["value"] is not None for name in DOMINANCE_MEASURES)
         item["dominated_by"] = [other["trial_id"] for other in found if other is not item
                                 and _same(other["execution_identity"], item["execution_identity"])
                                 and _dominates(other["measures"], item["measures"])]
         item["non_dominated"] = (not item["dominated_by"]) if complete else None
     return {"line": record["name"], "dev_start": record["dev_start"], "dev_end": record["dev_end"],
             "universe_rule": record["universe_rule"], "execution_identity": current,
-            "measures": list(TABLE_MEASURES), "lower_is_better": list(LOWER_IS_BETTER), "runs": found,
+            "measures": list(TABLE_MEASURES), "dominance_measures": list(DOMINANCE_MEASURES),
+            "lower_is_better": list(LOWER_IS_BETTER), "runs": found,
             "candidates": candidates, "without_economic_evidence": excluded}
 
 
