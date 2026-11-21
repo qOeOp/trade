@@ -1,5 +1,5 @@
 // How a sealed paper run ended, in plain words. A run is running or stopped; how it stopped is read from its
-// seal (ledger/paper.py readings): its stop reason, reasons, runner exit code and bars. Only the daemon's
+// seal (ledger/run_journal.py readings): its stop reason, reasons, runner exit code and bars. Only the daemon's
 // current verdict, the listing's top-level `status` (not seal.status, which keeps what it was sealed with),
 // makes a run Invalid: its evidence is untrusted. Every other run ended one of the ways below, however its
 // seal was graded then. A chain (chain.ts) is paused while the user's own stop (or the run's set duration)

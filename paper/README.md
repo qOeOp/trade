@@ -35,7 +35,7 @@ ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZER
 `OUT_OF_MEMORY` for a kill at the memory limit, `REFUSED:<code>` and `STOPPED:<code>` for a refusal the runner journaled such as
 `PAPER_CACHE_UNAVAILABLE`, below, and `PAPER_JOURNAL_WRITE_FAILED`) and leaves the status `complete`; only evidence that cannot be trusted
 (`SOURCE_MISMATCH`, `LEVERAGE_MISMATCH`, `EGRESS_DENIED`, or a runner that started and left no journal) seals `invalid`
-(`ledger.paper.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT and a clean checkpoint, which only the pause of a
+(`ledger.run_journal.verdict`). The daemon resumes a run that paused (SIGTERM or SIGINT and a clean checkpoint, which only the pause of a
 `PAPER_RECOVERY` source or of a held one leaves) or was interrupted before its summary, and seals every other end: a
 signal that ended a flat source without the recovery protocol is an ordinary end, and so is `HELD_FLAT`. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle

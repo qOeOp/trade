@@ -13,7 +13,7 @@ export type Reading = { balance: number | null; before: number | null; margin: n
 export type DailyCloses = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const MINUTE_NS = 60e9;
 
-/** A settlement's funding cash flow as the journal's stream estimates it (ledger/paper.py `settlements` without
+/** A settlement's funding cash flow as the journal's stream estimates it (ledger/run_journal.py `settlements` without
  * `published`), unrounded: a positive rate moves money from longs to shorts. */
 const funding = (l: JournalLine) => {
   const rate = amount(l.stream_rate), mark = amount(l.mark), held = Array.isArray(l.positions) ? l.positions as { signed_qty?: unknown }[] : [];

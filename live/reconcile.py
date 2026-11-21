@@ -1,7 +1,7 @@
 """Live admission's Paper reconciliation (doctor 20261120-06; decided 2026-11-21 in
 docs/plans/stored-fields.zh.md).
 
-Live prepares a run only for a candidate with a reconciled Paper run: a sealed, complete run (ledger.paper.verdict) of
+Live prepares a run only for a candidate with a reconciled Paper run: a sealed, complete run (ledger.run_journal.verdict) of
 the same source on the same contracts, whose image runs Live's replay code (live.admission.replay_code), not held after an
 interruption (paper.compare.held_since), whose `paper compare` on the archive (never the preliminary REST overlay) has
 at least one order group, no group whose difference is `unexplained`, no look-ahead suspect and no unexplained equity
@@ -71,11 +71,11 @@ def _paper(paper_ledger: Path) -> db.LedgerProfile:
 def matching(paper_ledger: Path, source_sha256: str, symbols: list[str]) -> list[dict]:
     """The sealed, complete Paper runs of this source on exactly these contracts, newest first, as
     {paper_id, image_ref}."""
-    from ledger import paper as records
+    from ledger import paper as records, run_journal
     with db.connect(_paper(paper_ledger), "reader") as conn:
         found = [row for row in records.paper_runs(conn)
                  if row["source_sha256"] == source_sha256 and set(row["symbols"]) == set(symbols)
-                 and row.get("seal") is not None and records.verdict(row["seal"].get("reasons")) == "complete"]
+                 and row.get("seal") is not None and run_journal.verdict(row["seal"].get("reasons")) == "complete"]
     return [{"paper_id": row["paper_id"], "image_ref": row["image_ref"]}
             for row in sorted(found, key=lambda row: -row["paper_id"])]
 
@@ -94,7 +94,7 @@ def compare_one(root: Path, paper_ledger: Path, market_root: Path, paper_id: int
     as when the market does not cover the run yet)} of one sealed Paper run, compared in a new working directory under
     paper-compare-tmp/, removed after. `compare` and `held_since` are paper.compare's (Paper sits beside Live in the
     package layers, so the command line passes them)."""
-    from ledger import paper as records
+    from ledger import paper as records, run_journal
     root = Path(root).expanduser().absolute()
     profile = _paper(paper_ledger)
     with state.reading(root) as root, _exclusive(root):
@@ -110,7 +110,7 @@ def compare_one(root: Path, paper_ledger: Path, market_root: Path, paper_id: int
         tempfile.tempdir = None
         try:
             with db.connect(profile, "reader") as conn:
-                lines = records.sealed_journal(records.paper_files(conn, paper_id, "events/"))
+                lines = run_journal.sealed_journal(records.paper_files(conn, paper_id, "events/"))
             if held_since(lines) is not None:
                 return {"paper_id": paper_id, "market_day": None, "retry": False,
                         "reason": "the run was held after an interruption"}

@@ -24,7 +24,7 @@ export type RuntimeFailure = {
   stage: string; exception_type: string; instrument_id: string; code: string | null; message: string;
   traceback: string; count: number;
 };
-/** The stored seal.json (ledger/paper.py readings). Its `status` is the grade it was sealed with; a run's
+/** The stored seal.json (ledger/run_journal.py readings). Its `status` is the grade it was sealed with; a run's
  *  current verdict is the listing's top-level `status` (model/ending.ts). */
 export type Seal = {
   status: "complete" | "invalid"; reasons: string[]; total_return: number | null; max_drawdown: number;

@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 
 from engine.config import ACCOUNT_CONTRACT, symbol_of, utc_text
-from ledger import db, paper as records
+from ledger import db, paper as records, run_journal
 from replay import comparison as shared, rerun
 from shared import paths
 from shared.refusals import refuse
@@ -106,7 +106,7 @@ def parts(lines: list[dict], settled: list[dict], terms: Mapping | None = None, 
     return {"side_starts": [line["wall_ns"] for line in lines if line["kind"] in ("started", "resumed")
                             and isinstance(line.get("wall_ns"), int)],
             "events": [line for line in lines if line["kind"] == "order"], "settlements": settled,
-            "equity": records.equity_path(lines, settled)[0],
+            "equity": run_journal.equity_path(lines, settled)[0],
             "taken": {line["minute_ns"]: line["wall_ns"] for line in lines
                       if line["kind"] == "snapshot" and isinstance(line.get("minute_ns"), int)
                       and isinstance(line.get("wall_ns"), int)},
@@ -117,7 +117,7 @@ def parts(lines: list[dict], settled: list[dict], terms: Mapping | None = None, 
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
-    return records.sealed_journal(records.paper_files(conn, paper_id, "events/"))
+    return run_journal.sealed_journal(records.paper_files(conn, paper_id, "events/"))
 
 
 def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: int, output: Path,
@@ -138,7 +138,7 @@ def compare(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: i
     symbols = list(row["symbols"])
     opened = files.open_market(market, "reader")
     run = shared.run_record(lines, **parts(
-        lines, records.settlements(lines, records.published_settlements(lines, seal.get("stopped_ns"))),
+        lines, run_journal.settlements(lines, run_journal.published_settlements(lines, seal.get("stopped_ns"))),
         # Each contract's terms at the run's market day, and the account's one rate on each.
         {symbol: instrument.terms(opened, str(row["market_day"]), symbol) for symbol in symbols},
         {symbol: row["config"]["fees"] for symbol in symbols} if row["config"].get("fees") else None,

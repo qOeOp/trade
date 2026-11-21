@@ -36,7 +36,7 @@ from pathlib import Path
 import secrets
 
 from engine.config import utc_text
-from ledger import paper as records
+from ledger import run_journal
 from live import state
 from replay import comparison as shared, rerun
 from shared.refusals import refuse
@@ -197,7 +197,7 @@ def _fees(snapshot: Mapping, symbols: list[str]) -> dict:
 
 
 def journal(pack: Mapping, start: int) -> list[dict]:
-    """The pack as a Paper journal's lines, for ledger.paper's funding: the start, each contract's one-minute bars and
+    """The pack as a Paper journal's lines, for ledger.run_journal's funding: the start, each contract's one-minute bars and
     the position events, in the order they were written."""
     rows = [(row.get("wall_ns") or 0, row) for row in pack["market"] if row.get("kind") == "bar"]
     rows += [(row.get("observed_ns") or 0, {**row["native"], "kind": "position"}) for row in pack["events"]
@@ -224,7 +224,7 @@ def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -
     """The run's own parts of the record replay.comparison.run_record reads with its evidence pack's market rows:
     its native order events, the entries its gate changed, its process's start, its equity path from `balance` with
     the funding `settled`, its contracts' terms and the account's fee rates in `snapshot`."""
-    equity, _ = records.with_funding(sorted(
+    equity, _ = run_journal.with_funding(sorted(
         ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
          and row.get("result") is not None), key=lambda point: point[0]), settled)
@@ -301,7 +301,7 @@ def compare(root: Path, run_id: str, market: dict, at: str | None, output: Path,
     market_day, archived = rerun.archive(market, at, symbols, start, end, "COMPARE_UNCOVERED")
     lines = journal(pack, start)
     run = shared.run_record(pack["market"], **parts(
-        pack, balance, snapshot, records.settlements(lines, records.published_settlements(lines, end))))
+        pack, balance, snapshot, run_journal.settlements(lines, run_journal.published_settlements(lines, end))))
     output, replayed, compared = rerun.replay_and_compare(
         run, market, market_day, archived, pack["source"], manifest["source"]["entry_class"], image_ref, symbols,
         start, end, manifest["config"]["leverage"], balance, output,
