@@ -25,8 +25,9 @@ import numpy as np
 import pyarrow as pa
 
 from market import aggtrades, files, sources, store
-from market.sources import DAY, _refuse
+from market.sources import DAY
 from shared import clock
+from shared.refusals import refuse
 
 
 RULE = "binance-aggtrades-bbo-v1"
@@ -44,7 +45,7 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
     change, with the day's readings, continuing `state` (updated in place). Refuses a sequence gap, a time
     reversal, a non-positive price increment, or one finer than the stored scale where a stale side is pushed."""
     if not isinstance(tick, Decimal) or tick <= 0:
-        raise _refuse(f"{label}: price increment {tick} is not positive", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: price increment {tick} is not positive", missing=(label,))
     units = tick.scaleb(files.TRADE_SCALE)
     step = int(units) if units == units.to_integral_value() else None
     ids = table["agg_trade_id"].to_numpy()
@@ -53,7 +54,7 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
     makers = table["is_buyer_maker"].to_numpy(zero_copy_only=False)
     prices = table["price"].to_numpy()
     if len(ids) == 0:
-        raise _refuse(f"{label}: no trades", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: no trades", missing=(label,))
     # aggtrades.follows, row against row within the day and the day's first row against the day before.
     steps = np.diff(ids)
     broken = (steps != 1) & ~((steps == 0) & (np.diff(times) > 0) & (firsts[1:] > lasts[:-1]))
@@ -63,11 +64,11 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
         where = int(np.argmax(broken)) if np.any(broken) else -1
         detail = (f"after agg_trade_id {int(ids[where])} comes {int(ids[where + 1])}" if where >= 0
                   else f"the day starts at agg_trade_id {int(ids[0])}, the day before ended at {state.last_id}")
-        raise _refuse(f"{label}: aggTrade ids are not contiguous ({detail})", "SEQUENCE_GAP", missing=(label,))
+        raise refuse("SEQUENCE_GAP", f"{label}: aggTrade ids are not contiguous ({detail})", missing=(label,))
     if np.any(np.diff(times) < 0):
-        raise _refuse(f"{label}: transact_time goes backwards", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: transact_time goes backwards", missing=(label,))
     if np.any(prices <= 0):
-        raise _refuse(f"{label}: a trade price is not positive", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: a trade price is not positive", missing=(label,))
     rows: list[tuple] = []
     adjustments = 0
     last = (state.bid, state.ask)
@@ -81,8 +82,9 @@ def derive(table: pa.Table, tick: Decimal, state: State, label: str) -> tuple[li
             continue
         if state.bid >= state.ask:
             if step is None:
-                raise _refuse(f"{label}: price increment {tick} has more than {files.TRADE_SCALE} decimals",
-                              "SCALE_LOSS", missing=(label,))
+                raise refuse("SCALE_LOSS",
+                             f"{label}: price increment {tick} has more than {files.TRADE_SCALE} decimals",
+                             missing=(label,))
             adjustments += 1
             if maker:
                 state.ask = state.bid + step
@@ -120,24 +122,26 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
                    scope: list[str] | None, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
     if market.empty:
-        raise _refuse("the market holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
+        raise refuse("MARKET_EMPTY", "the market holds no bars yet; quotes need the contracts' terms")
     if scope is None:
         scope = sorted(store._members(market, month))
         if not scope:
-            raise _refuse(f"{label} has no universe members in the market; import its bars first or name --symbols",
-                          "UNIVERSE_UNKNOWN", missing=(label,))
+            raise refuse("UNIVERSE_UNKNOWN",
+                         f"{label} has no universe members in the market; import its bars first or name --symbols",
+                         missing=(label,))
     stored = [symbol for symbol in scope if files.entries(market, "quote", [symbol], start_ms, end_ms)]
     if stored:
-        raise _refuse(f"the market already holds {label} quotes of {stored}", "MONTH_EXISTS", missing=(label,))
+        raise refuse("MONTH_EXISTS", f"the market already holds {label} quotes of {stored}", missing=(label,))
     _, latest = store._terms_rows(market)
     jobs = []
     for symbol in scope:
         # The newest stored terms: like the bar import, the price increment is the one observed at import time.
         if symbol not in latest:
-            raise _refuse(f"{symbol}: the market holds no contract terms", "TERMS_UNKNOWN", missing=(symbol,))
+            raise refuse("TERMS_UNKNOWN", f"{symbol}: the market holds no contract terms", missing=(symbol,))
         if not files.entries(market, "agg_trade", [symbol], start_ms, end_ms):
-            raise _refuse(f"{symbol}: the market holds no {label} aggTrades, which the quotes are inferred from; import "
-                          "them first", "TRADES_NOT_HELD", missing=(symbol,))
+            raise refuse("TRADES_NOT_HELD",
+                         f"{symbol}: the market holds no {label} aggTrades, which the quotes are inferred from; import "
+                         "them first", missing=(symbol,))
         jobs.append({"root": str(market.root), "symbol": symbol, "cache": str(cache), "start": start_ms, "end": end_ms,
                      "tick": latest[symbol]["price_increment"],
                      "trades": files.entries(market, "agg_trade", [symbol], start_ms - DAY, end_ms),

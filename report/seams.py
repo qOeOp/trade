@@ -34,10 +34,10 @@ def _market_returns(market_database: str | None, market_day: str | None, univers
     """market.daily_returns on the run's market (read only). The values are the run's stored
     input identity, which may lack them: the reader refuses a missing market day or universe rule."""
     from market import read
-    from market.sources import MarketError
+    profile = _market_profile(market_database)
     try:
-        return read.daily_returns(_market_profile(market_database), market_day or "", universe_rule, start, end)
-    except MarketError as exc:
+        return read.daily_returns(profile, market_day or "", universe_rule, start, end)
+    except Refusal as exc:
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
@@ -46,13 +46,13 @@ def _market_day(ref: str) -> dict | None:
     it holds no such day (MARKET_DAY_UNRESOLVED). None when the active market cannot be read (no profile, its
     directory unreachable): registration then refuses on its own."""
     from market import files
-    from market.sources import MarketError
     try:
         profile = _market_profile()
-        return {"database": profile["name"], "market_day": files.resolve_day(files.open_market(profile, "reader"), ref)}
     except Refusal:
         return None
-    except MarketError as exc:
+    try:
+        return {"database": profile["name"], "market_day": files.resolve_day(files.open_market(profile, "reader"), ref)}
+    except Refusal as exc:
         return {"database": profile["name"], "market_day": None} if exc.code == "MARKET_DAY_UNRESOLVED" else None
 
 

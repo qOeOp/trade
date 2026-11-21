@@ -242,11 +242,10 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
 def _universe(config: configuration.Configuration, symbols: list[str]) -> bytes:
     """The membership file of `symbols` at the market's latest market day (market.universe.selection, as Paper
     derives it): what engine.load.read_universe reads."""
-    from market.sources import MarketError
     from market.universe import selection
     try:
         _, membership, _ = selection({"root": str(config.market_root)}, None, symbols, time.time_ns())
-    except (MarketError, Refusal) as exc:
+    except Refusal as exc:
         raise state.fail("LIVE_UNIVERSE", f"the market gives these contracts no membership: {exc}") from None
     return state.encode(membership)
 

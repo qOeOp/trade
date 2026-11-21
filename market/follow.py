@@ -19,6 +19,7 @@ import time
 
 from market import aggtrades, files, metrics, quotes, sources, store, universe
 from shared import clock
+from shared.errors import Refusal
 
 
 KINDS = ("bars", "metrics", "trades", "quotes")
@@ -249,7 +250,7 @@ def _sound(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
         for _ in aggtrades.month_rows(cache, symbol, clock.day_ms(month), clock.day_ms(clock.next_month(month)),
                                       earlier):
             pass
-    except sources.MarketError:
+    except Refusal:
         return False
     return True
 
