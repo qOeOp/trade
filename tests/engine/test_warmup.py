@@ -7,6 +7,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from unittest import mock
 import urllib.parse
 from pathlib import Path
 
@@ -448,6 +449,25 @@ class KlineTests(unittest.TestCase):
 
 class FetchTests(unittest.TestCase):
     DECLARED = (("1-MINUTE", 3), ("15-MINUTE", 2), ("1-DAY", 0))
+
+    def test_a_read_is_tried_again_on_network_errors_until_the_deadline_and_never_on_others(self):
+        now = [0]
+        answers = [OSError("reset"), OSError("reset"), "read"]
+        with mock.patch.object(history.time, "time_ns", lambda: now[0]), \
+                mock.patch.object(history.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + int(seconds * 1e9))):
+            def read():
+                found = answers.pop(0)
+                if isinstance(found, BaseException):
+                    raise found
+                return found
+            self.assertEqual(history.read_until(read, 5 * history.SECOND_NS, history.SECOND_NS), "read")
+            answers[:] = [OSError("reset")] * 5
+            with self.assertRaises(OSError):  # tried at 0 s, 1 s and 2 s of a 3 s deadline
+                history.read_until(read, now[0] + 3 * history.SECOND_NS, history.SECOND_NS)
+            self.assertEqual(len(answers), 2)
+            answers[:] = [ValueError("an answer REST changed"), "read"]
+            with self.assertRaises(ValueError):
+                history.read_until(read, now[0] + 10 * history.SECOND_NS, history.SECOND_NS)
 
     def test_the_catalog_holds_every_request_once_and_each_request_gets_its_bars(self):
         at = 1_767_225_600_000 * NS + 7 * 60_000 * NS  # seven minutes into a quarter and a day
