@@ -1,12 +1,12 @@
 import { Children, createContext, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { select } from "../../state/selection";
+import { showVersion } from "../../state/navigate";
 import { TextButton } from "../TextButton";
 
 // An answer's Markdown in the page's type: two heading sizes at most, inline code as a chip, tables
 // as the version table draws them, Chinese paragraphs at their taller line height. A version the view
-// knows (ID@N) becomes a link that selects it on the canvas. The text is revealed at an even pace as
+// knows (ID@N) becomes a link that shows it on the canvas, from any page. The text is revealed at an even pace as
 // it streams (the library's smoothing, off under reduced motion), on top of the server's even pacing.
 const ZH = /[㐀-鿿豈-﫿]/;
 const VERSION = /([\w.-]+@\d+)/g;
@@ -16,7 +16,7 @@ const VERSION = /([\w.-]+@\d+)/g;
 function VersionLink({ id }: { id: string }) {
   const at = id.lastIndexOf("@");
   return (
-    <TextButton className="-mx-1 font-mono" onClick={() => select(id, { reveal: true })}>
+    <TextButton className="-mx-1 font-mono" onClick={() => showVersion(id)}>
       <span>{id.slice(0, at)}<span className="text-fg-faint">{id.slice(at)}</span></span>
     </TextButton>
   );

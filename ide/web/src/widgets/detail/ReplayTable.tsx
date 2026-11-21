@@ -2,7 +2,7 @@ import { drawable, RUN_PURPOSES } from "../../model/stage";
 import type { Targets, Trial } from "../../model/types";
 import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
-import { chooseTrial } from "../../state/stage";
+import { showTrial } from "../../state/navigate";
 import { meets, PURPOSE, tone } from "../../model/semantics";
 import { reasonLabels } from "../../model/measures";
 import { useMemo, type ReactElement } from "react";
@@ -19,8 +19,8 @@ const value = (x: number | null | undefined, text: string, ok: boolean | null = 
 const PLACEHOLDERS: Trial[] = [{ trial_id: 1, purpose: "research" }, { trial_id: 2, purpose: "research" }];
 
 /** A version's trials: purpose, readings against the targets, and whether each kept its evidence. On the
- *  Runs page the replay its backtest draws is selected and another sealed run with evidence (research,
- *  validation or history) picks it; a precheck or explore replay says why it cannot be. The trial number and every reading align right, the
+ *  Runs page the replay its backtest draws is selected; on any page a sealed run with evidence (research,
+ *  validation or history) shows its backtest there, and a precheck or explore replay says why it cannot. The trial number and every reading align right, the
  *  purpose left. Trial and Elig are as wide as their
  *  headers, so Trial starts under the section title and Elig sits a column gap after Sharpe. */
 const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
@@ -46,7 +46,8 @@ export function ReplayTable({ trials, targets, loading = false }: { trials: Tria
     } }) as Column<Trial>,
   ], [targets, loading]);
   const runsPage = useOnRunsPage(), { stage, trial } = useShown();
-  const picks = runsPage && !loading ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
+  const picks = !loading ? { onRow: (t: Trial) => { if (drawable(t)) showTrial(t.trial_id); },
+    selected: runsPage && stage === "backtest" && trial ? String(trial.trial_id) : null,
     wrapRow: (t: Trial, tr: ReactElement) => (RUN_PURPOSES.has(t.purpose) ? tr : <Tip content="Seals no run: nothing to draw">{tr}</Tip>) } : {};
   const rows = loading && !trials.length ? PLACEHOLDERS : trials;
   const lost = loading ? [] : trials.filter((t) => t.eligible === false);
