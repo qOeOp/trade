@@ -353,12 +353,10 @@ def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Itera
     return record, instruments, overlapping_trials(counted, instruments, start, end)
 
 
-def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) -> dict:
+def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) -> int:
     """The variants assessed without a replay on the lines behind `found` (the line itself and the lines of
     its overlapping trials): the sum over their current search_exposure judgments of the largest
-    `Evaluated variants: K` along each one's supersession chain, so a supersession never lowers it
-    (`sweep_variants`), and the current judgments whose chain declares none (`undeclared_sweeps`, ids):
-    the sum is then a lower bound."""
+    `Evaluated variants: K` along each one's supersession chain, so a supersession never lowers it."""
     ids = sorted({trial["trial_id"] for trial in found})
     owners = {line_id}
     owners |= {owner for (owner,) in conn.rows_in("SELECT DISTINCT line_id FROM trial WHERE line_id IS NOT NULL AND "
@@ -367,30 +365,25 @@ def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) ->
                       f"({db.marks(owners)}) ORDER BY judgment_id", tuple(sorted(owners)))
     by_id = {row["judgment_id"]: row for row in rows}
     superseded = {row["supersedes"] for row in rows if row["supersedes"] is not None}
-    total, undeclared = 0, []  # type: int, list[int]
+    total = 0
     for row in rows:
         if row["judgment_id"] in superseded:
             continue
         declared: list[int] = []
         link: Mapping | None = row
         while link is not None:
-            k = judgments.declared_variants(link["body"])
-            if k is not None:
-                declared.append(k)
+            declared.append(judgments.declared_variants(link["body"]))
             link = by_id.get(link["supersedes"])
-        if declared:
-            total += max(declared)
-        else:
-            undeclared.append(row["judgment_id"])
-    return {"sweep_variants": total, "undeclared_sweeps": undeclared}
+        total += max(declared)
+    return total
 
 
 def _counts(conn: db.LedgerConnection, record: Mapping, found: Sequence[Mapping]) -> dict:
-    """`research_trials`, `all_purpose_trials`, `sweep_variants`, `undeclared_sweeps` and `trials_with_sweeps` of a
+    """`research_trials`, `all_purpose_trials`, `sweep_variants` and `trials_with_sweeps` of a
     line's overlapping trials (_overlapping_line)."""
     swept = sweeps(conn, record["line_id"], found)
     return {"research_trials": sum(trial["purpose"] == "research" for trial in found), "all_purpose_trials": len(found),
-            **swept, "trials_with_sweeps": len(found) + swept["sweep_variants"]}
+            "sweep_variants": swept, "trials_with_sweeps": len(found) + swept}
 
 
 def trial_counts(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> dict | None:

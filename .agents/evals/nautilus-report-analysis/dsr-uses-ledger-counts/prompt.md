@@ -9,7 +9,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 `research status --line vol-break` 的输出（ledger_commit `e7f8a9b`）：trials 214；multiple_testing：
 - line vol-break，dev_start 2021-10-01，dev_end 2024-10-01，instruments ["BTCUSDT"]；
-- research_trials 120，all_purpose_trials 138，sweep_variants 22，undeclared_sweeps []，trials_with_sweeps 160，runs_with_returns 95；
+- research_trials 120，all_purpose_trials 138，sweep_variants 22，trials_with_sweeps 160，runs_with_returns 95；
 - mean_correlation 0.697479，effective_trials 37.0，daily_sharpe_variance 0.0011；
 - comparison 里 run 8420（`vol-break@9`）的 deflated_sharpe：effective_trials 0.60，trials_with_sweeps 0.41。
 

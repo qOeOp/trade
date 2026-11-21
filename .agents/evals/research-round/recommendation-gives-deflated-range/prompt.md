@@ -10,7 +10,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 `research status --line mr-btc-1h` 输出（ledger_commit `q7m2c1d`，节选）：
 
 ```
-multiple_testing: {line: mr-btc-1h, research_trials: 31, all_purpose_trials: 37, sweep_variants: 8, undeclared_sweeps: [], trials_with_sweeps: 45,
+multiple_testing: {line: mr-btc-1h, research_trials: 31, all_purpose_trials: 37, sweep_variants: 8, trials_with_sweeps: 45,
   mean_correlation: 0.58, effective_trials: 14.0, daily_sharpe_variance: 0.0009, runs_with_returns: 28}
 comparison:
   runs:

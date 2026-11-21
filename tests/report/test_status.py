@@ -349,8 +349,7 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
                          (self.world.line["line"], instruments, 2, 2))
         self.assertGreaterEqual(found["all_purpose_trials"], found["research_trials"])
-        self.assertEqual((found["sweep_variants"], found["undeclared_sweeps"], found["trials_with_sweeps"]),
-                         (0, [], found["all_purpose_trials"]))
+        self.assertEqual((found["sweep_variants"], found["trials_with_sweeps"]), (0, found["all_purpose_trials"]))
         self.assertAlmostEqual(found["mean_correlation"], statistics.correlation(*(
             [days[day] for day in sorted(days)] for days in series)))
         self.assertAlmostEqual(found["effective_trials"], status.effective_trials(found["mean_correlation"], 2))

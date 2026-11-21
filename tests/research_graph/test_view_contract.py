@@ -129,7 +129,7 @@ class ViewContractTests(unittest.TestCase):
                                                 "max_drawdown": 0.1, "eligible": True, "at": "2026-01-01T12:50:00"}]})
         graph["gaps"] = ["no holdout yet"]
         graph["line"]["trial_counts"] = {"research_trials": 3, "all_purpose_trials": 5, "sweep_variants": 0,
-                                         "undeclared_sweeps": [], "trials_with_sweeps": 0}
+                                         "trials_with_sweeps": 0}
         view = layout.build_view(graph)
         shapes = Shapes()
         self.assertEqual([w["type"] for w in view["widgets"]], list(WIDGETS))
