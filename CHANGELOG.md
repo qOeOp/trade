@@ -35,6 +35,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   after the upgrade on the same instruments in the same quarter may get a longer one, so a precheck without a line
   may now trade in those earlier quarters.
 
+- Market overview: the snapshot no longer carries each coin's `oiByVenue` (open interest per exchange), which the
+  Market page stopped drawing on 2026-11-18.
+
 ## 0.4.4 (2026-11-21)
 
 - Replay identity: `dependency_lock_sha256` now hashes `uv.lock` parsed, without the project's own version (its
