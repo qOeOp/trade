@@ -68,7 +68,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
-||||||| parent of 29d49f362 (feat(ide): a trade row click moves the chart to the trade and marks it)
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
