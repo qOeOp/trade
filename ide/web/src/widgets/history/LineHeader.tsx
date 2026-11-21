@@ -62,7 +62,7 @@ export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSp
           <Field label="Target drawdown" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≤ ${pct(t.max_drawdown)}` : MISSING}</Field>
           <Field label="Target return" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≥ ${pct(t.annual_return)}` : MISSING}</Field>
           <Field label="Development" width="w-full md:w-52">{line.dev_start} to {line.dev_end}</Field>
-          {hidden > 0 && <Field label="Hidden" width="w-full md:w-28">{hidden} with no edge</Field>}
+          {hidden > 0 && <Field label="Hidden" width="w-full md:w-28">{plural(hidden, "row")} by the filters</Field>}
         </div>
       </th>
     </tr>
