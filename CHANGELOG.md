@@ -40,6 +40,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
   answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
 
+- The research graph service, the paper daemon and the research mirror's sync now read a failed command's refusal
+  as the last JSON object on its stderr, past any lines printed before it (doctor 20261121-09): with a `uv` warning
+  first (such as a `VIRTUAL_ENV` that does not match the project), the page showed `PRODUCT_FAILED` and the raw text
+  instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
+  `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
+
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
