@@ -72,6 +72,7 @@ class NativeHealthTests(unittest.TestCase):
         backend = NativeCache.__new__(NativeCache)
         backend.port = 12345
         backend.process = SimpleNamespace(poll=lambda: poll, returncode=returncode)
+        backend.unanswered = None
         return backend
 
     def test_a_child_that_answers_is_healthy(self):
@@ -86,9 +87,31 @@ class NativeHealthTests(unittest.TestCase):
             ping.assert_not_called()
         for failure in ({"side_effect": ConnectionRefusedError("refused")}, {"side_effect": TimeoutError("timed out")},
                         {"return_value": b"LOADING"}, {"side_effect": OSError("native cache rejected the command")}):
-            with self.subTest(failure=failure), mock.patch("engine.redis_child.command", **failure):
-                with self.assertRaises(paper_redis.CacheUnavailable):
-                    self.cache().health()
+            with self.subTest(failure=failure), mock.patch("engine.redis_child.command", **failure), \
+                    mock.patch("time.monotonic", side_effect=[0.0, 10.0, 20.0, 30.0, 40.0]):
+                backend = self.cache()
+                for _ in range(4):
+                    backend.health()
+                with self.assertRaisesRegex(paper_redis.CacheUnavailable, "5 in a row over 40 s"):
+                    backend.health()
+
+    def test_a_host_stall_that_ends_within_the_window_does_not_end_the_run(self):
+        """Release host runs 3 and 4 ended together on 2026-11-20 when the VM stalled and one PING went unanswered."""
+        backend = self.cache()
+        answers = [TimeoutError("timed out")] * 6 + [b"PONG"] + [TimeoutError("timed out")] * 4
+        with mock.patch("engine.redis_child.command", side_effect=answers), \
+                mock.patch("time.monotonic", side_effect=[float(t) for t in range(0, 100, 5)]):
+            for _ in answers:
+                backend.health()
+        self.assertEqual(backend.unanswered[1], 4)
+
+    def test_many_quick_misses_alone_and_one_late_miss_alone_do_not_end_the_run(self):
+        for clock, misses in (([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], 6), ([0.0, 60.0], 2)):
+            with self.subTest(misses=misses), mock.patch("engine.redis_child.command", side_effect=TimeoutError()), \
+                    mock.patch("time.monotonic", side_effect=clock):
+                backend = self.cache()
+                for _ in range(misses):
+                    backend.health()
 
     def test_both_sides_fail_fast_on_a_dead_cache(self):
         """rc7's defaults retry for minutes and `node.dispose()` then never returns (measured 2026-11-15: 92 s)."""
