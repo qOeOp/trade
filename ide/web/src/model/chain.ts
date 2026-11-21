@@ -88,9 +88,6 @@ export function chainTrades(chain: readonly PaperRun[]): number | null {
   return found.every((n) => n === null) ? null : found.reduce<number>((t, n) => t + (n ?? 0), 0);
 }
 
-/** Whether the chain's equity has moved from its starting balance: its return is known and not zero. */
-export const equityMoved = (chain: readonly PaperRun[]): boolean => { const r = chainReturn(chain); return r !== null && r !== 0; };
-
 /** When the chain's first run started (ns), once it has. */
 export const chainStart = (chain: readonly PaperRun[]): number | null => chain[0]?.seal?.started_ns ?? chain[0]?.readings?.started_ns ?? null;
 

@@ -25,6 +25,9 @@ import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logic
 export type EquityPoint = { time: number; value: number; peak: number; low: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; pace: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; flat: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
+/** Whether equity has not moved from its first point: then the pace it trails has no gap worth filling
+ *  (the line alone says "not moved yet") and the value axis takes in the pace (equityApi.ts). */
+export const unmoved = (points: readonly EquityPoint[]): boolean => points.length > 0 && points.every((p) => p.value === points[0]!.value);
 const BLUR = 10, DROP = 6;  // px: the line's shadow's blur and how far down it falls
 /** How far (px) the line's knockout and shadow reach above and below it: the value axis keeps this much
  *  room inside the plot (equityApi.ts), so the plot's edge never cuts them. */
@@ -134,7 +137,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     if (days && this.hovered !== null) { const s = span(f.x(this.hovered), f.x(this.hovered + DAY_S)); f.c.fillStyle = look!.column; f.c.fillRect(s.at, 0, s.len, f.h); }
     f.c.fillStyle = look!.grid;
     for (const p of this.ticks) f.c.fillRect(0, Math.round(this.y(p, f.vr)), f.w, Math.max(1, Math.round(f.vr)));
-    inPlot(f.c, this.plot(), f.w, f.vr, () => { this.gap(f); this.pace(f); });
+    inPlot(f.c, this.plot(), f.w, f.vr, () => { if (!unmoved(points)) this.gap(f); this.pace(f); });
     const top = this.head();
     drawdownRows(f, points, this.worst, look!, top);
     sideTrack(f, points, this.held, look!, top);
