@@ -125,10 +125,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
         "activity, order_funnel, plans, headline, annual_return_interval (the block-bootstrap interval of the "
         "registration's design, read now, no verdict; null without a design; absent without economic evidence), "
-        "slices, closed_by_year, dev_years (a three-year window cut at trade_start anniversaries: each year's "
-        "return against the line's annual-return target, years_at_target, worst_year_return, "
-        "return_without_best_year; a slice of one continuous run, positions and the equity peak carry across "
-        "years, not a fresh replay like the veto years; null for other windows), drawdown, capital, "
+        "slices, closed_by_year, dev_years (the window cut at trade_start anniversaries, a last partial year when "
+        "it ends between two: each whole year's return against the line's annual-return target, years_at_target, "
+        "worst_year_return, return_without_best_year over the whole years; a slice of one continuous run, "
+        "positions and the equity peak carry across years, not a fresh replay like the veto years; null for a "
+        "window of one year or less), drawdown, capital, "
         "cost_basis (account terms, observed fee rate by liquidity side, "
         "taker_fill_share, slippage_stress [{bps_per_side 2 and 5, extra_cost_usdt, annual_return, null_reason}]: "
         "the fills' notional times the extra bps taken from the final equity, a first-order read-time reading), "
@@ -161,7 +162,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the replay nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the replay nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     replay = verbs("replay", "replays")
     command = runner(replay, "explore", "replay an unpublished strategy file (not evidence)")
     command.epilog = textwrap.fill(

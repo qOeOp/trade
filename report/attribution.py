@@ -18,7 +18,6 @@ import bisect
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
-import difflib
 import itertools
 import math
 import statistics
@@ -279,11 +278,9 @@ def _trade_inputs(derived: Mapping) -> dict:
     return {"win_rate": value("win_rate"), "avg_win": value("avg_win"), "avg_loss": value("avg_loss")}
 
 
-def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None,
-              interaction: Mapping | None = None) -> dict:
-    """{headline, slices, predictions, interaction, trade_pairs} for two runs' facts
-    (report.measures.run_facts) and the registration body that declared the comparison; `interaction` is
-    report.compare's reading of a declared two-by-two (None without a declaration)."""
+def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None) -> dict:
+    """{headline, slices, predictions, trade_pairs} for two runs' facts (report.measures.run_facts) and
+    the registration body that declared the comparison."""
     catalogue = duties.measure_catalogue()
     derived_c = measures.derive_measures(candidate, catalogue, market)
     derived_o = measures.derive_measures(control, catalogue, market)
@@ -320,11 +317,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                               "available": bool(available),
                               "reason": None if available else next((entry["null_reason"] for entry in found.values()
                                                                      if entry["null_reason"]), None)}
-    declared = (body.get("prediction") or {}).get("interaction")
     return {"headline": headline, "slices": slices, "predictions": predictions(body, slices),
-            "interaction": (dict(interaction) if interaction is not None else
-                            {"available": False, "declared": dict(declared),
-                             "reason": "INTERACTION_UNATTESTED: the corners were not read"}) if declared else None,
             "trade_pairs": pairs}
 
 
@@ -353,56 +346,3 @@ def predictions(body: Mapping, slices: Mapping) -> list[dict]:
                       "observed_as": "pairwise" if pairwise is not None else "difference", "reason": None})
     return found
 
-
-# The shape of a declared two-by-two
-
-MERGE_METHOD = "merge3-lines-v1"  # pure-Python diff3: bzr merge3 regions over difflib line matches, autojunk off
-
-
-def _matches(base: list[bytes], other: list[bytes]) -> list[tuple[int, int, int]]:
-    matcher = difflib.SequenceMatcher(None, base, other, autojunk=False)
-    return [(block.a, block.b, block.size) for block in matcher.get_matching_blocks() if block.size]
-
-
-def merge3(base: bytes, a: bytes, b: bytes) -> bytes | None:
-    """The three-way merge of `a` and `b` from their common ancestor `base`, line by line, or None when
-    both change one base region differently (a conflict). Pure Python and deterministic (MERGE_METHOD):
-    the stable regions are the base lines both sides keep (difflib's matching blocks, autojunk off),
-    as in bzr's merge3; between two stable regions a part changed on one side only takes that side,
-    and a part changed alike on both sides is taken once."""
-    lines = [value.splitlines(keepends=True) for value in (base, a, b)]
-    base_lines, a_lines, b_lines = lines
-    left, right = _matches(base_lines, a_lines), _matches(base_lines, b_lines)
-    stable, i, j = [], 0, 0
-    while i < len(left) and j < len(right):
-        a_base, a_at, a_size = left[i]
-        b_base, b_at, b_size = right[j]
-        low, high = max(a_base, b_base), min(a_base + a_size, b_base + b_size)
-        if low < high:
-            stable.append((low, high, a_at + low - a_base, b_at + low - b_base))
-        if a_base + a_size < b_base + b_size:
-            i += 1
-        else:
-            j += 1
-    stable.append((len(base_lines), len(base_lines), len(a_lines), len(b_lines)))
-    merged, at_base, at_a, at_b = [], 0, 0, 0
-    for low, high, a_start, b_start in stable:
-        base_part, a_part, b_part = base_lines[at_base:low], a_lines[at_a:a_start], b_lines[at_b:b_start]
-        if a_part == b_part or b_part == base_part:
-            merged += a_part
-        elif a_part == base_part:
-            merged += b_part
-        else:
-            return None
-        merged += base_lines[low:high]
-        at_base, at_a, at_b = high, a_start + high - low, b_start + high - low
-    return b"".join(merged)
-
-
-def contributions(means: Mapping[str, float]) -> dict:
-    """Each change's contribution to the corner difference (ab minus base) of the mean daily log
-    returns, as the mean of its marginal effect over both orders of adding the two changes."""
-    a = ((means["a"] - means["base"]) + (means["ab"] - means["b"])) / 2
-    b = ((means["b"] - means["base"]) + (means["ab"] - means["a"])) / 2
-    return {"a": a, "b": b, "total": means["ab"] - means["base"],
-            "interaction": means["ab"] - means["a"] - means["b"] + means["base"]}

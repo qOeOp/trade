@@ -39,7 +39,7 @@ from engine.config import ACCOUNT_CONTRACT, instrument_id
 from engine.kline_events import LATE_NS
 from ledger import db, paper as records, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
-from shared.errors import Refusal
+from shared.errors import Refusal, printed_refusal
 from shared.failures import FAILURES, failure_records
 from shared.refusals import refuse
 from paper import compare, runs
@@ -301,12 +301,14 @@ class Daemon:
         env = {name: os.environ[name] for name in CHILD_ENV if name in os.environ}
         done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=timeout,
                               check=False, env=env)
+        if done.returncode:
+            if (refusal := printed_refusal(done.stderr)) is None:
+                raise Failure(500, "PAPER_FAILED", (done.stderr or done.stdout).strip()[-2000:])
+            raise Failure.refused(refusal)
         try:
-            found = json.loads(done.stdout if done.returncode == 0 else done.stderr)
+            found = json.loads(done.stdout)
         except ValueError:
             raise Failure(500, "PAPER_FAILED", (done.stderr or done.stdout).strip()[-2000:]) from None
-        if done.returncode:
-            raise Failure.refused(found)
         self.listed = None
         return found
 

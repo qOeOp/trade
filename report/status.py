@@ -29,7 +29,7 @@ MANY_KINDS = ("interpretation", "search_exposure")
 # The comparison table's measures (the single-run report's), and those where less is better.
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
-# Display-only columns of a 12-quarter window's development years (measures.dev_years); no dominance.
+# Display-only columns of the development years (measures.dev_years); no dominance.
 DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
 IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, runtime_contract, execution, comparable_config_sha256, "
                     f"export_sha256, input_start, trade_start, trade_end, {db.IMAGE_DIGEST}")
@@ -527,7 +527,7 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     of that window without economic evidence are listed apart with their reasons and no measures. With the
     line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
     else null. Each run shows its worst development year and its return without the best one (DEV_YEAR_COLUMNS),
-    null unless the window is three whole years. Nothing is ranked, scored or stored."""
+    null for a window of one year or less. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     identities, current, passed, without, candidates = _compared(conn, record, checker, records)
     read = {trial_id: (measures.derive_measures(facts), deflated_range(facts, testing), measures.dev_years(facts))

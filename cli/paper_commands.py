@@ -98,7 +98,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the paper nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the paper nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     paper = verbs("paper", "paper runs on live public market data with simulated fills")
     command = verb(paper, "start", "declare a paper run of a candidate and start its containers")
     command.epilog = textwrap.fill(

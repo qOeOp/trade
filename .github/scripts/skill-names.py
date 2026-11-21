@@ -71,7 +71,7 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
         return {option for action in parser._actions for option in action.option_strings}
 
     tree, runners = {}, set()
-    for noun, noun_parser in children(cli._parser()).items():
+    for noun, noun_parser in children(cli.build_parser()).items():
         tree[noun] = {}
         for verb, verb_parser in children(noun_parser).items():
             tree[noun][verb] = options(verb_parser)

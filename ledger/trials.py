@@ -48,7 +48,7 @@ Binder = Callable[[db.LedgerConnection, Mapping], Mapping]
 BOUND_COLUMNS = frozenset(("line_id", "research_registration_id", "validation_registration_id"))
 
 
-def _utc(ns: int) -> datetime:
+def utc(ns: int) -> datetime:
     return EPOCH + timedelta(microseconds=ns // 1000)
 
 
@@ -175,8 +175,8 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
                "runtime_contract": identity["runtime_contract"], "platform": identity["platform"],
                "build_revision": identity.get("build_revision"),
                **{key: value for key, value in columns.items() if key != "instruments"},
-               "input_start": _utc(window["start"]), "trade_start": _utc(window["trade_start"]),
-               "trade_end": _utc(window["end"])}
+               "input_start": utc(window["start"]), "trade_start": utc(window["trade_start"]),
+               "trade_end": utc(window["end"])}
         bound = dict(binder(c, {**row, "instruments": columns["instruments"],
                                 "input_coverage": json.loads(input_coverage)})) if binder is not None else {}
         if set(bound) - BOUND_COLUMNS:

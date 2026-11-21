@@ -1,12 +1,10 @@
-"""A declared two-by-two read from its four corners, and the read-time views that facts recorded
-after sealing must not bend: a retry after a later source review, each out-of-sample member's own
-design, and a run whose records no longer verify. One throwaway ledger whose lineage is base, a and
-b (both children of base) and ab (a child of a, the merge of a and b); the tests run in order and
-the later ones tamper with it. Never the active ledger."""
+"""The read-time views that facts recorded after sealing must not bend: a retry after a later source
+review, each out-of-sample member's own design, and a run whose records no longer verify. One
+throwaway ledger whose lineage is base, a and b (both children of base) and ab and sibling (both
+children of a); the tests run in order and the later ones tamper with it. Never the active ledger."""
 
 from __future__ import annotations
 
-import math
 import unittest
 from unittest.mock import patch
 
@@ -24,11 +22,9 @@ BASE = SOURCE + b"FIRST = 1\nMIDDLE = 0\nSECOND = 2\n"
 A = BASE.replace(b"FIRST = 1", b"FIRST = 10")
 B = BASE.replace(b"SECOND = 2", b"SECOND = 20")
 AB = A.replace(b"SECOND = 2", b"SECOND = 20")
-NOT_THE_MERGE = A.replace(b"SECOND = 2", b"SECOND = 21")
-B_LATE = BASE.replace(b"SECOND = 2", b"SECOND = 22")
-AB_LATE = A.replace(b"SECOND = 2", b"SECOND = 22")
+SIBLING = A.replace(b"SECOND = 2", b"SECOND = 21")
 RETURNS = {"a": [0.001, -0.0005], "b": [0.0005, -0.0006, 0.0002], "ab": [0.002, -0.001, 0.0005],
-           "not_the_merge": [0.0015, -0.0002], "b_late": [0.0004, -0.0001], "ab_late": [0.001, 0.0002, -0.0004]}
+           "sibling": [0.0015, -0.0002]}
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -51,39 +47,28 @@ class IntegrityTests(unittest.TestCase):
         cls.replay("base")
         cls.derive("a", A, "base", "base", "the first change")
         cls.derive("b", B, "base", "base", "the second change")
-        interaction = {"base": cls.refs["base"], "a": cls.refs["a"], "b": cls.refs["b"]}
-        cls.derive("ab", AB, "a", "a", "the second change", interaction)
-        cls.derive("not_the_merge", NOT_THE_MERGE, "a", "a", "another second change", interaction)
-        # A corner registered before its run: the interaction is declared while b_late has not run yet.
-        cls.publish("b_late", B_LATE, "base", "a late second change")
-        cls.register_child("b_late", B_LATE, "base")
-        cls.publish("ab_late", AB_LATE, "a", "a late second change")
-        cls.register_child("ab_late", AB_LATE, "a",
-                           {"base": cls.refs["base"], "a": cls.refs["a"], "b": cls.refs["b_late"]})
-        cls.replay("b_late")
-        cls.replay("ab_late")
+        cls.derive("ab", AB, "a", "a", "the second change")
+        cls.derive("sibling", SIBLING, "a", "a", "another second change")
 
     @classmethod
     def publish(cls, name: str, data: bytes, parent: str | None, difference: str | None) -> None:
-        cls.refs[name] = strategies.publish_candidate(cls.world.profile, data, "lattice", "Fixture", f"corner {name}",
+        cls.refs[name] = strategies.publish_candidate(cls.world.profile, data, "lattice", "Fixture", f"candidate {name}",
                                                       parent=cls.refs[parent] if parent else None,
                                                       difference=difference)["candidate"]
 
     @classmethod
-    def register_child(cls, name, data, control, interaction=None) -> None:
+    def register_child(cls, name, data, control) -> None:
         world = cls.world
         prediction = {"mechanism": [{"slice": "capital_scaled", "measure": "unit_return", "direction": "up",
                                      "duty": "F3", "reason": "fixture"}], "outcomes": dict(OUTCOMES)}
-        if interaction is not None:
-            prediction["interaction"] = interaction
         cls.registrations[name] = world.register(world.body(
             [cls.refs[name]], {cls.refs[name]: world.prechecked(data)},
             control_trial_id=cls.runs[control]["trial_id"], duties=["F3"], prediction=prediction))["registration_id"]
 
     @classmethod
-    def derive(cls, name, data, parent, control, change, interaction=None) -> None:
+    def derive(cls, name, data, parent, control, change) -> None:
         cls.publish(name, data, parent, change)
-        cls.register_child(name, data, control, interaction)
+        cls.register_child(name, data, control)
         cls.replay(name)
 
     @classmethod
@@ -105,41 +90,7 @@ class IntegrityTests(unittest.TestCase):
         with db.read_as_of(self.profile) as conn:
             return [value for _, value, _ in measures.run_facts(conn, self.runs[name]["trial_id"])["returns"]]
 
-    def test_1_a_declared_two_by_two_gives_the_uncorrected_interaction_and_both_contributions(self):
-        found = comparison.compare(self.profile, self.registrations["ab"], self.runs["ab"]["trial_id"])
-        interaction = found["attribution"]["interaction"]
-        self.assertTrue(interaction["available"], interaction["reason"])
-        self.assertEqual({name: item["trial_id"] for name, item in interaction["corners"].items()},
-                         {name: self.runs[name]["trial_id"] for name in ("base", "a", "b", "ab")})
-        logs = {name: sum(map(math.log1p, self.series(name))) / 31 for name in ("base", "a", "b", "ab")}
-        expected = logs["ab"] - logs["a"] - logs["b"] + logs["base"]
-        self.assertAlmostEqual(interaction["test"]["mean_daily_log_difference"], expected, places=12)
-        weighted = comparison.paired([self.series("base"), self.series("a")], [self.series("b"), self.series("ab")],
-                                     found["evidence"]["design"], 1, weights=(1, -1, -1, 1))
-        self.assertEqual(interaction["test"]["mean_log_basic_interval"], weighted["mean_log_basic_interval"])
-        self.assertEqual((interaction["uncorrected"], interaction["p"]), (True, None))
-        self.assertFalse({"p_one_sided", "p_bonferroni"} & set(interaction["test"]), "no p for an interaction")
-        self.assertFalse(any("p_one_sided" in item for item in interaction["test"]["block_sensitivity"]))
-        parts = interaction["contributions"]
-        self.assertAlmostEqual(parts["a"] + parts["b"], logs["ab"] - logs["base"], places=12)
-        self.assertAlmostEqual(parts["a"], ((logs["a"] - logs["base"]) + (logs["ab"] - logs["b"])) / 2, places=12)
-        self.assertIsNotNone(found["evidence"]["p_one_sided"], "the paired test of the comparison itself stands")
-
-    def test_2_corners_that_do_not_attest_the_shape_leave_the_rest_of_the_comparison(self):
-        cases = {"not_the_merge": "is not the source of", "ab_late": "not before the declaring registration"}
-        for name, why in cases.items():
-            with self.subTest(corner=name):
-                found = comparison.compare(self.profile, self.registrations[name], self.runs[name]["trial_id"])
-                interaction = found["attribution"]["interaction"]
-                self.assertFalse(interaction["available"])
-                self.assertTrue(interaction["reason"].startswith("INTERACTION_UNATTESTED: "), interaction["reason"])
-                self.assertIn(why, interaction["reason"])
-                self.assertIsNotNone(found["evidence"]["mean_daily_log_difference"])
-                self.assertTrue(found["attribution"]["slices"]["trade_pairs"]["available"])
-        plain = comparison.compare(self.profile, self.registrations["a"], self.runs["a"]["trial_id"])
-        self.assertIsNone(plain["attribution"]["interaction"], "no declaration, no interaction")
-
-    def test_3_a_source_review_recorded_after_sealing_does_not_make_a_passed_attempt_retryable(self):
+    def test_1_a_source_review_recorded_after_sealing_does_not_make_a_passed_attempt_retryable(self):
         trial_id = self.world.open_precheck(BASE)
         capture(self.world.conn, trial_id, BASE)
         precheck.record_review(self.profile, self.world.review_body(
@@ -187,7 +138,7 @@ class IntegrityTests(unittest.TestCase):
             self.profile, "SELECT registration_id FROM validation_registration WHERE op_id = %s", (op,))
         return registration_id
 
-    def test_4_each_out_of_sample_member_is_tested_by_its_own_registered_design(self):
+    def test_2_each_out_of_sample_member_is_tested_by_its_own_registered_design(self):
         registered = self.world.plan(self.registrations["base"])["comparison"]
         designs = [{**registered, "seed": 3}, {**registered, "seed": 29, "block_days": 3}]
         first = self.out_of_sample("a", designs[0], "v:a", bind=True)
@@ -207,7 +158,7 @@ class IntegrityTests(unittest.TestCase):
                          comparison.holm([members[self.refs[name]]["p_one_sided"] for name in ("a", "b")]))
         self.assertFalse(any(item.startswith("FAMILY_PROVISIONAL") for item in found["limitations"]))
 
-    def test_4b_a_family_with_missing_p_is_corrected_over_its_registered_size_and_read_provisional(self):
+    def test_2b_a_family_with_missing_p_is_corrected_over_its_registered_size_and_read_provisional(self):
         """A third registration of the same window that nothing binds, and a member whose bootstrap
         gives no p: the one observed p = 0.02 is corrected with m = 3 to 0.06, the family reads
         provisional and the limitation names the two members without a p."""
@@ -231,8 +182,8 @@ class IntegrityTests(unittest.TestCase):
                          [(None, None), (None, None)])
         self.assertEqual(family["interval_coverage"], 1 - found["single"]["design"]["alpha"] / 3)
 
-    def test_5_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
-        trial_id = self.runs["not_the_merge"]["trial_id"]
+    def test_3_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
+        trial_id = self.runs["sibling"]["trial_id"]
         self.admin_sql(("INSERT IGNORE INTO evidence_content (content) VALUES ('{}')", None),
                        ("UPDATE evidence SET sha256 = SHA2('{}', 256) WHERE bundle = %s AND path = %s",
                         (f"trial-{trial_id}-start", problems.COVERAGE)),
@@ -244,7 +195,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertTrue(broken["reasons"][0].startswith("EXECUTION_IDENTITY: "))
         self.assertTrue(attempts[self.runs["ab"]["trial_id"]]["availability"]["economic_evidence_available"])
         counted = status.research_status(self.profile)
-        self.assertEqual(counted["unverified_runs"], [{"trial_id": self.runs["not_the_merge"]["trial_id"],
+        self.assertEqual(counted["unverified_runs"], [{"trial_id": self.runs["sibling"]["trial_id"],
                                                        "reason": broken["reasons"][0]}])
         self.assertEqual(counted["valid_research_runs"] + counted["diagnostic_only_research_runs"]
                          + counted["invalid_research_runs"] + counted["unfinished_research_attempts"],

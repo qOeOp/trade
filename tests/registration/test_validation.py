@@ -17,7 +17,7 @@ from unittest.mock import patch
 from ledger import db, trials, witness
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
-from report import comparison, graph, review as ledger_review
+from report import comparison, graph, history as report_history, review as ledger_review
 from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, binder as stand_in_binder,
                                coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
@@ -42,6 +42,11 @@ def checkout(root: Path) -> tuple[Path, Path]:
     git(clone, "commit", "-q", "-m", "first")
     git(clone, "push", "-q", "origin", "HEAD:main")
     return remote, clone
+
+
+def decided(conn, source_sha256) -> dict:
+    """A stand-in for report.history.require_unfalsified: these fixtures' candidate has no closing history test."""
+    return {"line": "rsi-root", "judged_on": "holdout"}
 
 
 def stale(checkout_root) -> str:
@@ -270,7 +275,7 @@ class ValidationTests(unittest.TestCase):
         start, end = cls.windows.get(label, cls.windows["bound"])
         arguments = {"candidate": cls.unrun["candidate"] if label == "unrun" else "rsi@1", "window_start": start,
                      "window_end": end, "universe_rule": "pool-v1", "market": MARKET_DAY, "design": DESIGN,
-                     "retry_of": None, "op_id": f"validation:{label}", **overrides}
+                     "retry_of": None, "op_id": f"validation:{label}", "unfalsified": decided, **overrides}
         return validation.validation_register(cls.world.profile, market_profile=cls.world.market, **arguments)
 
     def setUp(self):
@@ -441,7 +446,10 @@ class ValidationTests(unittest.TestCase):
                  ({"window_start": later, "window_end": later + timedelta(days=1),
                    "retry_of": self.registered["unwitnessed"]["registration_id"]}, "RETRY_NOT_ALLOWED"),
                  ({"retry_of": self.registered["unwitnessed"]["registration_id"]}, "RETRY_NOT_ALLOWED"),
-                 ({"window_start": datetime.now(UTC) - timedelta(days=1)}, "REGISTRATION_TOO_LATE")]
+                 ({"window_start": datetime.now(UTC) - timedelta(days=1)}, "REGISTRATION_TOO_LATE"),
+                 # 20261120-05: the real check; the fixture line has no history trial of the candidate
+                 ({"window_start": later, "window_end": later + timedelta(days=1),
+                   "unfalsified": report_history.require_unfalsified}, "HISTORY_UNDECIDED")]
         for overrides, expected in cases:
             with self.subTest(overrides=overrides):
                 self.assertEqual(refused(self.register, f"refused-{expected}", **overrides).code, expected)

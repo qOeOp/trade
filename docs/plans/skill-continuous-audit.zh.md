@@ -41,7 +41,7 @@
   - 带 `python -m cli.main` 前缀；
   - 首词是 CLI 名词，第二个词符合 `[a-z][a-z-]+`，并且整个片段不超过 3 个词或者带有 `--` 参数。
 - **调用片段的检查方法**：
-  - 名词和动词必须在 `cli.main._parser()` 里；
+  - 名词和动词必须在 `cli.main.build_parser()` 里；
   - 独立的 `--` 之前的参数必须属于这个动词；
   - `--` 之后的参数只在 runner 动词上检查，必须属于 `engine/config.py` 的解析器，但要去掉 CLI 自己重建的那几个（`--market-root`、`--market-commit`、`--strategy-file`）。
 - **路径**：Markdown 相对链接，以及 `references/…`、`templates/…`、`assets/…` 形式的片段，必须指向存在的文件。
