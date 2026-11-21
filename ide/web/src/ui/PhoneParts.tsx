@@ -64,11 +64,12 @@ export const PhoneHeading = ({ title, aside }: { title: string; aside?: ReactNod
 export const Side = ({ long, word }: { long: boolean | null; word?: string }) => long === null ? <span className="text-fg-faint">{MISSING}</span>
   : <span className={long ? "text-pnl-up" : "text-pnl-down"}>{word ?? (long ? "Long" : "Short")}</span>;
 
-/** A held position on one line: the contract, its side, size and entry, its open profit at the right. */
+/** A held position: the contract, its side, size and entry, its open profit at the right. A long contract name and
+ *  price wrap the entry whole onto a second line rather than cut it (1000PEPEUSDT … @ 0.0123456). */
 export function HeldLine({ held }: { held: Held }) {
   return (
     <span className="flex items-baseline gap-2 text-dense tabular-nums">
-      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry) ?? MISSING}</span>
+      <span className="min-w-0"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} <span className="whitespace-nowrap">@ {fixed(held.entry) ?? MISSING}</span></span>
       {held.pnl != null && <span className={`ml-auto shrink-0 ${pnlClass(held.pnl)}`}>{signed(held.pnl)}</span>}
     </span>
   );
