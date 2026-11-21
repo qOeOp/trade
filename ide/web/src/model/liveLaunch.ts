@@ -103,6 +103,7 @@ function account({ source, edits, checked }: LaunchInput, closed: string | null,
   const wallet = venue?.wallet ?? null, available = venue?.available ?? null, budget = wallet === null ? null : cashFloor(wallet);
   const funds = wallet !== null && available !== null ? Math.min(Number(wallet), Number(available)) : null;
   const evidence = source?.read === "found" && launchSymbols(source, edits) ? source.evidence : null;
+  const unbacked = evidence?.state === "missing";
   const found = evidence?.state === "found" ? evidence : null, tolerance = found ? Number(found.tolerance) : 0;
   const nearest = wallet !== null && found?.replays.length
     ? found.replays.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
@@ -115,7 +116,9 @@ function account({ source, edits, checked }: LaunchInput, closed: string | null,
     { id: "check", label: "Account check", source: "Read-only, by the Live service", editable: false, required: true,
       value: check ? { passed: "Passed", failed: "Failed", running: "Running", unknown: "Unknown" }[check.state] : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
-      reason: passed ? "Live checks the account again when it starts." : check?.state === "failed"
+      reason: passed ? "Live checks the account again when it starts." : check?.state === "failed" && unbacked
+        ? "Live read the account, then stopped: no replay backs the candidate yet (Strategy). The wallet below is what a replay must start near; check again once one does."
+        : check?.state === "failed"
         ? "Live refused the account: a mode, the margin type or leverage, the key's permissions or the funds. The rows here show what it observed; Requests has the rest."
         : check?.state === "running" ? "Reading the account at Binance. This page refreshes on its own." : "Not checked yet. It reads the account; it places no order." },
     flag("trading", "Trading enabled", venue?.canTrade, true, "Binance reports trading disabled for this account."),
@@ -184,7 +187,9 @@ export function launchColumns(input: LaunchInput): LaunchColumn[] {
 export const ready = (columns: readonly LaunchColumn[]): boolean =>
   columns.every((column) => column.rows.every((row) => !row.required || (row.value !== null && (row.mark === "pass" || row.mark === "shown"))));
 
-/** What the account check needs first: Live taking actions, a candidate, contracts, a key, and evidence not known missing. */
+/** What the account check needs first: Live taking actions, a candidate, contracts, a key and a reconciled Paper run.
+ *  Not replay evidence: the check reads the wallet a replay must start near, so it runs before there is one (Live then
+ *  refuses the check at its end, and the start, LIVE_EVIDENCE_MISSING; startBlocker). */
 export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | null {
   const closed = unavailableReason(input.view), source = input.source;
   if (closed) return closed;
@@ -193,7 +198,9 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   if (source.read !== "found") return source.read === "absent" ? "This version cannot run live (Strategy)." : "Waiting for the candidate.";
   if (!launchSymbols(source, input.edits)) return "Needs valid contracts first (Strategy).";
   if (!input.view.credentials.some((item) => item.selected && !item.removed)) return "Save an API key in Settings first.";
-  if (source.evidence?.state === "missing") return "Needs replay evidence first (Strategy).";
-  if (source.evidence?.state !== "found") return "Waiting for the replay evidence.";
   return paperBlocker(source.paper ?? null);
 }
+
+/** Why Start stays shut beyond the columns' rows: no replay of the candidate on these contracts yet. */
+export const startBlocker = ({ source, edits }: LaunchInput): string | null =>
+  source?.read === "found" && launchSymbols(source, edits) && source.evidence?.state === "missing" ? "Needs replay evidence first (Strategy)." : null;

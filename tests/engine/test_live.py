@@ -593,6 +593,25 @@ class LiveTests(unittest.TestCase):
         self.assertFalse((self.output / "armed.json").exists())
         self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
 
+    def test_a_run_prepared_without_evidence_reads_the_account_then_is_refused(self):
+        """G-69 (2026-11-21): the account check of a run with no replay recorded keeps its wallet observation, then
+        refuses LIVE_EVIDENCE_MISSING after every other check; a start is refused the same way and never arms."""
+        from engine import live_venue
+        self.manifest["evidence"] = []
+        snapshot = self.flat_snapshot()
+        for mode in ("preflight", "run"):
+            with self.subTest(mode=mode), mock.patch.object(live, "require_evidence", live_venue.require_evidence), \
+                    mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
+                    mock.patch.object(live, "build_node") as build, \
+                    mock.patch.object(live, "require_admission") as admission, \
+                    mock.patch.object(live, "source_for_run") as source:
+                self.assertEqual(refused(live.execute, self.runner_args(mode), error=LiveRefusal).code, "LIVE_EVIDENCE_MISSING")
+                admission.assert_called_once()
+                source.assert_not_called()
+                build.assert_not_called()
+            self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
+            self.assertFalse((self.output / "armed.json").exists())
+
     def held_snapshot(self):
         return {**self.flat_snapshot(), "observed_ns": 124, "positions": [{"symbol": "ETHUSDT", "positionAmt": "-0.01"}]}
 

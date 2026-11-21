@@ -1,7 +1,8 @@
-"""Live runs a candidate only with a replay of it behind the run (R2, user 2026-11-12): preparation refuses until the
-ledger holds a completed, audited replay of that source on Live's instruments in bars, inside a window its research
-already saw, by the replay code of the execution image, and records it; the runner then needs one that started near
-the USDT wallet. Throwaway Dolt only."""
+"""Live runs a candidate only with a replay of it behind the run (R2, user 2026-11-12): preparation records each
+completed, audited replay of that source on Live's instruments in bars, inside a window its research already saw, by the
+replay code of the execution image, and a run that records none is refused at its start; the runner then needs one that
+started near the USDT wallet. A run without one may still check the account, so the wallet a replay must start near is
+read first (G-69, 2026-11-21). Throwaway Dolt only."""
 
 from decimal import Decimal
 import hashlib
@@ -15,7 +16,7 @@ from engine.live_venue import EVIDENCE_TOLERANCE, require_evidence
 from ledger import db
 from live import control, runs, state
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP
-from tests.live.authority_fixture import install, prepare
+from tests.live.authority_fixture import install, launch, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.ledger.dolt import source
 from tests.registration.world import World, capture
@@ -73,6 +74,15 @@ class ReplayEvidenceTests(LiveFixture):
         self.assertFalse((state.directory(self.root, run_id) / "inputs" / "manifest.json").exists())
         return caught.exception.code
 
+    def unbacked(self, run_id: str, **options) -> str:
+        """Prepared with no replay recorded, then refused at its start, before any key or container; the runner
+        refuses it too. Returns the start's refusal code."""
+        manifest = self.prepare(run_id, **options)
+        self.assertEqual(manifest["evidence"], [])
+        self.assertEqual(refused(require_evidence, wallet("100"), manifest, error=LiveRefusal).code, "LIVE_EVIDENCE_MISSING")
+        with patch.object(runs, "_bound_credential", side_effect=AssertionError("key read")):
+            return refused(launch, self.root, run_id, self.credentials, "run", scope=self.scope, error=LiveRefusal).code
+
     def explore(self, symbols=("AAAUSDT",), days=2, **capture_options) -> int:
         """An explore trading `days` days from 2026-01-06."""
         data = self.candidate["source"]
@@ -81,16 +91,16 @@ class ReplayEvidenceTests(LiveFixture):
                 **capture_options)
         return trial_id
 
-    def test_preflight_is_refused_without_evidence_and_accepted_with_it(self):
-        self.assertEqual(self.refused("no-replay"), "LIVE_EVIDENCE_MISSING")
+    def test_a_start_is_refused_without_evidence_and_accepted_with_it(self):
+        self.assertEqual(self.unbacked("no-replay"), "LIVE_EVIDENCE_MISSING")
         self.assertEqual(self.read_ahead(), [])
         self.explore(audit_exit=1)  # its audit did not pass
         self.explore(symbols=("BBBUSDT",))  # not Live's instruments
         self.explore(days=40)  # runs past the research window's end: a window research never saw
-        self.assertEqual(self.refused("unbacked"), "LIVE_EVIDENCE_MISSING")
+        self.assertEqual(self.unbacked("unbacked"), "LIVE_EVIDENCE_MISSING")
         backing = self.explore()
         other_code = {**CODE, "audit_source_sha256": "4" * 64}
-        self.assertEqual(self.refused("other-replay-code", evidence_code=other_code), "LIVE_EVIDENCE_MISSING")
+        self.assertEqual(self.unbacked("other-replay-code", evidence_code=other_code), "LIVE_EVIDENCE_MISSING")
 
         manifest = self.prepare("backed")
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
@@ -118,7 +128,7 @@ class ReplayEvidenceTests(LiveFixture):
                 self.assertEqual(self.refused("falsified"), "LIVE_CANDIDATE_FALSIFIED")
             with patch.object(history, "require_unfalsified", return_value={"line": "rsi-root", "judged_on": "holdout"}):
                 self.assertTrue(self.prepare("passed")["evidence"])
-    def test_preparation_needs_a_reconciled_paper_run_after_the_replay_evidence(self):
+    def test_preparation_needs_a_reconciled_paper_run(self):
         """20261120-06 (user 2026-11-21): the serving control's answer (live.reconcile.require), asked last."""
         asked = []
 
