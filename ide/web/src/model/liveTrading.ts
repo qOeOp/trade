@@ -24,7 +24,7 @@ export type LiveCredential = {
 };
 /** Telegram notifications: whether a bot token and its chat are saved, the last delivery and the last failure. */
 export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastError: { code: string; atNs: string | null } | null; dropped: number };
-export type LivePlanField = { id: string; label: string; value: string };
+type LivePlanField = { id: string; label: string; value: string };
 export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
   id: string; candidate: string; sourceHash: string | null; entryClass: string | null;
