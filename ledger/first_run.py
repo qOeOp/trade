@@ -27,6 +27,7 @@ import tempfile
 import threading
 
 from ledger import publish, server
+from shared.http import encode, send_json, trusted
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -168,16 +169,10 @@ class _Page:
 def _handler(page: _Page, host: str) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status: int, value: dict) -> None:
-            body = json.dumps(value).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            send_json(self, status, encode(value))
 
         def admitted(self) -> bool:
-            if self.headers.get("Host") != host:
+            if not trusted(self, (host,)):
                 self.reply(403, {"code": "FORBIDDEN", "message": "this port answers only the IDE"})
             elif self.path != PATH:
                 self.reply(404, {"code": "NOT_FOUND", "message": self.path})

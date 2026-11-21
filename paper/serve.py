@@ -40,6 +40,7 @@ from engine.config import ACCOUNT_CONTRACT, instrument_id
 from engine.kline_events import LATE_NS
 from ledger import db, paper as records, server, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
+from shared.http import encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
 from shared.failures import FAILURES, failure_records
 from shared.refusals import refuse
@@ -635,14 +636,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
         protocol_version = "HTTP/1.1"
 
         def json(self, status: int, value) -> None:
-            body = json.dumps(value, default=str, ensure_ascii=False).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(body)
+            send_json(self, status, encode(value))
 
         def refuse(self, failure: Failure) -> None:
             self.close_connection = True
@@ -650,7 +644,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             self.json(failure.status, failure.body)
 
         def admitted(self) -> bool:
-            if self.headers.get("Host") not in hosts or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+            if not trusted(self, hosts, ("cross-site", "same-site")):
                 self.refuse(Failure(403, "FORBIDDEN", "requests come from the trade IDE's own page"))
                 return False
             return True

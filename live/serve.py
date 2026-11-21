@@ -20,6 +20,7 @@ import time
 from urllib.parse import unquote, urlsplit
 
 from engine.live_errors import LiveRefusal
+from shared.http import send_json, trusted
 from live import authority, configuration, control, credentials, daily, notify, reconcile, release, runs, state
 
 
@@ -123,23 +124,14 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
             evidence: control.Evidence | None = None, reconciliation: reconcile.Reconciliation | None = None):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, status: int, value: dict):
-            body = state.encode(value)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.close_connection = True
             try:
-                self.wfile.write(body)
+                send_json(self, status, state.encode(value), close=True)
             except OSError:
                 pass
 
         def route(self):
             url = urlsplit(self.path)
-            if self.headers.get("Host") != "live-control" or url.query or url.fragment:
+            if not trusted(self, ("live-control",)) or url.query or url.fragment:
                 raise configuration.fail()
             return url.path
 
