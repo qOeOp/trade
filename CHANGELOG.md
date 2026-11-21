@@ -43,6 +43,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   ("open it again to retry") instead of `PRODUCT_FAILED`, which the page showed as data not served; the Runs page's
   backtest asks again when the trial is shown again. `/api/about` reads `ledger service status` once per head and
   30 s instead of once per open page per minute.
+- IDE (fix): once the deployment's sign-in expires (OAuth2 Proxy answers every `/api` request 401), the page stops
+  asking. Before, a page opened or restored with an expired session asked `/api/setup/` every 3 s forever and kept
+  its 15-60 s polls (Live, Market, the Agent's health, About, market import) going: the production proxy logged
+  about 2,000 denied requests an hour for three days. Now the first 401 stops every poll, the graph's place says
+  "Sign in again to read the ledger." instead of a JSON parse error, and the existing session notice offers the
+  GitHub sign-in, which reloads the page.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays

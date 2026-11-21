@@ -17,7 +17,7 @@ async function page(query = "?line=line-a") {
     let value = initial;
     return { get: () => value, set: (next) => { value = next; } };
   };
-  const graph = loader({ context, sources: ["state/researchLines", "lib/lines"], packages: [], stubs: {
+  const graph = loader({ context, sources: ["state/researchLines", "lib/lines", "lib/transport"], packages: [], stubs: {
     "state/atom": { atom, useAtom: (a) => a.get() },
     "lib/storage": { keep: () => Promise.resolve(), readKept: () => Promise.resolve(null), forgetKept: () => Promise.resolve() },
     "state/update": { update: { set() {} } },
