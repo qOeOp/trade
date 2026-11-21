@@ -10,7 +10,7 @@ whatever the replay's outcome.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 
@@ -99,7 +99,7 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
             clipped = (max(lo, metrics.moment_ns(start)), min(hi, metrics.moment_ns(end)))
             if clipped[0] < clipped[1] and not _covered(clipped, given.get(symbol)):
                 raise changed(f"{symbol} is removed from or shortened in the strategy's membership",
-                              _month_of(trials._utc(clipped[0])), symbol)
+                              _month_of(trials.utc(clipped[0])), symbol)
 
 
 def candidate_registrations(conn: db.LedgerConnection, source_sha256: str) -> list[dict]:
@@ -140,12 +140,16 @@ def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mappi
 
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
                         universe_rule: str, market: str | None, design: Mapping, retry_of: int | None,
-                        op_id: str | None, *, market_profile, tsa_url: str | None = None) -> dict:
+                        op_id: str | None, *, market_profile,
+                        unfalsified: Callable[[db.LedgerConnection, str], object],
+                        tsa_url: str | None = None) -> dict:
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
     `market` is the market day reference (None: the market's default head), resolved through the
-    market `market_profile`."""
+    market `market_profile`. `unfalsified` (report.history.require_unfalsified, a layer above) refuses a candidate
+    that its line's closing history test falsified or has not decided (20261120-05, user 2026-11-21): a validation
+    spends its window once, on a candidate that survived its history."""
     try:
         register.validate_design(design)
     except Refusal as exc:
@@ -164,6 +168,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
+        unfalsified(conn, row["source_sha256"])
         market_day = seams.current.market(market_profile).resolve_day(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)

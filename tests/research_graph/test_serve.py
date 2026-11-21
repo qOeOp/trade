@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
 
 from research_graph import cli, serve  # noqa: E402
+from cli.common import _print, refusal_json  # noqa: E402
+from shared.errors import Refusal  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
 
 POLL = 0.01  # shutdown() waits one poll of serve_forever, 0.5 s by default
@@ -845,6 +847,19 @@ class ProductReadsTests(unittest.TestCase):
     def test_a_bound_below_one_is_refused(self):
         with self.assertRaises(ValueError):
             serve.Product(Path("/nowhere"), "copy", reads=0)
+
+    def test_a_refusal_printed_after_a_launcher_warning_keeps_its_code_and_any_other_failure_stays_product_failed(self):
+        printed = io.StringIO()
+        _print(printed, refusal_json(Refusal("LEDGER_UNAVAILABLE", "the ledger service is not answering")))
+        warning = "warning: `VIRTUAL_ENV=/opt/venv` does not match the project environment path `.venv`\n"
+        crashed = 'Traceback (most recent call last):\n  File "cli/main.py"\n{"code": "X"} is not JSON here\nKeyError: 1\n'
+        product = serve.Product(Path("/nowhere"), "copy")
+        for stderr, code in ((warning + printed.getvalue(), "LEDGER_UNAVAILABLE"), (crashed, "PRODUCT_FAILED"),
+                             (warning + printed.getvalue() + "Segmentation fault\n", "PRODUCT_FAILED")):
+            with self.subTest(code), mock.patch.object(serve.subprocess, "run", return_value=serve.subprocess.CompletedProcess(
+                    [], 1, stdout="", stderr=stderr)), self.assertRaises(serve.ProductError) as caught:
+                product.run("ledger", "sql")
+            self.assertEqual(caught.exception.body["code"], code)
 
 
 class MarketImportTests(unittest.TestCase):

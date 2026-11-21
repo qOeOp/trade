@@ -157,6 +157,20 @@ def _failure(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
 
+def _refusal(stderr: str) -> dict | None:
+    """The refusal a product command printed on stderr: one JSON object, the stream's last output, past any lines a
+    launcher such as `uv` wrote before it (shared.errors.printed_refusal, kept here as this module imports no product
+    package); None when stderr does not end in one, as after a crash."""
+    text = stderr.rstrip()
+    for start in reversed([match.start() for match in re.finditer(r"^\{", text, re.MULTILINE)]):
+        try:
+            value = json.loads(text[start:])
+        except ValueError:
+            continue
+        return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
+    return None
+
+
 def mirror_head(url: str) -> Callable[[], str]:
     """A research mirror's head as its controller (`ledger mirror`, already running) answers the sync status, in
     place of a product process per read; a controller that does not give one raises OSError or ValueError."""
@@ -217,12 +231,12 @@ class Product:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ProductError(_failure("PRODUCT_UNAVAILABLE", f"{' '.join(arguments[:2])}: {exc}")) from exc
         try:
-            value = json.loads(done.stderr if done.returncode else done.stdout)
+            value = _refusal(done.stderr) if done.returncode else json.loads(done.stdout)
         except ValueError:
             value = None
         if done.returncode or not isinstance(value, dict):
             text = (done.stderr or done.stdout).strip()[-500:]
-            raise ProductError(value if isinstance(value, dict) and "code" in value
+            raise ProductError(value if isinstance(value, dict)
                                else _failure("PRODUCT_FAILED", f"{' '.join(arguments[:2])}: {text}"))
         return value
 

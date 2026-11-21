@@ -44,6 +44,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
   answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
 
+- The research graph service, the paper daemon and the research mirror's sync now read a failed command's refusal
+  as the last JSON object on its stderr, past any lines printed before it (doctor 20261121-09): with a `uv` warning
+  first (such as a `VIRTUAL_ENV` that does not match the project), the page showed `PRODUCT_FAILED` and the raw text
+  instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
+  `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
+
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
@@ -54,6 +60,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (same source, image, windows, instruments, export and configuration as an earlier counted history trial), so it
   is not counted twice.
 
+- Replay report `dev_years`: a development period of any length over one year is cut into its whole years from
+  the trade start and, when it ends between two anniversaries, a last part year (`partial`), shown in the IDE's
+  development-year table. Whole years alone are read against the annual target and give `years_at_target` and
+  `worst_year_return`; `return_without_best_year` annualizes the window's days without the best whole year, the
+  part year's included. It was null for every window but three whole years, so lines with a 5–11 quarter
+  development period had no per-year reading.
 - Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
   development period's start) without a passed run, such as one sealed invalid by an audit failure
   (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
@@ -68,6 +80,17 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   Details pages draw its equity, calendar and trades when picked. It still enters no comparison, ranking, research
   run count or line candidate selection; a precheck or explore trial keeps the reason.
 
+- Breaking (registrations): the registration body no longer takes `prediction.interaction`, and the comparison
+  report no longer reads a declared two-by-two (`attribution.interaction`, its four-corner shape check and
+  contributions, the `INTERACTION_UNATTESTED` refusal). A body that still declares one is refused with
+  `REGISTRATION_INVALID`; none of the active ledger's 81 registrations declared one (user 2026-11-21).
+
+- Breaking (validation): `validation registration` takes only a candidate its line's closing history test decided
+  meets the targets (user 2026-11-21, doctor 20261120-05). A candidate the test judged not meeting them is refused
+  `CANDIDATE_FALSIFIED`; one without a history test, or whose verdict lacks a reading (a veto year, the control, the
+  holdout, the targets, or its economic evidence), is refused `HISTORY_UNDECIDED`, naming what is missing. The
+  research-round skill asks about validation when the user picks a candidate after `line close`, no longer when a
+  candidate is accepted during research.
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto

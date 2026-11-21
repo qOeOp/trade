@@ -19,7 +19,7 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Trade structure | Cycles, win rate, average win and loss, expectancy per trade, holding time, exit categories | Difference of the same and the split of the expectancy difference |
 | Trade pairing | — | Coverage, removed and added trades, difference on the same opportunity |
 | Drawdown | Maximum drawdown, duration in days, dominant contract in the drawdown interval | Difference of the same |
-| Prediction check | — | Whether each registered prediction has the same sign; the interaction when one was declared |
+| Prediction check | — | Whether each registered prediction has the same sign |
 | Limitations | Deduplicated list of limitations | Both sides' limitations, merged and deduplicated |
 
 Write every run or comparison report with all the sections of its column, in this order; — marks

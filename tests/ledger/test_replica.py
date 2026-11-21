@@ -187,3 +187,17 @@ class OriginTests(unittest.TestCase):
                     replica.start(Path(root), Path(root), Path(root), origin, 0, Path(root), Path(root))
                 self.assertEqual(caught.exception.code, "USAGE_ERROR")
             started.assert_not_called()
+
+
+class SyncRefusalTests(unittest.TestCase):
+    def test_a_sync_refusal_printed_after_a_warning_line_is_the_error_it_shows(self):
+        printed = Refusal("ORIGIN_UNAVAILABLE", "DoltHub did not answer").as_dict()
+        stderr = "warning: a launcher line\n" + json.dumps(printed, indent=2) + "\n"
+        sync = replica.Sync(type("Profile", (), {"name": "mirror"})())
+        with patch("ledger.replica.subprocess.run",
+                   return_value=replica.subprocess.CompletedProcess([], 1, stdout="", stderr=stderr)):
+            sync.request()
+            until = time.monotonic() + 5
+            while sync.state["state"] == "syncing" and time.monotonic() < until:
+                time.sleep(.01)
+        self.assertEqual(sync.state, {"state": "error", "error": printed})

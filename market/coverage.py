@@ -197,7 +197,7 @@ def _held(market: files.Market, market_day: str, table: str, symbol: str, start_
                 rows += batch.num_rows
                 for name in nulls:
                     counts[name] += batch.column(name).null_count
-        months.append({"month": series._ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
+        months.append({"month": series.ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
                        **({"empty": counts} if nulls else {})})
         if at < entry.start_ms:
             uncovered.append([at, entry.start_ms])
@@ -214,7 +214,7 @@ def metrics_facts(market: files.Market, market_day: str, symbol: str, start_ms: 
     days it holds lacks, the empty ratios and the days up to the market day it does not hold, the first and last stored
     create_time in the interval and the parts with no row, missing days included."""
     found = _held(market, market_day, "metrics", symbol, start_ms, end_ms, metrics.RATIOS)
-    limit = series._ms_day(files.day_end("metrics", market_day))
+    limit = series.ms_day(files.day_end("metrics", market_day))
     gaps = []
     for part in found["months"]:
         month = date.fromisoformat(f"{part['month']}-01")
@@ -249,8 +249,8 @@ def universe_members(profile: dict, at: str | None, start: str, end: str) -> lis
     """Every universe member of the months [start, end) touches, at the market day `at` names."""
     start_ms, end_ms = _ms(start), _ms(end)
     _interval(start_ms, end_ms)
-    first = series._ms_day(start_ms).replace(day=1)
-    last = series._ms_day(end_ms - 1).replace(day=1)
+    first = series.ms_day(start_ms).replace(day=1)
+    last = series.ms_day(end_ms - 1).replace(day=1)
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     return sorted({symbol for month, symbol in universe.months_of(market, market_day) if first <= month <= last})

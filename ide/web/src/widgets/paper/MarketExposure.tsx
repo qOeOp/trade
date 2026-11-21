@@ -121,7 +121,7 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
         )}
         {p.devYears.length > 0 && (
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1">
-            <Head tip="The development window cut at the trade start's anniversaries (UTC), each year's compound return">Development year</Head>
+            <Head tip="The development window cut at the trade start's anniversaries (UTC), each year's compound return; a last part year when the window ends between two">Development year</Head>
             <Head right>Return</Head>
             {p.devYears.map((y) => (
               <Fragment key={y.start}>
@@ -166,7 +166,7 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
           )}
           {p.exBestYearAnnual !== null && (
             <>
-              <Tip content="The window's annual return over the development years without the best one">
+              <Tip content="The window's annual return over its days without the best whole development year">
                 <span className="text-fg-muted">Ex best year (annualized)</span>
               </Tip>
               <span className={`text-right ${tone(p.exBestYearAnnual)}`}>{signedPct(p.exBestYearAnnual, 1)}</span>

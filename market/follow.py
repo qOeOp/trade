@@ -267,7 +267,7 @@ def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
     market = files.open_market(profile, "reader")
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     for entry in files.entries(market, TABLES[kind], symbols):
-        found[str(entry.symbol)].add(series._ms_day(entry.start_ms))
+        found[str(entry.symbol)].add(series.ms_day(entry.start_ms))
     return found
 
 

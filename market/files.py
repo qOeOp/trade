@@ -303,7 +303,7 @@ def last_day(market: Market, table: str) -> date | None:
     for entry in reversed(entries(market, table)):
         moment = last_time(market, entry)
         if moment is not None:
-            return series._ms_day(moment)
+            return series.ms_day(moment)
     return None
 
 
@@ -313,7 +313,7 @@ def bar_months_through(market: Market) -> dict[date, date]:
     for entry in entries(market, "bar"):
         moment = last_time(market, entry)
         if moment is not None:
-            found[series._ms_day(entry.start_ms)] = series._ms_day(moment) + timedelta(days=1)
+            found[series.ms_day(entry.start_ms)] = series.ms_day(moment) + timedelta(days=1)
     return found
 
 
@@ -324,13 +324,13 @@ def followed_metrics(market: Market) -> dict[str, date]:
     held = entries(market, "metrics")
     if not held:
         return {}
-    since = series._day_ms((series._ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
+    since = series._day_ms((series.ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
         moment = last_time(market, entry) if entry.start_ms >= since else None
         if moment is not None:
             symbol = str(entry.symbol)
-            latest[symbol] = max(latest.get(symbol, series._ms_day(moment)), series._ms_day(moment))
+            latest[symbol] = max(latest.get(symbol, series.ms_day(moment)), series.ms_day(moment))
     return latest
 
 
