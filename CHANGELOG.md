@@ -50,6 +50,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (same source, image, windows, instruments, export and configuration as an earlier counted history trial), so it
   is not counted twice.
 
+- Replay report `dev_years`: a development period of any length over one year is cut into its whole years from
+  the trade start and, when it ends between two anniversaries, a last part year (`partial`), shown in the IDE's
+  development-year table. Whole years alone are read against the annual target and give `years_at_target` and
+  `worst_year_return`; `return_without_best_year` annualizes the window's days without the best whole year, the
+  part year's included. It was null for every window but three whole years, so lines with a 5–11 quarter
+  development period had no per-year reading.
 - Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
   development period's start) without a passed run, such as one sealed invalid by an audit failure
   (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
