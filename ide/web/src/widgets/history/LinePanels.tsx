@@ -1,8 +1,12 @@
 import type { HistoryLine } from "../../lib/historyApi";
+import { pickedWay, validationAsk } from "../../model/history";
+import { agentPane, chatControl, useAgentService } from "../../state/agent";
+import { useAtom } from "../../state/atom";
 import { openSource } from "../../state/editors";
+import { activeRun, startDialog, starting, usePaperRuns, usePaperService } from "../../state/paper";
 import { useSelection } from "../../state/selection";
 import { useShown } from "../../state/shown";
-import { showRunsPage } from "../../state/shell";
+import { showRunsPage, showToolWindow } from "../../state/shell";
 import { ProseBlocks } from "../../components/Prose";
 import { Section } from "../../components/Section";
 import { TextButton } from "../../components/TextButton";
@@ -34,15 +38,27 @@ export function LineSummary({ text, colSpan }: { text: string; colSpan: number }
   );
 }
 
-/** The picked replay's way on from the page's header: its version's source and the Runs page (Details and the
- *  breadcrumb already name it). */
-export function PickedBar({ picked }: { picked: Picked }) {
-  if (!picked.version || picked.trial === null) return null;
-  const version = picked.version;
+/** The picked replay's way on from the page's header: its version's source, the Runs page and Run paper… (the start
+ *  ⌘K and the graph's ▶ ask with, while the page reaches a paper daemon and the version has no run on paper); and,
+ *  when its row's verdict meets the targets and the page has an Agent, Validate…, which opens a new chat holding the
+ *  ask for the user to send: registering a validation is the Agent's (Details and the breadcrumb already name it). */
+export function PickedBar({ lines, picked }: { lines: readonly HistoryLine[]; picked: Picked }) {
+  const paper = usePaperService() === "present", listing = usePaperRuns(), agent = useAgentService() === "present";
+  const way = pickedWay(lines, picked), pending = useAtom(starting).has(way?.version ?? "");
+  if (!way) return null;
+  const { line, version } = way;
+  const validate = () => {
+    agentPane.set("chat");
+    showToolWindow("agent", "right");
+    void chatControl.get()?.draft(validationAsk(line, version));
+  };
   return (
     <span className="flex shrink-0 items-center gap-1">
       <TextButton aria-label={`Source of ${version}`} onClick={() => openSource(version)}>Source</TextButton>
       <TextButton aria-label={`Runs of ${version}`} onClick={showRunsPage}>Runs</TextButton>
+      {paper && !activeRun(listing, version) &&
+        <TextButton aria-label={`Run ${version} on paper`} disabled={pending} onClick={() => startDialog.set(version)}>{pending ? "Starting paper…" : "Run paper…"}</TextButton>}
+      {way.validate && agent && <TextButton aria-label={`Validate ${version} out of sample`} onClick={validate}>Validate…</TextButton>}
     </span>
   );
 }
