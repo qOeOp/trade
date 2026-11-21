@@ -16,4 +16,6 @@ rc7 用单调时钟上的定时器收聚合 K 线。主机休眠或 VM 挂起时
 
 ## 还没做
 
-`paper compare` 与 `live compare` 把这类迟到归为已知原因（`late_bar`）。这一半依赖 #3336（Paper 与 Live 的市场证据统一格式）：Paper 现在不记录源码收到的聚合 K 线。等 #3336 合入后另开 PR。
+`paper compare` 与 `live compare` 把这类迟到归为已知原因（`late_bar`）这一半还要用户授权，不按委托做。#3336 合入后两边的行情证据只记一分钟线，聚合 K 线明确登记为不存（[存储字段登记表](stored-fields.zh.md)“Live 证据包的聚合 K 线”一行）；比较能看到的只有一分钟线的迟到。要把聚合 K 线的迟到归因，Paper 日志和 Live 证据包都得新存一种行：源码收到的每根聚合 K 线的桶末与收到时刻。按 AGENTS.md，这一行要先经独立审阅，再由用户逐字段授权。
+
+Live 一侧已有部分覆盖。门关闭时撤下或拒绝的入场，原因是 `bars_missing`，`live compare` 已经按入场闸门（`entry_gate`）归因。没有覆盖的有两类：迟到的聚合 K 线触发的出场，以及 Paper 运行里的全部迟到。
