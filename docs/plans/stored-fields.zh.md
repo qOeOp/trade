@@ -55,5 +55,5 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | 提议 | 决定 | 依据 |
 |---|---|---|
 | Live 准入记下放行它的 Paper 对账（缓存文件或清单字段） | 不存：后台从 Paper 库、市场与镜像推导，每次发布后重算；不过就拒绝 `LIVE_PAPER_UNRECONCILED` | 2026-11-21「我都授权」，「需要我拍板的都按照你的建议来」；哪些 Paper 运行算数见[原决定](https://github.com/qOeOp/trade/blob/fb37817f4c3d6a26ca472ccae298db239ccfcd81/docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md) |
-| 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12；2026-11-21 重审（D-108，用户「全按推荐」，建议以独立评审为准）：K 已在正文首行，格式由 `SEARCH_EXPOSURE_VARIANTS_MISSING` 严格检查，已有字段能表达，加列只换格式不添事实，反要改 CLI、拒绝码、op_id 载荷和 research-round 技能，维持不开列 |
+| 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12；2026-11-21 重审（D-108），用户看过评审后定「108按你建议来」：K 已在正文首行，格式由 `SEARCH_EXPOSURE_VARIANTS_MISSING` 严格检查，已有字段能表达，加列只换格式不添事实，反要改 CLI、拒绝码、op_id 载荷和 research-round 技能，维持不开列 |
 | 参与率读时现算或封存时读市场库 | 不采用：读时每次重放；封存不能多一个对市场库的依赖 | 2026-10-20、10-31 审阅 |
