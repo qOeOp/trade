@@ -138,7 +138,7 @@ and makes no change of approach due.
   register it), or fill masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - Your message with a recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `trials_with_sweeps`, every line's trials and declared offline variants on the
-  contract over an overlapping window, and any `undeclared_sweeps`), and names the other lines (open or closed) whose windows overlap. It gives
+  contract over an overlapping window), and names the other lines (open or closed) whose windows overlap. It gives
   the recommended run's deflated Sharpe range beside them, both ends and never against a bar (`deflated_sharpe`,
   [ratios](../nautilus-report-analysis/references/ratios.md)).
 - Before recommending a candidate, replay a buy-and-hold reference with `replay explore`: a /tmp

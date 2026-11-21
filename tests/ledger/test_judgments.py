@@ -124,7 +124,7 @@ class JudgmentTests(unittest.TestCase):
         first = self.add("search_exposure", body="Evaluated variants: 0\nsignal dates only")
         self.add("search_exposure", body="Evaluated variants: 12\r\ngrid", supersedes=first["judgment_id"])
         self.add("interpretation", body="no variants line needed")
-        self.assertEqual([judgments.declared_variants(body) for body in ("Evaluated variants: 7", "x", "")], [7, None, None])
+        self.assertEqual(judgments.declared_variants("Evaluated variants: 7"), 7)
 
     def test_a_decision_opening_is_exact_and_a_change_of_approach_names_its_chooser(self):
         for kind, body in (("priority", "Change of approach. Trials 1-5 undistinguished; chosen by the user."),

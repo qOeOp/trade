@@ -747,7 +747,6 @@ COMMANDS = [
         "window overlaps the line's, across market days and lines; all_purpose_trials adds precheck, explore "
         "and validation), sweep_variants (the variants assessed without a replay that the current search_exposure "
         "judgments of the line and of those trials' lines declare, the largest K along each supersession chain), "
-        "undeclared_sweeps (ids of current search_exposure judgments declaring none, so the sum is a lower bound), "
         "trials_with_sweeps (all_purpose_trials + sweep_variants), runs_with_returns (the overlapping research runs with economic evidence and varying "
         "daily returns), mean_correlation (their mean pairwise daily-return correlation over common days), "
         "effective_trials (rho + (1 - rho) * research_trials, rho the mean correlation floored at 0), "
@@ -872,7 +871,7 @@ COMMANDS = [
     command(research_counts, "research", "counts", "a line's trial counts, as `research graph` gives them", (
         "the line's research trials and every counted trial with its capture manifest at --at (reader)",
         "nothing",
-        "trial_counts (research_trials, all_purpose_trials, sweep_variants, undeclared_sweeps, trials_with_sweeps, "
+        "trial_counts (research_trials, all_purpose_trials, sweep_variants, trials_with_sweeps, "
         "as `research graph` gives them; null before the line's "
         "first research trial), ledger_commit",
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"), LEDGER,

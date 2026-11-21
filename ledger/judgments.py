@@ -68,11 +68,13 @@ def _check_subject(conn: db.LedgerConnection, subject: dict) -> tuple:
     return subject["role"], None, None, registration
 
 
-def declared_variants(body: str) -> int | None:
-    """K of a search_exposure body's first line `Evaluated variants: K`; None without that line (judgments
-    written before 2026-11-12, which `judgment add` now refuses)."""
+def declared_variants(body: str) -> int:
+    """K of a search_exposure body's first line `Evaluated variants: K`; refused without that line."""
     found = VARIANTS_LINE.fullmatch(body.split("\n", 1)[0].rstrip("\r"))
-    return int(found.group(1)) if found else None
+    if found is None:
+        raise refuse("SEARCH_EXPOSURE_VARIANTS_MISSING", "the body's first line is not `Evaluated variants: K`",
+                     expected="Evaluated variants: K")
+    return int(found.group(1))
 
 
 def check_decision_opening(kind: str, body: str) -> None:
@@ -104,9 +106,8 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on
     comparison table at a commit, which a recommendation must all name (required for one)."""
     if kind == "recommendation" and compared is None:
         raise ValueError("a recommendation needs the comparison table (compared=)")
-    if kind == "search_exposure" and declared_variants(body) is None:
-        raise refuse("SEARCH_EXPOSURE_VARIANTS_MISSING", "the body's first line is not `Evaluated variants: K`",
-                     expected="Evaluated variants: K")
+    if kind == "search_exposure":
+        declared_variants(body)
     check_decision_opening(kind, body)
     normalized = _subjects(subjects)
     with db.connect(profile, "writer") as conn:
