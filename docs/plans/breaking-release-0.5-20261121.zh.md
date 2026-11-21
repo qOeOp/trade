@@ -96,7 +96,7 @@
 |---|---|---|---|
 | T1 | 测试样板收敛：104 处 `assertRaises…code` 改用 `tests.helpers.refused`；31 个局部拒绝助手并入；`tests.helpers.tempdir`；原生报告 CSV 夹具共享 | −350..−450 | 无（排在各代码批次之后，避免冲突） |
 | K1 | `research-round` 验证规则自相矛盾（`SKILL.md` 首次达标告知验证 vs 只对关线达标候选提验证）修文字，并改写 `targets-met-tells-validation-once` | 小 | 无（技能与评测各一个 PR） |
-| K2 | 评测全量 with-without 计量（DeepSeek flash，约 ¥50），再逐题复判；不能区分的先改写一次，仍不行逐个删；`header-*` 一对先处理；`no-targets-asks-user` 保留 | 每个用例约 −30 | Claude 决定（花费） |
+| K2 | 评测全量 with-without 计量（DeepSeek flash，约 ¥50），再逐题复判；不能区分的先改写一次，仍不行逐个删；`header-*` 一对先处理；`no-targets-asks-user` 保留 | 每个用例约 −30 | Claude 决定（花费）；2026-11-22 推迟，不进 0.5.0：DeepSeek 要读超出 `research-sources` 的密钥，改用 Claude 约 220 美元；用户「按你推荐的来」。之后改技能时按 `.github/scripts/eval-cases.py` 只跑相关用例 |
 | K3 | `strategy-authoring.md` 写明有界状态写法（代替给源码审查加复杂度项） | 小 | 无 |
 | K4 | 关线总结要求写明“这段留出期已被前三代账本搜过约 3,100 次”；CHANGELOG 同写 | 小 | 无 |
 | K5 | 20 个零命中技能段落逐段查因，删或改（20261121-04）；`research-sources` 里会过期的测量数字改为“先测再用” | 小 | 无 |
