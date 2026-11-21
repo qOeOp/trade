@@ -26,6 +26,16 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
+  2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
+  leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
+  supersedes the invalid one, which stays in the ledger. The output's `ran` items carry `replaces` (the invalid
+  trial a rerun supersedes) and `invalid_left` counts the invalid segments `--limit` left; `left` counts only
+  segments without a run. `research history` gives one cell per segment, its latest trial with a run, and names the
+  earlier ones in `superseded` (before, the IDE showed the first). Trial counts take such a rerun as a reproduction
+  (same source, image, windows, instruments, export and configuration as an earlier counted history trial), so it
+  is not counted twice.
+
 - Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
   development period's start) without a passed run, such as one sealed invalid by an audit failure
   (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year

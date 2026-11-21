@@ -205,6 +205,7 @@ class HistoryRunTests(unittest.TestCase):
     def test_a_line_closes_only_after_every_segment_has_a_history_run(self):
         world = self.world
         line = world.line["line"]
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))  # passed history runs
         registration, (ref,) = registered_grid(world, ["kept"])  # an open line takes a registration
         passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                            registration=registration)
@@ -244,8 +245,8 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(row["summary"]["veto"]["whole_years"], 0)
         self.assertTrue(cells["holdout"]["short"], "two months of holdout in the fixture market")
         self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"], row["summary"]["missing"]),
-                         (None, None, ["veto 2025", "holdout", "targets"]),
-                         "no whole veto year, but the part year's run is invalid in the fixture market (20261120-01); "
+                         (None, None, ["holdout", "targets"]),
+                         "no whole veto year and the part year passed, so it is read in no summary; "
                          "no countable holdout to judge by, and the fixture line has no targets")
 
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
@@ -357,13 +358,32 @@ class HistoryRunTests(unittest.TestCase):
             self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
                              (None, None, ["veto 2024", "control"]))
             self.assertIsNone(found["holdout"]["deflated_sharpe"], "one participant leaves no variance")
-            self.assertEqual(replay(None), [("development", "passed")])
+            self.assertEqual(replay(1), [("development", "passed")], "a segment without a run before a rerun")
+            reproduces, found = summary()
+            self.assertTrue(reproduces)
+            self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]),
+                             (True, True), "the year read and the holdout both reach the targets")
+            self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]))
+
+            # 20261120-03: an invalid segment is replayed again, once per call; one failing again stays invalid
+            (first,), = world.conn.rows("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                                        "WHERE t.purpose = 'history' AND r.status = 'invalid'")
+            world.scenario = {"returns": [0.001], "audit_passed": False, "audit_exit": 1}
+            again = history.run_history(world.profile, world.market, MARKET_DAY, line)
+            self.assertEqual([(item["segment"], item["status"], item["replaces"]) for item in again["ran"]],
+                             [("2024", "invalid", first)])
+            self.assertEqual((again["left"], again["invalid_left"]), (0, 0))
+            self.assertEqual(replay(None), [("2024", "passed")], "the next call replays it again")
         reproduces, found = summary()
-        self.assertTrue(reproduces)
-        self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]), (True, True),
-                         "the year read and the holdout both reach the targets")
-        self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]),
-                         "the invalid year cannot be replayed again: the row stays undecided")
+        self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
+                         (True, "veto and holdout", []), "the rerun supersedes the invalid year")
+        (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+        (year,) = [cell for cell in row["cells"] if cell["label"] == "2024"]
+        self.assertEqual((year["status"], year["superseded"], len(row["cells"])),
+                         ("passed", [first, again["ran"][0]["history_trial_id"]], 5),
+                         "one cell per segment: 2023, 2024, 2025, the holdout and the control")
+        found = status.research_status(world.profile)["excluded_trials"]["reproductions"]
+        self.assertEqual(len(found), 2, "a rerun looks at what its first trial did: counted once")
 
     def test_a_source_without_economic_evidence_is_no_candidate(self):
         """20261114-13: the test's candidates are the participants whose research run carries economic evidence, as
