@@ -124,8 +124,9 @@ function LineRows({ line, first, cols, metric, order, all, only, shortDays, summ
   line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; only: Causes; shortDays: number;
   summary: string | null | undefined; picked: Picked;
 }) {
-  const rows = ordered(line.rows, order), shown = rows.filter((r) => (all || !noEdge(r)) && (only === "all" || cause(r) === only)),
-        hidden = rows.length - shown.length;
+  // A Cause shows its rows whatever their edge, so the no-edge filter applies only to All.
+  const rows = ordered(line.rows, order), edgeless = (r: HistoryRow) => !all && only === "all" && noEdge(r), other = (r: HistoryRow) => only !== "all" && cause(r) !== only;
+  const shown = rows.filter((r) => !edgeless(r) && !other(r)), hidden = { edge: rows.filter(edgeless).length, cause: rows.filter(other).length };
   return (
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
@@ -159,13 +160,15 @@ export function HistoryPage() {
   if (history && !lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 px-3 text-dense">
+      <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 text-dense">
         <span className="whitespace-nowrap font-semibold">Line-close history</span>
-        <span className="min-w-0 truncate text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
+        <span className="whitespace-normal text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
         <PickedBar picked={picked} />
         <span className="ml-auto flex shrink-0 items-center gap-3">
           <DropdownChoice<Causes> name="Cause" label="Cause" options={CAUSES} value={only} onChange={setOnly} />
-          <label className="flex items-center gap-1.5 whitespace-nowrap text-fg-muted"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label>
+          <Tip content={only === "all" ? null : "A Cause shows its rows whatever their edge"}>
+            <label className={`flex items-center gap-1.5 whitespace-nowrap ${only === "all" ? "text-fg-muted" : "text-fg-ghost"}`}>
+              <input type="checkbox" checked={all} disabled={only !== "all"} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label></Tip>
           <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
           <DropdownChoice<Order> name="Order" label="Order" options={ORDERS} value={order} onChange={setOrder} />
         </span>

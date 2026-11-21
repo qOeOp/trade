@@ -25,7 +25,7 @@ export function LineSummary({ text, colSpan }: { text: string; colSpan: number }
     <tr className="bg-island-alt">
       <td colSpan={colSpan} className="sticky left-0 px-0 pb-1.5">
         <div className="sticky left-0 max-w-[min(calc(100vw-6rem),72rem)] px-2">
-          <Section title="Closing summary" open={false} aside={`${Math.round(new Blob([text]).size / 1024)} KB`}>
+          <Section title="Closing summary" open={false}>
             <div className="max-h-96 overflow-auto pr-2 text-dense"><ProseBlocks text={text} /></div>
           </Section>
         </div>
@@ -34,15 +34,15 @@ export function LineSummary({ text, colSpan }: { text: string; colSpan: number }
   );
 }
 
-/** The replay picked from a cell, named in the page's header with its source and the Runs page to go on to. */
+/** The picked replay's way on from the page's header: its version's source and the Runs page (Details and the
+ *  breadcrumb already name it). */
 export function PickedBar({ picked }: { picked: Picked }) {
   if (!picked.version || picked.trial === null) return null;
   const version = picked.version;
   return (
-    <span className="flex shrink-0 items-center gap-1 text-fg-muted">
-      <span className="max-w-40 truncate font-mono">{version}</span><span className="whitespace-nowrap">· trial {picked.trial}</span>
-      <TextButton onClick={() => openSource(version)}>Source</TextButton>
-      <TextButton onClick={showRunsPage}>Runs</TextButton>
+    <span className="flex shrink-0 items-center gap-1">
+      <TextButton aria-label={`Source of ${version}`} onClick={() => openSource(version)}>Source</TextButton>
+      <TextButton aria-label={`Runs of ${version}`} onClick={showRunsPage}>Runs</TextButton>
     </span>
   );
 }
