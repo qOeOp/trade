@@ -1,14 +1,16 @@
-"""What every command group shares: the JSON output and refusal forms, argument readers, and the parser
-and its common options."""
+"""What every command group shares: the JSON output and refusal forms, argument readers, the parser, the
+command declaration and the common options."""
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 import json
 from pathlib import Path
+from typing import Any
 
 from shared import clock, paths
 from shared.errors import Refusal
@@ -81,44 +83,78 @@ def _new_temporary(path: str) -> Path:
     return paths.temporary_path(path, require_new=True)
 
 
-# Parser and common options
+# Parser, command declarations and common options
 
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise refuse("USAGE_ERROR", message)
 
 
-def _ledger_option(parser) -> None:
-    parser.add_argument("--ledger", help="ledger profile file or name (default: the active ledger)")
+Option = Callable[[Any], object]  # a parser or a mutually exclusive group
 
 
-def _paper_option(parser) -> None:
-    parser.add_argument("--ledger", help="Paper database profile file or name (default: the one Paper database profile)")
+@dataclass(frozen=True)
+class Command:
+    """One command, declared once: its noun and verb, help line, --help contract (what it reads, writes and
+    returns, its main refusals), options, handler (args -> result, or (result, exit code)) and notes for its
+    --help; a `runner` command takes runner arguments after `--` (args.runner_argv)."""
+    noun: str
+    verb: str
+    help: str
+    contract: tuple[str, str, str, str]
+    options: tuple[Option, ...]
+    run: Callable[[argparse.Namespace], dict | tuple[dict, int]]
+    epilog: str | None = None
+    runner: bool = False
 
 
-def _market_option(parser) -> None:
-    parser.add_argument("--market", help="market profile file or name (default: the active market profile in "
-                                         "the profile directory)")
+def declarer(table: list[Command]):
+    """`@command(noun, verb, help, contract, *options, epilog=, runner=)`: declares the function it decorates as
+    that command's handler, in `table` (the --help order)."""
+    def command(noun: str, verb: str, help: str, contract: tuple[str, str, str, str], *options: Option,
+                epilog: str | None = None, runner: bool = False):
+        def declare(run):
+            table.append(Command(noun, verb, help, contract, options, run, epilog, runner))
+            return run
+        return declare
+    return command
 
 
-def _at(parser) -> None:
-    parser.add_argument("--at", help="ledger commit or branch (default: the head)")
+def option(*flags: str, **settings) -> Option:
+    """An option of a command: `add_argument`'s arguments."""
+    return lambda parser: parser.add_argument(*flags, **settings)
 
 
-def _market_day(parser, required: bool = False, default: str = "head") -> None:
-    parser.add_argument("--market-day", required=required,
-                        help="market day, YYYY-MM-DD, or head for the newest day" + ("" if required else f" (default: {default})"))
+def one_of(*options: Option, required: bool = False) -> Option:
+    """Mutually exclusive options."""
+    def add(parser):
+        group = parser.add_mutually_exclusive_group(required=required)
+        for item in options:
+            item(group)
+    return add
+
+
+LEDGER = option("--ledger", help="ledger profile file or name (default: the active ledger)")
+PAPER = option("--ledger", help="Paper database profile file or name (default: the one Paper database profile)")
+MARKET = option("--market", help="market profile file or name (default: the active market profile in the profile "
+                                 "directory)")
+AT = option("--at", help="ledger commit or branch (default: the head)")
+OP_ID = option("--op-id", help="operation ID; the same ID and content again is a replay (default: derived from the "
+                               "content)")
+
+
+def market_day(required: bool = False, default: str = "head") -> Option:
+    return option("--market-day", required=required,
+                  help="market day, YYYY-MM-DD, or head for the newest day" + ("" if required else f" (default: {default})"))
+
+
+MARKET_DAY = market_day()
 
 
 def _count(text: str) -> int:
     if not text.isdigit() or int(text) < 1:
         raise argparse.ArgumentTypeError(f"must be a whole number of at least 1, got {text!r}")
     return int(text)
-
-
-def _op_id(parser) -> None:
-    parser.add_argument("--op-id", help="operation ID; the same ID and content again is a replay (default: derived "
-                                        "from the content)")
 
 
 CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
