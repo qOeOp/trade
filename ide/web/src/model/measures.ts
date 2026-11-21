@@ -37,7 +37,7 @@ export function measureLabel(key: string): { measure: string; slice: string | nu
 const REASONS: Record<string, string> = {
   SOURCE_REVIEW_FAILED: "Source review failed", RUN_INVALID: "Run invalid", AUDIT_NOT_RUN: "Audit did not run",
   CAPTURE_FAILED: "Evidence capture failed", SEALED_RESULT_MISSING: "No sealed result", NOT_EVALUATED: "Not evaluated",
-  PURPOSE_NOT_COMPARABLE: "Not a research run", unfinished: "Unfinished",
+  PURPOSE_NOT_COMPARABLE: "Seals no run", unfinished: "Unfinished",
 };
 export function reasonLabels(reason: string): { label: string; detail: string | null }[] {
   return reason.split("; ").filter(Boolean).map((part) => {

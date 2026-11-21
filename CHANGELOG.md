@@ -31,6 +31,30 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
   answered within 2 seconds ended the run: release host runs 3 and 4 ended together on 2026-11-20 while the VM stalled.
 
+- `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
+  2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
+  leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
+  supersedes the invalid one, which stays in the ledger. The output's `ran` items carry `replaces` (the invalid
+  trial a rerun supersedes) and `invalid_left` counts the invalid segments `--limit` left; `left` counts only
+  segments without a run. `research history` gives one cell per segment, its latest trial with a run, and names the
+  earlier ones in `superseded` (before, the IDE showed the first). Trial counts take such a rerun as a reproduction
+  (same source, image, windows, instruments, export and configuration as an earlier counted history trial), so it
+  is not counted twice.
+
+- Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
+  development period's start) without a passed run, such as one sealed invalid by an audit failure
+  (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
+  without readings is, so `research history` and the IDE's Line-close history leave the candidate's verdict
+  undecided instead of judging it on the other years or the holdout alone (doctor 20261120-01, user 2026-11-21). A
+  passed part year is still read in no summary. Breaking: a line whose part veto year sealed invalid now reads
+  undecided where it read a verdict before; `line close` is unchanged.
+
+- Reports and IDE: a sealed `history` run (a `line history` segment) now carries economic evidence under the same
+  criterion as a research or validation run (doctor 20261120-04, user 2026-11-21, 「我都授权」): `replay report` no
+  longer masks its readings with `PURPOSE_NOT_COMPARABLE`, `replay report --tables` reads it, and the IDE's Runs and
+  Details pages draw its equity, calendar and trades when picked. It still enters no comparison, ranking, research
+  run count or line candidate selection; a precheck or explore trial keeps the reason.
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto
@@ -48,6 +72,19 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   monthly kline, mark-price or funding archives asks neither REST nor the daily archives (a relisted contract's
   earlier months keep their archives and are imported as before). The files a month writes are unchanged; a
   full-scope import from 2020 no longer waits hours on throttled REST requests for contracts not yet listed.
+
+- `market follow --metrics-pool`: keeps the open interest and long/short ratios of the newest month's universe
+  members, each from that month's first day, so a contract entering the monthly pool is followed from the month it
+  enters without a backfill of earlier days. Off by default; the deployment's `TRADE_MARKET_ARGS` is unchanged
+  (`deploy/README.md`).
+
+- Breaking (market scope, doctor 20261118-01): the deployment imports the bars of every eligible contract instead of
+  a `--bar-symbols` list chosen today (`deploy/README.md` example `.env`, `README.md`). The cutover is a new market
+  directory imported whole from 2020-01 with an empty bar list (about 26 GB, about 45 GB of archive cache, 10 to 15
+  hours), then made the active one. After it, the monthly universe and so `--universe pool` runs and the report's
+  basket (`beta_basket`, `alpha_basket`, regimes, up and down months) are computed over the full eligible set,
+  delisted contracts included; earlier pool runs no longer replay on the new `market` (their universe input
+  differs), and single-contract runs replay unchanged. The basket's definition note says so.
 
 ## 0.4.4 (2026-11-21)
 

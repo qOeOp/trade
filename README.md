@@ -47,10 +47,12 @@ uv run --frozen python -m cli.main ledger init --name research --kind active \
   --backup-root "$HOME/.local/share/trade/dolt-backups/research"
 uv run --frozen python -m cli.main market init --name market --kind active \
   --root "$HOME/.local/share/trade/market"
-uv run --frozen python -m cli.main market follow --bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01
+uv run --frozen python -m cli.main market follow --bars-from 2020-01
 ```
 
-`market follow` keeps running, so give it its own terminal; its first round starts after 5 minutes.
+`market follow` keeps running, so give it its own terminal; its first round starts after 5 minutes. It imports every
+eligible contract (about 26 GB, 10 to 15 hours the first time); `--bar-symbols` narrows it for a quick look, and
+narrows the monthly universe and the report's basket to that list ([`deploy/README.md`](deploy/README.md#what-the-market-range-costs)).
 
 Then open your Agent at the repository root and say "start research". It reads the ledger, offers lines that can start
 and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENTS.md) reserves for you.
