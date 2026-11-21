@@ -264,7 +264,8 @@ def settle(positions: dict[str, Decimal], rate: Decimal, mark: Decimal) -> Decim
 
 def settlements(lines: list[dict],
                 published: dict[str, list[tuple[int, Decimal | None, Decimal | None]]] | None = None) -> list[dict]:
-    """Each settlement's funding by time: {instrument_id, settlement_ns, rate, mark, positions, funding}. Sandbox
+    """Each settlement's funding by time: {instrument_id, settlement_ns, rate, mark, positions, funding}, funding None
+    when positions were held and the rate or MARK is unknown. Sandbox
     settles none (it takes no funding or MARK data, rc7 crates/adapters/sandbox), so these are the settlements a replay
     of the same journal would make. `published` gives each contract's settlements as the exchange published them
     (published_settlements: the rate, and the MARK a replay settles at), which a seal uses; without it they are the
@@ -280,7 +281,9 @@ def settlements(lines: list[dict],
     for iid, rows in published.items():
         for at, rate, mark in rows:
             positions = held[(iid, at)]
-            funding = settle(positions, rate, mark) if positions and rate is not None and mark is not None else Decimal(0)
+            # A position held without a published rate or MARK: its funding is unknown (None), not zero.
+            funding = (Decimal(0) if not positions else settle(positions, rate, mark)
+                       if rate is not None and mark is not None else None)
             found.append({"instrument_id": iid, "settlement_ns": at, "rate": rate, "mark": mark,
                           "positions": positions, "funding": funding})
     return sorted(found, key=lambda item: (item["settlement_ns"], item["instrument_id"]))
@@ -316,7 +319,7 @@ def published_settlements(lines: list[dict], stopped_ns: int | None,
 
 
 def equity_path(lines: list[dict], settled: list[dict] | None = None,
-                ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
+                ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal | None]]]:
     """The account's equity at each journalled minute (balance, open profit and the funding Sandbox does not
     settle: `settled`, settlements(lines) when not given) and each settlement's funding cash flow, by time."""
     points = []
@@ -328,15 +331,16 @@ def equity_path(lines: list[dict], settled: list[dict] | None = None,
 
 
 def with_funding(points: list[tuple[int, Decimal]], settled: list[dict],
-                 ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]]:
+                 ) -> tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal | None]]]:
     """Each (minute, equity without funding) point, in time order, plus the funding settled by its minute's end (a
-    Paper snapshot or Live minute result is taken as its minute ends), and each settlement's funding by time."""
+    Paper snapshot or Live minute result is taken as its minute ends), and each settlement's funding by time (None
+    when unknown, which the equity leaves out)."""
     funding_by_ns = sorted(((item["settlement_ns"], item["funding"]) for item in settled), key=lambda item: item[0])
     path: list[tuple[int, Decimal]] = []
     applied, funding = 0, Decimal(0)
     for minute, value in points:
         while applied < len(funding_by_ns) and funding_by_ns[applied][0] <= minute + MINUTE_NS:
-            funding += funding_by_ns[applied][1]
+            funding += funding_by_ns[applied][1] or Decimal(0)
             applied += 1
         path.append((minute, value + funding))
     return path, funding_by_ns
@@ -447,7 +451,7 @@ def late_bars(lines: list[dict]) -> int:
 
 def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None, exit_code: int | None,
              egress: bytes | None, start_failed: bool = False, oom_killed: bool = False, failures: int = 0,
-             path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal]]] | None = None,
+             path_and_funding: tuple[list[tuple[int, Decimal]], list[tuple[int, Decimal | None]]] | None = None,
              audited: dict | None = None) -> dict:
     """seal.json: the run's status with its reasons, and the readings computed once at sealing. A runner killed
     from outside (killed()) ends the run as a stop does: what it journaled stands, its stop reason is KILLED.
@@ -501,7 +505,8 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
     starting = _decimal(((summary or {}).get("account") or {}).get("starting_balance_usdt")) or Decimal(
         ACCOUNT_CONTRACT["starting_balance_usdt"])
     path, funding_by_ns = equity_path(lines) if path_and_funding is None else path_and_funding
-    funding_total = sum((flow for _, flow in funding_by_ns), Decimal(0))
+    funding_total = sum((flow for _, flow in funding_by_ns if flow is not None), Decimal(0))
+    unknown = sum(flow is None for _, flow in funding_by_ns)
     final = None
     if summary is not None and _decimal(summary.get("balance_total")) is not None:
         balance = _decimal(summary["balance_total"])
@@ -544,6 +549,10 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         "audit": audited,
         "limitations": ["Sandbox settles no funding: equity adds each settlement Binance published, at its rate and "
                         "the MARK a replay settles at, for the positions the journal held then",
+                        *([f"{unknown} funding settlement{'s' if unknown > 1 else ''} with a position open "
+                           f"{'have' if unknown > 1 else 'has'} no published rate or MARK: "
+                           f"{'their' if unknown > 1 else 'its'} funding is unknown and left out of the equity"]
+                          if unknown else []),
                         *(["Killed from outside: no summary; the equity at the stop is the journal's last, and "
                            "runtime failures are those the runner wrote up to a second before the kill"]
                           if ended_by_kill else [])],

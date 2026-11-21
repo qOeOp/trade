@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Paper and Live funding: a settlement at which a position was open and the published rate or MARK is unknown
+  has an unknown funding (None) instead of 0; the seal's `limitations` names how many there were, and the equity
+  leaves them out.
 - Host files (`shared.files.atomic_write`): the market-import status, profile and service files and the ledger's
   DoltHub key and Dolt config are replaced through one durable write (synced file, rename, synced directory). The
   market status and Dolt config were not synced before, and the DoltHub key was rewritten in place.
