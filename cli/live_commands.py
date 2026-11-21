@@ -27,14 +27,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RELEASE_UNAVAILABLE; per-command Live refusals"),
     ("live", "web-command"): (
         "one bounded JSON body from stdin, fixed deployment configuration and its paired Web release identity",
-        "claims one request ID before its authorized local or native effect; repeats only return its original evidence; "
-        "a release handover refuses new effects before claim, while STOP keeps its existing checks; the Telegram "
+        "one request ID per local or native effect, carried on the effect's own rows: the same ID sent again does "
+        "the effect at most once; a release handover refuses new effects, while STOP keeps its existing checks; the Telegram "
         "notification settings (notify_*) write only LIVE_ROOT/notify, with no request ID",
         "{status, body}: the HTTP status and safe operator result with request ID; never credential or bot token values",
-        "LIVE_CONFIG; LIVE_REQUEST_ID; LIVE_REQUEST_COMMAND; LIVE_REQUEST_CONFLICT; LIVE_REQUEST_UNRESOLVED; "
-        "LIVE_REQUEST_CLOSED_UNCLAIMED; LIVE_RELEASE_UNAVAILABLE; incumbent account, source and credential refusals"),
+        "LIVE_CONFIG; LIVE_REQUEST_ID; LIVE_REQUEST_CONFLICT; LIVE_RELEASE_UNAVAILABLE; incumbent account, source "
+        "and credential refusals"),
     ("live", "release-inspect"): (
-        "fixed deployment configuration, retained requests, runs and verified container identities; the release host "
+        "fixed deployment configuration, retained runs and verified container identities; the release host "
         "must already hold the original account lock across this inspection and its metadata write",
         "none: no lock acquisition or creation, credential reads, venue connections, state repair or trading",
         "{state: idle|busy|unavailable}; all three observations return exit 0 and only idle permits release admission",
