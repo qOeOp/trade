@@ -10,6 +10,7 @@ included, and rates (probed on BTCUSDT 2025-10: all 93 equal), which the market 
 from __future__ import annotations
 
 import json
+import time
 import urllib.parse
 import urllib.request
 from decimal import Decimal
@@ -17,6 +18,7 @@ from decimal import Decimal
 from nautilus_trader.model import Bar, Price, Quantity
 
 from engine import warmup
+from engine.config import venue_terms
 
 REST_BASE = "https://fapi.binance.com"
 LIMIT = 1500  # Binance's most klines per request
@@ -25,6 +27,9 @@ INTERVALS = {"1-MINUTE": "1m", "3-MINUTE": "3m", "5-MINUTE": "5m", "15-MINUTE": 
              "1-HOUR": "1h", "2-HOUR": "2h", "4-HOUR": "4h", "6-HOUR": "6h", "8-HOUR": "8h", "12-HOUR": "12h",
              "1-DAY": "1d"}
 NS_PER_MS = 1_000_000
+# A terms read that fails for a passing reason (a dropped connection, 429, a 5xx) is sent again, at most this many times
+# in all, after 1 s, then 2 s; another 4xx (a ban among them) is not.
+TERMS_READ_ATTEMPTS = 3
 
 
 def get_json(url: str, proxy_url: str | None, timeout: float = 10):
@@ -89,3 +94,25 @@ def funding_interval(instrument_id, proxy_url: str | None, get=get_json, base: s
     rows = get(f"{base or REST_BASE}/fapi/v1/fundingInfo", proxy_url)
     hours = next((int(row["fundingIntervalHours"]) for row in rows if row["symbol"] == symbol), 8)
     return hours * 3600 * 1_000_000_000
+
+
+def symbol(instrument_id) -> str:
+    return str(instrument_id).split("-PERP.")[0]
+
+
+def terms(instrument_id, proxy_url: str | None) -> dict:
+    """Binance's terms of the contract now (engine.config.venue_terms of its public fapi/v1/exchangeInfo row), which
+    Paper compares with the market's for each entry, as Live does (TERMS_CHANGED)."""
+    for attempt in range(1, TERMS_READ_ATTEMPTS + 1):
+        try:
+            answer = get_json(f"{REST_BASE}/fapi/v1/exchangeInfo", proxy_url)
+            break
+        except OSError as exc:
+            status = getattr(exc, "code", None)  # an HTTP status (urllib.error.HTTPError), else a connection failure
+            if attempt == TERMS_READ_ATTEMPTS or isinstance(status, int) and 400 <= status < 500 and status != 429:
+                raise
+            time.sleep(attempt)
+    rows = [row for row in answer["symbols"] if row["symbol"] == symbol(instrument_id)]
+    if len(rows) != 1:
+        raise ValueError(f"Binance has no unique USD-M instrument {symbol(instrument_id)}")
+    return venue_terms(rows[0])

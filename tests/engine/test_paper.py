@@ -2,6 +2,7 @@
 data callbacks held until the next data dispatch, when the fills their data caused are applied, the instances a run plans and the event fields
 the live view draws from."""
 
+import functools
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -13,7 +14,7 @@ from unittest import mock
 from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
                                    TriggerType)
 
-from engine import membership as membership_months, paper, realtime
+from engine import klines, membership as membership_months, paper, realtime
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
@@ -779,9 +780,10 @@ class StartedTests(unittest.TestCase):
         for cls, expected in ((Reassigned, True), (paper.Strategy, False)):
             with self.subTest(cls=cls.__name__), tempfile.TemporaryDirectory() as name:
                 root = Path(name)
+                (root / "terms.json").write_text("{}")
                 args = SimpleNamespace(symbols=["BTCUSDT"], output=root, strategy_file=root / "strategy.py",
                                        strategy_class=cls.__name__, strategy_sha256="x", universe=root / "u.json",
-                                       proxy_url=None)
+                                       terms=root / "terms.json", proxy_url=None)
                 written = mock.Mock(failure=None)
                 with mock.patch.object(paper, "JOURNAL", None), mock.patch.object(paper, "SESSION", None), \
                         mock.patch.object(paper, "load_strategy", return_value=SimpleNamespace(strategy_class=cls)), \
@@ -915,6 +917,73 @@ class TermsTests(unittest.TestCase):
                 journal = self.check(**changes)
                 self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
                 journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID), changed=[text])
+                paper.STOP.clear()
+                paper.STOP_REASON.clear()
+
+
+class EntryTermsTests(unittest.TestCase):
+    """Binance changes a contract's tick mid-run (C-172): Live refuses the next entry (tests/live_loopback/test_terms.py),
+    and Paper reads Binance's terms for each entry the same way, while reduce-only orders go out unread."""
+
+    MARKET = {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}
+
+    def setUp(self):
+        for value in (paper.STOP, paper.STOP_REASON):
+            self.addCleanup(value.clear)
+        self.sent = mock.Mock(return_value=None)
+        patcher = mock.patch.object(paper.OrderRules, "submit_order", self.sent)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def exchange(tick: str) -> dict:
+        """fapi/v1/exchangeInfo as Binance answers it, the contract's filters among others."""
+        return {"symbols": [
+            {"symbol": "ETHUSDT", "filters": []},
+            {"symbol": "BTCUSDT", "filters": [
+                {"filterType": "PRICE_FILTER", "tickSize": tick, "minPrice": "556.80", "maxPrice": "4529764"},
+                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
+                {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]}
+
+    def submit(self, answer, *, reduce_only: bool = False):
+        source = object.__new__(paper._PaperConfigured)
+        source._paper_membership = SimpleNamespace(member_at=lambda _: True)
+        source._paper_instrument_id = str(IID)
+        source._paper_entry_terms = functools.partial(paper.paper_terms.entry, {"BTCUSDT": self.MARKET}, proxy_url=None)
+        order = SimpleNamespace(is_reduce_only=reduce_only, client_order_id="O-1")
+        get = mock.Mock(side_effect=answer if isinstance(answer, Exception) else None, return_value=answer)
+        with mock.patch.object(paper, "SESSION", None), mock.patch.object(klines, "get_json", get), \
+                mock.patch.object(paper, "journal") as journal, mock.patch("time.sleep"):
+            paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
+        return order, journal, get
+
+    def test_an_entry_after_a_tick_change_is_not_sent_and_stops_the_run(self):
+        order, journal, get = self.submit(self.exchange("0.01"))
+        self.sent.assert_not_called()
+        self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
+        journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID),
+                                        client_order_id="O-1", changed=["price_increment: market 0.10, exchange 0.01"])
+        self.assertEqual(get.call_args.args, ("https://fapi.binance.com/fapi/v1/exchangeInfo", None))
+
+    def test_an_entry_on_the_markets_terms_is_sent(self):
+        order, journal, _ = self.submit(self.exchange("0.10"))
+        self.sent.assert_called_once()
+        self.assertIs(self.sent.call_args.args[0], order)
+        journal.assert_not_called()
+        self.assertEqual(paper.STOP_REASON, [])
+
+    def test_a_reduce_only_order_is_sent_without_a_read(self):
+        order, _, get = self.submit(self.exchange("0.01"), reduce_only=True)
+        get.assert_not_called()
+        self.assertIs(self.sent.call_args.args[0], order)
+        self.assertEqual(paper.STOP_REASON, [])
+
+    def test_terms_binance_does_not_give_refuse_the_entry(self):
+        for answer in ({"symbols": [{"symbol": "ETHUSDT", "filters": []}]}, OSError("connection reset")):
+            with self.subTest(answer=answer):
+                self.submit(answer)
+                self.sent.assert_not_called()
+                self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
                 paper.STOP.clear()
                 paper.STOP_REASON.clear()
 

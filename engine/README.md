@@ -127,9 +127,13 @@ arrives after the bucket's end (up to 0.47 s in 84 minutes of trials), so Paper 
 (`history.BUILD_DELAY_US`); rc7 then stamps it at the bucket's end plus 5 s, not at the end as a replay does.
 
 Paper and Live also check the contract's terms against the market's (`engine.config.TERMS_COMPARED`: tick size,
-step size, minimum notional): Paper at start against the terms `paper start` wrote from the run's market day,
-Live at each entry's admission against the terms `prepare` read from the market's latest day. A difference is
-`TERMS_CHANGED`, with both values. Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
+step size, minimum notional): Paper against the terms `paper start` wrote from the run's market day, at start (the
+loaded instrument) and for each entry; Live at each entry's admission against the terms `prepare` read from the
+market's latest day. For an entry both read Binance's `fapi/v1/exchangeInfo` then (`engine.config.venue_terms`), as
+rc7 does not reload a loaded instrument mid-run. A difference is `TERMS_CHANGED`, with both values: the entry is not
+sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
+same way. A replay never meets a change: it trades the whole window on one terms snapshot per contract
+(`market.instrument`). Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
 replace an instrument), so it keeps the loader's 0.1 and sets its leverage to `--leverage` x 0.1, which locks the
 same margin; a loaded contract with other rates is `TERMS_CHANGED` too. Live never sets leverage: the venue's
 symbol leverage must equal the run's (`LIVE_MARGIN_MODE`).

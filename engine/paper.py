@@ -108,7 +108,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy
 
-from engine import history, metrics, strategy as strategy_runtime
+from engine import history, metrics, paper_terms, strategy as strategy_runtime
 from engine.kline_events import KlineEvents
 from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
@@ -119,7 +119,7 @@ from engine.signals import Signals
 from engine.cadence import Cadence
 from engine.realtime import MarketRows, node_base
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, atomic, MINUTE_NS, Refusal, instrument_id, leverage_of,
-                           runtime_source_metadata, terms_changed, utc_text)
+                           runtime_source_metadata, utc_text)
 from engine.load import (
     LoadedStrategy, diagnostics, load_strategy, read_universe, strategy_id, strategy_metadata,
 )
@@ -127,12 +127,6 @@ from engine import membership as membership_months
 
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
-# rc7's Binance loader gives every USD-M perpetual these margin rates (probe 2026-11-11; upstream
-# nautechsystems/nautilus_trader#5531, open); neither the Sandbox's config nor rc7's Python cache can replace
-# them. Nautilus locks notional x rate / leverage, Binance notional / leverage:
-# the Sandbox's leverage is --leverage x this rate, and a loaded contract with other rates stops the run
-# (TERMS_CHANGED; docs/plans/r1-2d-leverage-terms-20261111.zh.md).
-LOADER_MARGIN = Decimal("0.1")
 STOP_CANCEL_SECONDS = 10
 # The runner's exit status after its journal failed (ledger.run_journal.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
@@ -332,6 +326,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         self._replay_input_start_ns = inputs.input_start_ns
         self._paper_instrument_id = inputs.instrument_id
         self._paper_membership = inputs.universe_membership
+        self._paper_entry_terms = inputs.entry_terms
         self._paper_cadence = Cadence()
         self._paper_held: list = []  # data callbacks waiting for the execution their data caused (release_before)
         self._paper_released_ns = 0  # the clock at the latest dispatch whose held callbacks ran
@@ -342,14 +337,21 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
         on and the contract only reduces (coverage U9). An order on a back-filled bar that cannot wait for T is not
-        sent either: the recovery is refused (engine.paper_session.Session.submitted). The order rules see every
-        other order."""
+        sent either: the recovery is refused (engine.paper_session.Session.submitted). Nor is an entry on other terms
+        than the market's (engine.paper_terms.entry): the run stops. The order rules see every other order."""
         now = NOW()
         if not order.is_reduce_only and not self._paper_membership.member_at(now):
             journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
                     client_order_id=str(order.client_order_id), ts_ns=now)
             return None
         if SESSION and SESSION.submitted(order):
+            return None
+        changed = None if order.is_reduce_only or not self._paper_entry_terms else self._paper_entry_terms(
+            self._paper_instrument_id)
+        if changed:
+            journal("refusal", code="TERMS_CHANGED", instrument_id=self._paper_instrument_id,
+                    client_order_id=str(order.client_order_id), changed=changed)
+            request_stop("TERMS_CHANGED")
             return None
         return super().submit_order(order, position_id=position_id, client_id=client_id, params=params)
 
@@ -418,10 +420,12 @@ class PaperInputs:
     strategy_id: str
     universe_membership: Membership
     warm_at: int  # T of this process's warm-up: the input start, or for a recovery the first minute it can be
-    # The warm-up's fetch (fetch_at: engine.history.fetch into this run's Catalog) and the read of the metrics
-    # (engine.metrics.read); None reads nothing from the network.
+    # The warm-up's fetch (fetch_at: engine.history.fetch into this run's Catalog), the read of the metrics
+    # (engine.metrics.read) and, for each entry, the terms Binance's differ in from the market's (TERMS_CHANGED);
+    # None reads nothing from the network.
     fetch: Callable | None = None
     read_metrics: Callable | None = None
+    entry_terms: Callable | None = None
 
 
 def fetch_at(instrument_id, at: int, declared, precisions: tuple[int, int], *, catalog: Path, proxy_url: str | None,
@@ -759,16 +763,7 @@ class Recorder(DataActor):
     def _check_terms(self) -> None:
         """TERMS_CHANGED: each loaded contract has the market's terms and the rates its leverage is set from."""
         for iid in self.instrument_ids:
-            instrument = self.cache.instrument(iid)
-            if instrument is None:
-                changed = ["the loader gave no instrument"]
-            else:
-                changed = terms_changed(self.terms[str(iid)], {
-                    "price_increment": instrument.price_increment, "size_increment": instrument.size_increment,
-                    "min_notional": instrument.min_notional.as_decimal() if instrument.min_notional else None})
-                changed += [f"{name}: {rate}, leverage set from {LOADER_MARGIN}" for name, rate in
-                            (("margin_init", instrument.margin_init), ("margin_maint", instrument.margin_maint))
-                            if Decimal(str(rate)) != LOADER_MARGIN]
+            changed = paper_terms.loaded(self.terms[str(iid)], self.cache.instrument(iid))
             if changed:
                 journal("refusal", code="TERMS_CHANGED", instrument_id=str(iid), changed=changed)
                 request_stop("TERMS_CHANGED")
@@ -924,10 +919,10 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, months: Path | None = None, *,
-         fetch: Callable | None = None, read_metrics: Callable | None = None) -> list:
+         fetch: Callable | None = None, read_metrics: Callable | None = None, entry_terms: Callable | None = None) -> list:
     """The instances: each contract in the universe at the input start, with its membership from there to the end
     of that month and, month by month after it, from the host's month files in `months` (Membership), and the
-    network reads of their warm-ups and metrics."""
+    network reads of their warm-ups, metrics and entry terms."""
     planned = []
     end = membership_months.month_end_ns(start_ns)
     for symbol in symbols:
@@ -936,7 +931,8 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, mont
             raise Refusal("PAPER_NOT_IN_UNIVERSE", f"{symbol}: the universe does not hold it at the input start "
                                                    f"{utc_text(start_ns)}")
         planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol),
-                                   Membership(symbol, intervals, end, months), warm_at, fetch, read_metrics))
+                                   Membership(symbol, intervals, end, months), warm_at, fetch, read_metrics,
+                                   entry_terms))
     return planned
 
 
@@ -989,7 +985,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
     builder.add_simulated_exec_client(VENUE, SandboxExecutionClientFactory(), SandboxExecutionClientConfig(
         venue=Venue(VENUE), starting_balances=[balance],
         base_currency=usdt, oms_type=getattr(OmsType, account["oms_type"]),
-        account_type=getattr(AccountType, account["account_type"]), default_leverage=Decimal(leverage) * LOADER_MARGIN,
+        account_type=getattr(AccountType, account["account_type"]), default_leverage=Decimal(leverage) * paper_terms.LOADER_MARGIN,
         book_type=getattr(BookType, account["book_type"]), bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"],
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
@@ -1180,10 +1176,11 @@ def _main(args) -> bool:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     recovery_declared=declares_recovery(loaded.strategy_class), **strategy_metadata(loaded))
             journal("waiting", until_ns=start_ns)
+        market_terms = json.loads(args.terms.read_bytes())
         planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS,
                        fetch=functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION),
-                       read_metrics=functools.partial(metrics.read, proxy_url=args.proxy_url))
-        market_terms = json.loads(args.terms.read_bytes())
+                       read_metrics=functools.partial(metrics.read, proxy_url=args.proxy_url),
+                       entry_terms=functools.partial(paper_terms.entry, market_terms, proxy_url=args.proxy_url))
         node, recorder = build_node(planned, loaded, args.proxy_url,
                           (args.maker_fee, args.taker_fee), catalog, args.leverage,
                           {instrument_id(symbol): market_terms[symbol] for symbol in args.symbols}, SESSION)

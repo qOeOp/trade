@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from engine.config import terms_changed
+from engine.config import terms_changed, venue_terms
 from engine.live_errors import LiveRefusal as Refusal
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
@@ -308,9 +308,7 @@ def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *,
             if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
                 raise Refusal("LIVE_INSTRUMENT", f"the trial requires an active USDT-margined perpetual ({symbol})")
             filters = {row["filterType"]: row for row in terms["filters"]}
-            changed = terms_changed(manifest["market"]["terms"][symbol], {
-                "price_increment": filters["PRICE_FILTER"]["tickSize"], "size_increment": filters["LOT_SIZE"]["stepSize"],
-                "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")})
+            changed = terms_changed(manifest["market"]["terms"][symbol], venue_terms(terms))
             if changed:
                 raise Refusal("TERMS_CHANGED", f"the venue's terms of {symbol} differ from the market's at "
                                                f"{manifest['market']['market_day']}: {'; '.join(changed)}")

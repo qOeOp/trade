@@ -289,6 +289,14 @@ def terms_changed(market: dict, exchange: dict) -> list[str]:
             if value(market.get(name)) != value(exchange.get(name))]
 
 
+def venue_terms(row: dict) -> dict:
+    """engine.venue_terms: the compared terms (TERMS_COMPARED) of a Binance fapi/v1/exchangeInfo symbol row, which Paper
+    and Live read for each entry."""
+    filters = {item["filterType"]: item for item in row["filters"]}
+    return {"price_increment": filters["PRICE_FILTER"]["tickSize"], "size_increment": filters["LOT_SIZE"]["stepSize"],
+            "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")}
+
+
 class Refusal(ValueError):
     """A catalogued runner refusal; its text starts with the code."""
 
