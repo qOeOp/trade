@@ -10,7 +10,7 @@
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261121-30 | 回放身份 `dependency_lock_sha256` 对整个 `uv.lock` 求哈希，连镜像不安装的 dev 组（ruff、mypy、类型桩）也算进去：升级 ruff 就重建回放镜像，已有回放随之失去支撑 Live 的资格 | `engine/config.py` `dependency_lock_sha256` 解析整个 lock，只去掉本项目版本；`uv.lock` 的 `[package.dev-dependencies]` 列着 mypy、ruff；`engine/runtime/replay.Dockerfile` 以 `uv sync --frozen --no-dev` 安装；`live/admission.py` 把该字段列入 `REPLAY_CODE`；`.github/scripts/replay-changed.py` 按同一读法决定是否重建 | authority（改 Live 准入比对字段的含义；委托决定） | unknown | in PR |
+| 20261121-30 | 回放身份 `dependency_lock_sha256` 对整个 `uv.lock` 求哈希，连镜像不安装的 dev 组（ruff、mypy、类型桩）也算进去：升级 ruff 就重建回放镜像，已有回放随之失去支撑 Live 的资格 | `engine/config.py` `dependency_lock_sha256` 解析整个 lock，只去掉本项目版本；`uv.lock` 的 `[package.dev-dependencies]` 列着 mypy、ruff；`engine/runtime/replay.Dockerfile` 以 `uv sync --frozen --no-dev` 安装；`live/admission.py` 把该字段列入 `REPLAY_CODE`；`.github/scripts/replay-changed.py` 按同一读法决定是否重建 | authority（改 Live 准入比对字段的含义；委托决定） | unknown | in PR [#3331](https://github.com/qOeOp/trade/pull/3331) |
 
 ## 决定
 
