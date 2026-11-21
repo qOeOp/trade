@@ -141,6 +141,13 @@ def price_grid(market: files.Market, market_day: str, symbol: str, increment: st
     return places, grid
 
 
+def price_precision(increment: str, places: int, grid: bool) -> int:
+    """The price precision of a contract's export from `price_grid`'s (places, on grid): on the tick's grid the tick's
+    decimals as written (Binance's display precision) or more; off it, the decimals the prices need, as a tick written
+    '0.0001000' over history on 0.00001 widens to 0.00001, not to its written 0.0000001."""
+    return max(instrument.decimals(increment) if grid else instrument.tick_decimals(increment), places)
+
+
 def require_funding_files(market: files.Market, symbol: str, opens: np.ndarray) -> None:
     """Every month holding one of the window's LAST bars has its funding file: without it Nautilus would replay that
     month without a single settlement and no check would see it (FUNDING_FILE_MISSING)."""
@@ -527,7 +534,7 @@ def _export_episode(job: dict, path: Path) -> dict:
                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
                           else None, end) for piece in split]
     places, grid = price_grid(market, market_day, symbol, terms["price_increment"], start)
-    precision = max(instrument.decimals(terms["price_increment"]), places)
+    precision = price_precision(terms["price_increment"], places, grid)
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
     for piece, daily in zip(split, dailies, strict=True):

@@ -480,10 +480,30 @@ class WriterTests(Refusals):
         # 2021 BTCUSDT prices sit on the 0.01 grid: same decimals as the current 0.10, a different grid
         self.assertEqual(build(2, on_grid=False), ("0.01", 2, True))
         self.assertEqual(build(2, on_grid=False, price_increment="0.01"), ("0.01", 2, False))
-        self.refused("PRECISION_NARROWED", build, 1)
+        self.refused("PRECISION_NARROWED", build, 0)
+        # Binance writes a tick at the display precision: 0.0001000 is 0.0001, whose four decimals bound the precision
+        self.assertEqual(build(7, price_increment="0.0001000"), ("0.0001000", 7, False))
+        self.assertEqual(build(4, on_grid=False, price_increment="0.0001000"), ("0.0001", 4, False))
+        self.refused("PRECISION_NARROWED", build, 3, price_increment="0.0001000")
         self.refused("TERMS_INVALID", build, 2, price_increment="0")
         self.refused("TERMS_INVALID", build, 2, min_price="9999999")
         self.refused("UNSUPPORTED_QUOTE", build, 2, symbol="BTCUSDC")
+
+    def test_a_tick_written_with_trailing_zeros_widens_to_the_prices_decimals_off_its_grid(self):
+        # 币安人生USDT: exchangeInfo ticks '0.0001000' since 2026-06-10; its history before trades on 0.00001
+        terms = {"symbol": "XUSDT", "observed_at": 1, "terms_source": "exchange_info", "price_increment": "0.0001000",
+                 "size_increment": "1", "min_quantity": "1", "max_quantity": "1000", "min_notional": "5",
+                 "min_price": "0.0001000", "max_price": "200"}
+        history = np.array([17_573_000, 17_612_000, 17_539_000, 17_591_000])  # 0.17573 ... at scale 8
+        places, grid = export.needed_decimals(history, 8), export.on_grid(history, terms["price_increment"], 8)
+        self.assertEqual((places, grid), (5, False))
+        precision = export.price_precision(terms["price_increment"], places, grid)
+        made, record = instrument.build_instrument("XUSDT", terms, precision, "XUSDT-PERP.BINANCE", on_grid=grid)
+        self.assertEqual((str(made.price_increment), made.price_precision, record["price_precision_widened"]),
+                         ("0.00001", 5, True))
+        on_tick = np.array([17_570_000, 17_610_000])
+        self.assertEqual(export.price_precision(terms["price_increment"], export.needed_decimals(on_tick, 8),
+                                                export.on_grid(on_tick, terms["price_increment"], 8)), 7)
 
     def test_prices_off_the_terms_grid_get_a_step_a_market_order_fills_on(self):
         from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
