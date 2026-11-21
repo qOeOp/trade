@@ -9,8 +9,6 @@ export type Coin = {
   change1h: number | null; change4h: number | null; change7d: number | null;
   /** Binance's open interest in USD, its change over 24 hours in percent, and accounts long over short. */
   oi: number | null; oiChange24h: number | null; longShort: number | null;
-  /** Open interest in USD on each exchange that has some, the largest first. */
-  oiByVenue: [string, number][];
   /** Liquidations in USD over the last 24 hours, or since `Snapshot.liquidationsSince` when later. */
   liquidations: Sides;
 };

@@ -1,0 +1,8 @@
+// Dead files, exports and dependencies (`npm run check`). The tests load src/ through node:vm by path
+// (scripts/load.mjs), which knip cannot follow, so an export used in its own file is not reported.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  // vite.config.ts serves these as the virtual module virtual:harmonyos-sans-sc.css.
+  "ignore": ["fonts/harmonyos-sans-sc/*.css"]
+}
