@@ -1,12 +1,11 @@
 import { useRef } from "react";
 import type { SourceItem, SourcesWidget } from "../../model/types";
 import { Icon } from "../../icons/Icon";
-import { toggleDiff, togglePin } from "../../state/editors";
+import { locate, toggleDiff, togglePin } from "../../state/editors";
 import { CodeView } from "../../ui/CodeView";
 import { useSize } from "../../ui/hooks/useSize";
 import { PanelHeader } from "../../ui/PanelHeader";
 import { TextButton } from "../../ui/TextButton";
-import { locate } from "../runs/VersionMenu";
 
 type Opened = { item: SourceItem | undefined; parent: SourceItem | undefined; comparing: boolean };
 

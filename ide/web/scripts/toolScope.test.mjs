@@ -6,9 +6,9 @@ const storage = new Map();
 globalThis.window = { location: { search: "" }, localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } };
 const { namespace, loaded } = loader();
 const state = await namespace("state/shell.ts");
-const { toolPage, bottomToolOnPage } = loaded("model/toolScope.ts");
+const { bottomToolOnPage } = loaded("model/toolScope.ts");
 const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news"]
-  .filter((id) => bottomToolOnPage(id, toolPage(state.shell.get().last.left)));
+  .filter((id) => bottomToolOnPage(id, state.shell.get().page));
 
 test("20261106-07: bottom tools follow Market, Runs and research across repeated navigation", () => {
   state.resetShell();
@@ -24,7 +24,7 @@ test("20261106-07: bottom tools follow Market, Runs and research across repeated
     state.toggleSide("bottom");
     state.toggleSide("bottom");
     assert.equal(state.shell.get().open.bottom, "trades", "the side shortcut reopens a tool on the current page");
-    state.showToolWindow("versions", "left");
+    state.showResearchPage("versions");
     assert.deepEqual(visible(), ["progress", "readings", "table", "gaps"]);
     assert.equal(state.shell.get().open.bottom, "progress");
     state.toggleToolWindow("sources", "left");
@@ -37,7 +37,7 @@ test("20261106-07: a hidden bottom side stays hidden on navigation and reopens w
   state.showMarketPage();
   state.showToolWindow("news", "bottom");
   state.hideSide("bottom");
-  state.showToolWindow("versions", "left");
+  state.showResearchPage("versions");
   assert.equal(state.shell.get().open.bottom, null);
   state.toggleSide("bottom");
   assert.equal(state.shell.get().open.bottom, "progress");
@@ -47,11 +47,39 @@ test("20261106-07: a hidden bottom side stays hidden on navigation and reopens w
   assert.equal(state.shell.get().open.right, "agent", "Agent remains shared across pages");
 });
 
+test("a left tool window opens beside the Runs page without leaving it", () => {
+  state.resetShell();
+  state.showRunsPage();
+  state.toggleToolWindow("versions", "left");
+  assert.equal(state.shell.get().page, "runs", "⌥1 opens the Versions drawer, the page stays");
+  assert.equal(state.shell.get().open.left, "versions");
+  assert.equal(state.shell.get().open.bottom, "trades");
+  state.toggleToolWindow("versions", "left");
+  assert.deepEqual([state.shell.get().page, state.shell.get().open.left], ["runs", null]);
+  state.showResearchPage("sources");
+  assert.deepEqual([state.shell.get().page, state.shell.get().open.left], ["research", "sources"]);
+});
+
+test("split mode shows the Agent under Details; off, they take turns in one slot", () => {
+  state.resetShell();
+  state.showToolWindow("agent", "right");
+  state.toggleSplit();
+  assert.deepEqual(state.shell.get().open, { left: null, right: "inspector", split: "agent", bottom: "progress" });
+  state.showMarketPage();
+  assert.deepEqual([state.shell.get().open.right, state.shell.get().open.split], ["inspector", "agent"], "Market opens Details beside the Agent");
+  state.toggleSide("right");
+  assert.deepEqual([state.shell.get().open.right, state.shell.get().open.split], [null, null]);
+  state.toggleSide("right");
+  assert.deepEqual([state.shell.get().open.right, state.shell.get().open.split], ["inspector", "agent"]);
+  state.toggleSplit();
+  assert.deepEqual([state.shell.get().split, state.shell.get().open.right, state.shell.get().open.split], [false, "agent", null]);
+});
+
 test("the former Live destination selects the Live stage inside Runs with shared Details and Trades", () => {
   state.resetShell();
   state.showRunsPage();
   state.showLivePage();
-  assert.equal(state.shell.get().last.left, "runs");
+  assert.equal(state.shell.get().page, "runs");
   assert.deepEqual(visible(), ["trades"]);
   assert.equal(state.shell.get().open.bottom, "trades");
   assert.equal(state.shell.get().open.right, "inspector");
@@ -85,4 +113,6 @@ test("Details stays on Runs and Market without a research line, and only there",
   assert.equal(details("market"), true);
   assert.equal(details("runs"), true);
   assert.equal(details("research"), false, "research Details comes from the line's view");
+  const agentSide = (split) => toolWindows([], true, false, "runs", split).find((w) => w.id === "agent").side;
+  assert.deepEqual([agentSide(false), agentSide(true)], ["right", "split"]);
 });

@@ -110,6 +110,6 @@ test("a replay picked in Details on the research page shows its backtest on the 
   const h = await navigation({ address: "https://fixture.invalid/?line=line-a&at=snapshot" });
   h.arriveResearch();
   h.navigate.showTrial(5);
-  assert.equal(h.shell.shell.get().last.left, "runs");
+  assert.equal(h.shell.shell.get().page, "runs");
   assert.deepEqual([h.choice().stage, h.choice().trial], ["backtest", 5]);
 });

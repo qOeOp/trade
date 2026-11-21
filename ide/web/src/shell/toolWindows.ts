@@ -9,9 +9,9 @@ import { bottomToolOnPage, type ToolPage } from "../model/toolScope";
 import type { IconName } from "../icons/registry";
 import type { HeaderAction } from "../ui/PanelHeader";
 import { agentPane, chatControl } from "../state/agent";
-import { requestFocus } from "../state/linking";
+import { locate } from "../state/editors";
 import { selection } from "../state/selection";
-import { hideSide, type Side } from "../state/shell";
+import { hideSide, shell, toggleSplit, type Side } from "../state/shell";
 import type { Atom } from "../state/atom";
 import { sourceTreeControl, versionTreeControl, type TreeControl } from "../state/versionTree";
 import { RENDERERS, type Renderer } from "../widgets/registry";
@@ -47,7 +47,7 @@ const SPECS: readonly ToolWindow[] = [
   { id: "sources", side: "left", icon: "tool.sources", shortcut: alt(7), source: "sources", renderer: RENDERERS.sources,
     actions: () => treeActions(sourceTreeControl) },
   { id: "inspector", side: "right", icon: "tool.inspector", shortcut: alt(2), source: "candidate-detail", renderer: RENDERERS.detail,
-    actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) requestFocus(id); } }, hide("right")] },
+    actions: () => [{ id: "locate", icon: "locate", label: "Locate in graph", run: () => { const id = selection.get(); if (id) locate(id); } }, hide("right")] },
   { id: "progress", side: "bottom", icon: "tool.progress", shortcut: alt(3), source: "progress", renderer: RENDERERS.progress, actions: () => [hide("bottom")] },
   { id: "readings", side: "bottom", icon: "tool.readings", shortcut: alt(4), source: "scatter", renderer: RENDERERS.scatter, actions: () => [hide("bottom")] },
   { id: "table", side: "bottom", icon: "tool.table", shortcut: alt(5), source: "table", renderer: RENDERERS.table, tools: VersionTableTools,
@@ -73,16 +73,19 @@ const AGENT: ToolWindow = {
   id: "agent", side: "right", icon: "tool.agent", shortcut: alt(0), source: "agent",
   renderer: { title: "Agent", Component: AgentWindow }, watch: agentPane as Atom<unknown>,
   actions: () => [
+    { id: "split", icon: "rows-2", label: shell.get().split ? "Dock in place of Details" : "Dock under Details",
+      active: shell.get().split, run: toggleSplit },
     { id: "new", icon: "new-chat", label: "New chat", run: () => { chatControl.get()?.newThread(); agentPane.set("chat"); } },
     { id: "history", icon: "history", label: "Chats", active: agentPane.get() === "history", run: pane("history") },
     { id: "settings", icon: "settings", label: "Agents", active: agentPane.get() === "settings", run: pane("settings") },
-    hide("right"),
+    hide(shell.get().split ? "split" : "right"),
   ],
 };
 
 /** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with an
- *  overview service, Coins and News; with a chat service, the Agent window last on the right. */
-export function toolWindows(widgets: readonly Widget[], agent = false, market = false, page: ToolPage = "research"): (ToolWindow & { widget: Widget })[] {
+ *  overview service, Coins and News; with a chat service, the Agent window last on the right, in the
+ *  right side's lower slot while it is `split`. */
+export function toolWindows(widgets: readonly Widget[], agent = false, market = false, page: ToolPage = "research", split = false): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     if (widget) return [{ ...s, widget }];
@@ -91,6 +94,6 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
       ? [{ ...s, widget: { type: "candidate-detail", items: [], default: null } }] : [];
   });
   const own = (w: ToolWindow) => ({ ...w, widget: { type: w.id } });
-  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : [])]
+  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own({ ...AGENT, side: split ? "split" : "right" })] : [])]
     .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
 }

@@ -5,7 +5,6 @@ import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/ai-sdk";
 import { createAssistantStream } from "assistant-stream";
 import { agentApi } from "../../lib/agentApi";
 import { agentContext, type AgentContext } from "../../model/agentContext";
-import { toolPage } from "../../model/toolScope";
 import { useView } from "../../model/view";
 import { agents, chatControl, chosen, currentChoice } from "../../state/agent";
 import { useAtom } from "../../state/atom";
@@ -76,7 +75,7 @@ const threads: RemoteThreadListAdapter = {
  *  (a paper run's stream among them) do not re-render the runtime. */
 function PageContext({ into }: { into: RefObject<AgentContext | null> }) {
   const view = useView(), shown = useShown(), run = useRunData(), tab = useAtom(paperTab), market = useAtom(marketCoin);
-  into.current = agentContext(toolPage(useShell().last.left), { version: useSelection(), line: view.line.name,
+  into.current = agentContext(useShell().page, { version: useSelection(), line: view.line.name,
     ledger_commit: view.scope?.ledger_commit ?? null }, shown, { chart: run?.view ?? tab, market });
   return null;
 }
