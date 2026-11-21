@@ -16,6 +16,8 @@ import { ChartPill, PILL_H, pillWidth } from "../components/ChartPill";
 import { chartKeys } from "../components/chartKeys";
 import { tickCount } from "../components/ProgressLayout";
 import { Tip } from "../components/Tip";
+import { FoldedRuns } from "../components/FoldedRuns";
+import { useFolded } from "../components/hooks/useFolded";
 
 type Point = ScatterWidget["points"][number];
 
@@ -34,7 +36,9 @@ const R = 4, RING = 2;
 // Research runs by annual return against max drawdown: the corner meeting both targets, the
 // non-dominated runs as a frontier (less drawdown and more return cannot both improve) named at its
 // ends and at the recommendation, and on hover or keyboard focus a crosshair read off both axes. Where
-// runs crowd, the wheel zooms in around the pointer and a drag pans; a double-click shows them all again.
+// runs crowd, the wheel zooms in around the pointer and a drag pans; a double-click shows them all again. Runs of
+// versions the lineage folds are not drawn, unless on the frontier, but they stay in the frame and the frontier, and the
+// legend counts them.
 export function Scatter({ widget }: { widget: ScatterWidget }) {
   const selected = useSelection();
   const [ref, { width, height }] = useSize();
@@ -42,17 +46,17 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const [kbd, setKbd] = useState<Point | null>(null);
   const glide = useGlide(widget);
   const t = widget.targets ?? {};
-  const points = widget.points;
+  const all = widget.points, folded = useFolded();
   const m = width < 480 ? { ...M, top: 52 } : M;  // the legend takes two rows when narrow
   const w = Math.max(0, width - m.left - m.right), h = Math.max(0, height - m.top - m.bottom);
   // As many return ticks as fit 28px apart, up to 8 (5% steps for a usual range).
   const count = tickCount(h);
   // Two-decimal labels are about 40px wide: about 6 along the bottom, every other one dropped while they are under 56px apart.
   const xCount = Math.max(2, Math.min(6, Math.floor(w / 72)));
-  const ys = [...points.map((p) => p.annual_return), t.annual_return ?? 0, 0];
+  const ys = [...all.map((p) => p.annual_return), t.annual_return ?? 0, 0];
   const whole = {
     // Nice to the same tick counts the axes draw, so the frame ends on a tick.
-    x: scaleLinear<number>({ domain: [0, Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], nice: xCount }).domain() as [number, number],
+    x: scaleLinear<number>({ domain: [0, Math.max(...all.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], nice: xCount }).domain() as [number, number],
     y: valueDomain(Math.min(...ys), Math.max(...ys), count, 1.08),
   };
   const zoom = useZoom(ref, whole, { left: m.left, top: m.top, w, h });
@@ -61,11 +65,11 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const xTicks = xAll.filter((_, i) => i % Math.max(1, Math.ceil(56 / gap)) === 0);
   const shows = (p: Point) => p.max_drawdown >= zoom.x[0] && p.max_drawdown <= zoom.x[1] && p.annual_return >= zoom.y[0] && p.annual_return <= zoom.y[1];
   const clip = useId(), pad = zoom.zoomed ? 0 : R + RING + 2;
-  const frontier = points.filter((p) => p.eligible !== false)
+  const frontier = all.filter((p) => p.eligible !== false)
     .filter((p, _, all) => !all.some((q) => q !== p && q.max_drawdown <= p.max_drawdown && q.annual_return >= p.annual_return
                                        && (q.max_drawdown < p.max_drawdown || q.annual_return > p.annual_return)))
     .sort((a, b) => a.max_drawdown - b.max_drawdown);
-  const onFrontier = new Set(frontier);
+  const onFrontier = new Set(frontier), points = all.filter((p) => !folded.has(p.id) || onFrontier.has(p)), hidden = all.length - points.length;
   const lone = hovered?.length === 1 ? hovered[0] : null;
   // Read out only under the pointer or the keyboard; at rest the yellow fill alone marks the selected run.
   const focus = kbd ?? points.filter((p) => p.id === lone).at(-1);
@@ -184,6 +188,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
         {zone && <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={tint("meets", 24)} /></svg>{zone}
         </span>}
+        <FoldedRuns n={hidden} />
         <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={14} height={8} className="shrink-0"><line x1={0} x2={14} y1={4} y2={4} stroke={v("recommended")} strokeWidth={2} /></svg>
           Pareto frontier

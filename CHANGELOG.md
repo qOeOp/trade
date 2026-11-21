@@ -110,6 +110,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   a message naming the line and the version and asking to register out-of-sample validation; the user sends it, and
   the page registers nothing itself.
 
+- IDE: the Progress and Return vs drawdown charts follow the lineage fold. Runs of folded versions are not drawn, and
+  a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
+  every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
+  line has tried.
 - IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
   holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
   row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
