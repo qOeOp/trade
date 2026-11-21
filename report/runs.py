@@ -21,7 +21,7 @@ from pathlib import Path
 
 from ledger import db, execution, metrics, problems
 from ledger import targets as line_targets
-from shared import clock
+from shared import clock, paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
@@ -296,7 +296,7 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
               if path.startswith("reports/") or path in (problems.AUDIT_RESULT, problems.FINGERPRINT_RESULT)}
     differs = []
     for path, entry in sorted(wanted.items()):
-        data = metrics.read_regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
+        data = paths.read_regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
         status = entry.get("status") if isinstance(entry, Mapping) else None
         if status in ("captured", "hashed"):
             same = data is not None and hashlib.sha256(data).hexdigest() == entry.get("sha256")

@@ -11,7 +11,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, judgments, lines, problems, strategies, targets
+from ledger import db, execution, judgments, lines, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck
@@ -193,11 +193,11 @@ class UnchangedTests(unittest.TestCase):
     def test_targets_and_a_new_line_answer_changed(self):
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.line_id, 0.15, 0.2)
+            lines.set_targets(conn, self.line_id, 0.15, 0.2)
         self.answers(since, False)
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.other_line_id, 0.15, 0.2)
+            lines.set_targets(conn, self.other_line_id, 0.15, 0.2)
         self.answers(since, False, same=True)
         since = self.head()
         with pinned(date(2026, 2, 2), date(2026, 3, 1)):

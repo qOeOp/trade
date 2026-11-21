@@ -29,7 +29,8 @@ import jsonschema
 from ledger import db, evidence, execution as ledger_execution, lines, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, runner, seams
+from registration import (availability, comparability, duties, inputs as registration_inputs, precheck, reproduction,
+                          runner, seams)
 
 
 METHOD = "paired-circular-log-mean-v1"
@@ -279,7 +280,7 @@ def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None
         return
     run = control_trial(conn, control)
     comparability.check_comparable(run, execution)
-    seams.current.qualification_require(conn, run)
+    (seams.current.qualification_require or availability.require)(conn, run)
 
 
 def _check_window(execution: Mapping, line: Mapping) -> None:
@@ -333,7 +334,8 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     if run["status"] == "invalid":
         return True
     scope = _sealing_review_scope(conn, trial_id)
-    return not seams.current.qualification_assess(conn, run, review_scope=scope)["economic_evidence_available"]
+    assess = seams.current.qualification_assess or availability.assess
+    return not assess(conn, run, review_scope=scope)["economic_evidence_available"]
 
 
 def _retry_chain(conn: db.LedgerConnection, retry_of: int | None) -> list[dict]:
