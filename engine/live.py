@@ -93,7 +93,7 @@ def read_manifest(path: Path) -> dict:
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
             raise ValueError
         evidence = value["evidence"]
-        if not isinstance(evidence, list) or not evidence or any(
+        if not isinstance(evidence, list) or any(
                 type(item["trial_id"]) is not int or not Decimal(item["starting_balance_usdt"]).is_finite()
                 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", item["image_ref"]) for item in evidence):
             raise ValueError

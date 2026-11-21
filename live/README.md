@@ -35,15 +35,18 @@ out-of-sample registrations at that commit. They inform the operator and no vali
 Preparation first needs the candidate's closing history test, read at research_at, to have decided that it meets
 its line's targets, the check `validation registration` makes (`report.history.require_unfalsified`): it refuses
 `LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them and `LIVE_HISTORY_UNDECIDED` for one it has
-not decided (no history test, or a verdict missing a reading). It also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
+not decided (no history test, or a verdict missing a reading). It also records the replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
 audit passed and whose trading window lies inside a research trial's window of the same source (a window it already
 saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars`, on a
 replay image whose `--describe`
 reports the execution image's `source_files_sha256`, `audit_source_sha256` and `dependency_lock_sha256` (the same
 replay code). A sealed run on other replay code counts through an explore that reproduces it on matching code
-(`replay reproduce`). Without one it refuses `LIVE_EVIDENCE_MISSING`; the manifest lists each (`evidence`) and the
-review shows them. In `preflight` and `run` the runner then needs one that started within 10% of the USDT wallet it
-observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
+(`replay reproduce`). The manifest lists each (`evidence`) and the review shows them. A run that records none may
+still check the account, so the wallet a replay must start near is read before there is one: its `preflight` keeps the
+account observation, makes every other check and then refuses `LIVE_EVIDENCE_MISSING`; its start (`run`) is refused
+`LIVE_EVIDENCE_MISSING` by the control before any key or container, and by the runner too, so a run is prepared again
+once a replay exists (decided 2026-11-21, `docs/plans/live-wallet-read-first-20261121.zh.md`). In `preflight` and `run`
+the runner then needs one that started within 10% of the USDT wallet it observes, or refuses `LIVE_EVIDENCE_BALANCE`. To back a run, replay the candidate at the wallet: `candidate export`,
 then `replay explore` of that file with `--starting-balance` the wallet and the run's `--symbols`, inside the
 window of one of its research trials.
 Last, preparation needs a reconciled Paper run of the source (`live/reconcile.py`): a sealed run whose status is

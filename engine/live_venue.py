@@ -338,7 +338,10 @@ EVIDENCE_TOLERANCE = Decimal("0.1")
 def require_evidence(snapshot: dict, manifest: dict) -> dict:
     """The replay (live.runs.prepare_locked recorded each one of this source, on these instruments, on bars, by the
     same replay code as this image) that started nearest the USDT wallet the venue reports now, within
-    EVIDENCE_TOLERANCE of it."""
+    EVIDENCE_TOLERANCE of it. A run prepared with none was only ever to check the account: LIVE_EVIDENCE_MISSING."""
+    if not manifest["evidence"]:
+        raise Refusal("LIVE_EVIDENCE_MISSING", "no replay backs this run; the account check read the wallet, which a "
+                                               "replay of the candidate must start near; prepare a new run after it")
     try:
         wallet = Decimal(next(row["walletBalance"] for row in snapshot["account"]["assets"] if row["asset"] == "USDT"))
         if not wallet.is_finite() or wallet <= 0:

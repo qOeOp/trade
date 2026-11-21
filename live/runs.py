@@ -48,6 +48,9 @@ FAILED_EXITS = frozenset({1, 2})
 KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})  # live.control.check_key_locked's lifecycle rows
 RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
 HOUR_NS = 3600 * 10**9
+EVIDENCE_MISSING = ("no passed run, or audited explore inside a research window, of this source on these instruments in "
+                    "bars runs the replay code of this execution image; replay it at the wallet's balance on a matching "
+                    "replay image (engine/README.md) and prepare a new run")
 
 
 def inspect_runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
@@ -498,12 +501,9 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         inspection = image.inspect_runtime(identity, describe)
         image.require_main_build(identity, inspection)
         admission.unfalsified(research, research_at, found["source_sha256"])
+        # Recorded, possibly none: a run without it may still check the account (and read the wallet a replay must
+        # start near), but never starts (launch_locked, engine.live_venue.require_evidence).
         evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
-        if not evidence:
-            raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of "
-                                                      "this source on these instruments in bars runs the replay code "
-                                                      "of this execution image; replay it at the wallet's balance on a "
-                                                      "matching replay image (engine/README.md)")
         reconciled(found["source_sha256"], symbols)
         market = _market_terms(market_root, symbols)
         key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
@@ -621,6 +621,8 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, requ
     if request_id is not None and (replayed := sent_locked(root, run_id, mode, request_id)) is not None:
         return replayed
     directory, manifest = read_manifest(root, run_id)
+    if mode == "run" and not manifest["evidence"]:
+        raise state.fail("LIVE_EVIDENCE_MISSING", EVIDENCE_MISSING)
     _bound_credential(root, run_id, directory, credentials, mode)
     _credentials(credentials, manifest["credential_binding"])
     recorded = recycled(directory)

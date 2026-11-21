@@ -122,12 +122,20 @@ test("the Demo switch binds the demo key alone, never the live one, and checks n
   assert.equal(model.ready(both), true);
 });
 
-test("missing replay evidence fails its row, says the Agent replays the candidate, and holds back the account check", () => {
+test("missing replay evidence fails its row and holds back Start, not the account check, which shows the wallet (G-69)", () => {
   const missing = source({ state: "missing", replays: [], tolerance: "0.1" }), cols = columns(view(), checked(), { source: missing });
   assert.equal(row(cols, "evidence").mark, "fail");
   assert.match(row(cols, "evidence").reason, /The Agent runs one at your wallet's balance/);
-  assert.match(model.checkBlocker({ view: view(), source: missing, edits: {}, environment: "live" }, true), /replay evidence/);
+  const input = { view: view(), source: missing, edits: {}, checked: null, reading: null, targets: null, environment: "live" };
+  assert.equal(model.checkBlocker(input, true), null, "the check reads the wallet a replay must start near");
+  assert.equal(model.startBlocker(input), "Needs replay evidence first (Strategy).");
+  assert.equal(model.startBlocker({ ...input, source: source(found) }), null);
   assert.equal(model.ready(cols), false);
+  // Live reads the account, then refuses the check for want of evidence: the wallet is shown, the reason says why.
+  const failed = columns(view(), checked({ hostState: "preflight_failed", accountCheck: { state: "failed", readAt: null } }), { source: missing });
+  assert.equal(row(failed, "wallet").value, "100");
+  assert.match(row(failed, "check").reason, /no replay backs the candidate yet/);
+  assert.match(row(columns(view(), checked({ accountCheck: { state: "failed", readAt: null } })), "check").reason, /Live refused the account/);
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view(), null, { source: source({ state, replays: [], tolerance: "0.1" }) }), "evidence").mark, "wait");
 });
 
@@ -200,7 +208,7 @@ const named = (tree, name) => all(tree).find((node) => node.type?.name === name)
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test("the first click arms the start in place; the second starts the checked run with its source as the confirmation", async () => {
-  const state = { draft: { version: "rsi@4", edits: {}, preparedId: "web-check" }, shown: [] }, calls = [];
+  const state = { draft: { version: "rsi@4", edits: {}, preparedId: "web-check", backed: true }, shown: [] }, calls = [];
   const render = await page(state);
   const actions = { prepare: async (input) => { calls.push(["prepare", input.candidate, input.symbols, input.values.duration_seconds]); return { outcome: "effect_recorded", target: { run_id: "web-new" } }; },
     preflight: async (id) => { calls.push(["preflight", id]); return { outcome: "effect_recorded", target: { run_id: id } }; },
@@ -217,6 +225,14 @@ test("the first click arms the start in place; the second starts the checked run
   await settle();
   assert.deepEqual(calls, [["start", "web-check", HASH]], "the run whose account was checked starts as it is");
   assert.deepEqual(state.shown, ["web-check"]);
+
+  // A run checked before replay evidence existed records none (G-69): with evidence found now, a new one is prepared.
+  state.draft = { ...state.draft, backed: false }; calls.length = 0; state.shown.length = 0;
+  named(render(props), "LiveLaunchStart").props.start();
+  await settle();
+  assert.deepEqual(calls, [["prepare", "rsi@4", ["BTCUSDT"], "8100"], ["start", "web-new", HASH]]);
+  assert.equal(state.draft.backed, true);
+  state.draft = { ...state.draft, preparedId: "web-check" }; state.shown.length = 0;
 
   // Other contracts prepare a run on them first; a refused start is said plainly and shows no run.
   state.draft = { ...state.draft, edits: { contracts: "ethusdt" } }; calls.length = 0; state.shown.length = 0;
