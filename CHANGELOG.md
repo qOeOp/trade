@@ -53,6 +53,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   ended (a minute's result, a fill, a start or its end that day; a running run whose minutes are unread counts).
   A day with none is marked done and never sent later.
 
+- IDE service: graphs are asked for in one queue (one draw at a time; a question about a graph a browser kept still
+  never waits behind a draw), and the two ways a draw is spared (the server's own older view of the line, the
+  browser's kept one) are one `research unchanged` path. The product reads other than graphs (reports, comparisons,
+  states, counts, bars, the line index, history, readings, ledger status) share one cache of at most 64 MiB of JSON,
+  least recently used dropped first, in place of eight caches each capped at a count of entries.
+
 - Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
   schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
   still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`

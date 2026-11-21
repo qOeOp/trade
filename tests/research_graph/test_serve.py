@@ -155,7 +155,8 @@ class HubTests(unittest.TestCase):
         self.product = FakeProduct()
         self.product.listed = [{"name": "historical", "closed": True}]  # no open line to draw ahead of a page
         self.hub = serve.Hub(self.product, "build", poll=0.05)
-        threading.Thread(target=self.hub.work, daemon=True).start()
+        for _ in range(2):  # as `serve` runs them
+            threading.Thread(target=self.hub.work, daemon=True).start()
 
     def states(self, client):
         found = []
@@ -175,9 +176,10 @@ class HubTests(unittest.TestCase):
     def test_an_open_line_no_page_follows_is_drawn_when_the_head_moves(self):
         self.product.listed = [{"name": "historical", "closed": True}, {"name": "current", "closed": False},
                                {"name": "followed", "closed": False}]
+        self.product.same = True
         self.hub.join(serve.Client("followed", None, None, have="0" * 32))
         self.hub.refresh(wait=True)
-        until(lambda: serve.ViewKey("a" * 32, "current", None) in self.hub.views and self.hub.running is None)
+        until(lambda: serve.ViewKey("a" * 32, "current", None) in self.hub.views and not self.hub.running)
         self.assertEqual(self.hub.view("current", None, None)[0], 200, "choosing the open line finds its graph ready")
         drawn = {key.line for key in self.hub.views}
         self.assertNotIn("historical", drawn, "a closed line is drawn only when a page asks")
@@ -219,11 +221,11 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         client = serve.Client("line-a", None, None)
         self.hub.join(client)
-        until(lambda: self.hub.running == serve.ViewKey("a" * 32, "line-a", None))
+        until(lambda: serve.Job(serve.ViewKey("a" * 32, "line-a", None), False) in self.hub.running)
         self.product.head = "b" * 32
         self.hub.refresh(wait=True)
         first.set()
-        until(lambda: self.hub.running == serve.ViewKey("b" * 32, "line-a", None))
+        until(lambda: serve.Job(serve.ViewKey("b" * 32, "line-a", None), False) in self.hub.running)
         status, view = self.hub.view("line-a", None, None)
         self.assertEqual(status, 200, "new pages can show the completed graph instead of waiting for a moving head")
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
@@ -318,7 +320,7 @@ class HubTests(unittest.TestCase):
         self.product.release = threading.Event()
         self.product.head = "b" * 32
         self.hub.refresh(wait=True)
-        until(lambda: self.hub.running is not None)
+        until(lambda: self.hub.running)
         self.product.head = "c" * 32  # two more commits while b is drawn
         self.hub.refresh(wait=True)
         self.product.head = "d" * 32
@@ -332,18 +334,18 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         self.hub.join(client)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
-        self.hub.trials.get((1, "a" * 32))
+        self.hub.kept("trial", 1, "a" * 32)
         self.product.release = threading.Event()
         self.addCleanup(self.product.release.set)
         self.hub.join(serve.Client("other", None, None))  # a draw on the old history, in flight
-        until(lambda: self.hub.running == serve.ViewKey("a" * 32, "other", None))
+        until(lambda: serve.Job(serve.ViewKey("a" * 32, "other", None), False) in self.hub.running)
         self.product.same, self.product.replaced, self.product.head = True, True, "b" * 32
         self.hub.refresh(wait=True)
         status, body = self.hub.view("gone", None, None)
         self.assertEqual(status, 202, "no graph of the old ledger is served at the new head")
         self.assertNotIn("available_commit", body)
         self.assertEqual(self.product.followed, [("a" * 32, "b" * 32)])
-        self.assertEqual(self.hub.trials.values, {}, "reads pinned to the old commits are dropped")
+        self.assertEqual([key for key in self.hub.reads.values if "a" * 32 in key], [], "reads pinned to the old commits are dropped")
         self.product.release.set()
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
         self.assertEqual(self.product.asked, [], "the old graph is not compared with the new head, it is drawn")
@@ -447,7 +449,6 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "error", "ledger_commit": "b" * 32, "error": refusal, "available_commit": "a" * 32})
         self.product.head = "c" * 32
-        self.confirming()
         keeper = self.drawn_page(have="k" * 32)
         until(lambda: keeper.sent == {"state": "error", "ledger_commit": "c" * 32, "error": refusal, "available_commit": "a" * 32})
 
@@ -458,20 +459,20 @@ class HubTests(unittest.TestCase):
         until(lambda: client.sent == {"state": "error", "ledger_commit": "a" * 32, "error": refusal})
 
     def test_a_page_is_told_the_check_is_running_and_its_own_commit_needs_no_counts(self):
-        keeper = self.drawn_page(have="k" * 32)
-        self.assertEqual(keeper.sent, {"state": "checking", "ledger_commit": "a" * 32})
+        answered, ask = threading.Event(), self.product.unchanged
+        self.addCleanup(answered.set)
+        self.product.unchanged = lambda *asked: answered.wait(5) and ask(*asked)
         self.product.same = True
-        self.confirming()
+        keeper = self.drawn_page(have="k" * 32)
+        until(lambda: self.hub.running)
+        self.assertEqual(keeper.sent, {"state": "checking", "ledger_commit": "a" * 32})
+        answered.set()
         until(lambda: keeper.sent["state"] == "unchanged")
         current = self.drawn_page(have="a" * 32)
         until(lambda: current.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
         self.assertEqual(self.product.counted, [("line", "a" * 32)])
 
-    def confirming(self):
-        threading.Thread(target=self.hub.confirm, daemon=True).start()
-
     def test_a_kept_graph_that_holds_spares_the_draw(self):
-        self.confirming()
         self.product.same = True
         client = self.drawn_page(have="k" * 32)
         counts = self.product.trial_counts
@@ -484,7 +485,6 @@ class HubTests(unittest.TestCase):
         self.assertEqual(self.product.drawn, [])
 
     def test_a_kept_graph_that_no_longer_holds_is_replaced_by_a_draw(self):
-        self.confirming()
         client = self.drawn_page(have="k" * 32)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32])
@@ -495,7 +495,6 @@ class HubTests(unittest.TestCase):
         self.assertEqual(self.product.drawn, ["a" * 32, "b" * 32])
 
     def test_a_refused_check_of_a_kept_graph_draws_and_the_refusal_reaches_the_page(self):
-        self.confirming()
         self.product.same = {"code": "LEDGER_CORRUPT", "message": "stored bytes differ"}
         real, refusal = self.product.graph, {"code": "LEDGER_CORRUPT", "message": "stored bytes differ"}
 
@@ -508,7 +507,6 @@ class HubTests(unittest.TestCase):
         self.product.graph = real
 
     def test_a_page_that_kept_nothing_still_gets_a_draw_of_a_line_another_kept(self):
-        self.confirming()
         self.product.same = True
         keeper = self.drawn_page(have="k" * 32)
         until(lambda: keeper.sent["state"] == "unchanged")
@@ -517,15 +515,15 @@ class HubTests(unittest.TestCase):
         until(lambda: other.sent == {"state": "ready", "ledger_commit": "a" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32])
 
-    def test_a_check_never_waits_behind_a_draw(self):
-        self.confirming()
+    def test_a_check_never_waits_behind_a_draw_and_one_draw_runs_at_a_time(self):
         self.product.same, self.product.release = True, threading.Event()
         self.addCleanup(self.product.release.set)
         drawing = self.drawn_page(line="busy")
-        until(lambda: self.hub.running is not None)
+        until(lambda: self.hub.running)
+        waiting = self.drawn_page(line="next")
         keeper = self.drawn_page(have="k" * 32)
         until(lambda: keeper.sent["state"] == "unchanged")
-        self.assertEqual(drawing.sent["state"], "computing")
+        self.assertEqual((drawing.sent["state"], waiting.sent["state"]), ("computing", "queued"))
 
     def test_a_page_at_a_commit_keeps_it(self):
         self.product.refs["line/x"] = "e" * 32
@@ -591,7 +589,7 @@ class HttpTests(unittest.TestCase):
                                                            "behind_seconds": None, "diverged": False, "commit": "abc"}})
         self.assertEqual(len(asked), 1)
         self.hub.product.service = lambda: {"running": False, "address": None}
-        self.hub.status.clear()
+        self.hub.reads.drop(lambda key: key[0] == "service")
         self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
                          {"running": False, "remote": None, "unpublished": False, "behind_seconds": None,
                           "diverged": False, "commit": None})
@@ -599,7 +597,7 @@ class HttpTests(unittest.TestCase):
         def refused():
             raise serve.ProductError({"code": "LEDGER_UNKNOWN", "message": "no accounts"})
         self.hub.product.service = refused
-        self.hub.status.clear()
+        self.hub.reads.drop(lambda key: key[0] == "service")
         answer = self.get("/api/about")
         self.assertEqual((answer.status, json.loads(answer.read())),
                          (200, {"version": "1.2.3", "build": "build", "released": None, "ledger": None,
@@ -665,7 +663,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(conn.getresponse().status, 403)
 
     def test_readings_are_the_line_list_with_its_recommendations_read_once_a_commit_and_draw_nothing(self):
-        with mock.patch.object(self.hub.readings, "read", wraps=self.hub.product.readings) as read:
+        with mock.patch.object(self.hub.product, "readings", wraps=self.hub.product.readings) as read:
             for _ in range(2):
                 body = json.loads(self.get("/api/readings").read())
             self.assertEqual((body["ledger_commit"], body["lines"][0]["recommendation"]["recommended"], read.call_count),
@@ -687,7 +685,7 @@ class HttpTests(unittest.TestCase):
 
     def test_the_history_page_reads_research_history_at_the_head_or_the_snapshot_once_a_commit(self):
         self.hub.product.refs["before"] = "b" * 32
-        with mock.patch.object(self.hub.history, "read", wraps=self.hub.product.history) as read:
+        with mock.patch.object(self.hub.product, "history", wraps=self.hub.product.history) as read:
             for _ in range(2):
                 body = json.loads(self.get("/api/history?at=before").read())
             self.assertEqual((body["ledger_commit"], body["lines"][0]["line"], read.call_count), ("b" * 32, "historical", 1))
@@ -701,7 +699,7 @@ class HttpTests(unittest.TestCase):
         self.assertIn(first["state"], ("fetching", "queued", "computing", "ready"))
 
     def test_a_kept_graph_counts_only_from_this_build_on_a_named_live_page(self):
-        threading.Thread(target=self.hub.confirm, daemon=True).start()
+        threading.Thread(target=self.hub.work, daemon=True).start()  # as `serve` runs two
         self.hub.product.same = True
         have, other = "k" * 32, "x" * 31
         self.hub.product.refs["z" * 32] = "z" * 32
@@ -718,7 +716,7 @@ class HttpTests(unittest.TestCase):
                     self.assertEqual(len(self.hub.product.asked), before)
 
     def test_line_navigation_is_warmed_and_reuses_the_snapshot_index(self):
-        with mock.patch.object(self.hub.line_index, "read", wraps=self.hub.product.lines) as read:
+        with mock.patch.object(self.hub.product, "lines", wraps=self.hub.product.lines) as read:
             self.hub.refresh(wait=True)
             self.assertEqual(read.call_count, 1, "the index is ready before a first graph can be shown")
             for _ in range(3):
@@ -733,7 +731,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(read.call_count, 2)
 
     def test_an_index_failure_does_not_block_a_valid_graph(self):
-        with mock.patch.object(self.hub.line_index, "read", side_effect=serve.ProductError(
+        with mock.patch.object(self.hub.product, "lines", side_effect=serve.ProductError(
                 {"code": "LINE_CORRUPT", "message": "an unrelated line is unreadable"})):
             until(lambda: self.hub.view("valid-line", None, None)[0] == 200)
             response = self.get("/api/lines")
