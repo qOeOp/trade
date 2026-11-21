@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Live: a run on a non-ASCII coin's contract (such as 币安人生USDT) is no longer refused by the runner's manifest
+  check after the configuration accepted it, and the Live page no longer drops it from the run's contracts or a held
+  start's unprotected positions; both take a contract as the market names it (`market.sources.SYMBOL`).
 - Paper seal audit (live clock only, doctor 20261121-20): within one contract's burst of partial fills, the venue's
   OrderUpdated resizes of a reduce-only exit recorded after the strategy's cancel request, with earlier stamps, are no
   `EVENT_OUT_OF_ORDER` when the order ends canceled and each resize follows a fill at most a second before the request;
