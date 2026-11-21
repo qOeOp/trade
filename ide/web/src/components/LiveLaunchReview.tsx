@@ -6,6 +6,7 @@ import { FormButton } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveAccountCheck } from "./LiveAccountCheck";
 import { LiveRunId, liveRunStatus } from "./LiveRunIdentity";
+import { StopButtons, StopPanel, useStopRequest } from "./LiveStop";
 
 /** The plan a run froze at prepare, in one label column: what runs, its limits (each unit faint after its
  *  value), then the credential version bound to it. */
@@ -30,7 +31,7 @@ export function LiveFrozenPlan({ run, credentials }: { run: LiveRun; credentials
 }
 
 export function LiveLaunchReview({ run, credentials, actions }: { run: LiveRun; credentials: readonly LiveCredential[]; actions: LiveTradingActions }) {
-  const check = useLiveAction(), stopping = useLiveAction();
+  const check = useLiveAction(), stopping = useStopRequest(run, actions);
   return <div className="space-y-4">
     <div className="space-y-3">
       <KeyValues stackNarrow labels="fixed" items={[["Run ID", <LiveRunId id={run.id} />], ...liveRunStatus(run)]} />
@@ -42,8 +43,9 @@ export function LiveLaunchReview({ run, credentials, actions }: { run: LiveRun; 
         : <p className="text-small text-fg-muted">No account-check result for the current run phase. Startup checks the account before trading.</p>}
       <div className="flex flex-wrap gap-2">
         <FormButton disabled={!actions.preflight || check.busy} onClick={() => void check.submit(() => actions.preflight?.(run.id))}>{check.busy ? "Submitting check…" : "Check account"}</FormButton>
-        <FormButton disabled={!actions.stop || run.ended || stopping.busy} onClick={() => void stopping.submit(() => actions.stop?.(run.id))}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+        <StopButtons form stop={stopping} />
       </div>
+      <StopPanel stop={stopping} />
       <p className="text-small text-fg-faint">Check account opens a read-only exchange connection. A stop request still waits for exit and account verification.</p>
       <LiveActionFailure failed={check.failed || stopping.failed} />
     </section>

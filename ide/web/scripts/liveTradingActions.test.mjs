@@ -17,33 +17,55 @@ async function component(name, fixtures = {}) {
     "icons/Icon": { Icon: () => null },
     "components/InfoTip": { InfoTip: () => null },
     "components/IconButton": { IconButton: function IconButton() { return null; } },
+    "state/market": { useSnapshot: () => null },
     ...fixtures,
     react: hooks,
     "radix-ui": { Dialog: Object.fromEntries(["Root", "Portal", "Overlay", "Content", "Title", "Description", "Close"].map((key) => [key, `Dialog${key}`])), Collapsible: {} },
   } });
   return (props) => { cursor = 0; return exports[name](props); };
 }
-const descendants = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(descendants) : [node, ...descendants(node.props?.children), ...descendants(node.props?.footer)];
+// StopButtons holds no hooks, so it is expanded in place to reach its buttons.
+const descendants = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(descendants)
+  : node.type?.name === "StopButtons" ? [node, ...descendants(node.type(node.props))]
+  : [node, ...descendants(node.props?.children), ...descendants(node.props?.footer)];
 const control = (tree, label) => descendants(tree).find((node) => ["FormButton", "TextButton"].includes(node.type?.name) && node.props.children === label);
 
-test("run review refresh and stop remain independent and target the retained run", async () => {
+test("run review refresh and stop remain independent, and a stop is sent only on its confirming second click", async () => {
   const render = await component("LiveRunReviewDialog");
-  let releaseRead, releaseStop, reads = 0, stops = 0;
-  const props = { run: { id: "run-review", candidate: "fixture" }, open: true, close() {}, requests() {}, view: {}, actions: {
-    refresh: () => { reads++; return new Promise((resolve) => { releaseRead = resolve; }); },
-    stop: (id) => { stops++; assert.equal(id, "run-review"); return new Promise((resolve) => { releaseStop = resolve; }); },
-  } };
-  control(render(props), "Refresh observations").props.onClick();
-  const tree = render(props);
-  assert.equal(control(tree, "Reading…").props.disabled, true);
-  assert.equal(control(tree, "Request stop").props.disabled, false);
-  const stop = control(tree, "Request stop");
-  stop.props.onClick(); stop.props.onClick();
-  assert.equal(reads, 1); assert.equal(stops, 1);
-  assert.equal(control(render(props), "Submitting stop…").props.disabled, true);
-  releaseStop(); releaseRead();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(control(render(props), "Request stop").props.disabled, false);
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  try {
+    let releaseRead, releaseStop, reads = 0, stops = 0;
+    const props = { run: { id: "run-review", candidate: "fixture" }, open: true, close() {}, requests() {}, view: {}, actions: {
+      refresh: () => { reads++; return new Promise((resolve) => { releaseRead = resolve; }); },
+      stop: (id) => { stops++; assert.equal(id, "run-review"); return new Promise((resolve) => { releaseStop = resolve; }); },
+    } };
+    control(render(props), "Refresh observations").props.onClick();
+    const tree = render(props);
+    assert.equal(control(tree, "Reading…").props.disabled, true);
+    assert.equal(control(tree, "Request stop…").props.disabled, false);
+    control(tree, "Request stop…").props.onClick();
+    assert.equal(stops, 0, "the first click only arms the stop");
+    const armed = render(props), buttons = descendants(armed).filter((n) => ["FormButton", "TextButton"].includes(n.type?.name)).map((n) => n.props.children);
+    assert.ok(buttons.indexOf("Confirm stop") < buttons.indexOf("Cancel"), "Cancel, not Confirm stop, takes the place of Request stop…");
+    control(armed, "Cancel").props.onClick();
+    assert.ok(control(render(props), "Request stop…"), "Cancel disarms it, sending nothing");
+    assert.equal(stops, 0);
+    // A double click on Request stop…: its second click lands 120 ms after the first and sends nothing.
+    control(render(props), "Request stop…").props.onClick();
+    now += 120;
+    control(render(props), "Confirm stop").props.onClick();
+    assert.equal(stops, 0, "a click within 500 ms of arming is not a confirmation");
+    now += 600;
+    const confirm = control(render(props), "Confirm stop");
+    confirm.props.onClick(); confirm.props.onClick();
+    assert.equal(reads, 1); assert.equal(stops, 1);
+    assert.equal(control(render(props), "Submitting stop…").props.disabled, true);
+    releaseStop(); releaseRead();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(control(render(props), "Request stop…").props.disabled, false);
+  } finally { Date.now = realNow; }
 });
 
 test("copy sends the complete selected identity to the clipboard helper", async () => {

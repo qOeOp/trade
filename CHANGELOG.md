@@ -141,6 +141,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
+- IDE, desktop Live (doctor 20261121-06, -07, -08): `Request stop…` no longer sends at once; the first click arms
+  it inline (no dialog) and lists what the stop does now (entry orders cancelled, each position closed at market
+  once, protective stops kept until flat), and `Confirm stop` (placed away from where the first click landed, and
+  ignored within half a second of it) sends it within 10 seconds, as in the run canvas, Review run and the prepared
+  run's review. A shown run lists its positions (with stop, `No stop` while one runs without, and estimated P&L) and
+  its other working orders from its native events, as the phone does, and its Coins chart draws the position and its
+  protective stops. `New run` beside `Request stop…` opens the launch page over a shown run (until now only the
+  command palette did).
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
