@@ -877,12 +877,19 @@ class ProductReadsTests(unittest.TestCase):
 
     def test_reads_start_only_while_the_containers_memory_has_room_for_their_peak_and_every_read_is_answered(self):
         # The production Web container: 1.5 GiB, its server and overview holding 420 MiB when no read runs.
-        held = []
-        product = serve.Product(self.root, "copy", memory=lambda: held.append(1) or (1536 * MiB, 420 * MiB))
+        held: list[tuple[int, int]] = []
+
+        def memory() -> tuple[int, int]:
+            held.append((product.using, self.running()))
+            return 1536 * MiB, 420 * MiB
+        product = serve.Product(self.root, "copy", memory=memory)
         heavy = [("hold", str(n), "research", "comparison", str(self.marks)) for n in range(6)]
         answers = self.burst(product, heavy, 2)
         self.assertEqual(sorted(answer["read"] for answer in answers), [str(n) for n in range(6)])
-        self.assertEqual(len(held), 1)  # what the container holds is read only while no read runs
+        # What the container holds is read only while no read runs: before the first, and again whenever every
+        # running read has ended before a waiting one takes its turn (how often depends on that order).
+        self.assertTrue(held)
+        self.assertEqual(set(held), {(0, 0)})
 
     def test_a_light_read_does_not_wait_behind_heavy_ones(self):
         product = serve.Product(self.root, "copy", memory=lambda: (1536 * MiB, 420 * MiB))
