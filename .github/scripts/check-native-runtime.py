@@ -49,7 +49,8 @@ def check_live_native_cache() -> None:
     from nautilus_trader.infrastructure import RedisCacheDatabase
     from nautilus_trader.model import TraderId
 
-    from engine.live_cache import LiveCache, NATIVE_CONNECTION
+    from engine import redis_child
+    from engine.live_cache import LiveCache
 
     trader = TraderId("LIVE-NATIVE-CI")
     key = "general:live-native-ci"
@@ -65,7 +66,7 @@ def check_live_native_cache() -> None:
             try:
                 database = RedisCacheDatabase(
                     trader, UUID4(), cache_config,
-                    json.dumps({"host": "127.0.0.1", "port": cache.port, **NATIVE_CONNECTION}).encode(),
+                    json.dumps(redis_child.connection(cache.port)).encode(),
                 )
                 if not resume:
                     assert database.read(key) == [], "a new private cache is not empty"
@@ -95,7 +96,7 @@ def _live_cache_failure_child() -> None:
     from nautilus_trader.model import StrategyId, TraderId
     from nautilus_trader.trading import Strategy, StrategyConfig
 
-    from engine.live_cache import LiveCache, NATIVE_CONNECTION
+    from engine.live_cache import LiveCache
     from engine import redis_child
     from engine.live_errors import LiveRefusal
 
@@ -111,7 +112,7 @@ def _live_cache_failure_child() -> None:
         cache = LiveCache(Path(directory), resume=False)
         database = RedisCacheDatabase(TraderId("LIVE-FAULT-CI"), UUID4(),
             json.dumps({"encoding": "json", "use_instance_id": False}).encode(),
-            json.dumps({"host": "127.0.0.1", "port": cache.port, **NATIVE_CONNECTION}).encode())
+            json.dumps(redis_child.connection(cache.port)).encode())
         try:
             assert redis_child.command(cache.port, "CONFIG", "SET", "maxmemory", "1") == b"OK"
             # INFO and PING still work, but the actual durable write is rejected.

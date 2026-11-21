@@ -117,11 +117,11 @@ def _since(directory: Path, launch: dict) -> list[dict]:
 
 def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int) -> list[str]:
     """inputs/membership/<YYYY-MM>.json for each month after the run's market day that the market holds, as Paper's
-    (market.universe.month_files): the runner reads a month's file once the month has begun and, until it is there,
+    (market.universe.write_months): the runner reads a month's file once the month has begun and, until it is there,
     denies entries on the contract. The market is read only once a month after the last written has begun; a
     written file is never rewritten. Returns the months written."""
     from engine.membership import MONTHS
-    from market.universe import month_files
+    from market import universe
     directory, manifest = read_manifest(root, run_id)
     folder = directory / "inputs" / MONTHS
     written = sorted(path.stem for path in folder.glob("*.json")) if folder.is_dir() else []
@@ -131,15 +131,8 @@ def write_months_locked(root: Path, run_id: str, market_root: Path, now_ns: int)
     if now_ns < int(due.timestamp()) * 10**9:
         return []
     state.private_directory(folder)
-    found = []
-    for name, data in month_files({"holds": "market", "root": str(market_root)}, list(manifest["symbols"]),
-                                  last).items():
-        path = folder / f"{name}.json"
-        if path.exists():
-            continue
-        state.replace(path, data)  # whole, as the runner reads it
-        found.append(name)
-    return found
+    return universe.write_months({"holds": "market", "root": str(market_root)}, folder, list(manifest["symbols"]),
+                                 last, state.replace)  # durable and whole, as the runner reads it
 
 
 def restarts_due(directory: Path, now_ns: int) -> bool:

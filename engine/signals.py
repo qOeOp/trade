@@ -1,15 +1,15 @@
-"""Paper owns SIGINT/SIGTERM so native node shutdown cannot bypass its checkpoint drain.
+"""Paper and Live own SIGINT/SIGTERM so native node shutdown cannot bypass their own stop (Paper's checkpoint drain,
+Live's interruption that keeps positions and their stops).
 
 The module entry point blocks before importing Nautilus or starting any worker. Workers inherit
 that mask; one Python thread consumes the signals synchronously, without invoking Tokio's
-process handlers. The recorder later stops the native node through its public handle.
+process handlers, and hands each to the runner's `request_stop`.
 """
 
 from __future__ import annotations
 
 import signal
 import threading
-import os
 
 
 SIGNALS = {signal.SIGINT, signal.SIGTERM}
@@ -26,7 +26,7 @@ class Signals:
         self.request_stop = request_stop
         self.finished = threading.Event()
         self.previous = None
-        self.thread = threading.Thread(target=self.receive, name="paper-signals", daemon=True)
+        self.thread = threading.Thread(target=self.receive, name="runner-signals", daemon=True)
 
     def __enter__(self):
         self.previous = block()
@@ -47,6 +47,6 @@ class Signals:
 
     def __exit__(self, *_):
         self.finished.set()
-        os.kill(os.getpid(), WAKE)
+        signal.pthread_kill(self.thread.ident, WAKE)  # to the receiver alone: another thread may not block WAKE
         self.thread.join()
         signal.pthread_sigmask(signal.SIG_SETMASK, self.previous)

@@ -13,10 +13,10 @@ import threading
 import time
 from typing import Callable
 
+from engine import metrics
+
 EVIDENCE = "evidence"
 MARKET = "market.jsonl"
-METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
-                  "count_long_short_ratio")  # engine.strategy.Metrics
 
 
 class Evidence:
@@ -70,7 +70,7 @@ class Evidence:
         try:
             fields = dict(instrument_id=str(row.instrument_id), ts_event=row.ts_event,
                           **{name: None if (value := getattr(row, name)) is None else str(value)
-                             for name in METRICS_VALUES})
+                             for name in metrics.ENDPOINTS})
         except Exception as exc:
             self._fail("market", exc)
             return
