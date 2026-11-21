@@ -40,7 +40,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # the job takes about 5 minutes (November 2026)
+    timeout-minutes: 25 # the job takes about 14 minutes (November 2026); its slowest modules are the Live loopback tests
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
