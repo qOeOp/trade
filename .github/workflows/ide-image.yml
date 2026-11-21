@@ -68,39 +68,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/ci-paths
         id: paths
-        with:
-          paths: |
-            .github/workflows/ide-image.yml
-            ide/**
-            deploy/*.py
-            deploy/Dockerfile
-            deploy/Dockerfile.dockerignore
-            deploy/entrypoint.sh
-            deploy/compose.yaml
-            deploy/docker-api/**
-            cli/**
-            engine/**
-            ledger/**
-            live/**
-            market/**
-            paper/**
-            registration/**
-            replay/**
-            report/**
-            runtime/**
-            shared/**
-            pyproject.toml
-            uv.lock
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
-            .github/scripts/replay-changed.py
-            .github/scripts/publish-platform-image.sh
-            .github/scripts/check-native-runtime.py
-            .github/scripts/fresh-install.sh
-            tests/cli/test_commands.py
-            tests/ledger/dolt.py
-            tests/market/directory.py
-            tests/registration/world.py
 
   image:
     needs: changes
@@ -427,17 +394,11 @@ jobs:
           revision="$(git rev-parse HEAD)"
           registry="ghcr.io/${OWNER,,}"
           digest() { docker buildx imagetools inspect --format '{{json .Manifest}}' "$1" | jq -er .digest; }
-          # The runtime this commit's replays pair with: its own replay image when replay-changed.py, given
-          # runtime-image.yml's replay CI_PATHS, selects a replay build against the same base, otherwise the current
-          # replay image `main`. A commit that changes only the execution image's inputs builds no replay image to
-          # wait for.
+          # The runtime this commit's replays pair with: its own replay image when replay-changed.py selects a replay
+          # build against the same base, as runtime-image.yml does, otherwise the current replay image `main`. A
+          # commit that changes only the execution image's inputs builds no replay image to wait for.
           case "$EVENT" in pull_request) base="$PR_BASE";; push) base="$BEFORE";; *) base="$(git rev-parse HEAD^1)";; esac
-          paths="$(python3 -c '
-          import re, sys
-          source = open(".github/workflows/runtime-image.yml").read().split("\n  changes:\n", 1)[1]
-          print(re.split(r"\n(?! {12})", source.split("          CI_PATHS: |\n", 1)[1], maxsplit=1)[0].replace(" " * 12, ""))
-          ')"
-          CI_EVENT_NAME=pull_request CI_BASE_SHA="$base" CI_PATHS="$paths" GITHUB_OUTPUT="$RUNNER_TEMP/runtime" \
+          CI_EVENT_NAME=pull_request CI_BASE_SHA="$base" GITHUB_OUTPUT="$RUNNER_TEMP/runtime" \
             python3 .github/scripts/replay-changed.py
           if grep -qx 'changed=true' "$RUNNER_TEMP/runtime"; then
             tag="$registry/trade-runtime:sha-$revision-amd64"

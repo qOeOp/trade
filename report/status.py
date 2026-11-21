@@ -17,8 +17,9 @@ import statistics
 
 import numpy as np
 
-from ledger import db, evidence, execution, judgments, lines, metrics, problems, witness
+from ledger import db, evidence, judgments, lines, problems, witness
 from ledger import targets as line_targets
+from shared import clock
 from shared.errors import Refusal
 from registration import availability, comparability, precheck, register, reproduction
 from report import candidates as report_candidates, comparison, measures, seams
@@ -127,13 +128,11 @@ def _stopped(conn: db.LedgerConnection) -> set[int]:
         found[row["trial_id"]] = row
     receipts: dict[int, bytes | None] = {}
     named = [f"trial-{trial_id}-capture" for trial_id, row in found.items() if row["failures"] == "captured"]
-    for at in range(0, len(named), execution.BATCH):
-        chunk = tuple(named[at:at + execution.BATCH])
-        for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
-                                                 f"WHERE e.bundle IN ({', '.join(['%s'] * len(chunk))}) AND e.path = %s",
-                                                 (*chunk, problems.RUNTIME_ERRORS)):
-            content = bytes(content)
-            receipts[int(bundle.split("-")[1])] = content if hashlib.sha256(content).hexdigest() == stored else None
+    for bundle, content, stored in conn.rows_in(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
+                                                "WHERE e.bundle IN () AND e.path = %s", named,
+                                                after=(problems.RUNTIME_ERRORS,)):
+        content = bytes(content)
+        receipts[int(bundle.split("-")[1])] = content if hashlib.sha256(content).hexdigest() == stored else None
     stopped = set()
     for trial_id, row in found.items():
         capture = {"stages": {"native": {"state": row["native_state"], "exit_code": row["native_exit_code"]}},
@@ -217,8 +216,8 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         scope = [lines.read_line(conn, line)["name"]] if line is not None else opened
         attempts = conn.dicts("SELECT t.research_registration_id, t.trial_id, r.status FROM trial t JOIN research_line l "
                               "ON l.line_id = t.line_id LEFT JOIN run r ON r.trial_id = t.trial_id WHERE "
-                              "t.research_registration_id IS NOT NULL AND l.name IN (" + ",".join(["%s"] * len(scope))
-                              + ") ORDER BY t.trial_id", tuple(scope)) if scope else []
+                              f"t.research_registration_id IS NOT NULL AND l.name IN ({db.marks(scope)}) "
+                              "ORDER BY t.trial_id", tuple(scope)) if scope else []
         assessed: dict[int, dict] = {}
 
         def assess(trial_ids: list[int]) -> dict[int, dict]:
@@ -334,9 +333,8 @@ def line_instruments(conn: db.LedgerConnection, line_id: int) -> set[str] | None
     own = lines.line_trials(conn, line_id)["trials"]
     if not own:
         return None
-    return {symbol for (symbol,) in conn.rows(
-        "SELECT DISTINCT instrument_id FROM trial_instrument WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
-        tuple(own))}
+    return {symbol for (symbol,) in conn.rows_in(
+        "SELECT DISTINCT instrument_id FROM trial_instrument WHERE trial_id IN ()", own)}
 
 
 def _overlapping_line(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping]) -> tuple | None:
@@ -358,11 +356,10 @@ def sweeps(conn: db.LedgerConnection, line_id: int, found: Sequence[Mapping]) ->
     the sum is then a lower bound."""
     ids = sorted({trial["trial_id"] for trial in found})
     owners = {line_id}
-    if ids:
-        owners |= {owner for (owner,) in conn.rows("SELECT DISTINCT line_id FROM trial WHERE line_id IS NOT NULL AND "
-                                                   "trial_id IN (" + ",".join(["%s"] * len(ids)) + ")", tuple(ids))}
-    rows = conn.dicts("SELECT judgment_id, supersedes, body FROM judgment WHERE kind = 'search_exposure' AND line_id IN ("
-                      + ",".join(["%s"] * len(owners)) + ") ORDER BY judgment_id", tuple(sorted(owners)))
+    owners |= {owner for (owner,) in conn.rows_in("SELECT DISTINCT line_id FROM trial WHERE line_id IS NOT NULL AND "
+                                                  "trial_id IN ()", ids)}
+    rows = conn.dicts("SELECT judgment_id, supersedes, body FROM judgment WHERE kind = 'search_exposure' AND line_id IN "
+                      f"({db.marks(owners)}) ORDER BY judgment_id", tuple(sorted(owners)))
     by_id = {row["judgment_id"]: row for row in rows}
     superseded = {row["supersedes"] for row in rows if row["supersedes"] is not None}
     total, undeclared = 0, []  # type: int, list[int]
@@ -420,14 +417,13 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
     record, instruments, found = overlap
     research = [trial for trial in found if trial["purpose"] == "research"]
     evidenced = available([trial["trial_id"] for trial in research if trial["status"] not in (None, "invalid")])
-    bounds = {trial["trial_id"]: (metrics.moment_ns(trial["trade_start"]), metrics.moment_ns(trial["trade_end"]))
+    bounds = {trial["trial_id"]: (clock.moment_ns(trial["trade_start"]), clock.moment_ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in evidenced}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
-    if bounds:
-        for trial_id, ts, value in conn.rows("SELECT trial_id, ts_event_ns, native_return FROM run_return WHERE "
-                                             "trial_id IN (" + ",".join(["%s"] * len(bounds)) + ")", tuple(bounds)):
-            if bounds[trial_id][0] <= int(ts) < bounds[trial_id][1]:
-                series[trial_id][int(ts)] = float(value)
+    for trial_id, ts, value in conn.rows_in("SELECT trial_id, ts_event_ns, native_return FROM run_return WHERE "
+                                            "trial_id IN ()", bounds):
+        if bounds[trial_id][0] <= int(ts) < bounds[trial_id][1]:
+            series[trial_id][int(ts)] = float(value)
     daily: dict[int, float] = {}
     for trial_id, days in sorted(series.items()):
         sharpe = measures.sharpe_365([days[day] for day in sorted(days)])
@@ -459,7 +455,7 @@ def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: 
     window and `universe_rule`: a line's comparison table. With `line_ids`, only the runs of those lines. The one
     population the comparison table and `research runs` read."""
     found, excluded, rows = [], [], []
-    on = "" if line_ids is None else f" AND t.line_id IN ({', '.join(['%s'] * len(line_ids))})"
+    on = "" if line_ids is None else f" AND t.line_id IN ({db.marks(line_ids)})"
     if line_ids is not None and not line_ids:
         return [], []
     for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, t.universe_rule, c.strategy_id, c.revision "
@@ -679,8 +675,8 @@ def _judgment_history(conn: db.LedgerConnection, line_id: int, include: bool, be
     if page:
         ids = [row["judgment_id"] for row in page]
         subjects: dict[int, list[dict]] = {}
-        for subject in conn.dicts(f"SELECT {SUBJECT_COLUMNS} FROM {SUBJECTS} WHERE s.judgment_id IN ("
-                                  + ",".join(["%s"] * len(ids)) + ") ORDER BY s.judgment_id, s.seq", tuple(ids)):
+        for subject in conn.dicts(f"SELECT {SUBJECT_COLUMNS} FROM {SUBJECTS} WHERE s.judgment_id IN ({db.marks(ids)}) "
+                                  "ORDER BY s.judgment_id, s.seq", tuple(ids)):
             subjects.setdefault(subject.pop("judgment_id"), []).append(subject)
         for row in page:
             row["subjects"] = subjects.get(row["judgment_id"], [])
@@ -739,19 +735,14 @@ def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | N
     if current_image is None:
         return None
     stale: dict[int, str] = {}  # passed run on another image: its source
-    for at in range(0, len(trials), execution.BATCH):
-        chunk = tuple(trials[at:at + execution.BATCH])
-        stale.update((row["trial_id"], row["source_sha256"]) for row in conn.dicts(
-            f"SELECT r.trial_id, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON t.trial_id = r.trial_id "
-            f"WHERE r.status = 'passed' AND r.trial_id IN ({', '.join(['%s'] * len(chunk))})", chunk)
-            if row["image_digest"] != current_image)
+    stale.update((row["trial_id"], row["source_sha256"]) for row in conn.rows_in(
+        f"SELECT r.trial_id, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+        "WHERE r.status = 'passed' AND r.trial_id IN ()", trials, dicts=True) if row["image_digest"] != current_image)
     sources = sorted(set(stale.values()))
     explores: list[tuple[int, str]] = []  # (trial, source) of the explores on the current image that can reproduce one
-    for at in range(0, len(sources), execution.BATCH):
-        named = sources[at:at + execution.BATCH]
-        explores += conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'explore' AND "
-                              f"SUBSTRING_INDEX(image_ref, '@', -1) = %s AND source_sha256 IN ({', '.join(['%s'] * len(named))})",
-                              (current_image, *named))
+    explores += conn.rows_in("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'explore' AND "
+                             "SUBSTRING_INDEX(image_ref, '@', -1) = %s AND source_sha256 IN ()", sources,
+                             before=(current_image,))
     return [trial_id for trial_id in trials if trial_id in stale
             and not any(source == stale[trial_id] and later > trial_id and reproduction.matches(conn, later, trial_id)
                         for later, source in explores)]

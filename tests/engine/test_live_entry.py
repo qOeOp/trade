@@ -94,11 +94,11 @@ def configured_risk(session):
 
 class NativeEntryTests(unittest.TestCase):
     def setUp(self):
-        live.strategy_runtime.clear_failures()
         self.addCleanup(live.strategy_runtime.clear_failures)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        live.strategy_runtime.begin_run(self.root, {"Metrics": {"BTCUSDT-PERP.BINANCE"}})
         self.snapshot, self.manifest = fixture()
         self.manifest.update(run_id="native-entry", trader_id="LIVE-001", account_id="BINANCE-001")
         self.manifest["config"].update(duration_seconds=60)
@@ -151,6 +151,7 @@ class NativeEntryTests(unittest.TestCase):
         self.session.node = self.session.entry_gate = None
         self.session.sources = {}
         self.source = self.foreign = self.engine = None
+        live.strategy_runtime.STRATEGIES.clear()
         gc.collect()
 
     def advance(self, bid="100.00", ask="101.00"):

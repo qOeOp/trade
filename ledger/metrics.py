@@ -24,14 +24,13 @@ import io
 import json
 import math
 from pathlib import Path
-import re
 import subprocess
 from typing import Any
 
 from engine.compare import TABLES
 from engine.native_csv import dict_reader
 from ledger import db, problems
-from shared import paths
+from shared import clock, paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -48,14 +47,12 @@ PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 PRICE_PNL = "realized_pnl + commissions - funding AS price_pnl"
 CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
 REPORT_FILES = {name: file for name, (file, _) in TABLES.items()}  # the sealed native reports
 ENGINE_ORDERS = ("EXPIRATION-", "LIQUIDATION-")  # the engine's own settlement and liquidation orders
 SUMMARY = "summary.json"
 SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "data_interval_minutes",
                 "period_start_utc", "period_end_utc")
-_NANOSECONDS = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]00:?00)?\Z")
 
 
 class Unreconciled(Exception):
@@ -77,27 +74,6 @@ def _sample(items: Iterable) -> str:
 
 # Native values
 
-def moment_ns(moment: datetime) -> int:
-    """UTC nanoseconds of a stored time (naive means UTC)."""
-    moment = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
-
-
-def utc_ns(text: str) -> int:
-    """UTC nanoseconds of a native time: an integer, or ISO-8601 with up to nine fraction digits."""
-    text = str(text).strip()
-    if text.isdigit():
-        return int(text)
-    found = _NANOSECONDS.fullmatch(text)
-    if found is None:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if moment.utcoffset() != timedelta(0):
-            raise ValueError(f"{text!r} is not a UTC time")
-        return (moment - EPOCH) // timedelta(microseconds=1) * 1000
-    day, hour, minute, second, fraction, _ = found.groups()
-    base = datetime.fromisoformat(f"{day}T{hour}:{minute}:{second}+00:00")
-    return int((base - EPOCH).total_seconds()) * 10**9 + int((fraction or "").ljust(9, "0"))
-
 
 def utc_day(ns: int) -> str:
     """The UTC day (YYYY-MM-DD) of a time in nanoseconds."""
@@ -105,7 +81,7 @@ def utc_day(ns: int) -> str:
 
 
 def iso_minute(ns: int | None) -> str | None:
-    return None if ns is None else (EPOCH + timedelta(microseconds=ns // 1000)).isoformat()[:16]
+    return None if ns is None else (clock.EPOCH + timedelta(microseconds=ns // 1000)).isoformat()[:16]
 
 
 def _list(value: str) -> list:
@@ -271,7 +247,7 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
 
 def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True,
               listing: bool = False) -> dict[int, dict | Refusal]:
-    """load_run of each trial, by trial ID, in one read of each table per execution.BATCH trials; a run load_run
+    """load_run of each trial, by trial ID, in one read of each table per db.IN_BATCH trials; a run load_run
     refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two reads that
     grow with a run's days and positions, for a caller that reads neither. A `listing` read reads the captures as a
     listing (execution.read_captures): enough for availability and the derived measures, not for a run's report."""
@@ -282,30 +258,25 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
     readings: dict[int, dict] = {}
     returns: dict[int, list] = {trial_id: [] for trial_id in ids}
     cycles: dict[int, list] = {trial_id: [] for trial_id in ids}
-    for at in range(0, len(ids), execution.BATCH):
-        chunk = tuple(ids[at:at + execution.BATCH])
-        marks = ", ".join(["%s"] * len(chunk))
-        for row in conn.dicts("SELECT trial_id, status, failure_reasons, fingerprints, sealed_seq, created_at FROM "
-                              f"run WHERE trial_id IN ({marks})", chunk):
-            runs[row["trial_id"]] = row
-        for row in conn.dicts(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ({marks})", chunk):
-            trials[row["trial_id"]] = row
-        for trial_id, symbol in conn.rows(f"SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN "
-                                          f"({marks}) ORDER BY trial_id, instrument_id", chunk):
-            trials[trial_id].setdefault("instruments", []).append(symbol)
-        for row in conn.dicts(f"SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN "
-                              f"({marks})", chunk):
-            report = row["report"]
-            readings[row["trial_id"]] = {**(json.loads(report) if isinstance(report, (str, bytes)) else report),
-                                         "product_commit": row["product_commit"]}
-        if series:
-            for trial_id, ts, value, mean in conn.rows(
-                    "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN "
-                    f"({marks}) ORDER BY trial_id, ts_event_ns", chunk):
-                returns[trial_id].append((ts, value, mean))
-            for row in conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN ({marks}) "
-                                  "ORDER BY trial_id, seq", chunk):
-                cycles[row["trial_id"]].append(row)
+    for row in conn.rows_in("SELECT trial_id, status, failure_reasons, fingerprints, sealed_seq, created_at FROM run "
+                            "WHERE trial_id IN ()", ids, dicts=True):
+        runs[row["trial_id"]] = row
+    for row in conn.rows_in(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ()", ids, dicts=True):
+        trials[row["trial_id"]] = row
+    for trial_id, symbol in conn.rows_in("SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN () "
+                                         "ORDER BY trial_id, instrument_id", ids):
+        trials[trial_id].setdefault("instruments", []).append(symbol)
+    for row in conn.rows_in("SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN ()", ids,
+                            dicts=True):
+        readings[row["trial_id"]] = {**db.json_column(row["report"]), "product_commit": row["product_commit"]}
+    if series:
+        for trial_id, ts, value, mean in conn.rows_in(
+                "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN () "
+                "ORDER BY trial_id, ts_event_ns", ids):
+            returns[trial_id].append((ts, value, mean))
+        for row in conn.rows_in(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN () ORDER BY trial_id, seq",
+                                ids, dicts=True):
+            cycles[row["trial_id"]].append(row)
     captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs], listing=listing)
     found: dict[int, dict | Refusal] = {}
     for trial_id in ids:
@@ -326,7 +297,7 @@ def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed
     if trial is not None:
         trial.setdefault("instruments", [])
     for key in ("failure_reasons", "fingerprints"):
-        run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
+        run[key] = db.json_column(run[key])
     if isinstance(capture, Refusal):
         raise capture
     stored_identity = capture["start"].get("input_identity")
@@ -377,7 +348,7 @@ def cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
             found.append({"closed": closed, "realized": _usdt(row["realized_pnl"]), "price": price,
                           "commissions": sum((_usdt(item) for item in _list(row.get("commissions", ""))), Decimal(0)),
                           "funding": funding, "event_ids": event_ids, "ts_last": int(row["ts_last"]),
-                          "ts_opened": min(times) if times else utc_ns(row["ts_opened"])})
+                          "ts_opened": min(times) if times else clock.utc_ns(row["ts_opened"])})
         except Unreconciled:
             raise
         except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError) as exc:
@@ -477,7 +448,7 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
         close, fill = settlement[0], mine[0]
         try:
             at, price = int(close["ts_event"]), Decimal(str(close["close_price"]))
-            same_time = utc_ns(fill["ts_event"]) == at and all(int(event["ts_event"]) == at
+            same_time = clock.utc_ns(fill["ts_event"]) == at and all(int(event["ts_event"]) == at
                                                                for event in events_of[order_id])
             same_price = Decimal(fill["last_px"]) == price
         except (KeyError, TypeError, ValueError, ArithmeticError):
@@ -557,7 +528,7 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
 def daily_returns(returns: list[tuple[int, float]], summary: dict, limitations: list[str]):
     """Trade-window UTC daily returns that compound to the summary's final equity when it names one (sealing: the
     native one); None with a named limitation otherwise."""
-    start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
+    start, end = clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"])
     window = [(ts, value) for ts, value in returns if ts >= start]
     if not window or any(value <= -1 for _, value in window):
         limitations.append("RETURN_SERIES_INVALID: the trade-window daily returns are empty or hold a value <= -1")
@@ -635,7 +606,7 @@ def _typed_exposures(rows) -> ExposureTable | None:
 def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
     """(bar step, bar labels of the trade window), the label offset taken from the exposure rows."""
     step = int(summary["data_interval_minutes"]) * 60 * 10**9
-    start, end = utc_ns(summary["period_start_utc"]), utc_ns(summary["period_end_utc"])
+    start, end = clock.utc_ns(summary["period_start_utc"]), clock.utc_ns(summary["period_end_utc"])
     offset = min(exposures.by_label) % step if exposures else step - 1_000_000
     first = start - start % step + offset
     if first < start:
@@ -651,7 +622,7 @@ def _labels(summary: dict, exposures: ExposureTable) -> tuple[int, list[int]]:
 def _account_states(account: list[dict], *fields: str) -> list[tuple]:
     """(UTC ns, Decimal fields...) per account row, ordered by time only: rows tied on a timestamp keep
     report order."""
-    return sorted(((utc_ns(row["ts_event"]), *(Decimal(row[field]) for field in fields)) for row in account),
+    return sorted(((clock.utc_ns(row["ts_event"]), *(Decimal(row[field]) for field in fields)) for row in account),
                   key=lambda state: state[0])
 
 
@@ -986,7 +957,7 @@ def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:
 def daily_rows(reports: Reports) -> list[tuple[int, float, Decimal | None]]:
     """The run_return rows: trade-window native daily returns with the day's mean gross notional."""
     summary = reports.summary or {}
-    start = utc_ns(summary["period_start_utc"])
+    start = clock.utc_ns(summary["period_start_utc"])
     try:
         notional = daily_notional(equity_path(summary, reports.account, _typed_exposures(reports.exposures)))
     except Unreconciled:

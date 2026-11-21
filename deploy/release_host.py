@@ -433,16 +433,18 @@ class DockerHost:
             raise RuntimeError("image source, platform or revision differs from admission")
         return source
 
-    def requires_live(self, name: str) -> bool:
-        args = json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name))
-        return any(arg.startswith(("--live-socket", "--live-router")) for arg in args)
-
     def prepare(self) -> None:
         self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
         profiles = self.state / "profiles"
         durable_json(
             profiles / "research.json",
             {"name": "research", "holds": "research", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
+        )
+        # Live admission reads the Paper runs through it (live/reconcile.py); the readers volume holds each
+        # database's reader account.
+        durable_json(
+            profiles / "paper.json",
+            {"name": "paper", "holds": "paper", "kind": None, "database": "paper", "service": "/run/trade/ledger-readers"},
         )
         durable_json(
             profiles / "market.json", {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}
@@ -579,7 +581,7 @@ class DockerHost:
             "/api/overview/health",
             "/api/agent/health",
             "/api/agent/agents",
-            *(["/api/live"] if routed and live and self.requires_live(name) else []),
+            *(["/api/live"] if routed and live else []),
         ]:
             if not (value := self.answer(name, path, routed)).get("ok", value.get("valid", True)):
                 raise ReaderFailure("routed Web" if routed else "Web", path, "not ok")

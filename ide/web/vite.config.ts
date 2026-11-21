@@ -46,8 +46,11 @@ function inlineIcons(): Plugin {
   };
 }
 
-// One self-contained index.html, the only file the Python service serves for the page.
+// One self-contained index.html, the only file the Python service serves for the page. `npm run dev` serves the
+// sources on loopback for `ide.py serve --dev-assets`, which puts the page's token in and is the only origin a
+// browser opens; this server has no /api of its own.
 export default defineConfig({
   plugins: [inlineIcons(), harmonyOsSans(), react(), tailwindcss(), viteSingleFile()],
   build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 4096 },
+  server: { host: "127.0.0.1", port: 5173, strictPort: true },
 });

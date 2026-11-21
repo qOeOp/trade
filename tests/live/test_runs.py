@@ -21,6 +21,7 @@ from ledger import db
 from live import host as host_runtime
 from live import authority, configuration, runs, state
 from tests.live.authority_fixture import install, launch, maintain, prepare
+from tests.live.durable import assert_durable_replace
 from tests.helpers import refused
 
 
@@ -39,6 +40,10 @@ class LiveFixture(unittest.TestCase):
             evidence = patch.object(runs, "_evidence", return_value=EVIDENCE)
             evidence.start()
             self.addCleanup(evidence.stop)
+        # The closing history verdict: tests/live/test_replay_evidence.py reads it from the ledger.
+        decided = patch.object(runs.admission, "unfalsified")
+        decided.start()
+        self.addCleanup(decided.stop)
         patcher = patch.object(runs.key, "require_limits")  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)
@@ -647,7 +652,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare_locked(root, "unloadable", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32)
+                                    credential_ref="a" * 32, reconciled=lambda *_: None)
             self.assertEqual(caught.exception.code, "LIVE_SOURCE_MISSING")
             self.assertFalse(state.directory(self.root, "unloadable").exists())
 
@@ -665,7 +670,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare_locked(root, "declared-run", object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                     self.credentials, IDENTITY["image_ref"], drawdown_brake="0.15",
                                     duration_seconds=60, memory="2g", leverage="3", market_root=Path("unused"),
-                                    credential_ref="a" * 32, source_sha256=declared)
+                                    credential_ref="a" * 32, reconciled=lambda *_: None, source_sha256=declared)
             self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
             self.assertFalse(state.directory(self.root, "declared-run").exists())
 
@@ -1166,7 +1171,7 @@ class LiveMonthFileTests(LiveFixture):
         self.month_files.assert_not_called()  # the market day's month: the universe file holds it
         self.assertFalse(folder.exists())
         state.private_directory(folder)
-        (folder / "2026-12.partial").write_bytes(b"left by a write that died")
+        (folder / ".2026-12.json.partial").write_bytes(b"left by a write that died")
         self.assertEqual(runs.write_months_locked(self.root, self.run_id, self.root / "market", self.at("2026-12-01")),
                          ["2026-12"])
         self.month_files.assert_called_once_with({"holds": "market", "root": str(self.root / "market")}, ["BTCUSDT"],
@@ -1182,6 +1187,12 @@ class LiveMonthFileTests(LiveFixture):
                          ["2027-01"])
         self.assertEqual(self.month_files.call_args.args[2], "2026-12")
         self.assertEqual((folder / "2026-12.json").read_bytes(), b'{"members":["BTCUSDT"]}')
+
+    def test_a_month_is_written_durably(self):
+        state.private_directory(self.directory / "inputs" / "membership")
+        assert_durable_replace(self, self.directory / "inputs" / "membership" / "2026-12.json",
+                               lambda: runs.write_months_locked(self.root, self.run_id, self.root / "market",
+                                                                self.at("2026-12-01")))
 
     def test_a_month_the_market_does_not_hold_yet_is_read_again_on_the_next_pass(self):
         self.month_files.return_value = {}

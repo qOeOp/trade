@@ -55,7 +55,7 @@ reads the current month's contract membership and bars from your market, so keep
   run cannot be resumed.
 
 Each run reserves memory; when a start is refused for memory (`PAPER_MEMORY_FULL`), stop a running run first. Details: [Paper
-trading](../../engine/README.md#paper-trading).
+trading](../../paper/README.md#paper-trading).
 
 ## Live
 

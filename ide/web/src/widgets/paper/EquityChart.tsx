@@ -7,7 +7,7 @@ import { holdShown, pickedDay, pickedTrade, tradesTab } from "../../state/paperS
 import { useResolvedTheme } from "../../state/theme";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import type { Down } from "./downLook";
-import { equityApi, type Api, type Now } from "./equityApi";
+import { equityApi, usePickedSpan, type Api, type Now } from "./equityApi";
 import { EquityExtras } from "./equityExtras";
 import { EquityLegend } from "./EquityLegend";
 import { ChartTip } from "./ChartTip";
@@ -30,7 +30,7 @@ const at = (t: number) => t as UTCTimestamp, views = new Map<string, { step: num
  *  return target); behind them the shown backtest's years along the top, each its return and its P&L by contract (equityYears, equityShares), which way the run held a position under them, the drawdown an entry at each moment would take hanging
  *  under it and, of the shown stretch, each day's return from the bottom and the stretches no position was held (equityLayers), any stretch
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
- *  picks the trade; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for a backtest or a paper run, offered when the shown stretch has one), and the exposure (equityExtras); a compared run's replay dotted.
+ *  picks the trade; the span of a trade picked in a table marked (spanMark) and glided to; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for a backtest or a paper run, offered when the shown stretch has one), and the exposure (equityExtras); a compared run's replay dotted.
  *  Each stretch is named at its start (stretchCaptions), a click on the name shows it and fits the view to it.
  *  The line is drawn at the finest step that keeps the points in view at least a pixel and a half apart
  *  (equityResolution, counting the points, as the time between stretches takes no room), changed once a
@@ -166,7 +166,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     extras.set({ points, readings, hold, look: c.extras });
   }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, theme, restarts, placed, drops]);
 
-  const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]);
+  const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]); usePickedSpan(api, () => now.current.points.map((p) => p.time), theme === "dark", points.length > 0);
   useEffect(() => {
     api.current?.replay.setData(points.filter((p) => replayed.has(p.minute ?? p.time)).map((p) => ({ time: at(p.time), value: replayed.get(p.minute ?? p.time)! })));
   }, [points, replayed]);

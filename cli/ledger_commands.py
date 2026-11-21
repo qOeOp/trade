@@ -324,7 +324,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the ledger nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the ledger nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     ledger = verbs("ledger", "the research ledger")
     command = verb(ledger, "init", "initialize a new research ledger or Paper database profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")

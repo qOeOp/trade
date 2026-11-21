@@ -128,7 +128,7 @@ from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, R
 from engine.load import (
     LoadedStrategy, diagnostics, load_strategy, read_universe, strategy_id, strategy_metadata,
 )
-from engine import membership as membership_months, order_rules
+from engine import membership as membership_months
 
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
@@ -635,18 +635,14 @@ class Holder(Strategy):
         instrument = self.cache.instrument(InstrumentId.from_str(iid))
 
         def work():
-            while instrument is not None:
-                try:
-                    session.read_downtime(iid, session.warm_at, (instrument.price_precision,
-                                                                 instrument.size_precision), proxy_url)
-                except OSError as exc:  # the network: try again while the deadline allows
-                    if time.time_ns() + history.RETRY_NS < session.warm_at + history.DEADLINE_NS:
-                        time.sleep(history.RETRY_NS / history.SECOND_NS)
-                        continue
-                    print(f"Paper held read of {iid} failed: {type(exc).__name__}: {exc}", flush=True)
-                except Exception as exc:  # the minutes stay unread, so the check refuses the recovery
-                    print(f"Paper held read of {iid} failed: {type(exc).__name__}: {exc}", flush=True)
+            if instrument is None:
                 return
+            try:
+                history.read_until(lambda: session.read_downtime(iid, session.warm_at, (
+                    instrument.price_precision, instrument.size_precision), proxy_url),
+                    session.warm_at + history.DEADLINE_NS)
+            except Exception as exc:  # the minutes stay unread, so the check refuses the recovery
+                print(f"Paper held read of {iid} failed: {type(exc).__name__}: {exc}", flush=True)
 
         self._paper_reader = threading.Thread(target=work, name=f"held-{iid}", daemon=True)
         self._paper_reader.start()
@@ -1166,8 +1162,7 @@ def main(argv: list[str] | None = None) -> None:
 def _main(args) -> bool:
     """Run the node to its end; whether the journal failed on the way (the runner then exits JOURNAL_FAILED_EXIT)."""
     global JOURNAL, SESSION, KLINES
-    strategy_runtime.clear_failures()
-    strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
+    strategy_runtime.begin_run(args.output, {"Metrics": {instrument_id(symbol) for symbol in args.symbols}})
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
     membership = read_universe(args.universe, list(args.symbols))
     binding = args.strategy_file.parent / "recovery.json"
@@ -1220,15 +1215,6 @@ def _main(args) -> bool:
         planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS)
         FETCH[:] = [functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION)]
         READ_METRICS[:] = [functools.partial(metrics.read, proxy_url=args.proxy_url)]
-        strategy_runtime.STRATEGIES.clear()
-        for served in strategy_runtime.SERVED.values():
-            served.clear()
-        strategy_runtime.SERVED["Metrics"].update(instrument_id(symbol) for symbol in args.symbols)
-        strategy_runtime.BREACHES.clear()
-        strategy_runtime.DECLARED.clear()
-        order_rules.WARMING.clear()
-        order_rules.CONTRACTS.clear()
-        history.clear()
         RECORDERS.clear()
         market_terms = json.loads(args.terms.read_bytes())
         node = build_node(planned, loaded, args.proxy_url,

@@ -5,7 +5,7 @@ import { duration, MISSING } from "../../lib/format";
 import type { Cycle } from "../../model/backtest";
 import { orderType } from "../../model/trades";
 import { useAtom } from "../../state/atom";
-import { pickedTrade } from "../../state/paperStream";
+import { pickedTrade, pickTrade } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 import { CELL, DETAIL, HEAD, usePickedScroll } from "./table";
 
@@ -15,7 +15,7 @@ const COLUMNS: [string, string][] = [["Side", "text-left"], ["Opened", "text-rig
 function Row({ c, contract, picked }: { c: Cycle; contract: boolean; picked: boolean }) {
   const ref = usePickedScroll<HTMLTableRowElement>(picked), zone = useTimeZone();
   return (
-    <tr ref={ref} data-selected={picked ? "" : undefined} className="transition-colors hover:bg-row-hover">
+    <tr ref={ref} data-selected={picked ? "" : undefined} onClick={() => pickTrade(c.id, c.opened || c.closed, c.closed)} className="cursor-pointer transition-colors hover:bg-row-hover">
       {contract && <td className={`${CELL} text-left`}>{c.symbol}</td>}
       <td className={`${CELL} text-left ${c.long ? "text-pnl-up" : "text-pnl-down"}`}>{c.long ? "Long" : "Short"}</td>
       <td className={`${CELL} text-right text-fg-muted`}>{dateTime(c.opened, zone)}</td>
@@ -31,7 +31,8 @@ function Row({ c, contract, picked }: { c: Cycle; contract: boolean; picked: boo
 
 /** A backtest's cycles (of the contract the chart shows, or every one on Equity), newest first: no sizes
  *  or prices, which the ledger does not store for them; the order events come back only from a
- *  reproduction, which this page never runs. The cycle picked on the equity chart is highlighted. */
+ *  reproduction, which this page never runs. The cycle picked on the equity chart is highlighted; a click on
+ *  a row picks it and shows its span on the chart, marked. */
 export function Cycles({ cycles, only }: { cycles: readonly Cycle[]; only: string | null }) {
   const picked = useAtom(pickedTrade), shown = only ? cycles.filter((c) => c.symbol === only) : cycles;
   if (!shown.length) return <p className="px-3 py-3 text-dense text-fg-faint">No closed cycles{only ? ` on ${only}` : ""}</p>;

@@ -21,8 +21,8 @@ CURRENT = image.layout(CONTRACT)["source_paths"]
 # An incomplete map: five of the current files; no image of this contract reports it.
 INCOMPLETE = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
                                             "report_source_sha256", "fingerprint_source_sha256")}
-# The map v8 images built before 2026-11-13 report: their runs still reproduce.
-EARLIER, = image.EARLIER_SOURCE_PATHS[CONTRACT]
+# The map v8 images built before 2026-11-13 report; no run in the ledger was replayed on one.
+EARLIER = {**CURRENT, "live_errors_source_sha256": "engine/live_errors.py"}
 
 
 def declaration(paths):
@@ -87,15 +87,15 @@ class SourceIdentityTests(unittest.TestCase):
         self.refused(1, downgraded)  # even when all five reported hashes match the new revision
         self.refused(0, self.builds[1][1])  # do not rewrite history with new fields
 
-    def test_an_earlier_v8_image_is_still_a_main_build_of_its_own_revision_only(self):
-        self.assertEqual(set(EARLIER) - set(CURRENT), {"live_errors_source_sha256"})
-        self.assertEqual(self.check(2), self.builds[2][0]["build_revision"])
-        self.refused(1, self.builds[2][1])  # a current revision takes no earlier map
-        self.refused(2, self.builds[1][1])  # nor an earlier revision the current one
+    def test_a_v8_image_built_before_the_live_split_is_refused(self):
+        self.refused(2, self.builds[2][1])  # not a main build, even of its own revision
+        self.refused(1, self.builds[2][1])
+        self.refused(2, self.builds[1][1])
         helper = image_tests.ProbeTests()
-        result, _ = helper.inspect(probe=helper.probe(source_file_paths=dict(EARLIER),
-                                                      source_files_sha256={key: "d" * 64 for key in EARLIER}))
-        self.assertEqual(result["source_file_paths"], EARLIER)
+        with self.assertRaises(Refusal) as caught:
+            helper.inspect(probe=helper.probe(source_file_paths=dict(EARLIER),
+                                              source_files_sha256={key: "d" * 64 for key in EARLIER}))
+        self.assertEqual(caught.exception.code, "RUNTIME_MISMATCH")
 
     def test_direct_main_check_rejects_missing_swapped_extra_or_invalid_fields(self):
         for field in ("strategy_source_sha256", "fill_source_sha256"):

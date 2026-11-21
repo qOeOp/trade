@@ -595,6 +595,19 @@ def _days(names: list[str], row: tuple) -> tuple:
                  for name, value in zip(names, row, strict=True))
 
 
+IN_BATCH = 500  # values in one IN list of LedgerConnection.rows_in
+
+
+def marks(values) -> str:
+    """The placeholders of an IN list of `values` (never empty)."""
+    return ", ".join(["%s"] * len(values))
+
+
+def json_column(value):
+    """A JSON column as the driver returns it (text or bytes, or an already decoded value) decoded."""
+    return json.loads(value) if isinstance(value, (str, bytes)) else value
+
+
 class LedgerConnection:
     """One command's connection to one database/branch, with its account role."""
 
@@ -626,6 +639,20 @@ class LedgerConnection:
                 return [dict(zip(names, _days(names, row), strict=True)) for row in cursor.fetchall()]
         except pymysql.MySQLError as exc:
             raise sql_error(exc) from exc
+
+    def rows_in(self, statement: str, values, *, before: tuple = (), after: tuple = (),
+                dicts: bool = False) -> list:
+        """The rows of `statement` for `values`, read IN_BATCH values at a time: each `IN ()` in it takes one batch,
+        between the parameters `before` and `after` it. Rows come batch after batch, so an ORDER BY holds across
+        batches only for values given in that order; no values read nothing."""
+        values = tuple(values)
+        read = self.dicts if dicts else self.rows
+        found: list = []
+        for at in range(0, len(values), IN_BATCH):
+            batch = values[at:at + IN_BATCH]
+            count = statement.count("IN ()")
+            found += read(statement.replace("IN ()", f"IN ({marks(batch)})"), (*before, *batch * count, *after))
+        return found
 
     def one(self, statement: str, params=None) -> dict | None:
         found = self.dicts(statement, params)

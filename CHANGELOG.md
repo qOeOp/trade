@@ -26,6 +26,64 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
+  codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
+  is now answered as a refusal with its code, like any other, instead of failing the request.
+- Documentation: Paper trading and Live execution moved out of `engine/README.md` into `paper/README.md` and
+  `live/README.md`; the Live page's unresolved-run note and its Telegram message now name `live/README.md`.
+- IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
+  changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
+  the hatching on rerender.
+
+- `research-round` strategy authoring: a source keeps its state bounded and updates it per input, never rescanning
+  the whole history on each bar (doctor 20261121-02: a price-action root's replay time grew 37 times for a window
+  3.3 times longer).
+
+- Breaking (line-close summary): `research-start` has the closing summary state that the three earlier ledger
+  generations searched the holdout 2024-10 to 2026-10 about 3,100 times, which the new ledger does not count; only
+  Paper and later data are unseen.
+- **Breaking** (release host): a release stops the previous Live control with `docker stop` inside the account lock,
+  right after it commits the new route while Live answered idle, instead of turning off its restart policy and
+  signalling it to drain. A rollback stops the candidate's control the same way. The branches for a host whose
+  routed Web has no paired Live control are gone: every release since 0.4.0 paired one, and the custody root is
+  created only by a new host's install. Returning to the previous version by hand no longer needs
+  `docker update --restart`.
+- Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
+  BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
+  result (`--help`, progress lines) ends with exit 1.
+- IDE (fix, Breaking: `ide.py serve --reads` is gone): the research graph service starts a product read only while
+  the container's memory has room for its peak, instead of up to 3 at once (doctor 20261116-01, recurred
+  2026-11-19: the kernel killed 9 reads in the 1.5 GiB Web container, where 3 reads of 385-440 MB each, the server
+  and the overview did not fit). The room is the cgroup's `memory.max` less what its processes hold when no read runs
+  and a 64 MiB margin; a read of research data is priced at 450 MiB, a ledger head, status or line list at 96 MiB,
+  so a light read no longer waits behind heavy ones (in that container: two heavy reads and a light one). Reads run
+  the product's `.venv` Python directly (no `uv run`) and ask the kernel to kill them first (`oom_score_adj` 1000),
+  so the server and the overview outlive a memory shortfall. A read the kernel kills answers `OUT_OF_MEMORY`
+  ("open it again to retry") instead of `PRODUCT_FAILED`, which the page showed as data not served; the Runs page's
+  backtest asks again when the trial is shown again. `/api/about` reads `ledger service status` once per head and
+  30 s instead of once per open page per minute.
+- IDE (fix): once the deployment's sign-in expires (OAuth2 Proxy answers every `/api` request 401), the page stops
+  asking. Before, a page opened or restored with an expired session asked `/api/setup/` every 3 s forever and kept
+  its 15-60 s polls (Live, Market, the Agent's health, About, market import) going: the production proxy logged
+  about 2,000 denied requests an hour for three days. Now the first 401 stops every poll, the graph's place says
+  "Sign in again to read the ledger." instead of a JSON parse error, and the existing session notice offers the
+  GitHub sign-in, which reloads the page.
+
+
+- `research-round`: a recommendation that first reaches both targets no longer tells the user validation is
+  theirs to start; it raises no validation question, which comes only after the line's closing history test.
+- Live: a source's runtime failure record now names its contract instead of `unconstructed`, and a Live start
+  rewrites `runtime_failures.jsonl` with the final counts when it ends (it kept only the counts at the last power of
+  two). Replay, Paper and Live begin a run through one reset (`engine.strategy.begin_run`), so each starts with every
+  process registry empty; Paper's warm-up and held-start reads retry the network through one helper
+  (`engine.history.read_until`).
+- **Breaking:** a sealed Paper run's `seal.json` no longer carries the `readings` version stamp
+  (`paper-readings@2026-11-15`), which nothing read. The unread `engine.config.INTEGRITY_CODES` catalogue and
+  `engine.warmup.EXPORTED` are gone.
+- IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
+  (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
+  it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
+  highlighted; a Comparison click picks the whole order group.
 - IDE: the Progress and Return vs drawdown charts follow the lineage fold. Runs of folded versions are not drawn, and
   a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
   every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
@@ -39,6 +97,22 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   median both made money) and other; it is derived on the page from the readings shown, nothing is stored. While a
   Cause is chosen, rows with no edge show too; the header's Hidden count names each reason.
 
+- IDE: `ide.py serve --dev-assets=http://127.0.0.1:5173` with `npm run dev` in `ide/web` serves the page from Vite with
+  hot updates through the IDE's own origin, which still puts the paper token in the page; both stay on loopback
+  (`ide/README.md`, Developing the page).
+
+- Breaking (Live): preparing a Live run needs the candidate's closing history test, read at the research commit, to
+  have decided that it meets its line's targets, the check validation registration makes (user 2026-11-21, doctor
+  20261120-06): `LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them, `LIVE_HISTORY_UNDECIDED`
+  for one it has not decided. The second condition the user named, a reconciled Paper run of the candidate, comes in
+  its own change (docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md).
+- Breaking (Live): preparing a Live run also needs a reconciled Paper run of the candidate (user 2026-11-21, doctor
+  20261120-06): a sealed, complete Paper run of the same source on the same contracts and replay code, not held,
+  whose `paper compare` on the archive has at least one order group and nothing unexplained (no `unexplained` group,
+  look-ahead suspect or equity minute). Otherwise it refuses `LIVE_PAPER_UNRECONCILED` with the reason. The serving
+  control derives the answer in the background (`live paper-compare` in a child container) and stores nothing. Each
+  release now writes `profiles/paper.json`, the Paper database's reader profile, beside the research reader; the
+  control reads it from there. A candidate without such a run can no longer be prepared: run it in Paper first.
 - Paper: a host stall no longer ends a run with `PAPER_CACHE_UNAVAILABLE` (user 2026-11-21). The run ends when the
   native cache process has exited, or when PING has gone unanswered at least 5 times in a row over at least 30
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not
@@ -50,7 +124,6 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
-||||||| parent of 60c3ee001 (feat(ide): the bottom charts follow the lineage fold and count what it hides)
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial
@@ -67,6 +140,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   `worst_year_return`; `return_without_best_year` annualizes the window's days without the best whole year, the
   part year's included. It was null for every window but three whole years, so lines with a 5–11 quarter
   development period had no per-year reading.
+- Breaking (runtime): a `replay-contract@v8` image built before 2026-11-14, whose probe still reports
+  `engine/live_errors.py` among its source files, is refused with `RUNTIME_MISMATCH` and is no main build:
+  `runtime.image.EARLIER_SOURCE_PATHS` is gone (user 2026-11-21). Every trial in the active ledger ran on an image
+  built after that split (doctor 20261113-113), and every release tag from v0.3.1 on contains it.
+
 - Line close: a part veto year (the first year, cut by the market's first day plus warm-up, or the year cut by the
   development period's start) without a passed run, such as one sealed invalid by an audit failure
   (UNPROTECTED_POSITION), is now named in the closing history test's `missing` (`veto YEAR`), as a whole veto year
@@ -85,6 +163,23 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   report no longer reads a declared two-by-two (`attribution.interaction`, its four-corner shape check and
   contributions, the `INTERACTION_UNATTESTED` refusal). A body that still declares one is refused with
   `REGISTRATION_INVALID`; none of the active ledger's 81 registrations declared one (user 2026-11-21).
+
+- Breaking (validation): `validation registration` takes only a candidate its line's closing history test decided
+  meets the targets (user 2026-11-21, doctor 20261120-05). A candidate the test judged not meeting them is refused
+  `CANDIDATE_FALSIFIED`; one without a history test, or whose verdict lacks a reading (a veto year, the control, the
+  holdout, the targets, or its economic evidence), is refused `HISTORY_UNDECIDED`, naming what is missing. The
+  research-round skill asks about validation when the user picks a candidate after `line close`, no longer when a
+  candidate is accepted during research.
+- Reports: the `by_instrument` slice of `replay report` and `hypothesis compare` adds `net_without_top_instrument`,
+  the closed-cycle net PnL left after removing the one instrument that contributes most in the direction of the total
+  (it names that instrument). A comparison also gives it on the per-instrument differences as `pairwise`. Derived at
+  read time from stored cycles; registrations may predict its direction (doctor 20261120-16).
+
+- Live: the control's daily comparison record (`runs/<run>/compare.json`) and the monthly membership files it writes
+  for a runner (`inputs/membership/<YYYY-MM>.json`) are now made durable before they count: the bytes are fsynced
+  before the rename and the directory after it, as the other Live private files already were. A host crash right
+  after a write no longer leaves one empty or missing. A temporary left by a write that died is now named
+  `.<file>.partial` beside it and removed by the next write.
 
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the

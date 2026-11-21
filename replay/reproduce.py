@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ledger import db, execution, metrics, problems, strategies, trials
-from shared import paths
+from shared import clock, paths
 from shared.refusals import refuse
 from registration import inputs as registration_inputs, reproduction, seams as registration_seams
 from replay import entry
@@ -78,8 +78,8 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         trial = stored["trial"]
         revision = strategies.candidate_by_sha(conn, trial["source_sha256"])
         reached = reproduction.reproductions(conn, trial_id)
-    window = {"start": metrics.moment_ns(trial["input_start"]), "trade_start": metrics.moment_ns(trial["trade_start"]),
-              "end": metrics.moment_ns(trial["trade_end"])}
+    window = {"start": clock.moment_ns(trial["input_start"]), "trade_start": clock.moment_ns(trial["trade_start"]),
+              "end": clock.moment_ns(trial["trade_end"])}
     recorded, runner_argv, flags = stored_runner_argv(stored, trial["input_start"], trial["trade_start"],
                                                       trial["trade_end"])
     effective = (stored["capture"].get("input_coverage") or {}).get("effective_config")

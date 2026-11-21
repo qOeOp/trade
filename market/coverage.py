@@ -21,7 +21,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from market import files, instrument, lifecycle, metrics, series, store, universe
-from market.sources import MINUTE, _refuse
+from market.sources import MINUTE
+from shared import clock
+from shared.refusals import refuse
 
 
 FORMAT = "market-coverage-v1"
@@ -102,14 +104,15 @@ def _edges(market: files.Market, market_day: str, table: str, symbol: str, start
 def _interval(start_ms, end_ms) -> None:
     if (type(start_ms) is not int or type(end_ms) is not int or start_ms >= end_ms or start_ms % MINUTE
             or end_ms % MINUTE):
-        raise _refuse(f"[{start_ms}, {end_ms}) is not a whole-minute interval with start before end",
-                      "INTERVAL_INVALID", missing=("start", "end"))
+        raise refuse("INTERVAL_INVALID",
+                     f"[{start_ms}, {end_ms}) is not a whole-minute interval with start before end",
+                     missing=("start", "end"))
 
 
 def _series(bars: dict, start_ms: int, end_ms: int, volume: bool) -> dict:
     times = np.asarray(bars["ts_open"], dtype=np.int64)
     if len(times) and (np.any(times % MINUTE) or np.any(np.diff(times) <= 0)):
-        raise _refuse("bar open times are not whole, strictly increasing minutes", "SOURCE_SHAPE")
+        raise refuse("SOURCE_SHAPE", "bar open times are not whole, strictly increasing minutes")
     facts = series.missing_intervals(times, start_ms, end_ms, MINUTE,
                                      np.asarray(bars["volume"]) if volume else None)
     found = {"rows": int(len(times)), "first_open_ms": int(times[0]) if len(times) else None,
@@ -197,7 +200,7 @@ def _held(market: files.Market, market_day: str, table: str, symbol: str, start_
                 rows += batch.num_rows
                 for name in nulls:
                     counts[name] += batch.column(name).null_count
-        months.append({"month": series._ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
+        months.append({"month": clock.ms_day(entry.start_ms).strftime("%Y-%m"), "rows": rows,
                        **({"empty": counts} if nulls else {})})
         if at < entry.start_ms:
             uncovered.append([at, entry.start_ms])
@@ -214,16 +217,16 @@ def metrics_facts(market: files.Market, market_day: str, symbol: str, start_ms: 
     days it holds lacks, the empty ratios and the days up to the market day it does not hold, the first and last stored
     create_time in the interval and the parts with no row, missing days included."""
     found = _held(market, market_day, "metrics", symbol, start_ms, end_ms, metrics.RATIOS)
-    limit = series._ms_day(files.day_end("metrics", market_day))
+    limit = clock.ms_day(files.day_end("metrics", market_day))
     gaps = []
     for part in found["months"]:
         month = date.fromisoformat(f"{part['month']}-01")
         held = {day for day in metrics.held_days(market, symbol, month) if day < limit}
-        days = [month + timedelta(days=count) for count in range((universe.next_month(month) - month).days)]
+        days = [month + timedelta(days=count) for count in range((clock.next_month(month) - month).days)]
         part["missing_rows"] = len(held) * (store.DAY // metrics.STEP) - part["rows"]
         part["missing_days"] = [day.isoformat() for day in days if day not in held and day < limit]
         gaps += [[max(low, start_ms), min(low + store.DAY, end_ms)] for day in part["missing_days"]
-                 if (low := series._day_ms(date.fromisoformat(day))) < end_ms and low + store.DAY > start_ms]
+                 if (low := clock.day_ms(date.fromisoformat(day))) < end_ms and low + store.DAY > start_ms]
     merged: list[list[int]] = []
     for low, high in sorted(found["uncovered_intervals_ms"] + gaps):
         if merged and low <= merged[-1][1]:
@@ -239,9 +242,9 @@ def _ms(text: str) -> int:
     try:
         moment = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
     except ValueError as exc:
-        raise _refuse(f"{text!r} is not an ISO-8601 time", "INTERVAL_INVALID", missing=(str(text),)) from exc
+        raise refuse("INTERVAL_INVALID", f"{text!r} is not an ISO-8601 time", missing=(str(text),)) from exc
     if moment.utcoffset() != timedelta(0):
-        raise _refuse(f"{text!r} is not an explicit UTC time", "INTERVAL_INVALID", missing=(str(text),))
+        raise refuse("INTERVAL_INVALID", f"{text!r} is not an explicit UTC time", missing=(str(text),))
     return int(moment.timestamp() * 1000)
 
 
@@ -249,8 +252,8 @@ def universe_members(profile: dict, at: str | None, start: str, end: str) -> lis
     """Every universe member of the months [start, end) touches, at the market day `at` names."""
     start_ms, end_ms = _ms(start), _ms(end)
     _interval(start_ms, end_ms)
-    first = series._ms_day(start_ms).replace(day=1)
-    last = series._ms_day(end_ms - 1).replace(day=1)
+    first = clock.ms_day(start_ms).replace(day=1)
+    last = clock.ms_day(end_ms - 1).replace(day=1)
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     return sorted({symbol for month, symbol in universe.months_of(market, market_day) if first <= month <= last})
@@ -263,7 +266,7 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
     start_ms, end_ms = _ms(start), _ms(end)
     _interval(start_ms, end_ms)
     if not symbols or len(set(symbols)) != len(symbols):
-        raise _refuse("the contract list is empty or repeats a contract", "EMPTY_SYMBOLS", missing=("symbols",))
+        raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     episodes = None

@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pyarrow as pa
 
 from market import aggtrades, coverage, files, quotes, sources, store, universe
-from market.sources import MarketError
+from shared.errors import Refusal
 from tests.market.directory import directory, forged, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
 from tests.helpers import refused
@@ -60,7 +60,7 @@ class RuleTests(unittest.TestCase):
         rows, _ = quotes.derive(crossing.slice(0, 2), Decimal("0.000000001"), quotes.State(), "t")
         self.assertEqual(len(rows), 1)  # an increment finer than the stored scale is refused only where it pushes
         self.assertEqual(refused(quotes.derive, crossing, Decimal("0.000000001"), quotes.State(), "t",
-                                 error=MarketError).code, "SCALE_LOSS")
+                                 error=Refusal).code, "SCALE_LOSS")
 
     def test_the_state_continues_across_days_and_a_sequence_gap_or_time_reversal_refuses(self):
         state = quotes.State()
@@ -68,9 +68,9 @@ class RuleTests(unittest.TestCase):
         rows, _ = quotes.derive(table([(3, "100.01", 90_000_000, False)]), Decimal("0.01"), state, "day 2")
         self.assertEqual(rows, [])  # the same ask again: no change, nothing emitted
         self.assertEqual(refused(quotes.derive, table([(5, "100.00", 100_000_000, True)]), Decimal("0.01"), state,
-                                 "day 3", error=MarketError).code, "SEQUENCE_GAP")
+                                 "day 3", error=Refusal).code, "SEQUENCE_GAP")
         self.assertEqual(refused(quotes.derive, table([(1, "100.00", 2_000, True), (2, "100.01", 1_000, False)]),
-                                 Decimal("0.01"), quotes.State(), "t", error=MarketError).code, "SOURCE_SHAPE")
+                                 Decimal("0.01"), quotes.State(), "t", error=Refusal).code, "SOURCE_SHAPE")
 
     def test_a_repeated_id_feeds_a_later_distinct_trade_and_any_other_repeat_refuses(self):
         state = quotes.State()
@@ -82,10 +82,10 @@ class RuleTests(unittest.TestCase):
         rows, _ = quotes.derive(table([(2, "100.01", 90_000_000, False, 6)]), Decimal("0.01"), state, "day 2")
         self.assertEqual(rows, [(2, 90_000_000, scaled("99.99"), scaled("100.01"))])  # continues across days
         for second in [(1, "100.00", 1_000, True, 1), (1, "100.02", 1_000, False, 3), (1, "100.02", 1_200, False, 1)]:
-            with self.subTest(second=second), self.assertRaises(MarketError) as caught:
+            with self.subTest(second=second), self.assertRaises(Refusal) as caught:
                 quotes.derive(table([(1, "100.00", 1_000, True, 1), second]), Decimal("0.01"), quotes.State(), "t")
             self.assertEqual(caught.exception.code, "SEQUENCE_GAP")
-        with self.assertRaises(MarketError) as caught:
+        with self.assertRaises(Refusal) as caught:
             quotes.derive(table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
         self.assertEqual(caught.exception.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
 
@@ -181,8 +181,8 @@ class ImportQuotesTests(unittest.TestCase):
         forged(cls.market, "universe_month", FEB, rows={"universe_rule": [universe.RULE], "month": [FEB],
                                                         "symbol": ["BTCUSDT"]})
 
-    def refused(self, code: str, call, *args, **kwargs) -> MarketError:
-        with self.assertRaises(MarketError) as caught:
+    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
+        with self.assertRaises(Refusal) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception

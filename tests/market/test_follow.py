@@ -9,7 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import aggtrades, files, follow, metrics, quotes, sources, store, universe
+from market import aggtrades, files, follow, metrics, quotes, sources, store
+from shared import clock
+from shared.errors import Refusal
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
@@ -35,8 +37,8 @@ def at(day: date, hour=0, minute=40) -> datetime:
 MAR, APR = date(2025, 3, 1), date(2025, 4, 1)
 
 
-def refused(code: str, *missing: str) -> sources.MarketError:
-    return sources.MarketError(f"refused {code}", code=code, missing=missing)
+def refused(code: str, *missing: str) -> Refusal:
+    return Refusal(code, f"refused {code}", missing)
 
 
 def entries(*symbols: str) -> dict:
@@ -244,7 +246,7 @@ class BarsTests(unittest.TestCase):
 
     def importing(self, profile, month, cache, symbols=None, log=print):
         self.calls.append((month, symbols))
-        end = min(universe.next_month(month), self.today)
+        end = min(clock.next_month(month), self.today)
         return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 
@@ -408,7 +410,7 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(seen[0]["at"], start.isoformat())  # the first round has no status before it
 
     def test_an_empty_bar_list_is_refused_at_start(self):
-        with self.assertRaises(sources.MarketError) as caught:
+        with self.assertRaises(Refusal) as caught:
             follow.follow({}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
         self.assertEqual(caught.exception.code, "EMPTY_SYMBOLS")
 
