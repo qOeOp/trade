@@ -21,6 +21,7 @@ import threading
 import pymysql
 
 from ledger import db, publish, server, service
+from shared.http import encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
 from shared.refusals import refuse
 
@@ -195,16 +196,10 @@ def keep_synced(sync: Sync, stop: threading.Event, every: float = SYNC_EVERY) ->
 def handler(sync: Sync, hosts: frozenset[str]):
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status: int, body: dict):
-            data = json.dumps(body).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            send_json(self, status, encode(body))
 
         def handle_request(self):
-            if self.headers.get("Host") not in hosts or self.headers.get("Sec-Fetch-Site") == "cross-site":
+            if not trusted(self, hosts, ("cross-site",)):
                 self.reply(403, {"code": "FORBIDDEN", "message": "requests come from the IDE"})
             elif self.path != "/api/research/sync" or self.command not in ("GET", "POST"):
                 self.reply(404, {"code": "NOT_FOUND", "message": self.path})
