@@ -42,6 +42,8 @@ MESSAGES = {
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
     "LIVE_EVIDENCE_MISSING": "No passed replay of this candidate on these instruments runs this image's replay code.",
     "LIVE_EVIDENCE_BALANCE": "No replay of this candidate started near the account's USDT wallet.",
+    "LIVE_CANDIDATE_FALSIFIED": "The line's closing history test found this candidate short of its targets.",
+    "LIVE_HISTORY_UNDECIDED": "The line's closing history test has not decided this candidate yet.",
     "LIVE_RESTART_REQUIRES_RECONCILIATION": "An attempted run cannot restart its strategy. Review the original execution.",
     "LIVE_NOTIFY_TOKEN": "Telegram did not accept this bot token. Copy it again from @BotFather.",
     "LIVE_NOTIFY_NO_CHAT": "No private chat has messaged this bot yet. Send it any message from Telegram, then save again.",
