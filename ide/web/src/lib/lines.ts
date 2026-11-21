@@ -16,10 +16,18 @@ export function runHref(href: string, line: string, version: string, run: number
   return `${url.pathname}${url.search}#${encodeURI(version)}`;
 }
 
+/** The page on line `line` with `version` selected and the backtest of its replay `trial` shown (`trial=`, which the
+ *  page drops once it has picked it). */
+export function trialHref(href: string, line: string, version: string, trial: number): string {
+  const url = new URL(lineHref(href, line), href);
+  url.searchParams.set("trial", String(trial));
+  return `${url.pathname}${url.search}#${encodeURI(version)}`;
+}
+
 /** A line as `line list --all` gives it: `name`, its start version, its development period (`dev_start` to
- *  `dev_end`, UTC days) and `versions`, the versions its research graph draws. */
+ *  `dev_end`, UTC days), `versions`, the versions its research graph draws, and a closed line's closing `summary`. */
 export type ResearchLine = {
-  name: string; start: string; dev_start: string; dev_end: string; closed: boolean; versions: string[];
+  name: string; start: string; dev_start: string; dev_end: string; closed: boolean; versions: string[]; summary?: string | null;
   targets?: { max_drawdown?: number | null; annual_return?: number | null } | null;
 };
 

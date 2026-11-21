@@ -1,12 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { MISSING, pct, plural, ratio } from "../../lib/format";
 import type { HistoryCell, HistoryLine, HistoryRow } from "../../lib/historyApi";
-import { cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, RETURN_RANGES, returnStep, vetoTip, type Column, type Metric, type Order } from "../../model/history";
+import { cause, CAUSES_SAID, cellAt, columns, meetsBoth, noEdge, combinedTip, ordered, RETURN_RANGES, returnStep, vetoTip, type Cause, type Column, type Metric, type Order } from "../../model/history";
 import { useHistory } from "../../state/history";
+import { useResearchLines } from "../../state/researchLines";
+import { showToolWindow } from "../../state/shell";
+import { openTrial } from "../../state/stage";
 import { DropdownChoice } from "../../components/Dropdown";
 import { HistoryTile } from "../../components/HistoryTile";
 import { Skeleton } from "../../components/Missing";
 import { LineHeader, PriorTip } from "./LineHeader";
+import { LineSummary, PickedBar, usePicked, type Picked } from "./LinePanels";
 import { Tip } from "../../components/Tip";
 import { Empty } from "../../components/Waiting";
 
@@ -15,7 +19,10 @@ const SUMMARY_COLS = ["Whole yrs", "Profitable", "Meeting", "Median", "Worst", "
 const METRICS = [{ value: "annual_return", label: "Annual return" }, { value: "mark_max_drawdown", label: "Max drawdown" },
                  { value: "sharpe_365", label: "Sharpe" }] as const;
 const ORDERS = [{ value: "development", label: "Development Sharpe" }, { value: "median", label: "Median whole-year return" },
-                { value: "meeting", label: "Years meeting targets" }] as const;
+                { value: "meeting", label: "Years meeting targets" }, { value: "holdout_return", label: "Holdout annual return" },
+                { value: "holdout_sharpe", label: "Holdout Sharpe" }, { value: "holdout_drawdown", label: "Holdout max drawdown" }] as const;
+type Causes = Cause | "all";
+const CAUSES = [{ value: "all", label: "All" }, ...(Object.keys(CAUSES_SAID) as Cause[]).map((value) => ({ value, label: CAUSES_SAID[value][0] }))] as const;
 const KIND: Record<HistoryCell["kind"], string> = { veto: "Veto year", control: "Development period, replayed", holdout: "Holdout",
                                                     forward: "Forward", development: "Development period (the research run)" };
 
@@ -36,23 +43,27 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
       </> : <p>{cell.status === "invalid" ? "The run is invalid: no readings" : "No run yet"}</p>}
       {cell.kind === "development" && row.control_reproduces !== null &&
         <p>{row.control_reproduces ? "Its replay at closing reproduced it exactly" : "Its replay at closing differs: the row has no verdict"}</p>}
+      {row.candidate && <p className="text-fg-faint">Click to show it in Details</p>}
     </div>
   );
 }
 
 /** One heatmap cell: the chosen metric over the annual return's colour, a star when the segment meets both of
  *  the line's targets, grey when it is too short to count, and words when there is nothing to read. */
-function Cell({ cell, row, column, line, metric, shortDays }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number }) {
+function Cell({ cell, row, column, line, metric, shortDays, picked }: { cell: HistoryCell | null; row: HistoryRow; column: Column; line: HistoryLine; metric: Metric; shortDays: number; picked: Picked }) {
   const base = "h-7 min-w-[4.75rem] px-1.5 text-center tabular-nums";
   if (!cell) return <td className={`${base} text-fg-ghost`}><Tip content={column.kind === "forward" ? "No forward part: the holdout reaches the market's end"
     : column.kind === "year" ? "No run this year: the contracts were not listed, or the year is in another segment" : "No run"}><span>{MISSING}</span></Tip></td>;
   const m = cell.measures, traded = !!m && m.cycles !== 0;
   const text = !m ? (cell.status === "invalid" ? "Invalid" : "Running") : !traded ? "No trades" : shown(metric, m);
+  const version = row.candidate;
   return (
     <td className="p-0.5">
       <Tip content={tip(cell, row, column, shortDays)}>
-        <div><HistoryTile step={cell.short || !traded ? null : returnStep(m!.annual_return)} quiet={cell.short || !traded} short={cell.short}
-                          meets={meetsBoth(cell, line.targets)} partial={cell.kind === "veto" && !cell.whole_year && !cell.short}>{text}</HistoryTile></div>
+        <HistoryTile step={cell.short || !traded ? null : returnStep(m!.annual_return)} quiet={cell.short || !traded} short={cell.short}
+                     meets={meetsBoth(cell, line.targets)} partial={cell.kind === "veto" && !cell.whole_year && !cell.short}
+                     picked={version !== null && picked.version === version && picked.trial === cell.trial_id} label={`Show trial ${cell.trial_id} in Details`}
+                     onPick={version === null ? undefined : () => { openTrial(line.line, version, cell.trial_id); showToolWindow("inspector", "right"); }}>{text}</HistoryTile>
       </Tip>
     </td>
   );
@@ -109,18 +120,25 @@ function ColumnHeads({ cols, pinned }: { cols: readonly Column[]; pinned: boolea
 /** A line's rows under its header: the line, whether it is closed, how many candidates took part and how many research
  *  trials they came from, the earlier searches of its holdout, its targets and its development period, then the column
  *  labels over the line's participant rows (the first line reads under the sticky table header). */
-function LineRows({ line, first, cols, metric, order, all, shortDays }: { line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; shortDays: number }) {
-  const rows = ordered(line.rows, order), shown = all ? rows : rows.filter((r) => !noEdge(r)), hidden = rows.length - shown.length;
+function LineRows({ line, first, cols, metric, order, all, only, shortDays, summary, picked }: {
+  line: HistoryLine; first: boolean; cols: Column[]; metric: Metric; order: Order; all: boolean; only: Causes; shortDays: number;
+  summary: string | null | undefined; picked: Picked;
+}) {
+  // A Cause shows its rows whatever their edge, so the no-edge filter applies only to All.
+  const rows = ordered(line.rows, order), edgeless = (r: HistoryRow) => !all && only === "all" && noEdge(r), other = (r: HistoryRow) => only !== "all" && cause(r) !== only;
+  const shown = rows.filter((r) => !edgeless(r) && !other(r)), hidden = { edge: rows.filter(edgeless).length, cause: rows.filter(other).length };
   return (
     <tbody className="border-t border-line">
       <LineHeader line={line} colSpan={cols.length + 11} hidden={hidden} />
+      {summary && <LineSummary text={summary} colSpan={cols.length + 11} />}
       {!first && <ColumnHeads cols={cols} pinned={false} />}
       {shown.map((row) => (
         <tr key={row.run} className="hover:bg-row-hover">
           <th className="sticky left-0 z-10 max-w-56 truncate bg-island px-2 text-left font-mono font-normal">
-            <Tip content={`Research run ${row.run} · source ${row.source_sha256.slice(0, 12)}`}><span>{row.candidate ?? row.source_sha256.slice(0, 12)}</span></Tip>
+            <Tip content={<div className="space-y-0.5"><p>Research run {row.run} · source {row.source_sha256.slice(0, 12)}</p><p>{CAUSES_SAID[cause(row)][1]}</p></div>}>
+              <span>{row.candidate ?? row.source_sha256.slice(0, 12)}</span></Tip>
           </th>
-          {cols.map((c) => <Cell key={c.id} cell={cellAt(row, c)} row={row} column={c} line={line} metric={metric} shortDays={shortDays} />)}
+          {cols.map((c) => <Cell key={c.id} cell={cellAt(row, c)} row={row} column={c} line={line} metric={metric} shortDays={shortDays} picked={picked} />)}
           <Summary row={row} line={line} />
         </tr>
       ))}
@@ -135,16 +153,22 @@ function LineRows({ line, first, cols, metric, order, all, shortDays }: { line: 
 export function HistoryPage() {
   const { history, reading, error } = useHistory();
   const [metric, setMetric] = useState<Metric>("annual_return"), [order, setOrder] = useState<Order>("development"), [all, setAll] = useState(false);
+  const [only, setOnly] = useState<Causes>("all");
   const lines = history?.lines ?? [], cols = useMemo(() => columns(lines), [lines]);
+  const summaries = useResearchLines().lines, picked = usePicked(lines);
   if (!history && error) return <Empty title="Can't read the history tests">{error}</Empty>;
   if (history && !lines.length) return <Empty title="No line has a history test yet">A line's closing replays every participant over the years before its development period, its holdout and what follows; they show here as they run.</Empty>;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-(--header-h) shrink-0 items-center gap-x-3 px-3 text-dense">
-        <span className="font-semibold">Line-close history</span>
-        <span className="text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
-        <span className="ml-auto flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-fg-muted"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label>
+      <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 text-dense">
+        <span className="whitespace-nowrap font-semibold">Line-close history</span>
+        <span className="whitespace-normal text-fg-faint">{history ? <>{plural(lines.length, "line")} · each cell replayed from flat{reading ? " · reading…" : ""}{error ? ` · ${error}` : ""}</> : <Skeleton className="w-40" />}</span>
+        <PickedBar picked={picked} />
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          <DropdownChoice<Causes> name="Cause" label="Cause" options={CAUSES} value={only} onChange={setOnly} />
+          <Tip content={only === "all" ? null : "A Cause shows its rows whatever their edge"}>
+            <label className={`flex items-center gap-1.5 whitespace-nowrap ${only === "all" ? "text-fg-muted" : "text-fg-ghost"}`}>
+              <input type="checkbox" checked={all} disabled={only !== "all"} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label></Tip>
           <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
           <DropdownChoice<Order> name="Order" label="Order" options={ORDERS} value={order} onChange={setOrder} />
         </span>
@@ -152,7 +176,8 @@ export function HistoryPage() {
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="border-separate border-spacing-0 text-dense">
           <thead className="sticky top-0 z-20 bg-island"><ColumnHeads cols={cols} pinned /></thead>
-          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} shortDays={history.short_days} />) : (
+          {history ? lines.map((l, i) => <LineRows key={l.line} line={l} first={i === 0} cols={cols} metric={metric} order={order} all={all} only={only}
+                                                          shortDays={history.short_days} summary={summaries.find((s) => s.name === l.line)?.summary} picked={picked} />) : (
             <tbody className="border-t border-line">
               {[0, 1, 2, 3, 4].map((r) => (
                 <tr key={r}>
