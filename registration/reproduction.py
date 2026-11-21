@@ -72,17 +72,14 @@ def fingerprint_hash(capture: Mapping) -> str | None:
 def _recorded_tables(conn: db.LedgerConnection, trial_id: int) -> Mapping | None:
     row = conn.one("SELECT fingerprints FROM run WHERE trial_id = %s", (trial_id,))
     stored = None if row is None else row["fingerprints"]
-    return json.loads(stored) if isinstance(stored, (str, bytes)) else stored
+    return db.json_column(stored)
 
 
 def _recorded_tables_of(conn: db.LedgerConnection, trial_ids: list[int]) -> dict[int, Mapping | None]:
-    """_recorded_tables of each trial, by trial ID, in one read per execution.BATCH trials."""
+    """_recorded_tables of each trial, by trial ID, in one read per db.IN_BATCH trials."""
     found: dict[int, Mapping | None] = dict.fromkeys(trial_ids)
-    for at in range(0, len(trial_ids), execution.BATCH):
-        chunk = tuple(trial_ids[at:at + execution.BATCH])
-        for trial_id, stored in conn.rows(f"SELECT trial_id, fingerprints FROM run WHERE trial_id IN "
-                                          f"({', '.join(['%s'] * len(chunk))})", chunk):
-            found[trial_id] = json.loads(stored) if isinstance(stored, (str, bytes)) else stored
+    for trial_id, stored in conn.rows_in("SELECT trial_id, fingerprints FROM run WHERE trial_id IN ()", trial_ids):
+        found[trial_id] = db.json_column(stored)
     return found
 
 

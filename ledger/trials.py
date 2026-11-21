@@ -396,7 +396,7 @@ def reseal_reading(conn: db.LedgerConnection, trial_id: int, reproduction_id: in
     revision, report = sealed[0], sealed[1]
     before = conn.one("SELECT report, product_commit FROM run_reading WHERE trial_id = %s", (trial_id,))
     assert before is not None  # the caller reseals only a passed run, which has its reading
-    previous = json.loads(before["report"]) if isinstance(before["report"], (str, bytes)) else before["report"]
+    previous = db.json_column(before["report"])
     result = {"product_commit": revision, "previous_product_commit": before["product_commit"]}
     # compared as values: the stored JSON comes back as Dolt normalized it (1.0 as 1, for one)
     if revision == before["product_commit"] and json.loads(db.canonical_json(report)) == previous:
@@ -417,7 +417,7 @@ def run_record(row: Mapping) -> dict:
     """{trial_id, status, failure_reasons} of a run row."""
     reasons = row["failure_reasons"]
     return {"trial_id": row["trial_id"], "status": row["status"],
-            "failure_reasons": (json.loads(reasons) if isinstance(reasons, (str, bytes)) else reasons) or []}
+            "failure_reasons": (db.json_column(reasons)) or []}
 
 
 def latest_research(conn: db.LedgerConnection, source_sha256: str) -> int | None:

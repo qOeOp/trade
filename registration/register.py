@@ -251,7 +251,7 @@ def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
     for _, status, report in runs:
         if status == "invalid":
             continue
-        report = json.loads(report) if isinstance(report, (str, bytes)) else report
+        report = db.json_column(report)
         activity = report.get("activity") if isinstance(report, Mapping) else None
         fills = activity.get("real_fills") if isinstance(activity, Mapping) else None
         if not isinstance(fills, Mapping) or fills.get("passed") is not False:
@@ -413,7 +413,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
         symbols = sorted(set(execution["symbols"]))
         on_contracts = (" AND (NOT EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id) OR "
                         "EXISTS (SELECT 1 FROM trial_instrument i WHERE i.trial_id = t.trial_id AND i.instrument_id IN ("
-                        + ", ".join(["%s"] * len(symbols)) + ")))") if symbols else ""
+                        + db.marks(symbols) + ")))") if symbols else ""
         for trial_id, registration, purpose, trade_start, trade_end in conn.rows(
                 "SELECT t.trial_id, t.research_registration_id, t.purpose, t.trade_start, t.trade_end FROM trial t "
                 "WHERE t.source_sha256 = %s" + on_contracts + " ORDER BY t.trial_id", (source, *symbols)):
@@ -475,27 +475,24 @@ def _retried(conn: db.LedgerConnection, line_id: int) -> set[int]:
 
 def _line_trial_records(conn: db.LedgerConnection, trial_ids: list[int]
                         ) -> tuple[dict[int, str], dict[int, int], set[int], set[int]]:
-    """Of the trials, in one read of each table per execution.BATCH trials: run status and registration by
+    """Of the trials, in one read of each table per db.IN_BATCH trials: run status and registration by
     trial, the trials an interpretation names (directly or through their registration) and the trials holding
     a recovery bundle."""
     status: dict[int, str] = {}
     registered: dict[int, int] = {}
     covered: set[int] = set()
     recovered: set[int] = set()
-    for at in range(0, len(trial_ids), ledger_execution.BATCH):
-        chunk = tuple(trial_ids[at:at + ledger_execution.BATCH])
-        marks = ", ".join(["%s"] * len(chunk))
-        status.update(conn.rows(f"SELECT trial_id, status FROM run WHERE trial_id IN ({marks})", chunk))
-        registered.update(conn.rows(f"SELECT trial_id, research_registration_id FROM trial WHERE trial_id IN ({marks})",
-                                    chunk))
-        covered.update(trial_id for trial_id, in conn.rows(
-            "SELECT s.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
-            f"WHERE j.kind = 'interpretation' AND s.trial_id IN ({marks}) UNION "
-            "SELECT t.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
-            "JOIN trial t ON t.research_registration_id = s.research_registration_id "
-            f"WHERE j.kind = 'interpretation' AND t.trial_id IN ({marks})", chunk + chunk))
-        recovered.update(trial_id for trial_id, in conn.rows(
-            f"SELECT DISTINCT trial_id FROM evidence_bundle WHERE kind = 'recovery' AND trial_id IN ({marks})", chunk))
+    status.update(conn.rows_in("SELECT trial_id, status FROM run WHERE trial_id IN ()", trial_ids))
+    registered.update(conn.rows_in("SELECT trial_id, research_registration_id FROM trial WHERE trial_id IN ()",
+                                   trial_ids))
+    covered.update(trial_id for trial_id, in conn.rows_in(
+        "SELECT s.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
+        "WHERE j.kind = 'interpretation' AND s.trial_id IN () UNION "
+        "SELECT t.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
+        "JOIN trial t ON t.research_registration_id = s.research_registration_id "
+        "WHERE j.kind = 'interpretation' AND t.trial_id IN ()", trial_ids))
+    recovered.update(trial_id for trial_id, in conn.rows_in(
+        "SELECT DISTINCT trial_id FROM evidence_bundle WHERE kind = 'recovery' AND trial_id IN ()", trial_ids))
     return status, registered, covered, recovered
 
 
@@ -675,7 +672,7 @@ def load_registration(conn: db.LedgerConnection, registration_id) -> dict:
             "execution": {**{key: row[key] for key in ("image_ref", "market_day", "universe_rule", "lifecycle_bundle",
                                                        "export_sha256", "comparable_config_sha256")},
                           "image_digest": precheck.digest_of(row["image_ref"])},
-            "body": json.loads(row["body"]) if isinstance(row["body"], (str, bytes)) else row["body"],
+            "body": db.json_column(row["body"]),
             "grid": [{"candidate": f"{point['strategy_id']}@{point['revision']}",
                       "source_sha256": point["source_sha256"], "source_review_id": point["source_review_id"]}
                      for point in points],

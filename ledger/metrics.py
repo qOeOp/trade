@@ -271,7 +271,7 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
 
 def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True,
               listing: bool = False) -> dict[int, dict | Refusal]:
-    """load_run of each trial, by trial ID, in one read of each table per execution.BATCH trials; a run load_run
+    """load_run of each trial, by trial ID, in one read of each table per db.IN_BATCH trials; a run load_run
     refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two reads that
     grow with a run's days and positions, for a caller that reads neither. A `listing` read reads the captures as a
     listing (execution.read_captures): enough for availability and the derived measures, not for a run's report."""
@@ -282,30 +282,25 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
     readings: dict[int, dict] = {}
     returns: dict[int, list] = {trial_id: [] for trial_id in ids}
     cycles: dict[int, list] = {trial_id: [] for trial_id in ids}
-    for at in range(0, len(ids), execution.BATCH):
-        chunk = tuple(ids[at:at + execution.BATCH])
-        marks = ", ".join(["%s"] * len(chunk))
-        for row in conn.dicts("SELECT trial_id, status, failure_reasons, fingerprints, sealed_seq, created_at FROM "
-                              f"run WHERE trial_id IN ({marks})", chunk):
-            runs[row["trial_id"]] = row
-        for row in conn.dicts(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ({marks})", chunk):
-            trials[row["trial_id"]] = row
-        for trial_id, symbol in conn.rows(f"SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN "
-                                          f"({marks}) ORDER BY trial_id, instrument_id", chunk):
-            trials[trial_id].setdefault("instruments", []).append(symbol)
-        for row in conn.dicts(f"SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN "
-                              f"({marks})", chunk):
-            report = row["report"]
-            readings[row["trial_id"]] = {**(json.loads(report) if isinstance(report, (str, bytes)) else report),
-                                         "product_commit": row["product_commit"]}
-        if series:
-            for trial_id, ts, value, mean in conn.rows(
-                    "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN "
-                    f"({marks}) ORDER BY trial_id, ts_event_ns", chunk):
-                returns[trial_id].append((ts, value, mean))
-            for row in conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN ({marks}) "
-                                  "ORDER BY trial_id, seq", chunk):
-                cycles[row["trial_id"]].append(row)
+    for row in conn.rows_in("SELECT trial_id, status, failure_reasons, fingerprints, sealed_seq, created_at FROM run "
+                            "WHERE trial_id IN ()", ids, dicts=True):
+        runs[row["trial_id"]] = row
+    for row in conn.rows_in(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ()", ids, dicts=True):
+        trials[row["trial_id"]] = row
+    for trial_id, symbol in conn.rows_in("SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN () "
+                                         "ORDER BY trial_id, instrument_id", ids):
+        trials[trial_id].setdefault("instruments", []).append(symbol)
+    for row in conn.rows_in("SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN ()", ids,
+                            dicts=True):
+        readings[row["trial_id"]] = {**db.json_column(row["report"]), "product_commit": row["product_commit"]}
+    if series:
+        for trial_id, ts, value, mean in conn.rows_in(
+                "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN () "
+                "ORDER BY trial_id, ts_event_ns", ids):
+            returns[trial_id].append((ts, value, mean))
+        for row in conn.rows_in(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN () ORDER BY trial_id, seq",
+                                ids, dicts=True):
+            cycles[row["trial_id"]].append(row)
     captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs], listing=listing)
     found: dict[int, dict | Refusal] = {}
     for trial_id in ids:
@@ -326,7 +321,7 @@ def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed
     if trial is not None:
         trial.setdefault("instruments", [])
     for key in ("failure_reasons", "fingerprints"):
-        run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
+        run[key] = db.json_column(run[key])
     if isinstance(capture, Refusal):
         raise capture
     stored_identity = capture["start"].get("input_identity")
