@@ -12,7 +12,7 @@
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261121-45 | `OVERSIZED` 只按名字冻结超长模块，列入的模块继续变长检查不报 | `tests/test_source_hygiene.py` `OVERSIZED`（frozenset）；`serve.py` 11-20 为 994 行，11-21 为 1138 行 | authority（收紧检查；委托决定） | none | in PR |
+| 20261121-45 | `OVERSIZED` 只按名字冻结超长模块，列入的模块继续变长检查不报 | `tests/test_source_hygiene.py` `OVERSIZED`（frozenset）；`serve.py` 11-20 为 994 行，11-21 为 1138 行 | authority（收紧检查；委托决定） | none | in PR [#3360](https://github.com/qOeOp/trade/pull/3360) |
 
 ## 决定
 

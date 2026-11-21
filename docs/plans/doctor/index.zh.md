@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261121-45 | `OVERSIZED` 只按名字冻结超长模块，列入的模块继续变长检查不报 | authority（改为逐模块行数上限，只许下调；委托决定） | doctor | none | in PR（[记录](2026-11-21-oversized-caps.zh.md)） | 2026-11-21 | 2026-11-21 |
+| 20261121-45 | `OVERSIZED` 只按名字冻结超长模块，列入的模块继续变长检查不报 | authority（改为逐模块行数上限，只许下调；委托决定） | doctor | none | in PR [#3360](https://github.com/qOeOp/trade/pull/3360)（[记录](2026-11-21-oversized-caps.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-31 | Live 的 Binance 适配器发不出、回放与 Paper 照收的订单（O-02：TRAILING_STOP_LIMIT、MARKET_TO_LIMIT、DAY 等有效期、非基点的移动偏移、post-only 的 GTD、`close_position` 的 DAY 或 GTD），以及 600–605 秒的 GTD（20261114-26 留下的错位） | authority（订单规则 5 加挡；用户委托决定） | doctor | unknown | in PR [#3311](https://github.com/qOeOp/trade/pull/3311)（[记录](../order-rules-live-shapes-20261121.zh.md)） | 2026-11-14 | 2026-11-21 |
 | 20261121-27 | `paper start` 不检查源码是否声明恢复协议：没有 `PAPER_RECOVERY = 1` 与 `on_save`/`on_load` 的源码照常启动，远端运行 2、3、4 各在一次中断后结束 | authority（启动前拒绝缺这三个名字的源码；Claude 按用户委托决定） | doctor | unknown | in PR [#3306](https://github.com/qOeOp/trade/pull/3306)（[记录](2026-11-21-paper-start-recovery.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-26 | 宇宙文件读不出时回放有两个读法、两个拒绝码（`UNIVERSE_FILE_UNREADABLE` 与 `SOURCE_UNREADABLE`） | authority（删一个拒绝码；委托决定） | doctor | none | fixed aaf80c754 [#3310](https://github.com/qOeOp/trade/pull/3310)（[记录](2026-11-21-one-file-reader.zh.md)） | 2026-11-21 | 2026-11-21 |
