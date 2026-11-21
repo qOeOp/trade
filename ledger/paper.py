@@ -36,7 +36,6 @@ from shared import clock
 from shared.refusals import refuse
 
 
-READINGS = "paper-readings@2026-11-15"
 LOG_TAIL_BYTES = 1024 * 1024
 # How a run may end without a reason recorded: the user's stop, the engineering duration, a signal, and the end of a
 # held run once its positions are closed (engine.paper, HELD_FLAT).
@@ -526,7 +525,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         previous = equity
     orders = Counter(line.get("type") for line in lines if line["kind"] == "order")
     return {
-        "readings": READINGS, "paper_id": row["paper_id"],
+        "paper_id": row["paper_id"],
         "status": verdict(reasons), "reasons": sorted(set(reasons)),
         "started_ns": (summary or {}).get("started_ns") or (lines[0]["wall_ns"] if lines else None),
         "stopped_ns": (summary or {}).get("stopped_ns") or (lines[-1]["wall_ns"] if lines else None),

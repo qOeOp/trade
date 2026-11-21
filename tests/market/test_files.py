@@ -13,8 +13,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from market import files, universe
-from market.sources import MarketError
 from shared import clock
+from shared.errors import Refusal
 
 
 DAY = files.DAY
@@ -82,15 +82,15 @@ class Directory(unittest.TestCase):
     def refusal(self, code: str):
         test = self
 
-        class Refusal:
+        class Refused:
             def __enter__(self):
                 return self
 
             def __exit__(self, kind, error, trace):
-                test.assertIsInstance(error, MarketError, f"expected {code}")
+                test.assertIsInstance(error, Refusal, f"expected {code}")
                 test.assertEqual(error.code, code, error.message)
                 return True
-        return Refusal()
+        return Refused()
 
 
 class WriteAndRead(Directory):

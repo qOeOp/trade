@@ -1,5 +1,6 @@
 """Exercise the actual path selector and gate commands at their failure boundaries."""
 
+import importlib.util
 import itertools
 import json
 import os
@@ -128,6 +129,16 @@ class CiPathsTests(unittest.TestCase):
     def test_push_and_dispatch_run_without_a_pr_diff(self):
         for event in ("push", "workflow_dispatch"):
             self.assertEqual(self.select("", base="", event=event), (0, "changed=true\n"))
+
+
+class ConflictMarkerTests(unittest.TestCase):
+    def test_markers_are_found_and_a_lone_divider_outside_a_block_is_not(self):
+        spec = importlib.util.spec_from_file_location("conflict_markers", ROOT / ".github/scripts/conflict-markers.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        text = "a\n=======\n<<<<<<< HEAD\nb\n||||||| parent of 1\nc\n=======\nd\n>>>>>>> 2\n=======\n"
+        self.assertEqual(module.markers(text), [3, 5, 7, 9])
+        self.assertEqual(module.markers("<<<<<<<< not one\n=======\n"), [])
 
 
 def section(source, start, end="\n  [a-z-]+:\n"):

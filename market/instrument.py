@@ -11,7 +11,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from market import files
-from market.sources import _refuse
+from shared.refusals import refuse
 
 
 TERMS = ("price_increment", "size_increment", "min_quantity", "max_quantity", "min_notional", "min_price",
@@ -43,7 +43,7 @@ def terms(market: files.Market, market_day: str, symbol: str) -> dict:
     """market.terms: the terms row of `symbol` at the exact market day (`visible`)."""
     found = visible(market, market_day, symbol)
     if found is None:
-        raise _refuse(f"{symbol} is no instrument at market day {market_day}", "UNKNOWN_SYMBOL", missing=(symbol,))
+        raise refuse("UNKNOWN_SYMBOL", f"{symbol} is no instrument at market day {market_day}", missing=(symbol,))
     return {key: found[key] for key in SNAPSHOT}
 
 
@@ -64,17 +64,18 @@ def build_instrument(symbol: str, terms: dict, price_precision: int, native_id: 
     multiple of the terms' price increment."""
     from nautilus_trader.model import CryptoPerpetual, Currency, InstrumentId, Money, Price, Quantity, Symbol
     if not _positive(terms.get("price_increment")) or not _positive(terms.get("size_increment")):
-        raise _refuse(f"{symbol}: the increments are not positive decimal strings", "TERMS_INVALID", missing=(symbol,))
+        raise refuse("TERMS_INVALID", f"{symbol}: the increments are not positive decimal strings", missing=(symbol,))
     for low, high in (("min_quantity", "max_quantity"), ("min_price", "max_price")):
         if terms.get(low) is not None and terms.get(high) is not None and Decimal(terms[low]) > Decimal(terms[high]):
-            raise _refuse(f"{symbol}: {low} {terms[low]} exceeds {high} {terms[high]}", "TERMS_INVALID",
-                          missing=(symbol,))
+            raise refuse("TERMS_INVALID", f"{symbol}: {low} {terms[low]} exceeds {high} {terms[high]}",
+                         missing=(symbol,))
     exchange = decimals(terms["price_increment"])
     if price_precision < exchange:
-        raise _refuse(f"{symbol}: price precision {price_precision} is narrower than the exchange's {exchange}",
-                      "PRECISION_NARROWED", missing=(symbol,))
+        raise refuse("PRECISION_NARROWED",
+                     f"{symbol}: price precision {price_precision} is narrower than the exchange's {exchange}",
+                     missing=(symbol,))
     if not symbol.endswith(QUOTE):
-        raise _refuse(f"{symbol} does not settle in {QUOTE}", "UNSUPPORTED_QUOTE", missing=(symbol,))
+        raise refuse("UNSUPPORTED_QUOTE", f"{symbol} does not settle in {QUOTE}", missing=(symbol,))
     usdt = Currency.from_str(QUOTE)
     base_currency = Currency.from_str(symbol.removesuffix(QUOTE))
     # A current tick of 0.10 shares its decimals with history on the 0.01 grid; Nautilus skips any fill

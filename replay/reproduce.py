@@ -20,8 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ledger import db, execution, metrics, problems, strategies, trials
-from shared import paths
-from shared import clock
+from shared import clock, paths
 from shared.refusals import refuse
 from registration import inputs as registration_inputs, reproduction, seams as registration_seams
 from replay import entry

@@ -25,8 +25,9 @@ import zlib
 import pyarrow as pa
 
 from market import files, sources, store
-from market.sources import MarketError, _refuse
 from shared import clock
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 COLUMNS = ("create_time", "symbol", "sum_open_interest", "sum_open_interest_value", "count_toptrader_long_short_ratio",
@@ -44,16 +45,16 @@ def exact(text: str, label: str) -> str:
     try:
         value = Decimal(text)
     except InvalidOperation as exc:
-        raise _refuse(f"{label}: {text!r} is not a decimal", "SOURCE_SHAPE", missing=(label,)) from exc
+        raise refuse("SOURCE_SHAPE", f"{label}: {text!r} is not a decimal", missing=(label,)) from exc
     if not value.is_finite() or value < 0:
-        raise _refuse(f"{label}: {text!r} is not a finite non-negative decimal", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: {text!r} is not a finite non-negative decimal", missing=(label,))
     # Trailing zeros counted from the digits: normalize() would round under the context (1E-1000000000 is 0).
     _, digits, exponent = value.as_tuple()
     text = "".join(map(str, digits))
     decimals = -int(exponent) - (len(text) - len(text.rstrip("0")))
     if value and (value.adjusted() >= 38 - SCALE or decimals > SCALE):
-        raise _refuse(f"{label}: {text!r} does not fit decimal128(38, {SCALE}) exactly", "SCALE_LOSS",
-                      missing=(label,))
+        raise refuse("SCALE_LOSS", f"{label}: {text!r} does not fit decimal128(38, {SCALE}) exactly",
+                     missing=(label,))
     return format(value, "f")
 
 
@@ -89,15 +90,15 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
                              *(exact(item[name], f"{label} {name}") if item[name] else None for name in RATIOS))
                     if moment in found:
                         if found[moment] != value:
-                            raise _refuse(f"{label}: two rows at {item['create_time']} differ", "SOURCE_SHAPE",
-                                          missing=(label,))
+                            raise refuse("SOURCE_SHAPE", f"{label}: two rows at {item['create_time']} differ",
+                                         missing=(label,))
                         repeated += 1
                         continue
                     found[moment] = value
                     for name in RATIOS:
                         empty[name] += not item[name]
     except (ValueError, csv.Error, UnicodeError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
-        raise _refuse(f"{label}: rows do not parse as metrics ({exc})", "SOURCE_SHAPE", missing=(label,)) from exc
+        raise refuse("SOURCE_SHAPE", f"{label}: rows do not parse as metrics ({exc})", missing=(label,)) from exc
     readings = {"rows": len(found), "repeated_rows": repeated, "empty": empty}
     return [found[moment] for moment in sorted(found)], readings
 
@@ -122,27 +123,28 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
     scope = store._scope(symbols)
     start, end = store.month_bounds(month)
     if start >= end:
-        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
+        raise refuse("MONTH_INVALID", f"{month:%Y-%m} has no closed UTC day yet", missing=(f"{month:%Y-%m}",))
     if first is not None:
         start = max(start, clock.day_ms(first))
     market = files.open_market(profile, "import")
     imports: list[dict] = []
     with files.lock(market):
         if market.empty:
-            raise _refuse("the market holds no bars yet", "MARKET_EMPTY")
+            raise refuse("MARKET_EMPTY", "the market holds no bars yet")
         if scope is None:
             scope = sorted(store._members(market, month))
             if not scope:
-                raise _refuse(f"{month:%Y-%m} has no universe members in the market; import its bars first or name "
-                              "--symbols", "UNIVERSE_UNKNOWN", missing=(f"{month:%Y-%m}",))
+                raise refuse("UNIVERSE_UNKNOWN",
+                             f"{month:%Y-%m} has no universe members in the market; import its bars first or name "
+                             "--symbols", missing=(f"{month:%Y-%m}",))
         for symbol in scope:
             try:
                 imports.append(_import(market, month, start, end, cache, symbol, log))
-            except MarketError as exc:
+            except Refusal as exc:
                 placed = ", ".join(item["symbols"][0] for item in imports)
                 if placed:
-                    raise MarketError(f"{symbol}: {exc.message}; written meanwhile: {placed}", code=exc.code,
-                                      missing=exc.missing) from exc
+                    raise refuse(exc.code, f"{symbol}: {exc.message}; written meanwhile: {placed}",
+                                 missing=exc.missing) from exc
                 raise
         market_day = files.latest_market_day(market)
     return {"month": f"{month:%Y-%m}", "imports": imports, "metrics_rows": sum(item["metrics_rows"] for item in imports),
@@ -155,13 +157,13 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     held = held_days(market, symbol, month)
     days = [day for at in range(start, end, store.DAY) if (day := clock.ms_day(at)) not in held]
     if not days:
-        raise _refuse(f"the market already holds every closed day of {label} metrics of {symbol}",
-                      "MONTH_EXISTS", missing=(label,))
+        raise refuse("MONTH_EXISTS",
+                     f"the market already holds every closed day of {label} metrics of {symbol}", missing=(label,))
     found = {day: path for day in days
              if (path := sources.published(cache, sources.metrics_key(symbol, day.isoformat()))) is not None}
     if not found:
-        raise _refuse(f"{symbol}: no metrics archive of {days[0]}..{days[-1]} is published", "ARCHIVE_NOT_PUBLISHED",
-                      missing=(symbol,))
+        raise refuse("ARCHIVE_NOT_PUBLISHED", f"{symbol}: no metrics archive of {days[0]}..{days[-1]} is published",
+                     missing=(symbol,))
     # A day missing within SETTLE_DAYS may still be published: the days after it wait, so a market day through them cannot
     # read a hole that fills in later. Older than that it is a hole the archive left.
     settled = datetime.now(UTC).date() - timedelta(days=SETTLE_DAYS)
@@ -169,8 +171,9 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
     if waiting:
         found = {day: path for day, path in found.items() if day < waiting[0]}
         if not found:
-            raise _refuse(f"{symbol}: the metrics archive of {waiting[0]} is not published yet; the days after it wait",
-                          "ARCHIVE_NOT_PUBLISHED", missing=(symbol,))
+            raise refuse("ARCHIVE_NOT_PUBLISHED",
+                         f"{symbol}: the metrics archive of {waiting[0]} is not published yet; the days after it wait",
+                         missing=(symbol,))
     readings, new = {}, []
     for day in sorted(found):
         kept, readings[day.isoformat()] = rows(found[day], symbol, day.isoformat())

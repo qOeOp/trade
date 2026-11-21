@@ -1,6 +1,6 @@
 """The replay image holds exactly the import closure of what a replay runs (docs/plans/replay-image-20261111.zh.md).
 
-A file missing from any of the three lists below either leaves a replay change out of the main build's source proof
+A file missing from either list below either leaves a replay change out of the main build's source proof
 or out of the image; an extra one rebuilds the replay image, and so moves research's identity, for a change no replay
 executes.
 """
@@ -12,8 +12,7 @@ import re
 import shlex
 import unittest
 
-from engine.config import AUDIT_PATH, RUNTIME_CONTRACT, RUNTIME_SOURCE_PATHS
-from runtime import image
+from engine.config import AUDIT_PATH, RUNTIME_SOURCE_PATHS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,12 +80,10 @@ REPLAY_CHANGED, CI_PATHS = script("replay-changed"), script("ci-paths")
 
 
 class ReplayClosureTests(unittest.TestCase):
-    def test_the_three_lists_are_the_replay_closure(self):
+    def test_both_lists_are_the_replay_closure(self):
         expected = closure()
-        layout = image.layout(RUNTIME_CONTRACT)
         engine_copies = {path for path in local_copies(REPLAY_DOCKERFILE) if path.startswith("engine/")}
         for name, listed in (("RUNTIME_SOURCE_PATHS", {*RUNTIME_SOURCE_PATHS.values(), AUDIT_PATH}),
-                             ("LAYOUTS", {*layout["source_paths"].values(), layout["audit_path"]}),
                              ("replay.Dockerfile COPY", engine_copies)):
             with self.subTest(name=name):
                 self.assertEqual(listed, expected)

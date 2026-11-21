@@ -16,7 +16,7 @@ import numpy as np
 import pyarrow as pa
 
 from market import coverage, export, instrument, read, series, sources, store, universe
-from market.sources import MarketError
+from shared.errors import Refusal
 from shared import clock
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving
 
@@ -38,7 +38,7 @@ def bars(rows):
 
 class Refusals(unittest.TestCase):
     def refused(self, code: str, call, *args, **kwargs):
-        with self.assertRaises(MarketError) as caught:
+        with self.assertRaises(Refusal) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception

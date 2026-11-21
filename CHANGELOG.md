@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
+  codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
+  is now answered as a refusal with its code, like any other, instead of failing the request.
+- Documentation: Paper trading and Live execution moved out of `engine/README.md` into `paper/README.md` and
+  `live/README.md`; the Live page's unresolved-run note and its Telegram message now name `live/README.md`.
 - Ledger: the Dolt service (its directory, process, config.yaml, readiness wait and administrator connection) is
   `ledger/server.py`, split out of `ledger/db.py`, which keeps profiles, databases, connections and writes. One
   administrator connection serves backup, publish and sync: when the service does not accept it,
@@ -44,6 +49,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Breaking (line-close summary): `research-start` has the closing summary state that the three earlier ledger
   generations searched the holdout 2024-10 to 2026-10 about 3,100 times, which the new ledger does not count; only
   Paper and later data are unseen.
+- **Breaking** (release host): a release stops the previous Live control with `docker stop` inside the account lock,
+  right after it commits the new route while Live answered idle, instead of turning off its restart policy and
+  signalling it to drain. A rollback stops the candidate's control the same way. The branches for a host whose
+  routed Web has no paired Live control are gone: every release since 0.4.0 paired one, and the custody root is
+  created only by a new host's install. Returning to the previous version by hand no longer needs
+  `docker update --restart`.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
@@ -68,6 +79,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 - `research-round`: a recommendation that first reaches both targets no longer tells the user validation is
   theirs to start; it raises no validation question, which comes only after the line's closing history test.
+- Live: a source's runtime failure record now names its contract instead of `unconstructed`, and a Live start
+  rewrites `runtime_failures.jsonl` with the final counts when it ends (it kept only the counts at the last power of
+  two). Replay, Paper and Live begin a run through one reset (`engine.strategy.begin_run`), so each starts with every
+  process registry empty; Paper's warm-up and held-start reads retry the network through one helper
+  (`engine.history.read_until`).
+- **Breaking:** a sealed Paper run's `seal.json` no longer carries the `readings` version stamp
+  (`paper-readings@2026-11-15`), which nothing read. The unread `engine.config.INTEGRITY_CODES` catalogue and
+  `engine.warmup.EXPORTED` are gone.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays

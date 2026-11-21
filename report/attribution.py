@@ -7,9 +7,7 @@ comparison has its own definition (the pair's breakeven fee multiple, the concen
 per-instrument and per-day differences, months won, the regression of the daily difference on the
 market, the expectancy split, trade pairing) that pairwise value is given beside it. Registered
 predictions are checked for sign only, against the pairwise value where the comparison defines one.
-A declared interaction is read by report.compare (it reads the four corners from the ledger) and
-carried here; this module holds its pairwise parts: the three-way merge that checks its shape (`merge3`)
-and each change's contribution (`contributions`). Nothing is tested again and nothing is written.
+Nothing is tested again and nothing is written.
 """
 
 from __future__ import annotations

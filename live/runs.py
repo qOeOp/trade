@@ -33,7 +33,7 @@ VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, pass
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
 UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
-                   "engine/README.md now (live stop, close and cancel at Binance, then Reconcile account on the "
+                   "live/README.md now (live stop, close and cancel at Binance, then Reconcile account on the "
                    "Live page).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 # The runner's events that end a run (engine.live.ENDED_EVENTS). An armed run whose latest start ended in none of them,
@@ -539,14 +539,13 @@ def _market_terms(market_root: Path, symbols: list[str]) -> dict:
     """The market's latest market day and each contract's terms there, which the runner compares with exchangeInfo
     before each entry (TERMS_CHANGED)."""
     from market import files, instrument
-    from market.sources import MarketError
     try:
         opened = files.open_market({"root": str(market_root)}, "reader")
         market_day = files.resolve_day(opened, None)
         return {"market_day": market_day,
                 "terms": {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}}
-    except MarketError as exc:
-        raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
+    except Refusal as exc:
+        raise state.fail("LIVE_MARKET_TERMS", exc.message) from None
 
 
 def require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,

@@ -79,7 +79,7 @@ class NativeConnectionTests(unittest.TestCase):
         """A Live session whose source sends one LIMIT entry (GTD, a whole second 600 to 601 s ahead, or GTC) on its first mark price, on the
         native backtest engine; the venue fills it only against a crossing quote. Startup is covered separately: the
         entry still performs the real require_entry -> asynchronous observation -> require_admission -> dispatch."""
-        live.strategy_runtime.clear_failures()
+        live.strategy_runtime.begin_run(root, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
         text = SOURCE.replace("from nautilus_trader.trading import Strategy",
             "from nautilus_trader.trading import Strategy\n"
             "from nautilus_trader.model import OrderSide, Price, Quantity, TimeInForce")
@@ -137,6 +137,7 @@ class NativeConnectionTests(unittest.TestCase):
         engine.end()
         engine.dispose()
         session.node, session.sources = None, {}
+        live.strategy_runtime.STRATEGIES.clear()
         gc.collect()
         live.strategy_runtime.clear_failures()
 
@@ -291,8 +292,8 @@ class NativeConnectionTests(unittest.TestCase):
     def test_a_source_that_stops_itself_enters_the_stop_path_and_is_closed(self):
         for action in ("stop", "fault", "degrade"):
             with self.subTest(action=action), tempfile.TemporaryDirectory() as directory:
-                live.strategy_runtime.clear_failures()
                 root = Path(directory)
+                live.strategy_runtime.begin_run(root, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
                 text = SOURCE.replace("from nautilus_trader.trading import Strategy",
                                       "from nautilus_trader.trading import Strategy\n"
                                       "from nautilus_trader.model import OrderSide, Price, Quantity")

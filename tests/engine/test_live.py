@@ -48,6 +48,7 @@ class Source(Strategy):
 
 class LiveTests(unittest.TestCase):
     def setUp(self):
+        live.strategy_runtime.STRATEGIES.clear()
         gc.collect()  # Release native nodes retained by previous mock-exception tracebacks.
         live.strategy_runtime.clear_failures()
         self.temp = tempfile.TemporaryDirectory()
@@ -663,7 +664,7 @@ class LiveTests(unittest.TestCase):
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()) as snapshot, \
                 mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"), \
                 mock.patch.object(live, "source_for_run") as source, mock.patch.object(live, "build_node") as build, \
-                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Armed):
+                mock.patch.object(live.strategy_runtime, "begin_run", side_effect=Armed):
             with self.assertRaises(Armed):
                 live.execute(args)
             armed = (self.output / "armed.json").read_bytes()
@@ -705,7 +706,7 @@ class LiveTests(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
-                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Killed):
+                mock.patch.object(live.strategy_runtime, "begin_run", side_effect=Killed):
             with self.assertRaises(Killed):
                 live.execute(args)
         return args
@@ -807,6 +808,38 @@ class LiveTests(unittest.TestCase):
                 self.assertEqual(ending, ["venue_flat"])  # no unresolved beside it
                 (self.output / "events.jsonl").write_text(events)
 
+    def test_a_source_failure_names_its_contract(self):
+        """A Live instance's failure record names its contract, as replay's and Paper's do."""
+        session = live.Session(self.manifest, self.output, "run")
+        session.node = mock.Mock()
+        live.strategy_runtime.begin_run(self.output, {"Metrics": {"BTCUSDT-PERP.BINANCE"}})
+        source = live_source_runtime.live_source(live.source_for_run(self.manifest), session)["BTCUSDT"]
+        live.strategy_runtime.execution_failure("on_bar", ValueError("boom"), source)
+        self.assertEqual(live.strategy_runtime.FAILURES[0]["instrument_id"], "BTCUSDT-PERP.BINANCE")
+
+    def test_a_run_writes_its_final_failure_counts(self):
+        """The receipt is rewritten only at powers of two while the run goes on; the end writes the true counts."""
+        args = self.armed_run()
+
+        def fails_three_times(session, *_, **__):
+            node = mock.Mock()
+            node.cache.orders.return_value = node.cache.positions_open.return_value = []
+            node.cache.orders_open.return_value = node.cache.orders_inflight.return_value = []
+
+            def run():
+                for _ in range(3):
+                    live.strategy_runtime.execution_failure("on_bar", ValueError("boom"), None)
+                session.native_flat = True
+            node.run.side_effect = run
+            return node
+
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live, "LiveCache"), mock.patch.object(live, "source_outcome"), \
+                mock.patch.object(live, "build_node", side_effect=fails_three_times):
+            live.execute(args)
+        [receipt] = map(json.loads, (self.output / "runtime_failures.jsonl").read_text().splitlines())
+        self.assertEqual(receipt["count"], 3)
+
     def test_a_start_again_that_cannot_read_binance_gives_the_start_back(self):
         """Only the account read before anything is built is retried: the start ends as an interruption does (exit
         status 3, no ending event) and the control starts the run again within its hourly limit."""
@@ -871,7 +904,7 @@ class LiveTests(unittest.TestCase):
                 mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_account_mode"), \
                 mock.patch.object(live, "source_for_run"), mock.patch.object(live, "build_node"), \
                 mock.patch.object(live, "Session", side_effect=session), \
-                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Armed):
+                mock.patch.object(live.strategy_runtime, "begin_run", side_effect=Armed):
             for row in (None, {"event": "interrupted", "mode": "run"}, {"event": "rewarming", "mode": "run"},
                         {"event": "rewarming", "mode": "run", "retry": True}):
                 if row is not None:
