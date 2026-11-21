@@ -163,7 +163,7 @@ class CompareOneTests(unittest.TestCase):
         self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": "2026-11-20", "retry": False, "reason": None})
         self.outcome = comparison(summary={"look_ahead_suspects": 2})
         self.assertEqual(self.run_one()["reason"], "2 look-ahead suspect(s)")
-        self.outcome = refuse("PAPER_COMPARE_UNCOVERED", "the market lacks the run's minutes")
+        self.outcome = refuse("COMPARE_UNCOVERED", "the market lacks the run's minutes")
         self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": None, "retry": True,
                                           "reason": reconcile.UNCOVERED})
         self.held.return_value = 1

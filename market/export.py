@@ -181,10 +181,10 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int
     from nautilus_trader.persistence import BarDataWrangler
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
-        raise refuse("BARS_UNSORTED", f"{bar_type}: bar closes are not strictly increasing", missing=(bar_type,))
+        raise refuse("SERIES_UNSORTED", f"{bar_type}: bar closes are not strictly increasing", missing=(bar_type,))
     if not all(_exact(bars[name], price_scale, price_precision) for name in ("open", "high", "low", "close")) or \
             not _exact(bars["volume"], volume_scale, size_precision):
-        raise refuse("BAR_RAW_INEXACT",
+        raise refuse("EXPORT_INEXACT",
                      f"{bar_type}: a price or volume is not exact at precision {price_precision}/{size_precision}",
                      missing=(bar_type,))
     if not len(ts):
@@ -215,10 +215,10 @@ def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: in
     from nautilus_trader.model import MarkPriceUpdate, Price
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
-        raise refuse("MARK_UNSORTED", f"{instrument_id}: mark times are not strictly increasing",
+        raise refuse("SERIES_UNSORTED", f"{instrument_id}: mark times are not strictly increasing",
                      missing=(str(instrument_id),))
     if not _exact(bars["close"], price_scale, price_precision):
-        raise refuse("MARK_INEXACT", f"{instrument_id}: a mark price is not exact at precision {price_precision}",
+        raise refuse("EXPORT_INEXACT", f"{instrument_id}: a mark price is not exact at precision {price_precision}",
                      missing=(str(instrument_id),))
     factor = 10 ** (NAUTILUS_SCALE - price_scale)
     written = 0
@@ -241,7 +241,7 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
         return 0
     times = np.array([row[0] for row in rows], dtype=np.int64) * 1_000_000
     if len(times) > 1 and not np.all(np.diff(times) > 0):
-        raise refuse("FUNDING_UNSORTED", f"{instrument_id}: funding settlement times are not strictly increasing",
+        raise refuse("SERIES_UNSORTED", f"{instrument_id}: funding settlement times are not strictly increasing",
                      missing=(instrument_id,))
     try:
         rates = [Decimal(str(row[1])) for row in rows]
