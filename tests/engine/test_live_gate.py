@@ -516,17 +516,16 @@ class GateTests(unittest.TestCase):
         hour = 3_600_000_000_000
         kind = BarType.from_str(f"{SYMBOL}-PERP.BINANCE-1-HOUR-LAST-INTERNAL")
         stamped = 10 * hour + live_connection.history.BUILD_DELAY_US * 1000  # rc7 stamps the build delay after the end
-        for now in (stamped + 40_000_000, 10 * hour + live_connection.AGGREGATE_LATE_NS):
+        for now in (stamped + 40_000_000, 10 * hour + live_connection.history.AGGREGATE_LATE_NS):
             with mock.patch.object(live_connection.time, "time_ns", return_value=now):
                 live_connection.bar(self.session, SimpleNamespace(bar_type=kind, ts_event=stamped))
             self.assertTrue(live_connection.entries_open(self.session), now)  # on time, or not yet late
-        with mock.patch.object(live_connection.time, "time_ns", return_value=10 * hour + live_connection.AGGREGATE_LATE_NS + 1):
+        with mock.patch.object(live_connection.time, "time_ns", return_value=10 * hour + live_connection.history.AGGREGATE_LATE_NS + 1):
             live_connection.bar(self.session, SimpleNamespace(bar_type=kind, ts_event=stamped))
         self.assertEqual(set(self.session.connection.closed), {"bars_missing"})
         self.session.cancel_entries.assert_called_once_with("bars_missing")
         late = [row for row in self.events() if row["event"] == "entries_closed"]
-        self.assertEqual([(row["bar_type"], row["late_ns"]) for row in late],
-                         [(str(kind), live_connection.AGGREGATE_LATE_NS + 1)])
+        self.assertEqual([(row["bar_type"], row["received_ns"]) for row in late], [(str(kind), stamped)])
 
     def test_a_drifted_aggregated_bar_is_late_by_its_bucket_not_its_stamp(self):
         # After a pause the timer itself slips: the stamp moves off the bucket end with it.

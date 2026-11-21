@@ -10,12 +10,17 @@ rc7 用单调时钟上的定时器收聚合 K 线。主机休眠或 VM 挂起时
 
 2026-11-21，用户委托：「需要我定的部份最后也是一样由你决定按推荐做」。按推荐做：
 
-- Live 收到一根聚合时间 K 线时，取它的时间戳减去构建延迟，算出它所在的桶，再求桶末到当前墙钟的间隔。间隔超过 60 秒就按 `bars_missing` 关入场，`entries_closed` 行记下 `late_ns` 与 `bucket_end_ns`。之后的处理和缺根一样：空仓时重启预热，重启后的定时器重新对齐；持仓时照常管理出场。
+- Live 收到一根聚合时间 K 线时，取它的时间戳减去构建延迟，算出它所在的桶，再求桶末到当前墙钟的间隔。间隔超过 60 秒就按 `bars_missing` 关入场，`entries_closed` 行记下 `bar_type` 与这根 K 线的 `received_ns`（比较一半之前记的是 `late_ns` 与 `bucket_end_ns`，见下）。之后的处理和缺根一样：空仓时重启预热，重启后的定时器重新对齐；持仓时照常管理出场。
 - 按桶而不是按时间戳判断，因为定时器错位时时间戳会跟着桶末一起偏。只有能整除一小时（不足一小时的周期）或一天（一小时以上的周期）的周期才能这样对齐，其余周期不判断。
 - 阈值 60 秒：正常送达约 5 秒，留足余量，误报会让一次健康的运行重启。
 
-## 还没做
+## 比较一半（已做）
 
-`paper compare` 与 `live compare` 把这类迟到归为已知原因（`late_bar`）这一半还要用户授权，不按委托做。#3336 合入后两边的行情证据只记一分钟线，聚合 K 线明确登记为不存（[存储字段登记表](stored-fields.zh.md)“Live 证据包的聚合 K 线”一行）；比较能看到的只有一分钟线的迟到。要把聚合 K 线的迟到归因，Paper 日志和 Live 证据包都得新存一种行：源码收到的每根聚合 K 线的桶末与收到时刻。按 AGENTS.md，这一行要先经独立审阅，再由用户逐字段授权。
+2026-11-21 用户「批准」，回答“批准新存 late_aggregate 这种行（三列），并给对照加 late_aggregate 原因吗？”。这一句既是逐字段授权，也是加审计原因的授权。按独立审阅的设计做：
 
-Live 一侧已有部分覆盖。门关闭时撤下或拒绝的入场，原因是 `bars_missing`，`live compare` 已经按入场闸门（`entry_gate`）归因。没有覆盖的有两类：迟到的聚合 K 线触发的出场，以及 Paper 运行里的全部迟到。
+- Paper 日志与 Live 证据包新存一种行 `late_aggregate`，三列：`wall_ns`（收到时刻）、`bar_type`、`ts_event`。只在源收到的聚合时间 K 线比它的桶末晚 `AGGREGATE_LATE_NS`（60 秒）以上时写，判断与入场闸门共用 `engine.history.late_aggregate`。桶末与迟到时长读时推出，不存；价格不存。
+- Live 在源的 K 线回调里写（`engine.realtime.MarketRows.bar`），入场闸门已经关着也写；Paper 在源的 `on_bar` 包装里写，源收到的聚合 K 线都经过它。这些是执行记录，不进研究账本、DoltHub 或 Git。
+- `paper compare` 与 `live compare` 把这类迟到归为已知原因 `late_aggregate`，排在 `late_bar` 之后，按合约在 (since, last] 内计数；比较格式升为 `run-comparison@2026-11-21.1`。
+- `entries_closed` 去掉 #3356 加的 `bucket_end_ns` 与 `late_ns`（都能推出），改记这根 K 线的 `received_ns`。
+
+原来没覆盖的两类（迟到聚合 K 线触发的出场、Paper 运行里的全部迟到）现在都有原因。

@@ -45,8 +45,8 @@ class Evidence:
             self._fail("market", exc)
 
     def market(self, name: str, *args) -> None:
-        """One call of engine.realtime.MarketRows (`name`: bar, warmup, metrics, metrics_unsubscribed, kline_events):
-        its rows, in the format Paper journals them, go to ``market.jsonl``."""
+        """One call of engine.realtime.MarketRows (`name`: bar, warmup, metrics, metrics_unsubscribed,
+        kline_events): its rows, in the format Paper journals them, go to ``market.jsonl``."""
         try:
             getattr(self._rows, name)(*args)
         except Exception as exc:

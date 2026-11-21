@@ -235,6 +235,28 @@ class Attribution(unittest.TestCase):
         group = result["groups"][0]
         self.assertEqual((group["cause"], group["evidence"]["unknown_bars"]), ("late_bar", 1))
 
+    def test_an_aggregated_bar_the_source_received_late_explains_a_difference(self):
+        """Re-judge C-142 (doctor 20261114-30): after a host sleep rc7's aggregation timer leaves every aggregated bar
+        late while the one-minute bars arrive on time. The run records a late_aggregate row (engine.realtime); the
+        comparison derives its bucket's end and attributes the difference to it (user 2026-11-21, 「批准」)."""
+        five = f"{BTC}-5-MINUTE-LAST-INTERNAL"
+        end = START + 4 * MINUTE  # 17:30, the 5-minute bucket's end before the group's decision
+        late = {"kind": "late_aggregate", "bar_type": five, "ts_event": end + 5 * 10**9, "wall_ns": end + 90 * 10**9}
+        market = [{"kind": "bar", **bar(i), "ts_init": close_of(i) + 10**7} for i in range(40)]
+        market += [sent(i) for i in range(40)]
+        archive = {"BTCUSDT": archived(40)}
+        for rows, cause in (([], "unexplained"), ([late], "late_aggregate"),
+                            ([late | {key: late[key] + 10 * MINUTE for key in ("ts_event", "wall_ns")}], "unexplained")):  # after the decision
+            with self.subTest(cause=cause, rows=len(rows)):
+                run = comparison.run_record(market + rows, events=[])
+                result = comparison.compare(run, bracket("r", close_of(5), close_of(5), "R"), archive, None,
+                                            START, START + 40 * MINUTE)
+                group = result["groups"][0]
+                self.assertEqual((group["cause"], group["look_ahead_suspect"]), (cause, cause == "unexplained"))
+                self.assertEqual(group["evidence"]["late_aggregate_bars"], int(cause == "late_aggregate"))
+        self.assertEqual(result["inputs"]["BTCUSDT"]["bars"]["late_aggregate"],
+                         [{"bar_type": five, "bucket_end": utc_text(end + 10 * MINUTE), "late_ms": "90000"}])
+
     def test_a_bar_with_no_event_time_while_the_side_connection_was_down_is_counted_apart(self):
         """User 2026-11-18 (「第二个限制我授权加字段」): a bar with no kline_event inside a recorded gap of the side
         connection (its kline_socket lines, from the process's start to its first up) is shown with the gap's reason,

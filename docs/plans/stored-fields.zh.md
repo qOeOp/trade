@@ -33,6 +33,7 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | 日志 `warmup` 事件的 `FUNDING` 周期（每合约条数、首末时刻、哈希） | `paper compare` 的预热比对 | 这个 Paper 进程从 REST 收到的结算的摘要 | 事后重读 REST 是那时的答案，不是当时收到的 | 2026-11-15 用户“授权”，选了“#3016 的两项”；2026-11-21 起与 Live 同一函数写出（`engine.realtime.MarketRows`），不再写 `fetched_ns` |
 | 日志 `metrics` 行（`wall_ns`、`instrument_id`、`ts_event`、持仓量与三个多空比，不存 `ts_init`） | `paper compare` → `replay.comparison.compare_metrics`：缺失、数值不同、迟到 | Feed 实际交给源的行与时刻 | REST 只留 30 天且给最终值；只存摘要定位不到行 | 2026-11-15 用户授权加这个字段，并要求 Paper 与 Live 同样比较（记录里没有原话） |
 | 日志 `metrics_unsubscribed` 行（`wall_ns`、`instrument_id`） | 同上，按退订切分跟随区间 | 源何时不再要 metrics | 不记就把退订后的档案行全算成缺失；截在最后收到的一行会藏住真缺的尾部 | 同上 |
+| 日志 `late_aggregate` 行（`wall_ns` 收到时刻、`bar_type`、`ts_event`），只在源收到的聚合时间 K 线比它的桶末晚 60 秒以上时写；与 Live 同一函数写出（`engine.realtime.MarketRows`） | `paper compare` → `replay.comparison.attribute`：差异原因 `late_aggregate`，按合约在 (since, last] 计数；IDE 比较视图 | 主机休眠或 VM 挂起后 rc7 的聚合定时器错位，源按过时的桶做决策；这时一分钟线仍准时 | 一分钟线和档案都看不出聚合 K 线何时送到源；桶末与迟到时长由三列读时推出（`engine.history.bucket_end`），不存；不存价格 | 2026-11-21 用户「批准」，回答“批准新存 late_aggregate 这种行（三列），并给对照加 late_aggregate 原因吗？”（C-142） |
 
 ## Live 证据包
 
@@ -43,6 +44,7 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | `warmup` 行，每合约每周期一行（`wall_ns`、`instrument_id`、`period`，资金费为 `FUNDING`；`bars`、`first_ts_event`、`last_ts_event`、`sha256`），取代原始的 `historical_bar`、`historical_funding` 行 | `live compare`：`replay.comparison.warmup` 与档案同一 T 的聚合比对，算出差异原因 `warmup` 的影响范围；`history_start` 定回放起点；`segment` 按 `wall_ns` 把重启后的预热分给各自进程 | 源在预热时实际收到的历史与结算。与原始行是同一事实，不是新增一份：过去 `received_warmup` 也只是把原始行压成这份摘要，别处不读原始行 | 原始行不再写后无处可推：原生报告不含历史，档案是比较的另一边；事后重读 REST 不是当时收到的 | 0.5.0 计划 E7，Claude 决定，用户委托：「需要我定的部份最后也是一样由你决定按推荐做」（2026-11-21） |
 | `metrics` 行（字段同 Paper 日志） | `live compare` → `compare_metrics`；差异原因 `metrics`；IDE 比较视图 | Feed 实际交给源的行与时刻，含截止时为 None 的比值、因无持仓量跳过的行 | REST 只留 30 天、给最终值；永不结束的运行没有写摘要的时点 | 2026-11-15 用户选“Live 记录 metrics” |
 | `metrics_unsubscribed` 行（`wall_ns`、`instrument_id`） | `compare_metrics` 切分跟随区间 | 源何时退订 metrics | 回放给的是回放里的退订时刻，两边一分岔就不同；与 `metrics` 行同文件，一起丢或一起在 | 随 #3077 合入（记录里没有原话） |
+| `late_aggregate` 行（字段同 Paper 日志）；入场闸门关闭时也写 | `live compare` → `attribute`：原因 `late_aggregate`，覆盖入场闸门（`entry_gate`）管不到的迟到 K 线触发的出场 | 同 Paper 日志 | 同 Paper 日志；日志的 `entries_closed` 事件只记 `bar_type` 与这根 K 线的 `received_ns`（它的 `ts_event`），#3356 加的 `bucket_end_ns`、`late_ns` 能由这两列与本行推出，删去 | 同上 |
 
 ## Live 运行清单
 
@@ -65,7 +67,7 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 |---|---|---|
 | Live 准入记下放行它的 Paper 对账（缓存文件或清单字段） | 不存：后台从 Paper 库、市场与镜像推导，每次发布后重算；不过就拒绝 `LIVE_PAPER_UNRECONCILED` | 2026-11-21「我都授权」，「需要我拍板的都按照你的建议来」；哪些 Paper 运行算数见[原决定](https://github.com/qOeOp/trade/blob/fb37817f4c3d6a26ca472ccae298db239ccfcd81/docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md) |
 | Paper 与 Live `warmup` 行的 `fetched_ns`；Live 日志 `warmup` 事件的 `fetched_ns` 与每周期根数 `bars` | 不存：没有读者，根数与证据包 `warmup` 行的 `bars` 重复；日志事件只留 `at_ns`（T） | 0.5.0 E7 独立审阅，2026-11-21，委托同上 |
-| Live 证据包的聚合 K 线与 `bar` 行的 `bar_type` | 不存：只记一分钟线，与 Paper 同形；聚合由一分钟线算出，比较、`window`、`journal` 都只读一分钟行 | 同上 |
+| Live 证据包的聚合 K 线与 `bar` 行的 `bar_type` | 聚合 K 线的价格仍不存：只记一分钟线，与 Paper 同形；聚合由一分钟线算出，比较、`window`、`journal` 都只读一分钟行。迟到的送达时刻改存为 `late_aggregate` 行（见上） | 同上；迟到时刻见 `late_aggregate` 行的授权 |
 | 离线扫描变体数单开一列 `judgment.variants` | 不开列，写在正文首行（见上） | 2026-11-12；2026-11-21 重审（D-108），用户看过评审后定「108按你建议来」：K 已在正文首行，格式由 `SEARCH_EXPOSURE_VARIANTS_MISSING` 严格检查，已有字段能表达，加列只换格式不添事实，反要改 CLI、拒绝码、op_id 载荷和 research-round 技能，维持不开列 |
 | 参与率读时现算或封存时读市场库 | 不采用：读时每次重放；封存不能多一个对市场库的依赖 | 2026-10-20、10-31 审阅 |
 | 环境写进 `prepared` 行、`events.jsonl`、`compare.json` 或通知状态 | 不存：从清单读 | 2026-11-21 独立审阅（D-102，#3367） |

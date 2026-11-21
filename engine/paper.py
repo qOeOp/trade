@@ -40,8 +40,8 @@ taker rates the run is given (``--maker-fee``, ``--taker-fee``: the market's ass
 reads from its export receipts).
 
 Its own record is ``<output>/events.jsonl``: the market rows Live's evidence pack holds too (engine.realtime.MarketRows:
-one-minute bars, the warm-up digests, Binance's time for each closed one-minute kline and its side connection's state,
-the metrics rows), data gaps, socket state, orders, positions, funding
+one-minute bars, the aggregated bars the source received late, the warm-up digests, Binance's time for each closed
+one-minute kline and its side connection's state, the metrics rows), data gaps, socket state, orders, positions, funding
 settlements, the account totals once a minute (at the next minute's first mark, its open positions valued at the
 minute's last mark, as a replay values a minute at its MARK bar's close), and protection gaps. ``<output>/state.json`` holds the latest
 totals with the open positions and orders, ``<output>/runtime_failures.jsonl`` is rewritten within a second of
@@ -534,8 +534,17 @@ def paper_callbacks(strategy_class: type) -> dict:
             for name in strategy_runtime.DATA_CALLBACKS
             if found.get(name) and name not in ("on_mark_price", "on_funding_rate", "on_data")}
     if "on_bar" in held:
-        held["on_bar"] = (lambda hold: lambda self, bar: release_before(bar) if _repeated(self, bar) else hold(self, bar))(
-            held["on_bar"])
+        hold_bar = held["on_bar"]
+
+        def on_bar(self, bar):
+            """An aggregated bar the source receives late is journalled (engine.realtime.MarketRows.aggregated); a
+            repeated one is not held."""
+            MARKET.aggregated(bar)
+            if _repeated(self, bar):
+                release_before(bar)
+            else:
+                hold_bar(self, bar)
+        held["on_bar"] = on_bar
 
     def at_cadence(name: str):
         method = source[name]

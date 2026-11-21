@@ -99,6 +99,24 @@ class HoldTests(unittest.TestCase):
                          [{"bar_type": str(kind), "after_ns": MINUTE_NS, "received_ns": MINUTE_NS},
                           {"bar_type": str(kind), "after_ns": MINUTE_NS, "received_ns": 0}])
 
+    def test_an_aggregated_bar_the_source_receives_late_is_journalled(self):
+        # Re-judge C-142 (user 2026-11-21, 「批准」): after a host sleep rc7's aggregation timer leaves every aggregated
+        # bar late; the journal's late_aggregate row lets `paper compare` attribute what the source decided on it.
+        btc, written = self.source([]), []
+        kind = BarType.from_str("BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-INTERNAL")
+        end = DAY + 15 * MINUTE_NS
+        stamped = end + paper.history.BUILD_DELAY_US * 1000
+        late = end + paper.history.AGGREGATE_LATE_NS
+        minute = BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
+        rows = realtime.MarketRows(lambda kind, **fields: written.append((kind, fields)))
+        with mock.patch.object(paper, "MARKET", rows):
+            with mock.patch.object(realtime.time, "time_ns", return_value=late):
+                btc.on_bar(SimpleNamespace(bar_type=kind, ts_event=stamped, ts_init=1))  # not yet late
+            with mock.patch.object(realtime.time, "time_ns", return_value=late + 1):
+                btc.on_bar(SimpleNamespace(bar_type=kind, ts_event=stamped, ts_init=2))
+                btc.on_bar(SimpleNamespace(bar_type=minute, ts_event=end, ts_init=3))  # the Recorder's: a bar row
+        self.assertEqual(written, [("late_aggregate", {"bar_type": str(kind), "ts_event": stamped})])
+
     def test_a_fill_stamped_before_released_callbacks_is_recorded_late(self):
         btc = self.source([])
         btc.on_bar(self.bar(1))

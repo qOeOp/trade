@@ -4,6 +4,7 @@ its evidence pack). Each side adds its own cache, execution client, risk engine 
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 from collections.abc import Callable
 
@@ -62,6 +63,9 @@ class MarketRows:
     `write(kind, **fields)` appends one row; the writer stamps its `wall_ns`.
 
     - ``bar``: a one-minute bar (MINUTE_BAR) as it arrived; other bar types are aggregated from it and not recorded.
+    - ``late_aggregate``: an aggregated time bar the source received late (engine.history.late_aggregate): its type and
+      stamp; the writer's ``wall_ns`` is when it came. Its bucket's end and lateness are derived (engine.history.
+      bucket_end); its prices are not recorded.
     - ``warmup``: per contract and period, the digest of the history the source received at its warm-up's T
       (warmup_digest; period FUNDING for the funding settlements).
     - ``metrics``: an open interest and long/short ratio row the source was handed (engine.metrics), values as text or
@@ -73,10 +77,19 @@ class MarketRows:
         self._write = write
 
     def bar(self, bar) -> None:
+        """A bar the source received: a ``bar`` row for a one-minute bar, else `aggregated`."""
         iid = str(bar.bar_type.instrument_id)
         if str(bar.bar_type) == f"{iid}-{MINUTE_BAR}":
             self._write("bar", instrument_id=iid, ts_event=bar.ts_event, ts_init=bar.ts_init, open=str(bar.open),
                         high=str(bar.high), low=str(bar.low), close=str(bar.close), volume=str(bar.volume))
+        else:
+            self.aggregated(bar)
+
+    def aggregated(self, bar) -> None:
+        """A ``late_aggregate`` row for an aggregated time bar received late. Paper's source hook calls it alone: its
+        Recorder writes the one-minute bars."""
+        if history.late_aggregate(bar, time.time_ns()):
+            self._write("late_aggregate", bar_type=str(bar.bar_type), ts_event=bar.ts_event)
 
     def warmup(self, instrument_id, delivered: dict[str, list]) -> None:
         for period, history_rows in delivered.items():

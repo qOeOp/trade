@@ -128,7 +128,8 @@ withdrawn; a position keeps its instance and exits. Once no instance holds a pos
 instance sees a further bar, and after two agreeing comparisons this start ends
 without closing anything (`rewarming`, exit status 3). The control starts the run again, whose warm-up reads Binance's
 complete bars (decision `docs/plans/live-bars-missing-rewarm-20261113.zh.md`). An aggregated time bar the source receives more
-than 60 seconds after its bucket's end counts as a missing bar too (`bars_missing` with `late_ns`): rc7 closes such bars on a
+than 60 seconds after its bucket's end counts as a missing bar too (`bars_missing` with the bar's `received_ns`; the evidence pack's `late_aggregate` row holds its timing, which
+`live compare` attributes as `late_aggregate`): rc7 closes such bars on a
 monotonic-clock timer that a host sleep or VM pause leaves behind for good, and only a restart puts it back on time. If that warm-up fails, the start ends the
 same way once more (`rewarming` with `retry`; it counts toward the control's four run launches an hour); a second failure ends
 the run. Flat with only reduce-only orders left at Binance, the run waits with entries closed and cancels nothing. Once

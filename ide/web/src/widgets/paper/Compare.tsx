@@ -14,7 +14,8 @@ import { compare, type Cause, type Comparison, type Group, type OrderRow, type R
 const STAGE: Record<Stage, string> = { decision: "Order", fill: "Fill", fee: "Fee", funding: "Funding" };
 const KIND: Record<RowClass, string> = { same: "same", time: "time", type: "type", quantity: "size", price: "price", amount: "amount", run_only: "only on paper", replay_only: "only in the replay" };
 const CAUSE: Record<Exclude<Cause, "consequence">, string> = {
-  missing_bar: "a live bar was missing", late_bar: "a live bar reached the run late", bar_mismatch: "a live bar differed from the archive",
+  missing_bar: "a live bar was missing", late_bar: "a live bar reached the run late",
+  late_aggregate: "an aggregated bar reached the source late", bar_mismatch: "a live bar differed from the archive",
   metrics: "the metrics received differed from the archive", entry_gate: "Live's entry gate held or withdrew the entry",
   held: "the run was held after a restart: no new entries, its own withdrawn",
   warmup: "the warm-up differed from the archive", contract_terms: "the contract terms or fee rates differed", window_end: "at the stop", unexplained: "unexplained" };

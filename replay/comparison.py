@@ -23,7 +23,8 @@ entry side, nearest entry decision first, within PAIR_NS; inside a pair the entr
 in the order they were sent, so a scale-out's second target meets the other side's second target.
 
 Each group's first difference since its contract's previous agreeing group takes its cause from what the product
-knows, in this order (user 2026-11-12): a live bar missing, a live bar late, a live bar unlike the archive's, a
+knows, in this order (user 2026-11-12): a live bar missing, a live bar late, an aggregated bar the source received
+late (user 2026-11-21), a live bar unlike the archive's, a
 warm-up unlike the archive's (while the difference falls within the warm-up's reach), contract terms or fee rates
 unlike the replay's, a lone group at the window's end, Live's entry gate, or a Paper run held after an interruption
 (its source without the recovery protocol: from the first `resumed` on it sends no entry and withdraws those it had;
@@ -36,6 +37,10 @@ A live bar is late when the run received it more than LATE_NS after Binance sent
 engine.kline_events): only the run's own delay (user 2026-11-18). A bar with no kline_event is neither late nor on
 time: it counts as the side connection's gap, with the reason, when that connection was down then (its kline_socket
 lines), else as unknown.
+
+An aggregated bar is late when the source received it more than engine.history.AGGREGATE_LATE_NS after its bucket's end
+(the run's late_aggregate rows, engine.realtime.MarketRows): rc7 closes a time bar on a monotonic-clock timer, which a
+host sleep or VM pause leaves behind (doctor 20261114-30), while the one-minute bars keep arriving on time.
 
 A first difference also carries, over the same span, the early bars of its contract with the largest lead (a live bar
 the run's clock stamped before its close: that clock was behind the venue's), its unknown bars and those in a gap of the side connection with the reasons, and the bars Binance
@@ -57,13 +62,14 @@ import json
 from pathlib import Path
 
 from engine.config import instrument_id, symbol_of, utc_text
+from engine.history import bucket_end
 from engine.kline_events import LATE_NS, received
 from ledger import metrics
 from shared import paths
 from shared.refusals import refuse
 
 
-FORMAT = "run-comparison@2026-11-18.1"
+FORMAT = "run-comparison@2026-11-21.1"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
@@ -71,8 +77,8 @@ PAIR_NS = 10 * MINUTE_NS  # an uncalibrated example value: entries further apart
 LISTED = 50  # bars listed per contract and kind; the counts are complete
 ROLES = {"ENTRY": "entry", "STOP_LOSS": "stop", "TAKE_PROFIT": "target"}
 BAR_FIELDS = ("open", "high", "low", "close", "volume")
-CAUSES = ("missing_bar", "late_bar", "bar_mismatch", "metrics", "warmup", "contract_terms", "window_end",
-          "entry_gate", "held")  # in this order
+CAUSES = ("missing_bar", "late_bar", "late_aggregate", "bar_mismatch", "metrics", "warmup", "contract_terms",
+          "window_end", "entry_gate", "held")  # in this order
 METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
                   "count_long_short_ratio")
 METRICS_VISIBLE_NS = 5 * MINUTE_NS  # a metrics row reaches the source 5 minutes after ts_event (market.export)
@@ -372,6 +378,7 @@ def run_record(market: Iterable[Mapping], **run) -> dict:
     return {"bars": [row for row in rows if row["kind"] == "bar"], "warmup": warmup,
             "kline_events": [row for row in rows if row["kind"] == "kline_event"],
             "kline_sockets": [row for row in rows if row["kind"] == "kline_socket"],
+            "late_aggregates": [row for row in rows if row["kind"] == "late_aggregate"],
             "metrics": [row for row in rows if row["kind"] in ("metrics", "metrics_unsubscribed")], **run}
 
 
@@ -413,6 +420,17 @@ def bars(run_bars: list[dict], archive: Mapping[str, list[list]], start: int, en
                           "missing": sorted(set(stored) - set(mine)), "live_only": sorted(set(mine) - set(stored)),
                           "differing": differing}
     return result
+
+
+def late_aggregates(rows: Iterable[Mapping], start: int, end: int) -> dict[str, list[tuple[int, str, int]]]:
+    """Per contract, the aggregated bars its source received late (late_aggregate rows) whose bucket ends in (start,
+    end]: [(bucket end, bar type, ns from the bucket's end to receipt)], by bucket end."""
+    found: dict[str, list[tuple[int, str, int]]] = {}
+    for row in rows:
+        closed = bucket_end(row["bar_type"], row["ts_event"])
+        if closed is not None and start < closed <= end:
+            found.setdefault(symbol_of(row["bar_type"]), []).append((closed, row["bar_type"], row["wall_ns"] - closed))
+    return {symbol: sorted(items) for symbol, items in found.items()}
 
 
 def _followed(arrivals: Iterable[int], unsubscribed: list[int], end: int) -> list[tuple[int, int]]:
@@ -650,7 +668,8 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
     the bars missing there are the hold's, not `missing_bar` evidence (every resume misses at least one)."""
     agreed: dict[str, int] = {}  # the decision of the contract's latest agreeing group
     parted: dict[str, int] = {}  # the contract's first difference since its previous agreeing group
-    empty: dict = {"missing": [], "late": [], "unknown": [], "side_down": {}, "sent": {}, "early": {}, "differing": {}}
+    empty: dict = {"missing": [], "late": [], "unknown": [], "side_down": {}, "sent": {}, "early": {}, "differing": {},
+                   "late_aggregate": []}
     for group in compared:
         symbol = symbol_of(group["instrument"])
         first, last = _span(group)
@@ -672,6 +691,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
                                             if not any(lo <= close < hi for lo, hi in spans)]}
         evidence: dict = {"missing_bars": len(_within(inputs["missing"], since, last)),
                     "late_bars": len(_within(inputs["late"], since, last)),
+                    "late_aggregate_bars": len(_within((closed for closed, _, _ in inputs["late_aggregate"]), since, last)),
                     "differing_bars": len(_within(inputs["differing"], since, last))}
         rows = (metered or {}).get(symbol) or empty
         evidence |= {"missing_metrics": len(_within(rows["missing"], since, last)),
@@ -685,6 +705,7 @@ def attribute(compared: list[dict], found: Mapping[str, dict], warmed: Mapping[s
         item = contract.get(symbol) or {"differs": [], "fees": []}
         evidence["terms"] = item["differs"] + (item["fees"] if group["stage"] == "fee" else [])
         known = {"missing_bar": evidence["missing_bars"] > 0, "late_bar": evidence["late_bars"] > 0,
+                 "late_aggregate": evidence["late_aggregate_bars"] > 0,
                  "bar_mismatch": evidence["differing_bars"] > 0,
                  "metrics": evidence["missing_metrics"] + evidence["late_metrics"] + evidence["differing_metrics"] > 0,
                  "warmup": evidence["warmup"],
@@ -826,12 +847,15 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
             archived_metrics: Mapping | None = None) -> dict:
     """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received and
-    unsubscribes), events (native order events), settlements (funding), equity ([(minute, value)]), taken ({minute:
-    the run clock when it took that value}, equity_differences), terms ({symbol: terms}), fees ({symbol: {maker,
-    taker}})}.
+    unsubscribes), late_aggregates (late_aggregate rows), events (native order events), settlements (funding), equity
+    ([(minute, value)]), taken ({minute: the run clock when it took that value}, equity_differences), terms ({symbol:
+    terms}), fees ({symbol: {maker, taker}})}.
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end, run.get("kline_events") or [],
                  run.get("kline_sockets") or [], run.get("side_starts") or [])
+    aggregates = late_aggregates(run.get("late_aggregates") or [], start, end)
+    for symbol, item in found.items():
+        item["late_aggregate"] = aggregates.get(symbol, [])
     warmed = warmup(run.get("warmup") or {}, archived_warmup or {})
     metered = compare_metrics(run.get("metrics") or [], archived_metrics or {}, end)
     contract = terms(sorted(archive), run.get("terms") or {}, traded_terms(replay_terms or {}, reports), run.get("fees"),
@@ -844,6 +868,10 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
                                 "early_bars": len(item["early"]), "differing_bars": len(item["differing"]),
                                 "missing": [utc_text(close) for close in item["missing"][:LISTED]],
                                 "late": [utc_text(close) for close in item["late"][:LISTED]],
+                                "late_aggregate_bars": len(item["late_aggregate"]),
+                                "late_aggregate": [{"bar_type": kind, "bucket_end": utc_text(closed),
+                                                    "late_ms": text(Decimal(late) / MILLISECOND_NS)}
+                                                   for closed, kind, late in item["late_aggregate"][:LISTED]],
                                 "unknown": [utc_text(close) for close in item["unknown"][:LISTED]],
                                 "side_down": [{"close": utc_text(close), "reason": reason}
                                               for close, reason in list(item["side_down"].items())[:LISTED]],
@@ -861,6 +889,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     summary: dict = {"run_orders": len(run_orders), "run_fills": sum(bool(item["filled"]) for item in run_orders),
                "missing_bars": sum(len(item["missing"]) for item in found.values()),
                "late_bars": sum(len(item["late"]) for item in found.values()),
+               "late_aggregate_bars": sum(len(item["late_aggregate"]) for item in found.values()),
                "unknown_bars": sum(len(item["unknown"]) for item in found.values()),
                "side_down_bars": sum(len(item["side_down"]) for item in found.values()),
                "published_late_bars": sum(_published_late(item) for item in found.values()),
