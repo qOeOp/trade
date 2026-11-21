@@ -46,7 +46,7 @@ function Field({ label, width, tip, children }: { label: string; width: string; 
 /** A line's header strip: its facts in the same columns for every line (label small above, value below), wrapping in two
  *  columns on a phone. The cell spans the whole table, so the strip is held to the visible width and sticks to the left:
  *  it wraps in view and stays there when the table scrolls sideways. */
-export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSpan: number; hidden: number }) {
+export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSpan: number; hidden: { edge: number; cause: number } }) {
   const t = line.targets, left = line.without_economic_evidence ?? [];
   return (
     <tr className="bg-island-alt">
@@ -62,7 +62,8 @@ export function LineHeader({ line, colSpan, hidden }: { line: HistoryLine; colSp
           <Field label="Target drawdown" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≤ ${pct(t.max_drawdown)}` : MISSING}</Field>
           <Field label="Target return" width="w-[calc(50%-0.75rem)] md:w-28">{t ? `≥ ${pct(t.annual_return)}` : MISSING}</Field>
           <Field label="Development" width="w-full md:w-52">{line.dev_start} to {line.dev_end}</Field>
-          {hidden > 0 && <Field label="Hidden" width="w-full md:w-28">{hidden} with no edge</Field>}
+          {hidden.edge + hidden.cause > 0 && <Field label="Hidden" width="w-full md:w-28">
+            {[hidden.edge && `${hidden.edge} with no edge`, hidden.cause && `${hidden.cause} by cause`].filter(Boolean).join(" · ")}</Field>}
         </div>
       </th>
     </tr>

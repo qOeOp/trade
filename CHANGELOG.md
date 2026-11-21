@@ -26,6 +26,15 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- IDE, Line-close history: clicking a cell shows that replay (a veto year, the development period, its replay, the
+  holdout or the forward part) in Details with its version selected, with Source and Runs links in the page header; a
+  row of another line opens that line's page with the replay picked (`trial=`). Trades can open at the bottom of the
+  page. Each closed line's closing summary sits folded under its header. New orders: the holdout's annual return,
+  Sharpe and max drawdown (lowest first). A Cause filter splits rows into sign flip (the development period made
+  money, the veto years' median or the holdout lost it), positive outside development (the holdout and the veto years'
+  median both made money) and other; it is derived on the page from the readings shown, nothing is stored. While a
+  Cause is chosen, rows with no edge show too; the header's Hidden count names each reason.
+
 - IDE: `ide.py serve --dev-assets=http://127.0.0.1:5173` with `npm run dev` in `ide/web` serves the page from Vite with
   hot updates through the IDE's own origin, which still puts the paper token in the page; both stay on loopback
   (`ide/README.md`, Developing the page).
