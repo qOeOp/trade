@@ -1,5 +1,5 @@
 ---
-description: Rule check — when the user accepts a candidate, the Agent asks once in that reply whether to validate it out of sample, proposing the accepted version, a window rule and a universe, and keeps researching; it registers no validation and picks no months the market already holds as the window.
+description: Rule check — when the user accepts a candidate during research, the Agent raises no out-of-sample validation question (validation follows the line's closing history test) and keeps researching; it registers no validation.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
