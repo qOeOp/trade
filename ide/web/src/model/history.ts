@@ -124,3 +124,22 @@ export function ordered(rows: readonly HistoryRow[], by: Order): HistoryRow[] {
     return x === null && y === null ? i - j : x === null ? 1 : y === null ? -1 : y - x || i - j;
   }).map(([r]) => r);
 }
+
+/** The picked replay's way on: its line, its version and whether its row's combined verdict meets the line's targets,
+ *  the one case out-of-sample validation may be asked for (`research-round`'s validation reference); none with nothing
+ *  picked. The row is the one holding the picked trial, else the version's first. */
+export function pickedWay(lines: readonly HistoryLine[], picked: { version: string | null; trial: number | null }):
+  { line: string; version: string; validate: boolean } | null {
+  const { version, trial } = picked;
+  if (!version || trial === null) return null;
+  const holds = (r: HistoryRow) => r.development.trial_id === trial || r.cells.some((c) => c.trial_id === trial);
+  const rows = lines.flatMap((l) => l.rows.filter((r) => r.candidate === version).map((r) => [l, r] as const));
+  const [line, row] = rows.find(([, r]) => holds(r)) ?? rows[0] ?? [];
+  return line && row ? { line: line.line, version, validate: row.summary?.meets_targets === true } : null;
+}
+
+/** What Validate… puts in the Agent's message box, for the user to send: registering a validation writes the ledger,
+ *  which only the Agent does, after it has read the verdict and proposed a window rule and universe. */
+export const validationAsk = (line: string, version: string): string =>
+  `On the Line-close history page I picked ${version} of line ${line}: its closing history test meets the targets. ` +
+  "I want to register out-of-sample validation for it. Read its verdict in `research history`, then propose a window rule and universe.";

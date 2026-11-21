@@ -103,7 +103,7 @@ class TamperTests(unittest.TestCase):
             backed = review.review_all(conn)
         self.assertEqual((backed["history"]["status"], backed["limitations"]), ("current", []))
         self.assertNotIn("BACKUP_BEHIND", codes(backed))
-        with patch.object(admin, "_sync_backup"):
+        with patch.object(admin, "sync_backup"):
             again = admin.export_history(self.profile, self.profile.backup_root)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
         self.admin_sql("CALL DOLT_COMMIT('--allow-empty', '-m', 'a later commit')")
@@ -119,7 +119,7 @@ class TamperTests(unittest.TestCase):
         foreign.mkdir()
         self.assertEqual(refused(admin.export_history, self.profile, foreign).code, "EXPORT_PATH_INVALID")
         broken = self.backups / "broken"
-        with patch.object(admin, "_sync_backup"):
+        with patch.object(admin, "sync_backup"):
             admin.export_history(self.profile, broken)
         (broken / "backup").write_text("not a backup directory")
         self.assertEqual(refused(admin.export_history, self.profile, broken).code,
@@ -258,7 +258,7 @@ class SealedTamperTests(unittest.TestCase):
 
     def test_3_an_export_replaced_while_failing_keeps_the_earlier_one(self):
         destination = self.backups / "export"
-        no_backup = patch.object(admin, "_sync_backup")
+        no_backup = patch.object(admin, "sync_backup")
         no_backup.start()
         self.addCleanup(no_backup.stop)
         first = admin.export_history(self.world.profile, destination)

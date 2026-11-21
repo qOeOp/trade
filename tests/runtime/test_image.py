@@ -16,7 +16,7 @@ from runtime import container, image
 
 
 CONTRACT = engine_config.RUNTIME_CONTRACT
-LAYOUT = image.layout(CONTRACT)
+LAYOUT = image.LAYOUT
 SOURCE_PATHS = LAYOUT["source_paths"]
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/arm64", "runtime_contract": CONTRACT}
@@ -40,11 +40,6 @@ class IdentityTests(unittest.TestCase):
         refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "platform": "windows/amd64"})
         refused(self, "RUNTIME_UNSUPPORTED", image.validate_identity, {**IDENTITY, "runtime_contract": "replay-contract@v5"})
         self.assertEqual(image.validate_identity({**IDENTITY, "build_revision": "1" * 40})["build_revision"], "1" * 40)
-
-    def test_layout_of_an_undeclared_contract_is_refused(self):
-        for contract in ("replay-contract@v5", "r1-native-v6"):
-            with self.subTest(contract=contract):
-                refused(self, "RUNTIME_UNSUPPORTED", image.layout, contract)
 
 
 class ProbeTests(unittest.TestCase):

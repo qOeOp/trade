@@ -97,14 +97,14 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from nautilus_trader.adapters.binance import (
     BinanceDataClientConfig, BinanceDataClientFactory, BinanceEnvironment, BinanceInstrumentProviderConfig,
     BinanceProductType,
 )
 from nautilus_trader.adapters.sandbox import SandboxExecutionClientConfig, SandboxExecutionClientFactory
-from nautilus_trader.common import CacheConfig, DataActor, Environment, ImportableActorConfig, LoggerConfig, LogLevel
+from nautilus_trader.common import CacheConfig, DataActor, Environment, LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
 from nautilus_trader.persistence import DataCatalogConfig
@@ -339,11 +339,11 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
         declared = vars(type(self))["_runner_warmup"]
         strategy_runtime.declare(self, declared)
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
-                            vars(type(self))["_runner_funding"], FETCH[0] if FETCH else None,
+                            vars(type(self))["_runner_funding"], inputs.fetch,
                             follows=vars(type(self))["_runner_reads_funding"],
                             reads=bool(SESSION and inputs.instrument_id in SESSION.working),
                             since=SESSION.since if SESSION else None)
-        self._metrics_setup(READ_METRICS[0] if READ_METRICS else None)
+        self._metrics_setup(inputs.read_metrics)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
@@ -438,12 +438,10 @@ class PaperInputs:
     strategy_id: str
     universe_membership: Membership
     warm_at: int  # T of this process's warm-up: the input start, or for a recovery the first minute it can be
-
-
-# The fetch the instances' warm-ups use (engine.history.fetch into this run's Catalog) and the read of their metrics
-# (engine.metrics.read), set by _main.
-FETCH: list = []
-READ_METRICS: list = []
+    # The warm-up's fetch (fetch_at: engine.history.fetch into this run's Catalog) and the read of the metrics
+    # (engine.metrics.read); None reads nothing from the network.
+    fetch: Callable | None = None
+    read_metrics: Callable | None = None
 
 
 def fetch_at(instrument_id, at: int, declared, precisions: tuple[int, int], *, catalog: Path, proxy_url: str | None,
@@ -589,14 +587,11 @@ def paper_callbacks(strategy_class: type) -> dict:
             "clock": property(_paper_clock)}
 
 
+@functools.cache
 def paper_class(loaded: LoadedStrategy) -> type:
-    name = f"PaperExternal_{loaded.content_hash}_{loaded.entry_class}"
-    if name not in globals():
-        globals()[name] = type(name, (_PaperConfigured, loaded.strategy_class),
-                               {"__module__": __name__, "_runner_warmup": loaded.warmup,
-                                "_runner_funding": loaded.funding,
-                                **paper_callbacks(loaded.strategy_class)})
-    return globals()[name]
+    return type(f"PaperExternal_{loaded.content_hash}_{loaded.entry_class}", (_PaperConfigured, loaded.strategy_class),
+                {"__module__": __name__, "_runner_warmup": loaded.warmup, "_runner_funding": loaded.funding,
+                 **paper_callbacks(loaded.strategy_class)})
 
 
 class Holder(Strategy):
@@ -689,14 +684,8 @@ class RecorderConfig:
     terms: dict  # instrument ID -> the market's terms at the run's market day (paper start's inputs/terms.json)
 
 
-RECORDERS: list = []  # the node constructs the recorder from its importable configuration
-
-
 class Recorder(DataActor):
     """Journals the live data and account; runs the stop sequence on the node's own thread."""
-
-    def __new__(cls, config=None):
-        return DataActor.__new__(cls)
 
     def __init__(self, config: RecorderConfig):
         super().__init__(None)
@@ -710,7 +699,6 @@ class Recorder(DataActor):
         self.stopping_since: float | None = None
         self.handle = None
         self.checked_account = False
-        RECORDERS.append(self)
 
     def on_start(self):
         self.clock.set_timer("paper-stop", timedelta(seconds=1), callback=self.on_stop_timer)
@@ -945,9 +933,11 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, months: Path | None = None) -> list:
+def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, months: Path | None = None, *,
+         fetch: Callable | None = None, read_metrics: Callable | None = None) -> list:
     """The instances: each contract in the universe at the input start, with its membership from there to the end
-    of that month and, month by month after it, from the host's month files in `months` (Membership)."""
+    of that month and, month by month after it, from the host's month files in `months` (Membership), and the
+    network reads of their warm-ups and metrics."""
     planned = []
     end = membership_months.month_end_ns(start_ns)
     for symbol in symbols:
@@ -956,7 +946,7 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, mont
             raise Refusal("PAPER_NOT_IN_UNIVERSE", f"{symbol}: the universe does not hold it at the input start "
                                                    f"{utc_text(start_ns)}")
         planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol),
-                                   Membership(symbol, intervals, end, months), warm_at))
+                                   Membership(symbol, intervals, end, months), warm_at, fetch, read_metrics))
     return planned
 
 
@@ -973,7 +963,8 @@ class Membership(membership_months.Membership):
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: str | None,
                fees: tuple[Decimal, Decimal], catalog: Path, leverage: str, terms: dict,
-               session: Session | None = None):
+               session: Session | None = None) -> tuple[Any, "Recorder"]:
+    """The node, and the recorder it holds."""
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])
     builder = LiveNode.builder("paper", TraderId(account["trader_id"]), Environment.SANDBOX)
@@ -1038,10 +1029,11 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         node.add_strategy(Holder(inputs, proxy_url) if session and session.held
                           else strategy_runtime.configure_strategy(loaded, inputs, paper_class))
     node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
-    node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
-                                                     {"instrument_ids": [item.instrument_id for item in planned],
-                                                      "terms": terms}))
-    return node
+    recorder = Recorder(RecorderConfig([item.instrument_id for item in planned], terms))
+    node.add_actor(recorder)
+    if recorder.trader_id is None:  # the node registers this instance itself; one it does not would record nothing
+        raise Refusal("NATIVE_EXECUTION_FAILED", "the node did not register the paper recorder")
+    return node, recorder
 
 
 def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: Recorder, node, started_ns: int) -> dict:
@@ -1212,17 +1204,13 @@ def _main(args) -> bool:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     recovery_declared=declares_recovery(loaded.strategy_class), **strategy_metadata(loaded))
             journal("waiting", until_ns=start_ns)
-        planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS)
-        FETCH[:] = [functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION)]
-        READ_METRICS[:] = [functools.partial(metrics.read, proxy_url=args.proxy_url)]
-        RECORDERS.clear()
+        planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / membership_months.MONTHS,
+                       fetch=functools.partial(fetch_at, catalog=catalog, proxy_url=args.proxy_url, session=SESSION),
+                       read_metrics=functools.partial(metrics.read, proxy_url=args.proxy_url))
         market_terms = json.loads(args.terms.read_bytes())
-        node = build_node(planned, loaded, args.proxy_url,
+        node, recorder = build_node(planned, loaded, args.proxy_url,
                           (args.maker_fee, args.taker_fee), catalog, args.leverage,
                           {instrument_id(symbol): market_terms[symbol] for symbol in args.symbols}, SESSION)
-        if len(RECORDERS) != 1:
-            raise Refusal("NATIVE_EXECUTION_FAILED", "the paper recorder was not constructed exactly once")
-        recorder = RECORDERS[0]
         recorder.handle = node.handle()
 
         def watch():
@@ -1269,8 +1257,6 @@ def _main(args) -> bool:
             backend.close()
         SESSION = None
         KLINES = None
-        FETCH.clear()
-        READ_METRICS.clear()
         shutil.rmtree(catalog, ignore_errors=True)
     return JOURNAL is not None and JOURNAL.failure is not None
 

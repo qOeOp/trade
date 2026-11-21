@@ -30,31 +30,16 @@ import time
 
 import pymysql
 
-from ledger import db
+from ledger import db, server
 from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-REMOTE = "origin"
 PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
 HOST = "https://doltremoteapi.dolthub.com/"
 REPOSITORY = r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"  # owner/repository
 DOLTHUB = re.compile(re.escape(HOST) + REPOSITORY)  # the one DoltHub remote form: publish and the mirror accept it
-BRANCHES = f"refs/heads/*:refs/remotes/{REMOTE}/*"  # the default fetch spec, named so a missing branch fails
-
-
-def _admin(profile: db.LedgerProfile):
-    config = db._known_service(profile.service_root)
-    try:
-        return db._admin(config, database=profile.database)
-    except pymysql.MySQLError as exc:
-        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish"
-                     + (f": {exc.args[1]}" if isinstance(exc, db.NoAnswer) else "")) from exc
-
-
-def _origin(cursor) -> str | None:
-    found = db.cursor_rows(cursor, "SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
-    return found[0][0] if found else None
+BRANCHES = f"refs/heads/*:refs/remotes/{server.REMOTE}/*"  # the default fetch spec, named so a missing branch fails
 
 
 def state(profile: db.LedgerProfile) -> dict:
@@ -64,11 +49,11 @@ def state(profile: db.LedgerProfile) -> dict:
     no branch) and `diverged` says origin's head is not an ancestor of the local one: its history changed
     elsewhere, which a retry cannot settle. All of it derives from the two heads."""
     with db.connect(profile, "reader") as conn:
-        found = conn.rows("SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
+        found = conn.rows("SELECT url FROM dolt_remotes WHERE name = %s", (server.REMOTE,))
         if not found:
             return {"remote": None, "unpublished": False, "behind_seconds": None, "diverged": False}
         local = conn.rows("SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
-        remote = conn.rows("SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{db.BRANCH}",))
+        remote = conn.rows("SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{server.REMOTE}/{db.BRANCH}",))
         behind, diverged = None, False
         if list(local) != list(remote) and remote:
             diverged = not _reader_ancestor(conn, remote[0][0], local[0][0])
@@ -134,8 +119,8 @@ def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
 
 
 def _managed(profile: db.LedgerProfile) -> bool:
-    config = db.service_config(profile.service_root)
-    return config is not None and db.managed(config)
+    config = server.service_config(profile.service_root)
+    return config is not None and server.managed(config)
 
 
 def _key_after_start(profile: db.LedgerProfile) -> bool:
@@ -146,7 +131,7 @@ def _key_after_start(profile: db.LedgerProfile) -> bool:
     try:
         key = json.loads((home / "config_global.json").read_text(encoding="utf-8"))["user.creds"]
         installed = max((home / "creds" / f"{key}.jwk").stat().st_mtime, (home / "config_global.json").stat().st_mtime)
-        return db.server_pid(root) is not None and installed > (root / "server.pid").stat().st_mtime
+        return server.server_pid(root) is not None and installed > (root / "server.pid").stat().st_mtime
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -158,15 +143,15 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
     _allowed(profile, url)
     key: str | None
     key, changed = (None, False) if url.startswith("file://") else install_key(Path(profile.service_root), _user_dolt())
-    conn = _admin(profile)
+    conn = server.admin(profile)
     try:
         with conn.cursor() as cursor:
-            existing = _origin(cursor)
+            existing = server.origin(cursor)
             if existing is not None and existing != url:
                 raise refuse("REMOTE_MISMATCH", f"{profile.database} already publishes to {existing}, not {url}",
                              missing=(url,))
             if existing is None:
-                cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (REMOTE, url))
+                cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (server.REMOTE, url))
     finally:
         conn.close()
     return {"database": profile.database, "remote": url, "credentials": key, "added": existing is None,
@@ -182,10 +167,10 @@ def name_and_publish(profile: db.LedgerProfile, url: str) -> tuple[dict, dict]:
         return publish(profile), named
     except Refusal:
         if named["added"]:
-            conn = _admin(profile)
+            conn = server.admin(profile)
             try:
                 with conn.cursor() as cursor:
-                    cursor.execute("CALL DOLT_REMOTE('remove', %s)", (REMOTE,))
+                    cursor.execute("CALL DOLT_REMOTE('remove', %s)", (server.REMOTE,))
             finally:
                 conn.close()
         raise
@@ -193,7 +178,7 @@ def name_and_publish(profile: db.LedgerProfile, url: str) -> tuple[dict, dict]:
 
 def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
     try:
-        cursor.execute("CALL DOLT_PUSH(%s, %s)", (REMOTE, ref))
+        cursor.execute("CALL DOLT_PUSH(%s, %s)", (server.REMOTE, ref))
         cursor.fetchall()
     except pymysql.MySQLError as exc:
         text = str(exc.args[1] if len(exc.args) > 1 else exc)
@@ -215,8 +200,8 @@ def unpublished(profile: db.LedgerProfile) -> bool:
 
 
 def _remote_head(cursor) -> str | None:
-    found = db.cursor_rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
-                           (f"remotes/{REMOTE}/{db.BRANCH}",))
+    found = server.cursor_rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
+                               (f"remotes/{server.REMOTE}/{db.BRANCH}",))
     return found[0][0] if found else None
 
 
@@ -224,7 +209,7 @@ def _fetch(cursor, url: str) -> str | None:
     """Fetch origin's branches; the remote's head of the branch. A remote without branches (named explicitly,
     the branch spec fails rather than keeping the last tracking head) has no head."""
     try:
-        cursor.execute("CALL DOLT_FETCH(%s, %s)", (REMOTE, BRANCHES))
+        cursor.execute("CALL DOLT_FETCH(%s, %s)", (server.REMOTE, BRANCHES))
         cursor.fetchall()
         return _remote_head(cursor)
     except pymysql.MySQLError as exc:
@@ -235,7 +220,7 @@ def _fetch(cursor, url: str) -> str | None:
 
 def _ancestor(cursor, older: str, newer: str) -> bool:
     try:
-        return db.cursor_rows(cursor, "SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
+        return server.cursor_rows(cursor, "SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
     except pymysql.MySQLError:  # unrelated histories have no merge base
         return False
 
@@ -258,18 +243,18 @@ def publish(profile: db.LedgerProfile) -> dict:
         finally:
             seconds[stage] += time.monotonic() - start
 
-    conn = _admin(profile)
+    conn = server.admin(profile)
     try:
         with conn.cursor() as cursor:
-            url = _origin(cursor)
+            url = server.origin(cursor)
             if url is None:
-                raise refuse("REMOTE_UNSET", f"{profile.database} has no {REMOTE} remote", missing=(REMOTE,))
+                raise refuse("REMOTE_UNSET", f"{profile.database} has no {server.REMOTE} remote", missing=(server.REMOTE,))
             _allowed(profile, url)
             serial = f"{profile.database}/publish"
-            if timed("lock", db.cursor_rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
+            if timed("lock", server.cursor_rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
-            (head,), = db.cursor_rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
+            (head,), = server.cursor_rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
             before = _remote_head(cursor)
             # A head another publish has pushed is confirmed by a fetch.
             published = timed("fetch", _fetch, cursor, url) if before == head else before

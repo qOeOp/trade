@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import admin, db
+from ledger import admin, db, server
 from shared.errors import Refusal
 
 
@@ -41,7 +41,7 @@ class BackupHeadTests(unittest.TestCase):
         self.backup.mkdir()
         self.work = self.root / "work"
         self.work.mkdir()
-        found = patch.object(db, "_binary", return_value="fixture-dolt")
+        found = patch.object(server, "binary", return_value="fixture-dolt")
         found.start()
         self.addCleanup(found.stop)
         directory = patch.object(admin.tempfile, "mkdtemp", return_value=str(self.work))
@@ -86,7 +86,7 @@ class BackupHeadTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"rows": rows}), stderr="")
             return self.run_dolt(argv, **options)
 
-        with patch.object(db, "service_config", return_value={"binary": "/another/machine/dolt"}), \
+        with patch.object(server, "service_config", return_value={"binary": "/another/machine/dolt"}), \
                 patch.object(admin.subprocess, "run", side_effect=run):
             self.assertEqual(admin.backup_head(self.backup), "fixture-head")
         self.assertEqual(set(ran), {"fixture-dolt"})
@@ -94,7 +94,7 @@ class BackupHeadTests(unittest.TestCase):
     def test_no_dolt_here_is_dolt_binary_and_leaves_no_work_directory(self):
         (self.backup / "manifest").write_text("5:__DOLT__")
         refused = db.refuse("DOLT_BINARY", "no Dolt executable")
-        with patch.object(db, "_binary", side_effect=refused), self.assertRaises(Refusal) as caught:
+        with patch.object(server, "binary", side_effect=refused), self.assertRaises(Refusal) as caught:
             admin.backup_head(self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BINARY")
         self.assertFalse(self.work.exists())
