@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (replay refusal, delegated decision, doctor 20261121-26): an unreadable universe file is refused as
+  `SOURCE_UNREADABLE`, as the strategy source and execution binding are; `UNIVERSE_FILE_UNREADABLE` is gone. The
+  engine writes its record files (failure receipts, Paper's `state.json`, Live's records) through one durable
+  replace (synced file, rename, synced directory); `state.json` and Live's records were not synced before.
+
 - Breaking (Paper): `paper start` (and the IDE's Paper start) refuses a candidate whose source never names one of
   `PAPER_RECOVERY`, `on_save` and `on_load` with `PAPER_RECOVERY_UNDECLARED`, before it copies the source or starts a
   container: such a source cannot declare Paper recovery, so a release, host restart or short stall ended or held its

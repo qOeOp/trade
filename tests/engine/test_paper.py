@@ -275,7 +275,7 @@ class JournalFailureTests(unittest.TestCase):
                     with self.assertRaises(OSError):
                         journal.sync()
                 else:
-                    with mock.patch.object(Path, "write_text", side_effect=self.FULL):
+                    with mock.patch.object(paper, "atomic", side_effect=self.FULL):
                         journal.state({})
                 self.assertEqual((stops, journal.failure is not None), (["stop"], True))
 

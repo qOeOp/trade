@@ -29,11 +29,10 @@ import sys
 import time
 from nautilus_trader.model import Venue
 from engine import strategy as strategy_runtime
-from engine.config import RUNTIME_CONTRACT, is_leverage
+from engine.config import RUNTIME_CONTRACT, is_leverage, read_regular_file
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
 from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, read_credentials, require_clock, require_account_mode, require_admission, require_evidence, require_flat
-from engine.load import read_regular_file
 from engine.live_records import contract, journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import ENDED_EVENTS, Session
