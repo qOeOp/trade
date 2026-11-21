@@ -298,7 +298,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     is raised.
     """
     workdir = Path(workdir)
-    layout = image.layout(identity["runtime_contract"])
+    layout = image.LAYOUT
     stages: dict = {"native": None, "audit": None, "fingerprint": None}
     process: dict = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
     outcome = {"kind": "completed", "detail": None}
@@ -374,7 +374,7 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         _, argv, mounts = _prepare(output, source, entry_class, hashlib.sha256(source).hexdigest(), identity,
                                    inspection, exported, runner_argv)
-        layout = image.layout(identity["runtime_contract"])
+        layout = image.LAYOUT
         deadline = None if timeout is None else time.monotonic() + timeout
 
         def run(stage: str, module: str, stage_mounts: list, stage_argv: list[str]) -> int:

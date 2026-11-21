@@ -1,7 +1,6 @@
-"""The research ledger's service, accounts, connections and its single write protocol.
+"""The research ledger's profiles, databases, accounts, connections and its single write protocol.
 
-A service is one local `dolt sql-server` with its own directory, unix socket and accounts; it may
-hold several databases. A profile names one database on one service, what it holds (`research`, the
+A database lives on a Dolt service (ledger.server), which may hold several. A profile names one database on one service, what it holds (`research`, the
 research ledger of ledger/schema.sql, or `paper`, the Paper execution records of ledger/paper.sql) and
 its kind (`active`, `isolated` or `temporary`; only a research ledger is active). Each database has a
 writer account (SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on
@@ -31,22 +30,16 @@ from datetime import date
 import functools
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import secrets
-import shutil
-import signal
-import socket
-import subprocess
-import sys
-import tempfile
 import time
 from typing import Concatenate, Literal
 
 import pymysql
 import pymysql.constants.CR
 
+from ledger import server
 from shared.errors import Refusal
 from shared import paths, profiles as profile_directory
 from shared.refusals import refuse
@@ -54,15 +47,7 @@ from shared.refusals import refuse
 
 SCHEMA_VERSION = 1
 PAPER_SCHEMA_VERSION = 1
-DOLT_VERSION = "2.7.2"
 ROLES = ("writer", "reader")
-SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
-# The host every service is reached at over TCP, on its own port, instead of its Unix socket: set in a
-# container that cannot reach the socket (the paper daemon's, docs/plans/paper-compose-deployment.zh.md).
-DOLT_HOST = "TRADE_DOLT_HOST"
-# Seconds a new connection waits for the server's greeting and login replies. A serving Dolt answers
-# in milliseconds; the statements' own read timeout (600 s for ledger commands) applies only after.
-HANDSHAKE_TIMEOUT = 30
 SCHEMA = Path(__file__).with_name("schema.sql")
 PAPER_SCHEMA = Path(__file__).with_name("paper.sql")
 # What a database holds: its schema file and generation.
@@ -78,7 +63,6 @@ RETRY_PAUSE = 0.5  # seconds before the next attempt, times the number of attemp
 # trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.
 IMAGE_DIGEST = "SUBSTRING_INDEX(image_ref, '@', -1) AS image_digest"
 TRIAL_IMAGE_DIGEST = "SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest"  # trial aliased `t`
-SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
 
 
 # Profiles
@@ -152,281 +136,6 @@ def profile(ledger: LedgerProfile | str | None, holds: str | None = "research") 
     return found
 
 
-def service_config(root: Path) -> dict | None:
-    try:
-        return json.loads((Path(root) / "service.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
-def _known_service(root: Path) -> dict:
-    """The service configuration of `root`; a directory without a readable one is no ledger service."""
-    config = service_config(root)
-    if config is None:
-        raise refuse("LEDGER_UNKNOWN", f"{root} is not a ledger service directory")
-    return config
-
-
-# Service lifecycle
-
-IDENTITY = {"user.name": "Research Ledger", "user.email": "research-ledger@example.invalid"}
-# Dolt otherwise queries GitHub for a newer release and records the answer in its home at a start, and writes
-# usage events there from a detached process after a command exits.
-QUIET = {"versioncheck.disabled": "true", "metrics.disabled": "true"}
-
-
-def dolt_home(home: Path, settings: Mapping[str, str]) -> None:
-    """Give a new Dolt home (its DOLT_ROOT_PATH) its global configuration in one atomic write, the file
-    `dolt config --global --add` keeps, without starting Dolt once per setting."""
-    profile_directory.private_write(Path(home) / ".dolt" / "config_global.json", dict(settings))
-
-
-def _binary(given: Path | str | None) -> str:
-    expected = f"dolt version {DOLT_VERSION}"
-    candidate = given or os.environ.get("RESEARCH_DOLT_BINARY") or shutil.which("dolt")
-    if not candidate:
-        raise refuse("DOLT_BINARY", "no Dolt executable given, in RESEARCH_DOLT_BINARY or on PATH", expected=expected)
-    binary = Path(candidate).expanduser().resolve()
-    # Its own home and working directory: the caller's HOME and directory are shared with other processes.
-    work = Path(tempfile.mkdtemp(prefix="dolt-version-"))
-    try:
-        dolt_home(work, QUIET)
-        checked = subprocess.run([str(binary), "version"], cwd=work, capture_output=True, text=True, check=False,
-                                 timeout=30, env={**os.environ, "DOLT_ROOT_PATH": str(work),
-                                                  "DOLT_DISABLE_EVENT_FLUSH": "true"})
-        output = " ".join(part.strip() for part in (checked.stdout, checked.stderr) if part.strip())
-        problem = None if checked.returncode == 0 and checked.stdout.startswith(expected) else \
-            f"exit {checked.returncode}: {output[-300:] or 'no output'}"
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        problem = f"{type(exc).__name__}: {exc}"
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    if problem is not None:
-        raise refuse("DOLT_BINARY", f"{binary} is not a Dolt {DOLT_VERSION} executable ({problem})", expected=expected)
-    return str(binary)
-
-
-def _server_here(root: Path) -> int | None:
-    """The process server.pid names when it runs here, as the sql-server of `root`'s config; the file stays."""
-    try:
-        pid = int((root / "server.pid").read_text())
-    except (OSError, ValueError):
-        return None
-    owner = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "args="], capture_output=True, text=True, check=False)
-    if owner.returncode or "sql-server" not in owner.stdout or str(root / "config.yaml") not in owner.stdout:
-        return None
-    return pid
-
-
-def server_pid(root: Path) -> int | None:
-    """The running server of `root`, removing a server.pid that names none (a root without one, such as a
-    read-only reader mount, is left untouched)."""
-    pid = _server_here(root)
-    if pid is None and (root / "server.pid").exists():
-        (root / "server.pid").unlink()
-    return pid
-
-
-def managed(config: dict) -> bool:
-    """A service without a Unix socket is run by compose (`ledger service run`), not by a process of
-    this host: it is reached over TCP and never started or stopped from here."""
-    return not config.get("socket")
-
-
-def address(config: dict) -> str:
-    return f"127.0.0.1:{config['port']}" if managed(config) else config["socket"]
-
-
-class NoAnswer(pymysql.err.OperationalError):
-    """The service accepted the connection but sent no greeting or login reply in HANDSHAKE_TIMEOUT:
-    it is running, not stopped; a long write such as an import can stall it for minutes, or its process,
-    its container or the Docker host is hung."""
-
-
-def service_connection(config: dict, **options) -> pymysql.Connection:
-    """`pymysql.connect` to the service `config` describes: with `TRADE_DOLT_HOST` set over TCP to that
-    host on the service's own port (a container beside the service), unless the service's server is a
-    process of this host (one this container started, as `ledger temp` does: the variable names where
-    the other services run, not this one); else over its Unix socket; a service compose runs (no
-    socket) over TCP on this host's loopback, where compose publishes it.
-    pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so the
-    socket is reached first by one that is closed either way, and an unreachable one raises the same
-    OperationalError pymysql would.
-
-    pymysql reads the handshake under `read_timeout`, so a service that accepts but never answers
-    would hold the caller for its whole statement budget (or forever without one). The handshake is
-    read under HANDSHAKE_TIMEOUT instead and raises NoAnswer when it runs out; the caller's
-    `read_timeout` then applies to its statements."""
-    read_timeout = options.pop("read_timeout", None)
-    options["read_timeout"] = HANDSHAKE_TIMEOUT
-    # A socket service's root holds its socket (_create_service).
-    if os.environ.get(DOLT_HOST) and (managed(config) or _server_here(Path(config["socket"]).parent) is None):
-        endpoint = f"{os.environ[DOLT_HOST]}:{config['port']}"
-        target: dict = {"host": os.environ[DOLT_HOST], "port": int(config["port"])}
-    elif managed(config):
-        endpoint, target = address(config), {"host": "127.0.0.1", "port": int(config["port"])}
-    else:
-        socket_path = endpoint = config["socket"]
-        target = {"unix_socket": socket_path}
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-            probe.settimeout(options.get("connect_timeout", 10))
-            try:
-                probe.connect(socket_path)
-            except OSError as exc:
-                raise pymysql.err.OperationalError(
-                    pymysql.constants.CR.CR_CONN_HOST_ERROR,
-                    f"Can't connect to MySQL server on {socket_path!r} ({exc})",
-                ) from exc
-    try:
-        raw = pymysql.connect(**target, **options)
-    except pymysql.err.OperationalError as exc:
-        # A read that timed out (CR_SERVER_LOST over a TimeoutError); a TCP connect that timed out is
-        # CR_CONN_HOST_ERROR and stays a service that does not accept connections.
-        lost = pymysql.constants.CR.CR_SERVER_LOST
-        if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
-            raise NoAnswer(lost, f"the ledger service at {endpoint} accepts connections but did not answer within "
-                                 f"{HANDSHAKE_TIMEOUT} s (a long write such as an import can stall it for minutes; "
-                                 "otherwise its process, its container or the Docker host is hung)",
-                           ) from exc
-        raise
-    # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
-    raw._read_timeout = read_timeout  # type: ignore[attr-defined]
-    return raw
-
-
-def _root_password(config: dict) -> str:
-    """The service administrator's password; a reader-only service file holds none."""
-    if "root_password" not in config:
-        raise refuse("LEDGER_UNKNOWN", "this service file holds only reader accounts, not the service administrator")
-    return config["root_password"]
-
-
-def _admin(config: dict, password: str | None = None, database: str | None = None):
-    return service_connection(config, user="root",
-                           password=_root_password(config) if password is None else password,
-                           database=database, autocommit=True, connect_timeout=5, max_allowed_packet=1 << 30)
-
-
-def cursor_rows(cursor, statement: str, arguments=()) -> list[tuple]:
-    """The rows of one statement on a raw (administrator) cursor."""
-    cursor.execute(statement, arguments)
-    return list(cursor.fetchall())
-
-
-def start_service(root: Path) -> dict:
-    """Start the service of `root` unless it runs; wait until it accepts connections. A service compose
-    runs is only waited for."""
-    root = Path(root)
-    config = _known_service(root)
-    if managed(config):
-        for _ in range(150):
-            try:
-                _admin(config).close()
-                return {"running": True, "pid": None, "service": str(root)}
-            except NoAnswer as exc:
-                raise refuse("LEDGER_START", exc.args[1], expected="an answer on a rerun after a minute or two; only "
-                             "then `docker compose restart ledger`, which rolls back an import in progress") from exc
-            except pymysql.MySQLError:
-                time.sleep(0.1)
-        raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",
-                     expected="the user starting the ledger service (`docker compose start ledger`); then rerun "
-                     "the same command")
-    pid = server_pid(root)
-    if pid is None:
-        environment = {**os.environ, "DOLT_ROOT_PATH": str(root / "home")}
-        # The service outlives this process: a shell in a new session starts it in the background and
-        # exits, and is waited here, so the server is nobody's unreaped child.
-        launched = subprocess.run(["/bin/sh", "-c", SERVER_LAUNCH, "sh", config["binary"], "sql-server", "--config",
-                                   str(root / "config.yaml")], cwd=root, env=environment, start_new_session=True,
-                                  capture_output=True, text=True, check=True, timeout=30)
-        pid = int(launched.stdout)
-        (root / "server.pid").write_text(str(pid))
-    for _ in range(150):
-        try:
-            _admin(config).close()
-            return {"running": True, "pid": pid, "service": str(root)}
-        except NoAnswer as exc:
-            print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
-            raise refuse("LEDGER_START", exc.args[1]) from exc
-        except pymysql.MySQLError:
-            if server_pid(root) is None:
-                break
-            time.sleep(0.1)
-    print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
-    raise refuse("LEDGER_START", "the Dolt service did not accept connections in time or exited")
-
-
-def stop_service(root: Path) -> dict:
-    root = Path(root)
-    config = service_config(root)
-    if config is not None and managed(config):
-        raise refuse("SERVICE_MANAGED", f"the Dolt service at {root} is run by compose, not by this host",
-                     expected="`docker compose stop ledger`")
-    pid = server_pid(root)
-    if pid is None:
-        return {"running": False, "service": str(root)}
-    os.kill(pid, signal.SIGTERM)
-    for _ in range(150):
-        try:
-            reaped, _ = os.waitpid(pid, os.WNOHANG)
-            if reaped == pid:
-                break
-        except ChildProcessError:
-            pass
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.1)
-    else:
-        raise RuntimeError(f"Dolt server {pid} did not stop")
-    (root / "server.pid").unlink(missing_ok=True)
-    return {"running": False, "pid": pid, "service": str(root)}
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
-# secure_file_priv: a directory that can never exist, so no account reads or writes a server file
-# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE): Dolt allows both to a SELECT-only account without it (2.4.2, and
-# 2.7.2 measured 2026-11-11).
-NO_FILE_IO = "system_variables:\n  secure_file_priv: /dev/null/no-file-io\n"
-
-
-def _create_service(root: Path, binary: str) -> dict:
-    socket_path = root / "mysql.sock"
-    if len(str(socket_path)) > SOCKET_LIMIT:
-        raise refuse("LEDGER_START", f"the service socket path would exceed {SOCKET_LIMIT} bytes",
-                     expected="a shorter service directory")
-    root.mkdir(mode=0o700, parents=True, exist_ok=False)
-    for name in ("data", "cfg", "home"):
-        (root / name).mkdir(mode=0o700)
-    port = _free_port()
-    (root / "config.yaml").write_text(
-        "log_level: warning\n"
-        "behavior:\n  autocommit: true\n"
-        f"listener:\n  host: 127.0.0.1\n  port: {port}\n  socket: {socket_path}\n"
-        f"data_dir: {root / 'data'}\ncfg_dir: {root / 'cfg'}\n"
-        f"privilege_file: {root / 'cfg' / 'privileges.db'}\n"
-        f"branch_control_file: {root / 'cfg' / 'branch_control.db'}\n" + NO_FILE_IO, encoding="utf-8")
-    dolt_home(root / "home", {**QUIET, **IDENTITY})
-    config = {"binary": binary, "socket": str(socket_path), "port": port,
-              "root_password": secrets.token_urlsafe(24), "databases": {}, "secured": False}
-    profile_directory.private_write(root / "service.json", {**config, "root_password": ""})
-    start_service(root)
-    conn = _admin(config, password="")
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("ALTER USER 'root'@'localhost' IDENTIFIED BY %s", (config["root_password"],))
-    finally:
-        conn.close()
-    profile_directory.private_write(root / "service.json", config)
-    return config
-
-
 def _statements(text: str) -> list[str]:
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("--")]
     return [part.strip().rstrip(";") for part in "\n".join(lines).split(";\n") if part.strip().rstrip(";")]
@@ -459,10 +168,10 @@ def init(name: str, database: str, service_root: Path, kind: profile_directory.K
             if paths.inside(path, paths.REPOSITORY) or paths.is_temporary(path):
                 raise refuse("ISOLATION_BREACH", "an active ledger keeps its service and backup outside the "
                                                  "source checkout and temporary roots")
-    binary = _binary(dolt_binary)
-    config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
-        service_root, binary)
-    start_service(service_root)
+    dolt = server.binary(dolt_binary)
+    config = server.known_service(service_root) if (service_root / "service.json").exists() else \
+        server.create_service(service_root, dolt)
+    server.start_service(service_root)
     profile = LedgerProfile(name=name, database=database, service_root=service_root, kind=kind,
                             backup_root=Path(backup_root).expanduser().absolute() if backup_root else None,
                             holds=holds)
@@ -472,7 +181,8 @@ def init(name: str, database: str, service_root: Path, kind: profile_directory.K
     return {"profile": profile, "branch_grant": BRANCH, "schema_version": SCHEMAS[holds][1]}
 
 
-def _secure(cursor, config: dict) -> None:
+def secure(cursor, config: dict) -> None:
+    """Once per service: branch writes need an explicit grant."""
     if not config.get("secured"):
         # Once per service, with a database selected: branch writes need an explicit grant; root keeps
         # admin everywhere (deleting the wildcard row alone would also remove root's write).
@@ -482,7 +192,7 @@ def _secure(cursor, config: dict) -> None:
                        "AND user = '%' AND host = '%'")
 
 
-def _account_name(database: str, role: str) -> str:
+def account_name(database: str, role: str) -> str:
     return "lg-" + hashlib.sha256(f"{database}:{role}".encode()).hexdigest()[:29]
 
 
@@ -494,9 +204,9 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
     branch grants or accounts left for a name it does not hold belong to a dropped database and are
     replaced. Any failure once the database is created removes what this call created (the database,
     its branch grants and accounts, its service.json entry) and re-raises."""
-    accounts = {role: {"user": _account_name(database, role), "password": secrets.token_urlsafe(24)} for role in ROLES}
+    accounts = {role: {"user": account_name(database, role), "password": secrets.token_urlsafe(24)} for role in ROLES}
     created = recorded = False
-    conn = _admin(config)
+    conn = server.connect_root(config)
     try:
         with conn.cursor() as cursor:
             cursor.execute("SHOW DATABASES")
@@ -506,8 +216,8 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
             cursor.execute(f"CREATE DATABASE `{database}`")
             created = True
             cursor.execute(f"USE `{database}`")
-            _clear(cursor, database, accounts)
-            _secure(cursor, config)
+            clear_accounts(cursor, database, accounts)
+            secure(cursor, config)
             build(cursor, accounts)
         config["secured"] = True
         config["databases"][database] = accounts
@@ -525,7 +235,7 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
         conn.close()
 
 
-def _clear(cursor, database: str, accounts: dict) -> None:
+def clear_accounts(cursor, database: str, accounts: dict) -> None:
     """Delete the branch grants and the generated accounts of `database`, with it selected
     (dolt_branch_control is service-wide, outlives a dropped database and needs one selected). While
     the service held no database of that name before this call, they can only be this call's or a
@@ -537,10 +247,10 @@ def _clear(cursor, database: str, accounts: dict) -> None:
 
 def _remove(service_root: Path, config: dict, database: str, accounts: dict, recorded: bool) -> None:
     """Undo a failed `_provision` after it created `database`."""
-    conn = _admin(config, database=database)
+    conn = server.connect_root(config, database=database)
     try:
         with conn.cursor() as cursor:
-            _clear(cursor, database, accounts)
+            clear_accounts(cursor, database, accounts)
             cursor.execute(f"DROP DATABASE `{database}`")
     finally:
         conn.close()
@@ -716,32 +426,21 @@ def pinned_read[**P, R](read: Callable[Concatenate[LedgerConnection, P], R]) -> 
     return reused
 
 
-def _connection_error(exc: pymysql.MySQLError) -> Refusal:
-    code = exc.args[0] if exc.args else None
-    if code in (1044, 1045, 1227):
-        return refuse("LEDGER_PERMISSION", "the ledger service refused this account")
-    if code == 1049:
-        return refuse("UNKNOWN_REF", "the ledger has no such branch")
-    if isinstance(exc, NoAnswer):
-        return refuse("LEDGER_UNAVAILABLE", exc.args[1])
-    return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
-
-
 def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> LedgerConnection:
     """Open a writer or reader connection on `BRANCH`."""
     if role not in ROLES:
         raise ValueError(f"role must be writer or reader, got {role!r}")
-    config = service_config(profile.service_root) or {}
+    config = server.service_config(profile.service_root) or {}
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
     try:
-        raw = service_connection(config, user=accounts[role]["user"],
+        raw = server.service_connection(config, user=accounts[role]["user"],
                                  password=accounts[role]["password"], database=f"{profile.database}/{BRANCH}",
                                  charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
                                  write_timeout=600, max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
-        raise _connection_error(exc) from exc
+        raise server.connection_error(exc) from exc
     conn = LedgerConnection(raw, profile, role)
     try:
         version, expected = _schema_version(conn), SCHEMAS[profile.holds][1]

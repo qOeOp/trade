@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { PhonePage } from "../../components/PhoneBar";
 import { Skeleton } from "../../components/Missing";
-import { Amount, Change, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
+import { Amount, Change, EntryMark, heldAside, PhoneHeading, PhoneTable, Side } from "../../components/PhoneParts";
 import { health } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { lineOf } from "../../lib/lines";
@@ -18,7 +18,6 @@ import { Board, type Facts } from "../../widgets/detail/ReadingsBoard";
 import { EquityLine } from "../../widgets/phone/EquityLine";
 import { clock, keep, since, Version } from "./RunCards";
 import { PhoneTop } from "./PhoneTop";
-import { MISSING } from "../../lib/format";
 
 /** The desktop's targets card for a paper run, from its listing: the max drawdown against the limit (now: on the
  *  listing's outline of the path), the return against what the minimum annual return asks for by now, and the annual
@@ -75,9 +74,10 @@ export function PaperPage({ id }: { id: number }) {
         <div className="px-3 pt-3 text-dense">
           <Board f={facts(run, line?.targets, now)} />
         </div>
-        <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={held.length ? held[0]!.mark !== null && `mark ${fixed(held[0]!.mark)}` : "None open"} />
-        {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", "Entry", "P&L"]} rows={held.map((p) => [
-          p.symbol, <Side long={p.long} />, fixed(p.qty), fixed(p.entry, 2) ?? MISSING, <span className={pnlClass(p.pnl)}>{signed(p.pnl)}</span>])} />}
+        <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, false)} />
+        {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark" : "Entry", "P&L"]} rows={held.map((p) => [
+          p.symbol, <Side long={p.long} />, fixed(p.qty), <EntryMark held={p} several={held.length > 1} places={2} />,
+          <span className={pnlClass(p.pnl)}>{signed(p.pnl)}</span>])} />}
         <p className="px-3 pb-4 pt-2 text-small text-fg-faint">Charts, trades, events and Stop and seal are on the desktop.</p>
       </PhonePage>
     </>

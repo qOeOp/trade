@@ -405,7 +405,7 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(self.call, "ledger", "service", "stop", "--ledger", created["profile"], env=env)
         self.assertEqual((created["database"], created["branch_grant"], created["schema_version"]),
                          ("probe_init", "main", db.SCHEMA_VERSION))
-        self.assertEqual(created["accounts"], {role: db._account_name("probe_init", role) for role in ("writer", "reader")})
+        self.assertEqual(created["accounts"], {role: db.account_name("probe_init", role) for role in ("writer", "reader")})
         self.assertNotIn("password", json.dumps(created))
         self.refused("PROFILE_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",
                      str(self.tmp / "init-service"), env=env)

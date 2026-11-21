@@ -19,22 +19,22 @@ from unittest.mock import patch
 import pymysql
 
 from engine.config import RUNTIME_CONTRACT
-from ledger import db
+from ledger import db, server
 from shared.errors import Refusal
 
 
 def _binary() -> str | None:
     """The named Dolt (refused loudly when it is not one), else a matching one on PATH, else none."""
     if os.environ.get("RESEARCH_DOLT_BINARY"):
-        return db._binary(None)
+        return server.binary(None)
     try:
-        return db._binary(None) if shutil.which("dolt") else None
+        return server.binary(None) if shutil.which("dolt") else None
     except Refusal:
         return None
 
 
 BINARY = _binary()
-SKIP = f"needs Dolt {db.DOLT_VERSION} (RESEARCH_DOLT_BINARY or dolt on PATH)"
+SKIP = f"needs Dolt {server.DOLT_VERSION} (RESEARCH_DOLT_BINARY or dolt on PATH)"
 
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 IMAGE_DIGEST = "sha256:" + "b" * 64
@@ -101,7 +101,7 @@ class Service:
                        dolt_binary=BINARY, holds=holds)["profile"]
 
     def admin(self, profile: db.LedgerProfile, branch: str | None = None):
-        config = db.service_config(profile.service_root)
+        config = server.service_config(profile.service_root)
         return pymysql.connect(unix_socket=config["socket"], user="root", password=config["root_password"],
                                database=f"{profile.database}/{branch or db.BRANCH}", autocommit=True)
 
@@ -117,7 +117,7 @@ class Service:
     def close(self) -> None:
         try:
             if (self.service_root / "service.json").exists():
-                db.stop_service(self.service_root)
+                server.stop_service(self.service_root)
         finally:
             self._environment.stop()
             shutil.rmtree(self.root, ignore_errors=True)
