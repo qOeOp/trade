@@ -103,7 +103,8 @@ services:
       start_period: 6h
       start_interval: 10s
 
-  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of --bar-symbols daily,
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of every eligible contract
+  # (or of --bar-symbols) daily,
   # metrics daily, aggTrades and quotes of --symbols monthly. The only writer of the market directory. It reaches
   # data.binance.vision and fapi.binance.com (bars). Unhealthy
   # while anything is stopped or lagging, or when its status is a day old.

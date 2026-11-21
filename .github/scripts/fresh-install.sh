@@ -49,7 +49,7 @@ done_() { echo "::endgroup::"; }
 
 step "deploy/README.md: .env, the host directories, the images"
 printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_MARKET_ARGS="%s"\n' "$(id -u)" "$(id -g)" \
-  "$D" "--bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01" > "$env_file"
+  "$D" "--bars-from 2020-01" > "$env_file"
 for name in TRADE_IDE_PORT TRADE_LEDGER_PORT; do
   if [ -n "${!name:-}" ]; then echo "$name=${!name}" >> "$env_file"; fi
 done
