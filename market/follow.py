@@ -12,13 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time as day_time, timedelta
 import json
-import os
 from pathlib import Path
 import tempfile
 import time
 
 from market import aggtrades, files, metrics, quotes, sources, store, universe
 from shared import clock
+from shared.files import atomic_write
 from shared.errors import Refusal
 
 
@@ -540,9 +540,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
 
 def write_status(path: Path, status: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(path.name + ".part")
-    partial.write_text(json.dumps(status, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(partial, path)
+    atomic_write(path, (json.dumps(status, separators=(",", ":"), ensure_ascii=False) + "\n").encode())
 
 
 def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print,
