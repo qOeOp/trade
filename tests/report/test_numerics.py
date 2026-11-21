@@ -347,6 +347,8 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual((found["top5_abs_share"], found["long_net"], found["short_net"]),
                          (1.0, "20.00000000", "-4.00000000"))
         self.assertIsNone(found["one_side_instruments"])
+        self.assertEqual(found["net_without_top_instrument"], "-4.00000000", "X's closed +20 removed; open cycles never count")
+        self.assertEqual(measures.derive_measures(self.facts)["net_without_top_instrument"]["instrument"], "X")
         self.assertEqual(found["months_won_share"], 1.0)
         self.assertTrue(found["_reasons"]["beta_basket"].startswith("REGRESSION_UNAVAILABLE"), "four days are too few")
 
@@ -370,6 +372,10 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(measures.residual_after_top([5, 4, 3, 2, 1, -1, -2]), -3)
         self.assertEqual(measures.residual_after_top([-5, -4, -3, -2, -1, 1, 2]), 3)
         self.assertEqual(measures.top_share([1, -1, 2]), 1.0)
+        self.assertEqual(measures.without_top({"A": Decimal(-5), "B": Decimal(2), "C": Decimal(1)}), ("A", Decimal(3)),
+                         "a negative total loses its largest loser")
+        self.assertEqual(measures.without_top({"B": Decimal(3), "A": Decimal(3)}), ("A", Decimal(3)), "ties by name")
+        self.assertEqual(measures.without_top({}), (None, None))
 
 
     def test_a_candidate_paying_less_in_fees_that_still_wins_never_breaks_even(self):
@@ -513,6 +519,18 @@ class PairwiseTests(unittest.TestCase):
                 self.assertIsNone(found[name]["value"])
                 self.assertTrue(found[name]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))
         self.assertEqual(found["one_side_instruments"]["value"], 0, "the rest of the pair is still given")
+
+    def test_the_pair_removes_the_instrument_whose_difference_leads_the_total(self):
+        days = [(JAN + k * DAY, 0.0, None) for k in range(4)]
+        control = {"cycles": [cycle(1, "SOL", "long", JAN, JAN + DAY, "30"), cycle(2, "BTC", "short", JAN, JAN + DAY, "5")],
+                   "returns": days}
+        candidate = {"cycles": [cycle(1, "SOL", "long", JAN, JAN + DAY, "2"), cycle(2, "BTC", "short", JAN, JAN + DAY, "9"),
+                                cycle(3, "DOGE", "long", JAN, None, "-50")], "returns": days}
+        found = attribution._pairwise(control, candidate, {}, {}, {"error": "MARKET_RETURNS_UNAVAILABLE: fixture"},
+                                      {"scalars": {}})["net_without_top_instrument"]
+        self.assertEqual((found["value"], found["instrument"]), ("4.00000000", "SOL"),
+                         "SOL's -28 leads the -24 total; BTC's +4 is left and DOGE never closed")
+        self.assertTrue(found["definition_note"].startswith(measures.MEASURE_NOTES["net_without_top_instrument"]))
 
     def test_a_singular_market_series_leaves_the_regression_empty(self):
         days = [(JAN + k * DAY, 0.001 * (k % 3), None) for k in range(10)]

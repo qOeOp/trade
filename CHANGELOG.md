@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Reports: the `by_instrument` slice of `replay report` and `hypothesis compare` adds `net_without_top_instrument`,
+  the closed-cycle net PnL left after removing the one instrument that contributes most in the direction of the total
+  (it names that instrument). A comparison also gives it on the per-instrument differences as `pairwise`. Derived at
+  read time from stored cycles; registrations may predict its direction (doctor 20261120-16).
+
 - Breaking (research lines): a line's development period now grows with its start's coverage instead of stepping
   from 12 to 4 quarters below 24 quarters (user 2026-11-21, doctor 20261120-07). With C complete quarters of the
   start's precheck instruments before Q, the period is C - 12 quarters (the 8-quarter holdout and 4 quarters of veto

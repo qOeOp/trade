@@ -180,6 +180,21 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end: int) -> 
     }
 
 
+# What the comparison adds to a catalogue note where each side trims its own contributions and the pairwise value
+# trims the paired differences: (the difference entry's suffix, the pairwise value's suffix).
+PAIRED_NOTES = {
+    "residual_after_top5_days": (" candidate and control each trim their own series; difference subtracts those "
+                                 "residuals. pairwise.value separately trims the series of paired daily log differences.",
+                                 " Here the contributions are paired daily log differences (candidate minus control), "
+                                 "trimmed as one series."),
+    "net_without_top_instrument": (" candidate and control each remove their own instrument; difference subtracts those "
+                                   "residuals. pairwise.value separately removes one instrument from the per-instrument "
+                                   "closed net differences.",
+                                   " Here the contributions are per-instrument closed net differences (candidate minus "
+                                   "control)."),
+}
+
+
 def _difference(candidate, control):
     if candidate is None or control is None:
         return None
@@ -197,10 +212,7 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
         found[name] = {"value": value, "null_reason": None if value is not None else
                        (reason or "NOT_COMPUTABLE: no value for this pair"), **detail}
         if name in measures.MEASURE_NOTES:
-            found[name]["definition_note"] = measures.MEASURE_NOTES[name]
-            if name == "residual_after_top5_days":
-                found[name]["definition_note"] += " Here the contributions are paired daily log differences " \
-                                                  "(candidate minus control), trimmed as one series."
+            found[name]["definition_note"] = measures.MEASURE_NOTES[name] + PAIRED_NOTES.get(name, ("", ""))[1]
 
     account_c = (candidate_measures.get("account") or {}).get("value")
     account_o = (control_measures.get("account") or {}).get("value")
@@ -217,6 +229,10 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
     names = sorted(set(nets_c) | set(nets_o))
     put("top5_abs_share", measures.top_share([nets_c.get(name, Decimal(0)) - nets_o.get(name, Decimal(0))
                                               for name in names]), "NO_DIFFERENCE: no instrument differs")
+    differences = {name: nets_c.get(name, Decimal(0)) - nets_o.get(name, Decimal(0)) for name in names}
+    top_name, rest = measures.without_top(differences)
+    put("net_without_top_instrument", metrics.money(rest), "NO_CLOSED_CYCLE: neither run closed a cycle",
+        instrument=top_name)
     traded_c = {cycle["instrument_id"] for cycle in candidate["cycles"]}
     traded_o = {cycle["instrument_id"] for cycle in control["cycles"]}
     put("one_side_instruments", len(traded_c ^ traded_o))
@@ -294,11 +310,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                      "population": c["population"], "sample_size": {"candidate": c["sample_size"],
                                                                     "control": o["sample_size"]}}
             if name in measures.MEASURE_NOTES:
-                entry["definition_note"] = measures.MEASURE_NOTES[name]
-                if name == "residual_after_top5_days":
-                    entry["definition_note"] += " candidate and control each trim their own series; difference " \
-                                                "subtracts those residuals. pairwise.value separately trims " \
-                                                "the series of paired daily log differences."
+                entry["definition_note"] = measures.MEASURE_NOTES[name] + PAIRED_NOTES.get(name, ("", ""))[0]
             if name in pairwise:
                 entry["pairwise"] = pairwise[name]
             found[name] = entry
