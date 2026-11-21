@@ -265,7 +265,8 @@ def _identity(manifest):
                     "platform": _enum(runtime.get("platform"), {"linux/amd64", "linux/arm64"})},
         "symbols": [value for value in symbols if _text(value, SYMBOL)]
                    if isinstance(symbols, list) else None,
-        "config": {"drawdown_brake": _decimal(config.get("drawdown_brake")),
+        "config": {"environment": _enum(config.get("environment"), {"live", "demo"}),
+                   "drawdown_brake": _decimal(config.get("drawdown_brake")),
                    "duration_seconds": _integer(config.get("duration_seconds")),
                    "leverage": _decimal(config.get("leverage"))},
     }

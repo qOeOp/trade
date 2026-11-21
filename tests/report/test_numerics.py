@@ -164,6 +164,23 @@ class RegressionTests(unittest.TestCase):
         self.assertAlmostEqual(found["alpha_return"] + found["beta_return"], sum(y[1:]), places=12)
         self.assertEqual((found["days"], found["lag_selection"]), (9, measures.lag_selection(9)))
 
+    def test_the_usdt_split_weights_the_market_part_by_the_equity_before_each_day(self):
+        market = [0.01, -0.02, 0.015, 0.0, 0.03, -0.01, 0.005, 0.02, -0.015, 0.01]
+        y = [0.004] + [0.001 + 0.5 * market[t] + 0.2 * market[t - 1] for t in range(1, 10)]
+        returns = [(JAN + k * DAY, value, None) for k, value in enumerate(y)]
+        found = measures.derive_measures({"returns": returns, "cycles": [], "trade_start_ns": JAN,
+                                          "trade_end_ns": JAN + 10 * DAY, "starting_balance": Decimal(1000),
+                                          "sealed": {"activity": {"returns_compound_to_equity": {"passed": True}}}},
+                                         market={"days": [metrics.utc_day(ts) for ts, _, _ in returns], "basket": market},
+                                         wanted=("alpha_basket", "beta_basket"))
+        equity = [1000 * math.prod(1 + value for value in y[:day]) for day in range(10)]
+        beta = sum(equity[t] * (0.5 * market[t] + 0.2 * market[t - 1]) for t in range(1, 10))
+        self.assertAlmostEqual(found["beta_basket"]["pnl_sum"], beta, places=9)
+        self.assertAlmostEqual(found["alpha_basket"]["pnl_sum"] + found["beta_basket"]["pnl_sum"],
+                               sum(measures.daily_pnl(returns, Decimal(1000))), places=9,
+                               msg="the two parts add up to the daily PnL sum, the first day in the alpha part")
+        self.assertEqual(measures.pnl_split(returns, None, [0.0] * 9), (None, None), "no starting balance")
+
     def test_the_lag_selection_parameter_is_newey_west_1994s_truncation(self):
         self.assertEqual([measures.lag_selection(n) for n in (81, 100, 365)], [3, 4, 5])
 
@@ -430,6 +447,16 @@ class DevYearTests(unittest.TestCase):
         whole = math.prod(1 + value for _, value, _ in self.returns)
         self.assertAlmostEqual(math.prod(1 + item["return"] for item in found["years"]), whole, places=9,
                                msg="the years compound to the window")
+
+    def test_each_year_carries_its_sealed_mark_drawdown(self):
+        years = [{"mark_max_drawdown": 0.1 * k, "peak_utc": f"202{k}-01-01T00:00", "trough_utc": f"202{k}-02-01T00:00"}
+                 for k in (1, 2, 3)]
+        found = splits.dev_years({**self.run, "sealed": {"drawdown": {"years": {"value": years, "population": "bars"}}}})
+        assert found is not None
+        self.assertEqual([{key: item[key] for key in years[0]} for item in found["years"]], years)
+        found = splits.dev_years(self.run)
+        assert found is not None
+        self.assertIsNone(found["years"][0]["mark_max_drawdown"], "a reading without yearly drawdowns")
 
     def test_without_a_target_the_years_carry_no_mark(self):
         found = splits.dev_years(self.run)

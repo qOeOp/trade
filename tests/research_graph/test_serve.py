@@ -57,6 +57,7 @@ class FakeProduct:
         self.failure: dict | None = None
         self.reports: list[tuple[int, str]] = []
         self.read_bars: list[tuple[str, str, str, str]] = []
+        self.read_local: list[str] = []
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
         self.asked: list[tuple[str, str, str]] = []
         self.compared: list[tuple[int, int, str]] = []
@@ -120,6 +121,10 @@ class FakeProduct:
         if symbol == "NOPEUSDT":
             raise serve.ProductError({"code": "UNKNOWN_SYMBOL", "message": "no NOPEUSDT at the market day"})
         return {"market_day": market_day, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
+
+    def local(self, day):
+        self.read_local.append(day)
+        return {"market_day": day, "contracts": [{"symbol": "BTCUSDT", "first_open_ms": 0, "last_open_ms": 60_000}]}
 
     def readings(self, commit):
         return {"ledger_commit": commit, "lines": [{"name": "line-a", "closed": False, "recommendation": {
@@ -811,6 +816,25 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.get(f"/api/bars?{query}").status, 400, query)
         self.assertEqual(self.get(f"/api/bars?symbol=BTCUSDT&timeframe=1d&{days}&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(len(self.hub.product.read_bars), 3)
+
+    def test_the_market_directory_contracts_are_read_once_a_utc_day_for_yesterday(self):
+        for _ in range(2):
+            response = self.get("/api/market/local")
+            self.assertEqual((response.status, json.loads(response.read())["contracts"][0]["symbol"]), (200, "BTCUSDT"))
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).date().isoformat()
+        self.assertEqual(self.hub.product.read_local, [yesterday])
+
+    def test_the_market_directory_contracts_are_market_coverage_data_bounds_of_the_day_s_members(self):
+        product = serve.Product.__new__(serve.Product)
+        product.market = None
+        bounds = {"first_open_ms": 1683304200000, "last_open_ms": 1795219140000}
+        # market coverage's rows as diagnose_coverage gives them, cut to what this read uses
+        found = {"market_day": "2026-11-20", "coverage": [
+            {"symbol": "BTCUSDT", "listing_delisting": {"data_bounds_proxy": {"last": bounds, "mark": bounds}}},
+            {"symbol": "NEWUSDT", "listing_delisting": {"data_bounds_proxy": {"last": None, "mark": None}}}]}
+        with mock.patch.object(serve.Product, "run", return_value=found) as run:
+            self.assertEqual(product.local("2026-11-20"), {"market_day": "2026-11-20", "contracts": [{"symbol": "BTCUSDT", **bounds}]})
+        self.assertEqual(run.call_args.args, ("market", "coverage", "--start=2026-11-20T00:00:00Z", "--end=2026-11-20T00:01:00Z"))
 
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)

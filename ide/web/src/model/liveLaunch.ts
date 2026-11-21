@@ -1,7 +1,7 @@
 // The Live launch page as rows (widgets/live/LiveLaunch.tsx draws them): three columns, each row a value, where it
 // comes from, whether the user may change it here (editable), and whether it passes, with a plain reason when it does
 // not. Start opens only when every required row has a value and passes; the server still checks everything again.
-import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
+import { selectedCredential, type LiveCredential, type LiveEnvironment, type LiveRun, type LiveSource, type LiveTradingView } from "./liveTrading";
 import { contractsOf, unavailableReason } from "./liveLaunchText";
 import { paperBlocker, paperRow } from "./livePaper";
 export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
@@ -23,6 +23,7 @@ export type LaunchColumn = { id: "strategy" | "account" | "limits"; title: strin
 const BRAKE_MAX_PERCENT = 15, cashFloor = (wallet: string) => (Math.floor(Number(wallet) * 85 + 1e-9) / 100).toFixed(2);
 export type LaunchInput = {
   view: LiveTradingView; source: LiveSource | null; edits: Readonly<Record<string, string>>;
+  environment: LiveEnvironment; // the Demo/Live switch: whose key the run binds and where it trades
   checked: LiveRun | null; // the run this page prepared to check the account; its check and observation fill the account rows
   // The candidate's research reading and its line's targets, when the drawn research graph has them.
   reading: { annual_return: number | null; max_drawdown: number | null } | null;
@@ -91,7 +92,8 @@ function strategy({ view, source, edits, reading, targets }: LaunchInput, closed
   ];
 }
 
-function account({ source, edits, checked }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+function account({ source, edits, checked, environment }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+  const demo = environment === "demo";
   const check = checked?.accountCheck ?? null, venue = checked?.venue ?? null, passed = check?.state === "passed";
   const notYet = !checked ? "Shown after the account check." : check?.state === "running" ? "The account check is running." : null;
   const flag = (id: string, label: string, got: boolean | null | undefined, want: boolean, failing: string): LaunchRow => ({
@@ -103,34 +105,40 @@ function account({ source, edits, checked }: LaunchInput, closed: string | null,
   const wallet = venue?.wallet ?? null, available = venue?.available ?? null, budget = wallet === null ? null : cashFloor(wallet);
   const funds = wallet !== null && available !== null ? Math.min(Number(wallet), Number(available)) : null;
   const evidence = source?.read === "found" && launchSymbols(source, edits) ? source.evidence : null;
+  const unbacked = evidence?.state === "missing";
   const found = evidence?.state === "found" ? evidence : null, tolerance = found ? Number(found.tolerance) : 0;
   const nearest = wallet !== null && found?.replays.length
     ? found.replays.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
   const near = nearest !== null && wallet !== null && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet);
   return [
-    { id: "key", label: "API key", value: credential ? `Binance Futures · ${credential.ref.slice(0, 8)}` : null, source: "Saved in Settings", editable: false,
+    { id: "key", label: "API key", value: credential ? `${demo ? "Binance Demo" : "Binance Futures"} · ${credential.ref.slice(0, 8)}` : null,
+      source: demo ? "Demo key saved in Settings" : "Live key saved in Settings", editable: false,
       required: true, mark: credential ? credential.available === false ? "fail" : "pass" : "fail",
       reason: credential ? credential.available === false ? "Its copy on the server is gone. Save the key again in Settings." : null
-        : closed ?? "Save a Binance Futures API key (no withdrawals, restricted to this server's IP) in Settings." },
+        : closed ?? (demo ? "Save a Binance Demo Trading API key (binance.com demo trading, API Management) in Settings, under Demo."
+          : "Save a Binance Futures API key (no withdrawals, restricted to this server's IP) in Settings, under Live.") },
     { id: "check", label: "Account check", source: "Read-only, by the Live service", editable: false, required: true,
       value: check ? { passed: "Passed", failed: "Failed", running: "Running", unknown: "Unknown" }[check.state] : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
-      reason: passed ? "Live checks the account again when it starts." : check?.state === "failed"
+      reason: passed ? "Live checks the account again when it starts." : check?.state === "failed" && unbacked
+        ? "Live read the account, then stopped: no replay backs the candidate yet (Strategy). The wallet below is what a replay must start near; check again once one does."
+        : check?.state === "failed"
         ? "Live refused the account: a mode, the margin type or leverage, the key's permissions or the funds. The rows here show what it observed; Requests has the rest."
         : check?.state === "running" ? "Reading the account at Binance. This page refreshes on its own." : "Not checked yet. It reads the account; it places no order." },
     flag("trading", "Trading enabled", venue?.canTrade, true, "Binance reports trading disabled for this account."),
     flag("hedge", "Hedge mode", venue?.hedgeMode, true, "Live needs hedge mode. Turn it on in Binance Futures preferences."),
     flag("multi", "Multi-assets mode", venue?.multiAssets, true, "Live needs multi-assets margin mode. Turn it on in Binance Futures preferences."),
-    { id: "withdraw", label: "Key cannot withdraw", source: CHECK, editable: false, required: true, value: passed ? "Confirmed" : null,
+    demo ? { id: "withdraw", label: "Key cannot withdraw", source: "Binance Demo Trading", editable: false, required: false, value: "Not checked",
+      mark: "shown", reason: "It reports no key permissions, and its keys reach no real funds." }
+    : { id: "withdraw", label: "Key cannot withdraw", source: CHECK, editable: false, required: true, value: passed ? "Confirmed" : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
       reason: passed ? null : notYet ?? "Not confirmed by the last check. A key that allows withdrawals or has no IP restriction is refused; change that at Binance." },
     { id: "wallet", label: "Futures wallet", value: wallet, unit: wallet === null ? null : "USDT", source: CHECK, editable: false, required: true,
       mark: wallet === null ? "wait" : "pass", reason: wallet === null ? notYet ?? "Not observed." : available === null ? null : `${available} USDT available` },
     { id: "budget", label: "Cash floor", value: budget, unit: budget === null ? "Wallet × 85 %" : "USDT", source: "Wallet × 85 % at the start",
       editable: false, required: true,
-      mark: budget === null ? check?.state === "failed" ? "fail" : "wait" : !(Number(budget) > 0) || Number(budget) > 100 || funds === null || Number(budget) > funds ? "fail" : "pass",
+      mark: budget === null ? check?.state === "failed" ? "fail" : "wait" : !(Number(budget) > 0) || funds === null || Number(budget) > funds ? "fail" : "pass",
       reason: budget === null ? notYet ?? closed ?? "Set from the wallet the account check reads."
-        : Number(budget) > 100 ? "The first Live trial takes a cash floor of at most 100 USDT, a wallet up to about 117 USDT."
         : funds === null || Number(budget) > funds ? "More than the USDT the wallet has available. Add USDT at Binance."
         : "Each entry needs this much USDT in the wallet and available, a last line should the drawdown brake fail." },
     { id: "near", label: "Replay at wallet", source: "Replay evidence and the wallet", editable: false, required: Boolean(found),
@@ -172,7 +180,7 @@ function limits({ view, edits, checked }: LaunchInput, closed: string | null): L
 const WAITS = "Waits for Live (see above).";
 export function launchColumns(input: LaunchInput): LaunchColumn[] {
   const closed = unavailableReason(input.view) === null ? null : WAITS;
-  const credential = input.view.credentials.find((item) => item.selected && !item.removed);
+  const credential = selectedCredential(input.view, input.environment);
   return [
     { id: "strategy", title: "Strategy", rows: strategy(input, closed) },
     { id: "account", title: "Account", rows: account(input, closed, credential) },
@@ -184,7 +192,9 @@ export function launchColumns(input: LaunchInput): LaunchColumn[] {
 export const ready = (columns: readonly LaunchColumn[]): boolean =>
   columns.every((column) => column.rows.every((row) => !row.required || (row.value !== null && (row.mark === "pass" || row.mark === "shown"))));
 
-/** What the account check needs first: Live taking actions, a candidate, contracts, a key, and evidence not known missing. */
+/** What the account check needs first: Live taking actions, a candidate, contracts, a key and a reconciled Paper run.
+ *  Not replay evidence: the check reads the wallet a replay must start near, so it runs before there is one (Live then
+ *  refuses the check at its end, and the start, LIVE_EVIDENCE_MISSING; startBlocker). */
 export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | null {
   const closed = unavailableReason(input.view), source = input.source;
   if (closed) return closed;
@@ -192,8 +202,10 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   if (!source) return NO_VERSION;
   if (source.read !== "found") return source.read === "absent" ? "This version cannot run live (Strategy)." : "Waiting for the candidate.";
   if (!launchSymbols(source, input.edits)) return "Needs valid contracts first (Strategy).";
-  if (!input.view.credentials.some((item) => item.selected && !item.removed)) return "Save an API key in Settings first.";
-  if (source.evidence?.state === "missing") return "Needs replay evidence first (Strategy).";
-  if (source.evidence?.state !== "found") return "Waiting for the replay evidence.";
+  if (!selectedCredential(input.view, input.environment)) return `Save a ${input.environment === "demo" ? "Demo" : "Live"} API key in Settings first.`;
   return paperBlocker(source.paper ?? null);
 }
+
+/** Why Start stays shut beyond the columns' rows: no replay of the candidate on these contracts yet. */
+export const startBlocker = ({ source, edits }: LaunchInput): string | null =>
+  source?.read === "found" && launchSymbols(source, edits) && source.evidence?.state === "missing" ? "Needs replay evidence first (Strategy)." : null;

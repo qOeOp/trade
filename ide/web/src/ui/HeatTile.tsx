@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { change, funding, price, usd } from "../lib/format";
 import { fillRole, inkRoles, step } from "../model/heat";
+import { Icon } from "../icons/Icon";
 import { capOf, isChange, valueOf, weighted, type Coin, type Color, type Node } from "../model/market";
 import { corners, tileStyle } from "../model/ripple/layout";
 import { usePhone } from "../state/phone";
@@ -57,11 +58,14 @@ const groupStats = (n: Node, color: Color) => (
 
 /** One tile of the Market heatmap, styled by its size as vibe-trading's are: the name and the colour
  *  metric's badge on top; a coin's price and money, or a group's leaders and totals, as room allows; a
- *  group's market cap, median and up and down counts at the foot. A group opens a level, a coin selects. */
-export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens = true }: {
+ *  group's market cap, median and up and down counts at the foot. A group opens a level, a coin selects. `local`
+ *  counts the tile's coins the market directory holds bars of (null: unknown): a held coin's name carries a small
+ *  database mark, a group's foot the count. */
+export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens = true, local = null }: {
   tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
   /** Whether a group opens its level (a phone's one-level map: no). */
   opens?: boolean;
+  local?: number | null;
 }) {
   const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color), phone = usePhone();
   const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge, edge] = inkRoles(k);
@@ -85,7 +89,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens 
       const withStats = w > 240 && (rows >= 10 || rows - Math.min(n.coins.length, 8) >= 3);
       mid = <>{leaders(n, color, Math.min(withStats ? rows - 4 : rows, 8), w)}{withStats && groupStats(n, color)}</>;
     }
-    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 260 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓${isChange(color) ? "" : " 24h"}`;
+    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 260 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓${isChange(color) ? "" : " 24h"}${w > 300 && local ? ` · ${local} local` : ""}`;
     else if (w > 90 && h > (stack ? 80 : 60)) foot = usd(n.cap, 1);
   }
   const style: CSSProperties = {
@@ -94,11 +98,12 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick, opens 
   };
   const ring = selected ? "z-10 ring-2 ring-inset ring-fg" : hovered ? "z-10 shadow-popup ring-1 ring-inset ring-fg/50" : "";
   return (
-    <button type="button" aria-label={`${n.name} ${shown(n.value, color)}`} onClick={onPick} style={style}
+    <button type="button" aria-label={`${n.name} ${shown(n.value, color)}${local ? n.kind === "coin" ? ", bars held locally" : `, ${local} held locally` : ""}`} onClick={onPick} style={style}
             className={`absolute flex flex-col overflow-hidden border text-left transition-[left,top,width,height] duration-300 ease-out ${ring}`}>
       <div className={`flex min-w-0 justify-between ${stack ? "flex-col items-start gap-1" : st.vertical ? "flex-col items-start gap-2" : "items-baseline gap-2"}`}>
         <span className="min-w-0 max-w-full truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
           {n.name}{n.kind !== "coin" && opens && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
+          {n.kind === "coin" && local === 1 && w > 70 && <Icon name="local-data" size={12} className="ml-[0.3em] size-[0.6em] align-baseline opacity-70" />}
         </span>
         {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline, a lit top
             edge and a short shadow, as vibe-trading's badge is. */}

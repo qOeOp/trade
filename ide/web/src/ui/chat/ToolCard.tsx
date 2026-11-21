@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Collapsible } from "radix-ui";
-import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import { useAuiState, type ToolCallMessagePartProps } from "@assistant-ui/react";
 import { Icon } from "../../icons/Icon";
 import { useOverlayBars } from "../ScrollArea";
+import { foldNames } from "./toolFold";
 
 // One product command the agent ran: its command line and whether it answered, folded; open, the
 // JSON it returned, which is what every number in the answer must come from. Outlined, not filled,
@@ -34,7 +35,7 @@ function Json({ output }: { output: unknown }) {
   );
 }
 
-export function ToolCard({ toolName, result, status }: ToolCallMessagePartProps) {
+export function ToolCard({ toolName, result, status }: Pick<ToolCallMessagePartProps, "toolName" | "result" | "status">) {
   const [open, setOpen] = useState(false);
   const done = result as Output | undefined;
   const running = status.type === "running";
@@ -56,6 +57,29 @@ export function ToolCard({ toolName, result, status }: ToolCallMessagePartProps)
         )}
         <Json output={done?.output} />
       </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
+/** Consecutive calls that answered (toolFold.ts), folded into one line naming their tools; open, their cards. One
+ *  call alone stays its card. */
+export function ToolFold({ indices, children }: { indices: readonly number[]; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const names = useAuiState((s) => foldNames(indices.map((i) => {
+    const part = s.message.parts[i];
+    return part?.type === "tool-call" ? part.toolName : "";
+  })));
+  if (indices.length < 2) return children;
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="space-y-1">
+      <Collapsible.Trigger
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-control border border-line px-3 py-1 text-left text-dense transition-colors hover:bg-row-hover active:bg-hover">
+        <Icon name="tool" size={12} tone="icon" />
+        <span className="shrink-0 text-fg">{indices.length} commands</span>
+        <span className="min-w-0 truncate font-mono text-fg-faint">{names}</span>
+        <span className={`ml-auto grid text-icon transition-transform ${open ? "rotate-90" : ""}`}><Icon name="chevron-right" size={12} /></span>
+      </Collapsible.Trigger>
+      <Collapsible.Content className="ml-3 space-y-1 border-l border-line pl-2">{children}</Collapsible.Content>
     </Collapsible.Root>
   );
 }

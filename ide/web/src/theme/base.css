@@ -118,3 +118,19 @@ body {
 :root[data-phone] header button { position: relative; }
 :root[data-phone] header button::after { content: ""; position: absolute; inset: -4px; }
 :root[data-phone] * { scrollbar-width: none; -webkit-tap-highlight-color: transparent; }
+
+/* A scroll region whose content is wider than it fades out over 24px at each side the content goes on past,
+   following the horizontal scroll (a scroll-driven animation, so no script measures it); content that fits has
+   no inline scroll timeline, the animation never applies and nothing fades. */
+@property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes scroll-fade {
+  0% { --fade-left: 0px; --fade-right: 24px; }
+  4%, 96% { --fade-left: 24px; --fade-right: 24px; }
+  100% { --fade-left: 24px; --fade-right: 0px; }
+}
+.scroll-fade {
+  mask-image: linear-gradient(to right, transparent, black var(--fade-left), black calc(100% - var(--fade-right)), transparent);
+  animation: scroll-fade linear both;
+  animation-timeline: scroll(self inline);
+}

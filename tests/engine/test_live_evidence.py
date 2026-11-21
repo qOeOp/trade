@@ -73,7 +73,7 @@ class LiveEvidenceTests(unittest.TestCase):
         manifest = dict(run_id="evidence", symbols=["AAAUSDT"], strategy_file=str(path), account_id="BINANCE-001",
                         universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
-                        config=dict(duration_seconds=3600, drawdown_brake="0.15"), market=dict(market_day=MARKET_DAY))
+                        config=dict(environment="live", duration_seconds=3600, drawdown_brake="0.15"), market=dict(market_day=MARKET_DAY))
         session = live.Session(manifest, self.output, "run", account_verified=True)
         session.node = Mock()
         return session, live.source_for_run(manifest)
@@ -196,7 +196,7 @@ class LiveEvidenceTests(unittest.TestCase):
         self.assertEqual(observer.observe.call_count, 2)
 
     def test_live_warms_its_source_at_t_from_binance_klines_before_on_start(self):
-        def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             step = warmup.period_ns(period)
             kind = warmup.bar_type(instrument_id, period)
             prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
@@ -221,10 +221,10 @@ class LiveEvidenceTests(unittest.TestCase):
                           ("15-MINUTE", 2, floor - quarter - 1_000_000, floor - 1_000_000)])
 
     def test_live_refuses_a_start_whose_history_or_first_minute_does_not_hold(self):
-        def short(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def short(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             raise Refusal("WARMUP_INSUFFICIENT", "Binance holds fewer bars")
 
-        def whole(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+        def whole(instrument_id, period, first_open, end, precisions, proxy_url, get=None, base=None):
             step = warmup.period_ns(period)
             prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
             return [Bar(warmup.bar_type(instrument_id, period), *prices, Quantity.from_str("40.000"),

@@ -26,7 +26,16 @@ const chatInput = z.object({
   messages: z.array(z.any()).min(1),
   agent: z.string().min(1),
   model: z.string().min(1),
-  context: z.object({ version: z.string().nullish(), line: z.string().nullish(), ledger_commit: z.string().nullish() }).optional(),
+  context: z.object({
+    page: z.enum(["research", "runs", "market", "history"]).nullish(),
+    version: z.string().max(120).nullish(),
+    line: z.string().max(48).nullish(),
+    ledger_commit: z.string().max(64).nullish(),
+    stage: z.enum(["backtest", "paper", "live"]).nullish(),
+    paper_run: z.number().int().positive().nullish(),
+    live_run: z.string().regex(/^[a-z0-9][a-z0-9-]{0,23}$/).nullish(),  // live/state.py RUN_ID
+    coin: z.string().regex(/^[\p{L}\p{N}]{1,40}$/u).nullish(),
+  }).optional(),
 });
 const row = z.object({ id: z.string().min(1).max(200), parent_id: z.string().max(200).nullable(), format: z.string().max(60), content: z.unknown() });
 const threadChange = z.object({ title: z.string().max(200).optional(), status: z.enum(["regular", "archived"]).optional() });

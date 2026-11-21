@@ -42,7 +42,7 @@ export function openPath(path: Path): void {
 
 /** Set while the phone shows: its runs' positions are marked at the snapshot's prices, on every tab. */
 export const pricesWanted = atom(false);
-const onPage = () => shell.get().last.left === "market" || pricesWanted.get();
+const onPage = () => shell.get().page === "market" || pricesWanted.get();
 
 async function read(path: string): Promise<Response | null> {
   try { return await pageFetch(path, { cache: "no-store" }); } catch { return null; }

@@ -1,16 +1,18 @@
 import { dateTime, nsMilliseconds } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
-import type { LiveCredential, LiveTradingActions } from "../../model/liveTrading";
+import type { LiveCredential } from "../../model/liveTrading";
 import { KeyValues } from "../../ui/KeyValues";
 import { LiveCredentialRemove } from "./LiveCredentialRemove";
 
-export function LiveCredentialVersions({ credentials, remove }: { credentials: readonly LiveCredential[]; remove?: LiveTradingActions["removeCredential"] }) {
+export function LiveCredentialVersions({ demo, credentials, remove }: {
+  demo: boolean; credentials: readonly LiveCredential[]; remove?: (ref: string) => void | Promise<void>;
+}) {
   const zone = useTimeZone();
   return <div className="space-y-3">
-    {credentials.length === 0 ? <p className="text-fg-muted">No credential version is available.</p> : credentials.map((credential) => {
+    {credentials.length === 0 ? <p className="text-fg-muted">No {demo ? "demo" : "live"} credential version is available.</p> : credentials.map((credential) => {
       const saved = dateTime(nsMilliseconds(credential.savedAt), zone, "millisecond");
       return <div key={credential.ref} className="space-y-3 rounded-control border border-line p-3 [&_dd]:wrap-anywhere">
-        <div className="flex flex-wrap items-baseline gap-2"><p className="font-semibold">Binance Futures</p>
+        <div className="flex flex-wrap items-baseline gap-2"><p className="font-semibold">{demo ? "Binance Demo Trading" : "Binance Futures"}</p>
           <span className="text-small text-fg-muted">{credential.selected ? "Selected" : "Saved version"}</span></div>
         <KeyValues items={[["Saved", saved], ["Local copy", credential.available === null ? "Unknown" : credential.available ? "Available" : "Unavailable"],
           ["Used by", credential.runIds.length ? `${credential.runIds.length} retained run${credential.runIds.length === 1 ? "" : "s"}` : "No runs"]]} />

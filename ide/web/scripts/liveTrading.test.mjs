@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Tooltip } from "radix-ui";
 import { loader, src } from "./load.mjs";
 
-let canvasRun, canvasView, draft = null;
+let canvasRun, canvasView, draft = null, environment = "live";
 const components = new SourceTextModule(`
   export { LiveCredentialsDialog } from "./widgets/live/LiveCredentialsDialog";
   export { LiveRunReview } from "./widgets/live/LiveRunReview";
@@ -23,7 +23,8 @@ await components.link(loader({ stubs: {
   "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
   "state/liveWorkspace": { openLiveCredentials: () => {}, openLiveLaunch: () => {}, showLiveRun: () => {},
     FRESH_DRAFT: { version: null, edits: {}, preparedId: null },
-    liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
+    liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft,
+    useLiveEnvironment: () => environment, liveEnvironment: { set: (next) => { environment = next; } } },
   "state/paper": { usePaperRuns: () => null },
   "state/market": { useSnapshot: () => null },
   "state/atom": { useAtom: () => ({}) },
@@ -49,7 +50,7 @@ const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provi
 const noOp = () => {};
 const blank = {
   availability: "unavailable", notice: "The Live service is not connected. No request will be sent.",
-  credentials: [], planFields: [], runs: [], requests: [],
+  credentials: { live: [], demo: [] }, planFields: [], runs: [], requests: [],
 };
 const run = {
   id: "run-fixture", candidate: "fixture-strategy@1", sourceHash: "a".repeat(64), entryClass: "FixtureStrategy",
@@ -91,7 +92,7 @@ test("the notifications panel shows status, never a token, and offers test and r
 
 test("a command with no reply shows what Live reads now and offers only Send again", () => {
   const view = { ...blank, runs: [{ ...run, hostState: "running", running: true }],
-    credentials: [{ ref: "abcdef0123456789abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] }] };
+    credentials: { live: [{ ref: "abcdef0123456789abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] }], demo: [] } };
   const start = render("LiveNoReply", { view, resend: noOp, request: { request_id: "web-start", action: "start", target: { run_id: run.id }, outcome: "no_reply" } });
   assert.match(start, /Live start · No reply received/);
   assert.match(start, /This run · Running/);
@@ -100,7 +101,7 @@ test("a command with no reply shows what Live reads now and offers only Send aga
   assert.doesNotMatch(start, /Resolve|Request details|web-start/);
   const save = render("LiveNoReply", { view, request: { request_id: "web-save", action: "credential_save", target: {}, outcome: "no_reply" } });
   assert.match(save, /Key save · No reply received/);
-  assert.match(save, /Selected key · abcdef012345/);
+  assert.match(save, /Live key · abcdef012345 · Demo key · none selected/);
   assert.match(save, /<button[^>]* disabled=""[^>]*>Send again<\/button>/, "no resend action: the button is off");
   const gone = render("LiveNoReply", { view: blank, resend: noOp, request: { request_id: "web-prep", action: "prepare", target: { run_id: "web-unknown" }, outcome: "no_reply" } });
   assert.match(gone, /Live lists no such run/);

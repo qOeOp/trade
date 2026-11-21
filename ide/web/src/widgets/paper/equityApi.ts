@@ -4,7 +4,8 @@
 // view never leaves the points: a pan stops at the first, ROOM points right of the last, and zooming out
 // stops at all of them (candleView's fence). The pane is in bands (equityZones.ts): the value axis fits the
 // plot, to the shown stretch's points in view while they are most of those in view (focused), so the end of
-// the stretch before it may run off the plot, and all of them otherwise; the pace never widens it.
+// the stretch before it may run off the plot, and all of them otherwise; the pace widens it only while equity has
+// not moved, whose flat line alone would get an axis of a few USDT.
 import { useEffect } from "react";
 import { createChart, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type LineWidth } from "lightweight-charts";
 import { AxisTicks } from "./axisTicks";
@@ -14,7 +15,7 @@ import { CEILING } from "./equityBands";
 import { headOf, plotOf, type Plot } from "./equityZones";
 import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
-import { EquityLayers, HALO, type EquityPoint } from "./equityLayers";
+import { EquityLayers, HALO, unmoved, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
 import { EquityRows } from "./equityRows";
 import { atom, useAtom, type Atom } from "../../state/atom";
@@ -54,9 +55,11 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
                       lockVisibleTimeRangeOnResize: true, enableConflation: false }) });
   chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } }, handleScroll: { vertTouchDrag: false } });
   const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
-  // The value axis fits the equity shown, not the pace, which may run far below it once zoomed in.
-  // The layers draw the pace's line, inside the plot; the series keeps its format.
-  const pace = chart.addSeries(LineSeries, { ...quiet, lineVisible: false, priceFormat: priceFormat(0), autoscaleInfoProvider: () => null });
+  // The value axis fits the equity shown, not the pace, which may run far below it once zoomed in; while
+  // equity has not moved it takes in the pace too. The layers draw the pace's line, inside the plot; the
+  // series keeps its format.
+  const pace = chart.addSeries(LineSeries, { ...quiet, lineVisible: false, priceFormat: priceFormat(0),
+    autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => (unmoved(now().points) ? base() : null) });
   const replay = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.Dotted, priceFormat: priceFormat(2, 0) });
   // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot, and
   // keeps the line above the foot's exposure, its shadow's reach (HALO) inside the plot.

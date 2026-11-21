@@ -25,8 +25,10 @@ PIDS_LIMIT = 256  # example value, not calibrated
 # refused STAGE_MEMORY_LIMIT instead of exhausting the Docker VM. Measured 2026-11-11 on the image with the indexed
 # audit and streaming fingerprint: the native stage peaks highest, at about 0.7 GiB for 3 years of the pool plus
 # 45 KB per fill (8.5 GiB at 186k fills), so 16 GiB admits about 350k fills over 3 years and three stages at once
-# leave about 14 GiB of the 62.7 GiB Docker VM (docs/plans/line-close-history-test-20261110.zh.md, 7).
-STAGE_MEMORY = "16g"
+# leave about 14 GiB of the 62.7 GiB Docker VM (docs/plans/line-close-history-test-20261110.zh.md, 7). A history test
+# runs as many replays at once as Docker's memory has room for at this peak (replay.history).
+STAGE_MEMORY_BYTES = 16 * 2**30
+STAGE_MEMORY = f"{STAGE_MEMORY_BYTES // 2**30}g"
 NETWORK = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 REPORTS = "/reports"
 # SIGTERM to SIGKILL when Docker stops a paper container, `paper stop` or a Docker or host restart: Docker's

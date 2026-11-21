@@ -9,7 +9,6 @@ import { useEffect, useMemo } from "react";
 import { symbolOf, type PaperRun } from "../lib/paperApi";
 import { account, tradeStats, type Account, type TradeStats } from "../model/account";
 import { bridge as bridgeOf, closedGross, type Bridge } from "../model/bridge";
-import { equityMoved } from "../model/chain";
 import { joined } from "../model/joined";
 import { fills as fillsOf, type Fill } from "../model/paper";
 import { atom, useAtom } from "./atom";
@@ -39,11 +38,9 @@ export function useRunDriver(): void {
   const tab = useAtom(paperTab);
   const b = useBacktest(), tested = b?.kind === "ready" && b.b.cycles.some((c) => c.symbol === tab);
   // The run's stream follows a contract of the run only: one the backtest alone traded has no paper bars.
-  // A paper run opens on a contract, the one it holds once its state says which, else its first; Equity is
-  // a flat line until the chain's equity moves, so it is not shown before then.
-  const flat = stage !== "backtest" && !!run?.symbols.length && !equityMoved(chain);
+  // A paper run opens on a contract, the one it holds once its state says which, else its first.
   const fallback = stage !== "backtest" && run?.symbols[0] ? run.symbols[0] : "equity";
-  const view = (tab === "equity" && !flat) || (tab && tab !== "equity" && (stage === "backtest" ? tested : run?.symbols.includes(tab))) ? tab : fallback;
+  const view = tab === "equity" || (tab && tab !== "equity" && (stage === "backtest" ? tested : run?.symbols.includes(tab))) ? tab : fallback;
   const symbol = view !== "equity" && run?.symbols.includes(view) ? view : null, scope = view !== "equity" && tab === view ? view : null;
   useEffect(() => { follow(run?.paper_id ?? null, symbol); }, [run?.paper_id, symbol]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);

@@ -64,11 +64,12 @@ export const PhoneHeading = ({ title, aside }: { title: string; aside?: ReactNod
 export const Side = ({ long, word }: { long: boolean | null; word?: string }) => long === null ? <span className="text-fg-faint">{MISSING}</span>
   : <span className={long ? "text-pnl-up" : "text-pnl-down"}>{word ?? (long ? "Long" : "Short")}</span>;
 
-/** A held position on one line: the contract, its side, size and entry, its open profit at the right. */
+/** A held position: the contract, its side, size and entry, its open profit at the right. A long contract name and
+ *  price wrap the entry whole onto a second line rather than cut it (1000PEPEUSDT … @ 0.0123456). */
 export function HeldLine({ held }: { held: Held }) {
   return (
     <span className="flex items-baseline gap-2 text-dense tabular-nums">
-      <span className="min-w-0 truncate"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} @ {fixed(held.entry) ?? MISSING}</span>
+      <span className="min-w-0"><span className="font-semibold">{held.symbol}</span> <Side long={held.long} /> {fixed(held.qty)} <span className="whitespace-nowrap">@ {fixed(held.entry) ?? MISSING}</span></span>
       {held.pnl != null && <span className={`ml-auto shrink-0 ${pnlClass(held.pnl)}`}>{signed(held.pnl)}</span>}
     </span>
   );
@@ -85,9 +86,10 @@ export function EntryMark({ held, several, places }: { held: Held; several: bool
   return several ? <>{entry}<span className="block text-small text-fg-muted">{fixed(held.mark, places) ?? MISSING}</span></> : entry;
 }
 
-/** The Positions heading's aside: the mark when exactly one position is held (several show theirs in the table). */
-export const heldAside = (held: readonly Held[], approx: boolean): ReactNode =>
-  !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark)}`;
+/** The Positions heading's aside: the mark when exactly one position is held (several show theirs in the table), at
+ *  `places` decimals (unknown: as many as it needs). */
+export const heldAside = (held: readonly Held[], approx: boolean, places = -1): ReactNode =>
+  !held.length ? "None open" : held.length === 1 && held[0]!.mark !== null && `mark ${approx ? "≈ " : ""}${fixed(held[0]!.mark, places)}`;
 
 /** A plain table of a few columns at the page's edges: the first column left, the others right; a row of one cell
  *  is a note under the row above it, across the columns. The page's 12 px margin is kept at its edges only: five

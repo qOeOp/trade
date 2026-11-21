@@ -7,7 +7,7 @@ const { HELD_NOTICE, HELD_COVERED_NOTICE, HELD_ORDERS_NOTICE, HELD_UNREADABLE_NO
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, candidate: { strategy_id: "retest", revision: "1" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
-  config: { drawdown_brake: "0.150000000000000001", duration_seconds: "8100", leverage: "3" },
+  config: { environment: "live", drawdown_brake: "0.150000000000000001", duration_seconds: "8100", leverage: "3" },
   host: { state: "running", mode: "run", account_owned: null, exit_code: null }, stop_requested: false,
   terminal: { event: "clean_stop", observed_ns: "1000000000000000001", source_failed: true, event_ref: { source: "native", cursor: "n:1" } },
   custody: { released: false, release_reason: null, archived: null }, account: null,
@@ -68,16 +68,20 @@ test("fill events stay events and never become total fill status or aggregated p
 test("credential metadata and a failed research review do not become successful validation", () => {
   const native = run(), home = {
     availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, runs: [native],
-    credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
+    credentials: { live: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }], demo: [] },
+    defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 },
   };
   const mapped = liveHomePresentation(home, new Map([[native.run_id, { ...native, review_error: { code: "LIVE_REVIEW_UNAVAILABLE" } }]]));
-  assert.equal(mapped.credentials[0].removed, true);
-  assert.equal(mapped.credentials[0].savedAt, "1000000000000000001");
+  assert.equal(mapped.credentials.live[0].removed, true);
+  assert.equal(mapped.credentials.live[0].savedAt, "1000000000000000001");
   assert.equal(mapped.runs[0].review, null);
   assert.equal(mapped.runs[0].reviewError, "LIVE_REVIEW_UNAVAILABLE");
   assert.deepEqual(mapped.planFields.at(-1), { id: "leverage", label: "Leverage", value: "3" });
-  assert.deepEqual(mapped.runs[0].config.at(-1), { label: "Leverage", value: "3" });
+  assert.deepEqual(mapped.runs[0].config.at(-2), { label: "Leverage", value: "3" });
+  assert.deepEqual(mapped.runs[0].config.at(-1), { label: "Environment", value: "Live (real account)" });
+  const demo = liveHomePresentation({ ...home, runs: [{ ...run(), config: { ...native.config, environment: "demo" } }] }, new Map()).runs[0];
+  assert.equal(demo.environment, "demo");
+  assert.deepEqual(demo.config.at(-1), { label: "Environment", value: "Demo (Binance Demo Trading)" });
 });
 
 
@@ -110,14 +114,14 @@ test("minute results become the account on the equity the run armed with, unknow
   assert.equal(liveRunPresentation(run()).equity, null, "no minute results, no chart");
   assert.equal(liveRunPresentation({ ...run(), brake: { ...brake, start: null }, minute_results: results }).equity, null);
   assert.deepEqual(liveHomePresentation({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null,
-    credentials: [], runs: [], defaults: { drawdown_brake: "0.15", duration_seconds: null, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }, new Map()).planFields.slice(0, 2),
+    credentials: { live: [], demo: [] }, runs: [], defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: null, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } }, new Map()).planFields.slice(0, 2),
     [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" }, { id: "duration_seconds", label: "Duration (seconds)", value: "" }],
     "the brake is typed as a percentage; no duration is an empty field");
 });
 
 test("notification status maps without any secret", () => {
-  const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, credentials: [], runs: [],
-    defaults: { drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
+  const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, credentials: { live: [], demo: [] }, runs: [],
+    defaults: { environment: "live", drawdown_brake: "0.15", duration_seconds: 8100, leverage: "3" }, notify: { configured: false, last_sent_ns: null, last_error: null, dropped: 0 } };
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,
     { configured: true, lastSentNs: "1794000000000000000", lastError: { code: "http_4xx", atNs: "1794000060000000000" }, dropped: 1 });

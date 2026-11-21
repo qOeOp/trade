@@ -4,7 +4,7 @@ import { test } from "node:test";
 import * as React from "react";
 import { namespace } from "./load.mjs";
 
-const model = await namespace("model/liveLaunch.ts", { sources: ["model/liveLaunchText", "model/livePaper"], packages: [] });
+const model = await namespace("model/liveLaunch.ts", { sources: ["model/liveLaunchText", "model/livePaper", "model/liveTrading"], packages: [] });
 const HASH = "c".repeat(64);
 const fields = [{ id: "drawdown_brake", label: "Drawdown brake", value: "15" },
   { id: "duration_seconds", label: "Duration (seconds)", value: "8100" }, { id: "leverage", label: "Leverage", value: "3" }];
@@ -15,12 +15,12 @@ const found = { state: "found", replays: [{ trialId: 12, balance: "95" }], toler
 const reconciled = { state: "reconciled", paperId: 7, reasons: [] };
 const source = (evidence, over = {}) => ({ candidate: "rsi@4", read: "found", sourceHash: HASH, entryClass: "Rsi", lastSymbols: ["BTCUSDT"], evidence, paper: reconciled, ...over });
 const key = { ref: "abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] };
-const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: [key],
+const view = (over = {}) => ({ availability: "ready", notice: null, reason: null, credentials: { live: [key], demo: [] },
   planFields: fields, runs: [], requests: [], notify: { configured: true, lastSentNs: null, lastError: null, dropped: 0 }, ...over });
-const checked = (over = {}) => ({ id: "web-check", candidate: "rsi@4", symbols: ["BTCUSDT"], sourceHash: HASH, config, brake: { ratio: 0.15, start: null, peak: null }, host: [], running: false, ended: true,
+const checked = (over = {}) => ({ environment: "live", id: "web-check", candidate: "rsi@4", symbols: ["BTCUSDT"], sourceHash: HASH, config, brake: { ratio: 0.15, start: null, peak: null }, host: [], running: false, ended: true,
   hostState: "preflight_complete", accountOwned: false, accountCheck: { state: "passed", readAt: null },
   venue: { canTrade: true, hedgeMode: true, multiAssets: true, wallet: "100", available: "98" }, ...over });
-const columns = (v, c = null, extra = {}) => model.launchColumns({ view: v, source: source(found), edits: {}, checked: c, reading: null, targets: null, ...extra });
+const columns = (v, c = null, extra = {}) => model.launchColumns({ view: v, source: source(found), edits: {}, checked: c, reading: null, targets: null, environment: "live", ...extra });
 const row = (cols, id) => cols.flatMap((column) => column.rows).find((item) => item.id === id);
 
 test("with every row passing start opens; the contracts, leverage, brake and duration are the user's to change", () => {
@@ -50,7 +50,7 @@ test("the duration reads in years, months, days and hours, exactly, with no uppe
 });
 
 test("where Live is not answering every column is still drawn, each row failing in plain words, never a code", () => {
-  const closed = view({ availability: "unavailable", reason: "LIVE_UNAVAILABLE", credentials: [], planFields: [], notify: null });
+  const closed = view({ availability: "unavailable", reason: "LIVE_UNAVAILABLE", credentials: { live: [], demo: [] }, planFields: [], notify: null });
   const cols = columns(closed);
   assert.equal(cols.length, 3);
   assert.equal(model.ready(cols), false);
@@ -67,14 +67,14 @@ test("the candidate is the selected version: none selected, one Live cannot run,
   const none = columns(view(), null, { source: null });
   assert.equal(row(none, "candidate").mark, "fail");
   assert.match(row(none, "candidate").reason, /Select a version in the research graph/);
-  assert.match(model.checkBlocker({ view: view(), source: null, edits: {} }, true), /Select a version/);
+  assert.match(model.checkBlocker({ view: view(), source: null, edits: {}, environment: "live" }, true), /Select a version/);
   const absent = source(null, { read: "absent", sourceHash: null, entryClass: null, lastSymbols: null });
   assert.equal(row(columns(view(), null, { source: absent }), "source").mark, "fail");
   assert.match(row(columns(view(), null, { source: absent }), "candidate").reason, /does not hold it, or its source does not load/);
-  assert.match(model.checkBlocker({ view: view(), source: absent, edits: {} }, true), /cannot run live/);
+  assert.match(model.checkBlocker({ view: view(), source: absent, edits: {}, environment: "live" }, true), /cannot run live/);
   const reading = source(null, { read: "reading", sourceHash: null, entryClass: null, lastSymbols: null });
   assert.equal(row(columns(view(), null, { source: reading }), "candidate").mark, "wait");
-  assert.match(model.checkBlocker({ view: view(), source: reading, edits: {} }, true), /Waiting for the candidate/);
+  assert.match(model.checkBlocker({ view: view(), source: reading, edits: {}, environment: "live" }, true), /Waiting for the candidate/);
 });
 
 test("contracts are typed as words, default to the last research replay's, and invalid ones hold back the check", () => {
@@ -86,7 +86,7 @@ test("contracts are typed as words, default to the last research replay's, and i
   assert.deepEqual(model.launchSymbols(source(found), { contracts: "btcusdt, ETHUSDT" }), ["BTCUSDT", "ETHUSDT"]);
   assert.equal(row(columns(view()), "contracts").reason, null);
   for (const text of ["", "BTCUSDT, BTCUSDT", "BTCUSD", "BTC-USDT"]) {
-    const bad = { view: view(), source: source(found), edits: { contracts: text }, checked: null, reading: null, targets: null };
+    const bad = { view: view(), source: source(found), edits: { contracts: text }, checked: null, reading: null, targets: null, environment: "live" };
     assert.equal(row(model.launchColumns(bad), "contracts").mark, "fail", text);
     assert.match(model.checkBlocker(bad, true), /valid contracts/, text);
   }
@@ -102,25 +102,46 @@ test("leverage is a whole number from 1 to 125, its default from the Live settin
 });
 
 test("with no saved key the API key row fails, saying where to save one, and the account check waits for it", () => {
-  const v = view({ credentials: [] }), cols = columns(v);
+  const v = view({ credentials: { live: [], demo: [] } }), cols = columns(v);
   assert.equal(row(cols, "key").mark, "fail");
   assert.match(row(cols, "key").reason, /Save a Binance Futures API key \(no withdrawals, restricted to this server's IP\) in Settings/);
-  assert.match(model.checkBlocker({ view: v, source: source(found), edits: {} }, true), /Save an API key/);
+  assert.match(model.checkBlocker({ view: v, source: source(found), edits: {}, environment: "live" }, true), /Save a Live API key/);
   assert.equal(model.ready(cols), false);
 });
 
-test("missing replay evidence fails its row, says the Agent replays the candidate, and holds back the account check", () => {
+test("the Demo switch binds the demo key alone, never the live one, and checks no key permissions it cannot read", () => {
+  const live = view(), demo = { ...key, ref: "0123demo0123demo" };
+  const cols = columns(live, checked(), { environment: "demo" });
+  assert.equal(row(cols, "key").mark, "fail", "the live key is not the demo run's");
+  assert.match(row(cols, "key").reason, /Binance Demo Trading API key/);
+  assert.match(model.checkBlocker({ view: live, source: source(found), edits: {}, environment: "demo" }, true), /Save a Demo API key/);
+  const both = columns(view({ credentials: { live: [key], demo: [demo] } }), checked(), { environment: "demo" });
+  assert.equal(row(both, "key").value, "Binance Demo · 0123demo");
+  assert.equal(row(both, "withdraw").mark, "shown");
+  assert.equal(row(both, "withdraw").required, false);
+  assert.equal(model.ready(both), true);
+});
+
+test("missing replay evidence fails its row and holds back Start, not the account check, which shows the wallet (G-69)", () => {
   const missing = source({ state: "missing", replays: [], tolerance: "0.1" }), cols = columns(view(), checked(), { source: missing });
   assert.equal(row(cols, "evidence").mark, "fail");
   assert.match(row(cols, "evidence").reason, /The Agent runs one at your wallet's balance/);
-  assert.match(model.checkBlocker({ view: view(), source: missing, edits: {} }, true), /replay evidence/);
+  const input = { view: view(), source: missing, edits: {}, checked: null, reading: null, targets: null, environment: "live" };
+  assert.equal(model.checkBlocker(input, true), null, "the check reads the wallet a replay must start near");
+  assert.equal(model.startBlocker(input), "Needs replay evidence first (Strategy).");
+  assert.equal(model.startBlocker({ ...input, source: source(found) }), null);
   assert.equal(model.ready(cols), false);
+  // Live reads the account, then refuses the check for want of evidence: the wallet is shown, the reason says why.
+  const failed = columns(view(), checked({ hostState: "preflight_failed", accountCheck: { state: "failed", readAt: null } }), { source: missing });
+  assert.equal(row(failed, "wallet").value, "100");
+  assert.match(row(failed, "check").reason, /no replay backs the candidate yet/);
+  assert.match(row(columns(view(), checked({ accountCheck: { state: "failed", readAt: null } })), "check").reason, /Live refused the account/);
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view(), null, { source: source({ state, replays: [], tolerance: "0.1" }) }), "evidence").mark, "wait");
 });
 
 test("the Paper reconciliation says it is comparing, why none matches, or which run does; only a match opens the check", () => {
   const paper = (state, reasons = []) => columns(view(), null, { source: source(found, { paper: { state, paperId: state === "reconciled" ? 7 : null, reasons } }) });
-  const blocker = (state, reasons = []) => model.checkBlocker({ view: view(), source: source(found, { paper: { state, paperId: null, reasons } }), edits: {} }, true);
+  const blocker = (state, reasons = []) => model.checkBlocker({ view: view(), source: source(found, { paper: { state, paperId: null, reasons } }), edits: {}, environment: "live" }, true);
   assert.deepEqual([row(paper("reconciled"), "paper").value, row(paper("reconciled"), "paper").mark], ["Paper 7", "pass"]);
   assert.equal(blocker("reconciled"), null);
   const checking = row(paper("checking", ["the serving Live control has not finished comparing this candidate's Paper runs"]), "paper");
@@ -141,7 +162,7 @@ test("the account rows answer from the check: modes, funds, and a replay that st
   const floor = (wallet, available) => row(columns(view(), checked({ venue: { ...checked().venue, wallet, available } })), "budget");
   assert.deepEqual([floor("50", "50").value, floor("50", "50").mark], ["42.50", "pass"], "85% of the wallet, greyed, not a choice");
   assert.equal(floor("50", "40").mark, "fail", "more than is available");
-  assert.equal(floor("118", "118").mark, "fail", "the first trial's floor is at most 100 USDT");
+  assert.deepEqual([floor("5000", "5000").value, floor("5000", "5000").mark], ["4250.00", "pass"], "no fixed cap: the floor follows the wallet");
   assert.equal(row(columns(view()), "budget").mark, "wait");
   const far = columns(view(), checked({ venue: { ...checked().venue, wallet: "200", available: "200" } }));
   assert.equal(row(far, "near").mark, "fail");
@@ -177,7 +198,8 @@ async function page(state) {
       useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null,
       useLivePaper: (read, symbols) => read && symbols ? reconciled : null },
     "state/liveWorkspace": { FRESH_DRAFT: { version: null, edits: {}, preparedId: null }, liveDraft: { get: () => state.draft, set: (next) => { state.draft = next; } },
-      useLiveDraft: () => state.draft, openLiveCredentials: () => {}, showLiveRun: (id) => state.shown.push(id) },
+      useLiveDraft: () => state.draft, openLiveCredentials: () => {}, showLiveRun: (id) => state.shown.push(id),
+      useLiveEnvironment: () => state.environment ?? "live", liveEnvironment: { set: (next) => { state.environment = next; } } },
   } });
   return (props) => { cursor = 0; return exports.LiveLaunch(props); };
 }
@@ -186,7 +208,7 @@ const named = (tree, name) => all(tree).find((node) => node.type?.name === name)
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test("the first click arms the start in place; the second starts the checked run with its source as the confirmation", async () => {
-  const state = { draft: { version: "rsi@4", edits: {}, preparedId: "web-check" }, shown: [] }, calls = [];
+  const state = { draft: { version: "rsi@4", edits: {}, preparedId: "web-check", backed: true }, shown: [] }, calls = [];
   const render = await page(state);
   const actions = { prepare: async (input) => { calls.push(["prepare", input.candidate, input.symbols, input.values.duration_seconds]); return { outcome: "effect_recorded", target: { run_id: "web-new" } }; },
     preflight: async (id) => { calls.push(["preflight", id]); return { outcome: "effect_recorded", target: { run_id: id } }; },
@@ -204,6 +226,14 @@ test("the first click arms the start in place; the second starts the checked run
   assert.deepEqual(calls, [["start", "web-check", HASH]], "the run whose account was checked starts as it is");
   assert.deepEqual(state.shown, ["web-check"]);
 
+  // A run checked before replay evidence existed records none (G-69): with evidence found now, a new one is prepared.
+  state.draft = { ...state.draft, backed: false }; calls.length = 0; state.shown.length = 0;
+  named(render(props), "LiveLaunchStart").props.start();
+  await settle();
+  assert.deepEqual(calls, [["prepare", "rsi@4", ["BTCUSDT"], "8100"], ["start", "web-new", HASH]]);
+  assert.equal(state.draft.backed, true);
+  state.draft = { ...state.draft, preparedId: "web-check" }; state.shown.length = 0;
+
   // Other contracts prepare a run on them first; a refused start is said plainly and shows no run.
   state.draft = { ...state.draft, edits: { contracts: "ethusdt" } }; calls.length = 0; state.shown.length = 0;
   actions.start = async (id, confirm) => { calls.push(["start", id, confirm]); return { outcome: "refused", code: "LIVE_ACCOUNT_OWNED", target: { run_id: id } }; };
@@ -219,13 +249,13 @@ test("the first click arms the start in place; the second starts the checked run
 test("check account prepares the selected version on its contracts and asks for its account check, never a start", async () => {
   const state = { draft: null, shown: [] }, calls = [];
   const render = await page(state);
-  const actions = { prepare: async (input) => { calls.push(`prepare ${input.candidate} ${input.symbols.join(",")}`); return { outcome: "effect_recorded", target: { run_id: "web-check" } }; },
+  const actions = { prepare: async (input) => { calls.push(`prepare ${input.candidate} ${input.symbols.join(",")} ${input.environment}`); return { outcome: "effect_recorded", target: { run_id: "web-check" } }; },
     preflight: async (id) => { calls.push(`preflight ${id}`); return { outcome: "effect_recorded", target: { run_id: id } }; }, start: async () => { calls.push("start"); } };
   const props = { version: "rsi@4", view: view(), actions };
   const button = (tree) => all(tree).find((node) => node.type?.name === "FormButton" && /Check/.test(String(node.props.children)));
   button(render(props)).props.onClick();
   await settle();
-  assert.deepEqual(calls, ["prepare rsi@4 BTCUSDT", "preflight web-check"]);
+  assert.deepEqual(calls, ["prepare rsi@4 BTCUSDT live", "preflight web-check"]);
   assert.equal(state.draft.preparedId, "web-check");
   assert.equal(state.draft.version, "rsi@4");
   const waiting = named(render(props), "LiveLaunchStart").props;
@@ -235,6 +265,16 @@ test("check account prepares the selected version on its contracts and asks for 
   // Typing the default contracts back is no edit.
   named(render(props), "LiveLaunchColumn").props.edit("contracts", "BTCUSDT");
   assert.deepEqual(state.draft.edits, {});
+
+  // The Demo switch: a demo run is prepared anew with the demo key, never the live run checked above.
+  state.environment = "demo";
+  const demoProps = { ...props, view: view({ credentials: { live: [key], demo: [{ ...key, ref: "0123demo0123demo" }] },
+    runs: [checked({ id: "web-check", hostState: "preflight_complete" })] }) };
+  calls.length = 0;
+  button(render(demoProps)).props.onClick();
+  await settle();
+  assert.deepEqual(calls, ["prepare rsi@4 BTCUSDT demo", "preflight web-check"]);
+  assert.equal(named(render(demoProps), "LiveLaunchStart").props.demo, true);
 });
 
 test("typed contracts take a non-ASCII coin as the market names it (market/sources.py SYMBOL)", async () => {

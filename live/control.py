@@ -254,7 +254,7 @@ def _prepare(config: configuration.Configuration, root: Path, body: dict, reques
     run_id, ref, candidate, symbols = body["run_id"], body["credential_ref"], body["candidate"], body["symbols"]
     if runs.prepared_locked(root, run_id, request_id, candidate, symbols, ref, **settings) is not None:
         return
-    path = credentials.prepare_path_locked(root, ref)
+    path = credentials.prepare_path_locked(root, settings["environment"], ref)
     research = _profile(config)
     with db.read_as_of(research) as reader:
         research_at = reader.resolved_commit
@@ -269,9 +269,9 @@ def _prepare(config: configuration.Configuration, root: Path, body: dict, reques
 def _operation(config: configuration.Configuration, action: str, target: dict, body: dict, root: Path,
                request_id: str) -> None:
     if action == "credential_save":
-        credentials.save_locked(root, target["credential_ref"], body["api_key"], body["api_secret"])
+        credentials.save_locked(root, target["environment"], target["credential_ref"], body["api_key"], body["api_secret"])
     elif action == "credential_remove":
-        credentials.remove_locked(root, target["credential_ref"])
+        credentials.remove_locked(root, target["environment"], target["credential_ref"])
     elif action == "prepare":
         _prepare(config, root, body, request_id)
     elif action == "stop":
@@ -304,8 +304,10 @@ def _require_unused(root: Path, request_id: str, action: str, target: dict) -> N
             (name for name, mode in LAUNCHES.items() if mode == row.get("mode")), None)
         if made != action or run_id != target.get("run_id"):
             raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already names a different Live operation")
-    if action != "credential_save" and any(row["credential_ref"] == _credential_ref(request_id)
-                                           for row in credentials.events_locked(root)):
+    # A save sent again is the same save only in its own environment.
+    if any(row["credential_ref"] == _credential_ref(request_id)
+           and (action != "credential_save" or environment != target.get("environment"))
+           for environment in configuration.ENVIRONMENTS for row in credentials.events_locked(root, environment)):
         raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already names a different Live operation")
 
 
@@ -335,7 +337,8 @@ def check_key_locked(root: Path, run_id: str, now: float) -> None:
     _KEY_CHECKED[run_id] = now
     directory = state.directory(root, run_id)
     try:
-        key.require_limits(credentials.run_path_locked(root, run_id, "run"))
+        key.require_limits(credentials.run_path_locked(root, run_id, "run"),
+                           runs.read_manifest(root, run_id)[1]["config"]["environment"])
         code = None
     except LiveRefusal as exc:
         code = exc.code
@@ -371,11 +374,13 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             configuration.run_config(body["config"])
             subject = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
         elif action == "credential_save":
-            configuration.fields(body, {"request_id", "api_key", "api_secret"})
-            subject = {"credential_ref": _credential_ref(request_id)}
+            configuration.fields(body, {"request_id", "environment", "api_key", "api_secret"})
+            subject = {"credential_ref": _credential_ref(request_id),
+                       "environment": configuration.environment(body["environment"])}
         elif action == "credential_remove":
-            configuration.fields(body, {"request_id"})
-            subject = {"credential_ref": configuration.text(target, credentials.REF)}
+            configuration.fields(body, {"request_id", "environment"})
+            subject = {"credential_ref": configuration.text(target, credentials.REF),
+                       "environment": configuration.environment(body["environment"])}
         elif action in RUN_ACTIONS:
             configuration.fields(body, {"request_id", "confirm_real_orders"} if action == "start" else {"request_id"})
             if action == "start":

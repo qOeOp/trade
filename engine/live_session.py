@@ -97,6 +97,7 @@ class Session:
     stop_read: dict | None = None
     stop_held: dict = field(default_factory=dict)
     phantoms: set[str] = field(default_factory=set)
+    resent: Counter = field(default_factory=Counter)  # position ID -> closes sent again after a rejection
     gaps: protection.Gaps = field(default_factory=lambda: protection.Gaps(PROTECTION_NS))  # position ID -> gap start
     submitted: dict[str, list[float]] = field(default_factory=dict)  # SUBMITTED order -> [since, last query]
     marks: dict[str, tuple[float, Any]] = field(default_factory=dict)  # contract -> when its latest mark arrived, its value

@@ -22,6 +22,8 @@
    same hue in the change gutter; long unchanged stretches fold to a bar that opens on click. */
 [data-code] .cm-editor.cm-merge-b .cm-changedLine { background: var(--diff-inserted); }
 [data-code] .cm-editor.cm-merge-b .cm-changedText { background: var(--diff-inserted-text); }
+[data-code] .cm-editor.cm-merge-b .cm-changedText .tok-comment,
+[data-code] .cm-editor.cm-merge-b .tok-comment .cm-changedText { color: var(--code-comment-changed); }
 [data-code] .cm-editor .cm-deletedChunk { background: var(--diff-deleted); padding-left: 0; }
 [data-code] .cm-editor .cm-deletedChunk .cm-deletedLine { padding: 0 24px 0 16px; }
 [data-code] .cm-editor .cm-deletedChunk .cm-deletedText { background: var(--diff-deleted-text); }

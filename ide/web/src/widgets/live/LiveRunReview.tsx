@@ -1,4 +1,4 @@
-import type { LiveTradingActions, LiveTradingView } from "../../model/liveTrading";
+import { allCredentials, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { FormButton } from "../../ui/chat/Field";
 import { useLiveAction } from "./LiveActionState";
 import { LiveDialogFrame } from "./LiveDialogFrame";
@@ -22,7 +22,7 @@ export function LiveRunReview({ runId, open, close, view, actions }: {
       <FormButton disabled={!actions.refresh || reading.busy} onClick={() => void reading.submit(() => actions.refresh?.())}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
     </>}>
     <div className="space-y-4">
-      {run ? <><LiveRunIdentity run={run} /><LiveLaunchReview run={run} credentials={view.credentials} actions={actions} /></>
+      {run ? <><LiveRunIdentity run={run} /><LiveLaunchReview run={run} credentials={allCredentials(view)} actions={actions} /></>
         : <p role="status" className="text-fg-muted">Reading the run. Refresh observations to view its frozen plan.</p>}
     </div>
   </LiveDialogFrame>;
