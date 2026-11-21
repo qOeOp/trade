@@ -2,7 +2,7 @@
 
 The user names three things: the candidate (`strategy_id@revision`, not necessarily the recommended
 one), the window and the universe rule. Register it with `validation registration`, run it with
-`replay run --validation ID` and read it with `validation report`, as their `--help` describes.
+`replay run --candidate ID@N --validation ID` and read it with `validation report`, as their `--help` describes.
 Registration refuses a candidate its line's closing history test falsified (`CANDIDATE_FALSIFIED`)
 or has not decided (`HISTORY_UNDECIDED`, naming what the verdict lacks); tell the user what it names.
 
