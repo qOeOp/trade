@@ -21,5 +21,18 @@ export function useFolded(): ReadonlySet<string> {
   }, [lineage, mode, selected, expanded]);
 }
 
+/** Whether the lineage has versions its fold would hide, so "Fold unpassed" has something to fold. */
+export function useFoldable(): boolean {
+  const lineage = useWidget<LineageWidget>("lineage"), mode = useLineageMode(), expanded = useExpandedBranches(), selected = useSelection();
+  return useMemo(() => {
+    if (!lineage) return false;
+    const { counts } = compactLineage(lineage, mode, selected, expanded);
+    return counts.all > counts.core;
+  }, [lineage, mode, selected, expanded]);
+}
+
 /** Every version shown again, as the lineage's "Expand all". */
 export const unfold = () => { lineageMode.set("all"); expandedBranches.set(new Set()); };
+
+/** Unpassed versions folded again, as the lineage's "Fold unpassed". */
+export const fold = () => { lineageMode.set("core"); expandedBranches.set(new Set()); };
