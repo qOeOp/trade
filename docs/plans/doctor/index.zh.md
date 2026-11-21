@@ -11,7 +11,7 @@
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
 | 20261121-27 | `paper start` 不检查源码是否声明恢复协议：没有 `PAPER_RECOVERY = 1` 与 `on_save`/`on_load` 的源码照常启动，远端运行 2、3、4 各在一次中断后结束 | authority（启动前拒绝缺这三个名字的源码；Claude 按用户委托决定） | doctor | unknown | in PR [#3306](https://github.com/qOeOp/trade/pull/3306)（[记录](2026-11-21-paper-start-recovery.zh.md)） | 2026-11-21 | 2026-11-21 |
-| 20261121-26 | 宇宙文件读不出时回放有两个读法、两个拒绝码（`UNIVERSE_FILE_UNREADABLE` 与 `SOURCE_UNREADABLE`） | authority（删一个拒绝码；委托决定） | doctor | none | in PR（[记录](2026-11-21-one-file-reader.zh.md)） | 2026-11-21 | 2026-11-21 |
+| 20261121-26 | 宇宙文件读不出时回放有两个读法、两个拒绝码（`UNIVERSE_FILE_UNREADABLE` 与 `SOURCE_UNREADABLE`） | authority（删一个拒绝码；委托决定） | doctor | none | fixed aaf80c754 [#3310](https://github.com/qOeOp/trade/pull/3310)（[记录](2026-11-21-one-file-reader.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-25 | `bars` 执行下成交可超过该分钟市场总成交量（`above_volume`），推荐流程从不看这个读数 | authority（推荐须引用该读数并在 `quotes` 下复跑或写明成交不可信；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-24 | `research status` 比较表的非劣判定把计划胜率当第四个度量，胜率只是报告维度 | authority（支配只用年化、MARK 回撤、夏普；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-23 | 关线留出期 DSR 只按本线参与者数折扣，不计看过同一留出期的跨线试验；IDE 只对达标行显示 | authority（另给计入 `holdout_prior_trials` 的 DSR；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
