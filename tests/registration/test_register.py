@@ -126,6 +126,9 @@ class RegisterTests(unittest.TestCase):
                          "a control needs the comparison design")
         self.assertEqual(self.code(self.derived(comparison={"method": "paired-circular-log-mean-v1"})),
                          "REGISTRATION_INVALID")
+        corners = {"base": "rsi@1", "a": "rsi@1", "b": "rsi@1"}
+        self.assertEqual(self.code(self.derived(prediction={**self.derived()["prediction"], "interaction": corners})),
+                         "REGISTRATION_INVALID", "a prediction declares no two-by-two")
         self.assertEqual(self.code(self.derived(), runner_argv=runner_argv(trade_start="2026-01-02")),
                          "WINDOW_MISMATCH", "the window is the line's development window")
         for duties in (["Z9"], []):

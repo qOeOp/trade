@@ -296,8 +296,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "COMPARISON_UNAVAILABLE": ("Use runs whose daily series reconcile and a window of at least two blocks; the series "
                                "are never repaired.",),
     "CLOCK_MISMATCH": ("Compare runs of the same trading window; days are never filled or resampled.",),
-    "INTERACTION_UNATTESTED": ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
-                               "b; read the comparison without the interaction otherwise.",),
     # Replay stage containers (replay/seams.py, runtime.container_command)
     "MODULE_NOT_IN_LAYOUT": ("Run only the modules runtime.layout declares for the image's contract.",),
     "MOUNT_HOST_PATH_INVALID": ("Mount only the replay's own working directory and exported inputs.",),

@@ -55,9 +55,6 @@ class PairedTests(unittest.TestCase):
         swapped = comparison.paired(right, left, DESIGN, 1)
         self.assertAlmostEqual(swapped["max_drawdown_difference"], -expected, places=15)
         self.assertAlmostEqual(swapped["max_drawdown_difference_interval"][0], -high, places=12, msg="shared block starts")
-        weighted = comparison.paired([left, right], [right, left], DESIGN, 1, weights=(1.0, -1.0, -1.0, 1.0))
-        self.assertIsNone(weighted["max_drawdown_difference"])
-        self.assertIsNone(weighted["max_drawdown_difference_interval"])
 
     def test_the_block_indices_keep_the_stream_of_drawing_each_row_alone(self):
         # Published comparisons are recomputed from a locked seed, so the draws must never change.
@@ -118,15 +115,6 @@ class PairedTests(unittest.TestCase):
         self.assertIsNone(found["p_bonferroni"])
         self.assertIsNone(found["mean_log_studentized_interval"])
         self.assertTrue(any(item.startswith("DEGENERATE_SE") for item in found["limitations"]))
-
-    def test_a_weighted_contrast_tests_the_weighted_sum_of_log_series(self):
-        series = [[0.01, 0.0, -0.01, 0.02], [0.0, 0.01, 0.0, 0.0], [0.02, -0.01, 0.0, 0.01], [0.0, 0.0, 0.01, -0.02]]
-        found = comparison.paired(series[:2], series[2:], DESIGN, 1, weights=(1, -1, -1, 1))
-        manual = [math.log1p(a) - math.log1p(b) - math.log1p(c) + math.log1p(d)
-                  for a, b, c, d in zip(*series, strict=True)]
-        self.assertAlmostEqual(found["mean_daily_log_difference"], sum(manual) / 4, places=15)
-        self.assertIsNone(found["annual_return_difference"])
-        self.assertIsNone(found["detectable_annual_return_difference_80pct_normal_approx"])
 
     def test_malformed_inputs_are_refused_before_any_number(self):
         self.assertEqual(refused(comparison.paired, [0.0] * 3, [0.0] * 3, DESIGN, 1).code, "COMPARISON_UNAVAILABLE")
@@ -537,35 +525,6 @@ class PairwiseTests(unittest.TestCase):
         found = attribution._pairwise({"cycles": [], "returns": days}, {"cycles": [], "returns": days}, {}, {}, market,
                                       {"scalars": {}})
         self.assertTrue(found["beta_basket"]["null_reason"].startswith("REGRESSION_UNAVAILABLE"))
-
-
-class InteractionShapeTests(unittest.TestCase):
-    BASE = b"a = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
-
-    def test_two_changes_on_different_lines_merge_into_both(self):
-        a = self.BASE.replace(b"b = 2", b"b = 20")
-        b = self.BASE.replace(b"e = 5", b"e = 50")
-        self.assertEqual(attribution.merge3(self.BASE, a, b), self.BASE.replace(b"b = 2", b"b = 20").replace(
-            b"e = 5", b"e = 50"))
-        self.assertEqual(attribution.merge3(self.BASE, b, a), attribution.merge3(self.BASE, a, b))
-        self.assertEqual(attribution.merge3(self.BASE, a, a), a, "the same change on both sides is taken once")
-
-    def test_two_changes_of_one_line_conflict(self):
-        a = self.BASE.replace(b"c = 3", b"c = 30")
-        b = self.BASE.replace(b"c = 3", b"c = 31")
-        self.assertIsNone(attribution.merge3(self.BASE, a, b))
-
-    def test_insertions_and_deletions_merge_around_the_kept_lines(self):
-        a = b"x = 0\n" + self.BASE
-        b = self.BASE.replace(b"d = 4\n", b"")
-        self.assertEqual(attribution.merge3(self.BASE, a, b), b"x = 0\na = 1\nb = 2\nc = 3\ne = 5\n")
-
-    def test_the_contributions_average_both_orders_and_sum_to_the_corner_difference(self):
-        found = attribution.contributions({"base": 0.0, "a": 0.002, "b": 0.001, "ab": 0.005})
-        self.assertAlmostEqual(found["a"], (0.002 + 0.004) / 2)
-        self.assertAlmostEqual(found["b"], (0.001 + 0.003) / 2)
-        self.assertAlmostEqual(found["a"] + found["b"], found["total"])
-        self.assertAlmostEqual(found["interaction"], 0.002)
 
 
 class PairTradeTests(unittest.TestCase):

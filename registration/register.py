@@ -68,8 +68,7 @@ def plan_schema() -> dict:
                 "description": "The falsifiable prediction: mechanism lists, for each changed duty, at least one "
                                "{slice, measure, direction (up or down), duty, reason} on the measure catalogue "
                                "(slice null with a reason when no slice measures the duty); outcomes gives one "
-                               "next step for each of improved, not_significant, loss, zero_activity and invalid; "
-                               "optional interaction {base, a, b} declares a two-by-two of candidate references.",
+                               "next step for each of improved, not_significant, loss, zero_activity and invalid.",
                 "type": "object", "required": ["mechanism", "outcomes"], "additionalProperties": False,
                 "properties": {
                     "mechanism": {"type": "array", "items": {
@@ -79,9 +78,7 @@ def plan_schema() -> dict:
                                        "direction": {"enum": ["up", "down"]}, "duty": {"type": "string"},
                                        "reason": _PROSE}}},
                     "outcomes": {"type": "object", "required": list(OUTCOMES), "additionalProperties": False,
-                                 "properties": {name: _TEXT for name in OUTCOMES}},
-                    "interaction": {"type": "object", "required": ["base", "a", "b"], "additionalProperties": False,
-                                    "properties": {"base": _REF, "a": _REF, "b": _REF}}}},
+                                 "properties": {name: _TEXT for name in OUTCOMES}}}},
             "changed_duties": {"description": "The duty IDs (A1 to I2) the one change touches: empty for a root (grid "
                                               "candidates without a parent), at least one for a derived registration.",
                                "type": "array", "items": {"type": "string"}},

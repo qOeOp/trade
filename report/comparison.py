@@ -4,9 +4,7 @@
 The comparison has one entry: it reads the registration, checks both sides' comparability and
 economic evidence, runs the paired circular block bootstrap on the two sides' daily account returns
 and adds the attribution, all at read time from stored rows with the registration's locked seed, so
-any recomputation gives the same numbers; nothing is stored and no field is a verdict. A declared
-interaction is read from its four corners (`interaction_of`); when they do not attest the shape it
-is reported unavailable and the rest of the comparison stands.
+any recomputation gives the same numbers; nothing is stored and no field is a verdict.
 """
 
 from __future__ import annotations
@@ -52,14 +50,6 @@ VALIDATION_LIMITATIONS = (
     "Economic evidence is a read-time view; it rewrites no stored conclusion",
     "Holm's step-down correction corresponds to no single interval; the family interval coverage is Bonferroni")
 POWER = 0.8  # the power of the detectable effect; an uncalibrated example value
-INTERACTION_WEIGHTS = (1.0, -1.0, -1.0, 1.0)  # base, a, b, ab: ab - a - b + base
-INTERACTION_LIMITATIONS = (
-    "The interaction is read on the daily log account returns of four separately run corners; its interval is "
-    "uncorrected for any search and no p is given",
-    "An interaction explains where a difference comes from; it is no evidence of an improvement",
-    "The contributions average each change's marginal effect over both orders of adding the two changes")
-UNCORRECTED_DROPPED = ("p_one_sided", "p_bonferroni", "interval_coverage_grid_adjusted",
-                       "detectable_annual_return_difference_80pct_normal_approx")
 
 
 def environment_failure(exc: Refusal) -> Refusal | None:
@@ -183,36 +173,27 @@ def max_drawdown(returns: np.ndarray) -> np.ndarray:
     return (1 - equity / peak).max(axis=-1)
 
 
-def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: int,
-                   weights: Sequence[float] | None) -> tuple[list[np.ndarray], Sequence[float]]:
-    """The series and weights `paired` tests, or its refusal: everything it can refuse before the bootstrap."""
+def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: int) -> list[np.ndarray]:
+    """The two series `paired` tests, or its refusal: everything it can refuse before the bootstrap."""
     register.validate_design(design)
     if not isinstance(grid_points, int) or isinstance(grid_points, bool) or grid_points < 1:
         raise refuse("REGISTRATION_INVALID", "grid_points must be a positive integer", missing=("grid_points",))
-    if weights is None:
-        sides = [_series(left, "left"), _series(right, "right")]
-        weights = (-1.0, 1.0)
-    else:
-        sides = [_series(item, f"series {index}") for index, item in enumerate([*left, *right])]
-        if len(weights) != len(sides):
-            raise refuse("COMPARISON_UNAVAILABLE", "the weights do not match the series", missing=("weights",))
+    sides = [_series(left, "left"), _series(right, "right")]
     days = len(sides[0])
-    if any(len(side) != days for side in sides):
+    if len(sides[1]) != days:
         raise refuse("COMPARISON_UNAVAILABLE", "the series differ in length", missing=("days",))
     _two_blocks(days, design["block_days"])
-    return sides, weights
+    return sides
 
 
-def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
-           weights: Sequence[float] | None = None, *, sensitivity: bool = True) -> dict:
-    """The paired circular block bootstrap of the daily log difference (right minus left), or with
-    `weights` of the weighted sum of several aligned daily log series ([*left, *right]); both sides
+def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, sensitivity: bool = True) -> dict:
+    """The paired circular block bootstrap of the daily log difference (right minus left); both sides
     share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict. Without
     `sensitivity` the block-length sensitivity is null and not computed."""
-    sides, weights = _paired_inputs(left, right, design, grid_points, weights)
+    sides = _paired_inputs(left, right, design, grid_points)
     days = len(sides[0])
     logs = [np.log1p(side) for side in sides]
-    values = sum((weight * series for weight, series in zip(weights, logs, strict=True)), np.zeros(days))
+    values = logs[1] - logs[0]
     alpha = design["alpha"] / grid_points
     observed = float(values.mean())
     outer = _outer(values, design["block_days"], design["resamples"], design["seed"], alpha)
@@ -224,22 +205,17 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
     studentized, degenerate = _studentized(values, outer, design, alpha, limitations)
     normal = NormalDist()
     detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
-    annual, annual_interval, detectable_annual = None, None, None
-    drawdown, drawdown_interval = None, None
-    if len(sides) == 2:
-        drawdown = float(max_drawdown(sides[1]) - max_drawdown(sides[0]))
-        drawdowns = max_drawdown(sides[1][indices]) - max_drawdown(sides[0][indices])
-        drawdown_interval = [float(value) for value in np.quantile(drawdowns, [alpha / 2, 1 - alpha / 2])]
-        control = 365 * float(logs[0].mean())
-        annual = math.exp(365 * float(logs[1].mean())) - math.exp(control)
-        spread = np.exp(365 * logs[1][indices].mean(axis=1)) - np.exp(365 * logs[0][indices].mean(axis=1))
-        annual_interval = [float(value) for value in np.quantile(spread, [alpha / 2, 1 - alpha / 2])]
-        # The power reading in the units of annual_return_difference and minimum_effect: the annual
-        # difference over this control of a candidate whose mean daily log return exceeds the
-        # control's by the difference the test detects with POWER.
-        detectable_annual = math.exp(control + 365 * detectable) - math.exp(control)
-    else:
-        limitations.append("A weighted contrast has no annual return or drawdown difference")
+    drawdown = float(max_drawdown(sides[1]) - max_drawdown(sides[0]))
+    drawdowns = max_drawdown(sides[1][indices]) - max_drawdown(sides[0][indices])
+    drawdown_interval = [float(value) for value in np.quantile(drawdowns, [alpha / 2, 1 - alpha / 2])]
+    control = 365 * float(logs[0].mean())
+    annual = math.exp(365 * float(logs[1].mean())) - math.exp(control)
+    spread = np.exp(365 * logs[1][indices].mean(axis=1)) - np.exp(365 * logs[0][indices].mean(axis=1))
+    annual_interval = [float(value) for value in np.quantile(spread, [alpha / 2, 1 - alpha / 2])]
+    # The power reading in the units of annual_return_difference and minimum_effect: the annual
+    # difference over this control of a candidate whose mean daily log return exceeds the
+    # control's by the difference the test detects with POWER.
+    detectable_annual = math.exp(control + 365 * detectable) - math.exp(control)
     absolute = np.sort(np.abs(values))[::-1]
     return {"method": design["method"], "days": days, "mean_daily_log_difference": observed,
             "mean_log_basic_interval": outer["basic"],
@@ -419,8 +395,8 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored. A grid run of a registration
     without a control gets that answer (no evidence, no attribution) and the single-run report to read.
-    Without `bootstrap` the answer is the same with no evidence and no reading of a declared interaction:
-    the same refusals and the same predictions, for a caller that shows those alone.
+    Without `bootstrap` the answer is the same with no evidence: the same refusals and the same
+    predictions, for a caller that shows those alone.
     `checker` and `reviews` are gather's, for a caller comparing many runs at the commit `at`."""
     revision = checker["product_commit"] if checker is not None else availability.report_revision()
     with db.read_as_of(db.profile(profile), at) as conn:
@@ -433,7 +409,6 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
                               f"to compare run {candidate['trial_id']} with",
                     "next_actions": [f"Read the run alone with `replay report --trial-id {candidate['trial_id']}`."]}
         found = gather(conn, plan, trial_id, checker=checker, reviews=reviews)
-        interaction = interaction_of(conn, found) if bootstrap else None
     body, facts, plan = found["body"], found["facts"], found["plan"]
     identity = {"registration_id": registration_id, "trial_id": found["candidate"]["trial_id"],
                 "control_trial_id": found["control"]["trial_id"],
@@ -442,10 +417,10 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
                 "comparison_source_sha256": _source(),
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
-    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
+    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market)
     left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     if not bootstrap:
-        _paired_inputs(left, right, plan["comparison"], len(plan["grid"]), None)
+        _paired_inputs(left, right, plan["comparison"], len(plan["grid"]))
         return {**identity, "evidence": None, "attribution": attributed}
     evidence = paired(left, right, plan["comparison"], len(plan["grid"]))
     return {**identity, "evidence": evidence, "attribution": attributed,
@@ -457,7 +432,7 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
 def crossing(profile, registration_id: int, trial_id: int, at: str | None = None, *, checker: Mapping | None = None,
              reviews: list | None = None) -> bool | None:
     """intervals_cross_zero of what `compare` would answer (None for a registration without a control), with the
-    same refusals, computing only the paired test's intervals: no attribution, declared interaction or block
+    same refusals, computing only the paired test's intervals: no attribution or block
     sensitivity, which nothing reading the intervals uses (CF-10)."""
     with db.read_as_of(db.profile(profile), at) as conn:
         plan = register.load_registration(conn, registration_id)
@@ -474,133 +449,11 @@ def intervals_cross_zero(evidence: Mapping) -> bool | None:
     """Whether no interval of a comparison excludes zero, which leaves candidate and control
     undistinguished (research-round); None without an interval. The return intervals and the maximum
     drawdown difference interval each tell them apart. The comparison leaves the studentized interval empty
-    when degenerate and the annual and drawdown ones for a weighted contrast: an empty one excludes nothing."""
+    when degenerate: an empty one excludes nothing."""
     found = [evidence.get(name) for name in ("mean_log_basic_interval", "mean_log_studentized_interval",
                                              "annual_return_difference_interval", "max_drawdown_difference_interval")]
     readable = [interval for interval in found if interval and None not in interval]
     return all(low <= 0 <= high for low, high in readable) if readable else None
-
-
-# A declared interaction
-
-def _unattested(why: str) -> Refusal:
-    return refuse("INTERACTION_UNATTESTED", why, missing=("prediction.interaction",))
-
-
-def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: Mapping, checker: Mapping,
-                reviews: list) -> int:
-    """The one passed research run of a corner's source that is comparable with the registration's
-    execution and has economic evidence; INTERACTION_UNATTESTED unless there is exactly one."""
-    qualified = []
-    for (candidate_run,) in conn.rows("SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE "
-                                      "t.source_sha256 = %s AND t.purpose = 'research' AND r.status = 'passed' ORDER BY "
-                                      "r.trial_id", (row["source_sha256"],)):
-        try:
-            record = register.control_trial(conn, candidate_run)
-            comparability.check_comparable(record, execution)
-            availability.require(conn, record, checker=checker, records=reviews)
-        except Refusal:
-            continue
-        qualified.append(candidate_run)
-    if len(qualified) != 1:
-        raise _unattested(f"corner {name} ({row['strategy_id']}@{row['revision']}) has {len(qualified)} passed research "
-                          "runs comparable with this registration and with economic evidence, not exactly one")
-    return qualified[0]
-
-
-def _corners(conn: db.LedgerConnection, declared: Mapping, candidate: Mapping) -> dict[str, dict]:
-    """The four candidate rows (base, a, b and the compared run's candidate ab), their lineage and
-    shape checked: a and b derive from base, ab from a or b, and the conflict-free three-way merge of
-    a and b from base is byte for byte ab's source."""
-    rows = {}
-    for name in ("base", "a", "b"):
-        try:
-            rows[name] = strategies.read_candidate(conn, declared[name])
-        except Refusal as exc:
-            raise _unattested(f"corner {name} {declared[name]} cannot be read ({exc.code})") from exc
-    rows["ab"] = strategies.candidate_by_sha(conn, candidate["source_sha256"])
-    if len({row["source_sha256"] for row in rows.values()}) != 4:
-        raise _unattested("the four corners are not four different sources")
-    names = {row["source_sha256"]: strategies.name(row) for row in rows.values()}
-
-    def ref(row):
-        return strategies.name(row)
-
-    def parent(row):
-        sha = row["parent_source_sha256"]
-        if sha is None:
-            return None
-        if sha not in names:
-            names[sha] = strategies.name(strategies.candidate_by_sha(conn, sha))
-        return names[sha]
-
-    for name in ("a", "b"):
-        if parent(rows[name]) != ref(rows["base"]):
-            raise _unattested(f"corner {name} {ref(rows[name])} has parent {parent(rows[name])}, not base "
-                              f"{ref(rows['base'])}")
-    if parent(rows["ab"]) not in (ref(rows["a"]), ref(rows["b"])):
-        raise _unattested(f"the compared candidate {ref(rows['ab'])} has parent {parent(rows['ab'])}, neither a nor b")
-    merged = report_attribution.merge3(rows["base"]["source"], rows["a"]["source"], rows["b"]["source"])
-    if merged is None:
-        raise _unattested("a and b change the same lines of base: their three-way merge conflicts")
-    if merged != rows["ab"]["source"]:
-        raise _unattested(f"the three-way merge of a and b from base is not the source of {ref(rows['ab'])}")
-    return rows
-
-
-def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
-    """The declared two-by-two of a comparison (gather's result), or None without a declaration.
-
-    The corners are base, a and b as declared and ab, the compared run's candidate. They attest the
-    interaction when the shape holds (_corners), each corner has exactly one passed research run
-    comparable with this registration's execution and with economic evidence (ab's is the compared
-    run), the other three runs predate the declaring registration, and the four daily clocks agree.
-    Then the weighted contrast ab - a - b + base goes through `paired` (interval uncorrected, no p),
-    with each change's two-order average contribution. Otherwise {available: false, reason:
-    INTERACTION_UNATTESTED: why}; the rest of the comparison is not affected."""
-    declared = (found["body"].get("prediction") or {}).get("interaction")
-    if not declared:
-        return None
-    try:
-        rows = _corners(conn, declared, found["candidate"])
-        execution = found["execution"]
-        runs_of = {name: _corner_run(conn, name, rows[name], execution, found["checker"], found["reviews"])
-                   for name in ("base", "a", "b", "ab")}
-        if runs_of["ab"] != found["candidate"]["trial_id"]:
-            raise _unattested(f"the qualified run of the compared candidate is run {runs_of['ab']}, not the compared "
-                              f"run {found['candidate']['trial_id']}")
-        for name in ("base", "a", "b"):
-            stored = conn.one("SELECT created_at FROM run WHERE trial_id = %s", (runs_of[name],))
-            assert stored is not None  # _corner_run read this run on the same version
-            created = stored["created_at"]
-            if not created < found["registered_at"]:
-                raise _unattested(f"run {runs_of[name]} of corner {name} was stored at {created}, not before the "
-                                  f"declaring registration ({found['registered_at']})")
-        clocks = {name: trade_window_series(measures.run_facts(conn, runs_of[name]), name)
-                  for name in ("base", "a", "b")}
-        clocks["ab"] = found["series"]["candidate"]
-        for name in ("base", "a", "b"):
-            check_clocks(clocks["ab"], clocks[name])
-        series = {name: [value for _, value, _ in clocks[name]] for name in ("base", "a", "b", "ab")}
-        tested = paired([series["base"], series["a"]], [series["b"], series["ab"]], found["plan"]["comparison"], 1,
-                        weights=INTERACTION_WEIGHTS)
-    except Refusal as exc:
-        why = exc.message if exc.code == "INTERACTION_UNATTESTED" else f"{exc.code}: {exc.message}"
-        return {"available": False, "declared": dict(declared), "reason": f"INTERACTION_UNATTESTED: {why}"}
-    means = {name: float(np.log1p(np.asarray(values, dtype=float)).mean()) for name, values in series.items()}
-    for item in tested["block_sensitivity"]:
-        item.pop("p_one_sided", None)
-    test = {key: value for key, value in tested.items() if key not in UNCORRECTED_DROPPED}
-    test["limitations"] = [item for item in test["limitations"] if item not in PAIRED_LIMITATIONS]
-    return {"available": True, "declared": dict(declared), "reason": None,
-            "corners": {name: {"candidate": f"{rows[name]['strategy_id']}@{rows[name]['revision']}",
-                               "trial_id": runs_of[name]} for name in ("base", "a", "b", "ab")},
-            "shape": {"method": report_attribution.MERGE_METHOD, "merge_equals_ab": True},
-            "weights": dict(zip(("base", "a", "b", "ab"), INTERACTION_WEIGHTS, strict=True)), "uncorrected": True,
-            "p": None,
-            "interval_coverage_uncorrected": 1 - found["plan"]["comparison"]["alpha"],
-            "mean_daily_log": means, "contributions": report_attribution.contributions(means), "test": test,
-            "limitations": list(INTERACTION_LIMITATIONS)}
 
 
 # The out-of-sample report
