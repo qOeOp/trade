@@ -511,6 +511,20 @@ class ReportTests(unittest.TestCase):
         self.assertGreater(found["trials"], found["research_attempts"], "prechecks and explorations count as trials")
         self.assertEqual(found["validation"], {"registered": 0, "bound": 0, "unbound": 0, "unwitnessed": 0})
 
+    def test_the_comparison_table_and_the_run_listing_give_the_reports_basket_alpha_and_beta(self):
+        table = status.research_status(self.profile)["comparison"]["runs"]
+        listed = {item["trial_id"]: item for item in status.research_runs(self.profile)["runs"]}
+        self.assertTrue(table)
+        for row in table:
+            exposure = next(item["measures"] for item in runs.run_report(self.profile, row["trial_id"])["slices"]
+                            if item["id"] == "market_exposure")
+            for name in ("alpha_basket", "beta_basket"):
+                self.assertIsNotNone(exposure[name]["value"], name)
+                self.assertEqual(row["measures"][name], exposure[name], name)
+                self.assertEqual(listed[row["trial_id"]]["measures"][name], exposure[name]["value"], name)
+            self.assertEqual(listed[row["trial_id"]]["alpha_basket_standard_error"],
+                             exposure["alpha_basket"]["standard_error"])
+
     def test_the_research_state_gives_judgments_unreviewed_trials_and_gates(self):
         found = status.research_state(self.profile, full=True)
         line = found["line"]

@@ -296,7 +296,7 @@ class MultipleTestingTests(unittest.TestCase):
 
 
 def measured(annual, drawdown, sharpe, win, breakeven=2.0) -> dict:
-    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win, breakeven), strict=True))
+    values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win, breakeven, 0.0, 1.0), strict=True))
     return {name: {"value": value} for name, value in values.items()}
 
 
