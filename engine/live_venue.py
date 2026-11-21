@@ -27,6 +27,12 @@ from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
+# A read that fails for a passing reason (429, a 5xx, a dropped connection) is sent again, at most READ_ATTEMPTS
+# times in all: after Binance's Retry-After on a 429 (one second without it), else after 1 s, then 2 s. A Retry-After
+# over RETRY_AFTER_LIMIT_SECONDS, a ban (418) or any other 4xx is refused at once: Binance lengthens a ban for an IP
+# that keeps sending (USDⓈ-M general info, "Limits").
+READ_ATTEMPTS = 3
+RETRY_AFTER_LIMIT_SECONDS = 5
 MANIFEST_FORMAT = "live-run-5"  # one definition: the host writes it, the runner's image refuses any other
 
 
@@ -58,6 +64,14 @@ def read_credentials(path: Path) -> Credentials:
         raise Refusal("LIVE_CREDENTIAL_FILE", "Live needs a private regular credential file (mode 0600)") from exc
 
 
+class _Passing(Exception):
+    """A read failure another attempt may not meet, `wait` seconds later (None: the attempt's own backoff)."""
+
+    def __init__(self, failure: str, wait: int | None = None):
+        super().__init__(failure)
+        self.failure, self.wait = failure, wait
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -81,6 +95,17 @@ class BinanceReadOnly:
     def get(self, path: str, **params):
         if path not in self.PUBLIC | self.PRIVATE:
             raise Refusal("LIVE_READ_PATH", "the account observer only accepts declared GET endpoints")
+        for attempt in range(1, READ_ATTEMPTS + 1):
+            try:
+                return self._get_once(path, params)
+            except _Passing as passing:
+                if attempt == READ_ATTEMPTS or (passing.wait or 0) > RETRY_AFTER_LIMIT_SECONDS:
+                    raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} {passing.failure}") from None
+                time.sleep(passing.wait if passing.wait is not None else attempt)
+        raise AssertionError("unreachable")
+
+    def _get_once(self, path: str, params: dict):
+        """One signed (when private) GET; a failure worth another attempt raises _Passing."""
         headers = {}
         if path in self.PRIVATE:
             params = {**params, "timestamp": self.server_time(), "recvWindow": 5000}
@@ -95,11 +120,21 @@ class BinanceReadOnly:
             with self.opener.open(request, timeout=15) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
-            status = exc.code
+            status, retry_after = exc.code, exc.headers.get("Retry-After") if exc.headers is not None else None
             exc.close()
+            if status == 429:
+                try:
+                    wait = int(retry_after) if retry_after is not None else 1
+                except ValueError:
+                    wait = 1
+                raise _Passing(f"returned HTTP 429 (Retry-After {retry_after})", wait) from None
+            if status >= 500:
+                raise _Passing(f"returned HTTP {status}") from None
             raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} returned HTTP {status}") from None
-        except (OSError, ValueError, http.client.HTTPException) as exc:
+        except (OSError, http.client.HTTPException) as exc:
             # Exception text can contain signed URLs; retain only the failure class.
+            raise _Passing(f"failed ({type(exc).__name__})") from None
+        except ValueError as exc:
             raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} failed ({type(exc).__name__})") from None
 
     def server_time(self):

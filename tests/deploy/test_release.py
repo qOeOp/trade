@@ -20,7 +20,7 @@ from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
 from deploy.release_host import (AGENT, DEFINITION, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
-                                 PROBE, DockerHost, ReaderFailure,
+                                 PROBE, DockerHost, ReaderFailure, Registry,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
@@ -583,7 +583,7 @@ class PruneTests(unittest.TestCase):
     def test_a_runtime_image_goes_only_when_unused_unnamed_and_still_in_the_registry(self):
         old, kept, used, gone = ("ghcr.io/qoeop/trade-runtime@sha256:" + c * 64 for c in "defa")
         host = FakeDocker({}, [old, kept, used, gone], [used])
-        with patch.object(DockerHost, "registry_serves", side_effect=lambda image: image != gone) as serves:
+        with patch.object(Registry, "serves", side_effect=lambda image: image != gone) as serves:
             host.prune((WEB,), set(), set(), {kept})
         self.assertEqual(host.removed_images(), [old])
         self.assertEqual([call.args[0] for call in serves.call_args_list], [old, gone], "a last copy stays")

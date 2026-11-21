@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../components/CoinMenu";
-import { Tabs } from "../../components/Tabs";
+import { CoinChip, CoinMenu, coinGroups, type Coin } from "../../ui/CoinMenu";
+import { Tabs } from "../../ui/Tabs";
 import type { PaperRun } from "../../lib/paperApi";
 import { equityMoved } from "../../model/chain";
 import { useShown } from "../../state/shown";
@@ -18,7 +18,7 @@ export const GROUP = "relative flex items-center before:absolute before:-left-2 
  *  holds a position (`sides`: long or not), which picks another. On the Paper stage, Equity reads the run's
  *  equity and return beside its label; until the
  *  run's equity moves it is greyed, the chart staying on a coin. `loose`: a run shown with no version drawn,
- *  whose Backtest opens its version's page. Both are text tabs (components/Tabs.tsx), as the
+ *  whose Backtest opens its version's page. Both are text tabs (ui/Tabs.tsx), as the
  *  Trades window's below, a rule between them. The row is pulled left by a tab's own padding, so the first
  *  tab's text sits on the island's inset; a group that starts a line (the row wraps when narrow) has its rule
  *  clipped and never hangs at a line's end. */

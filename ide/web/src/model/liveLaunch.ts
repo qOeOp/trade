@@ -3,6 +3,7 @@
 // not. Start opens only when every required row has a value and passes; the server still checks everything again.
 import type { LiveCredential, LiveRun, LiveSource, LiveTradingView } from "./liveTrading";
 import { contractsOf, unavailableReason } from "./liveLaunchText";
+import { paperBlocker, paperRow } from "./livePaper";
 export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
 /** pass / fail: a condition and its answer; wait: a condition not answered yet; shown: a value with no condition. */
 export type Mark = "pass" | "fail" | "wait" | "shown";
@@ -84,6 +85,7 @@ function strategy({ view, source, edits, reading, targets }: LaunchInput, closed
           : evidence.state === "missing" ? "No passed replay of this candidate on these contracts runs the execution image's replay code. The Agent runs one at your wallet's balance (replay explore); Live then reads it from the research ledger."
           : evidence.state === "checking" ? "The Live service is reading the ledger and the execution image."
           : "The Live service could not read it just now and tries again within a few minutes." },
+    paperRow(evidence ? source?.paper ?? null : null, waiting, found && !symbols && !closed ? "Waits for valid contracts." : missing),
     target("Max drawdown", dd, targets?.max_drawdown, false),
     target("Annual return", ret, targets?.annual_return, true),
   ];
@@ -193,5 +195,5 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   if (!input.view.credentials.some((item) => item.selected && !item.removed)) return "Save an API key in Settings first.";
   if (source.evidence?.state === "missing") return "Needs replay evidence first (Strategy).";
   if (source.evidence?.state !== "found") return "Waiting for the replay evidence.";
-  return null;
+  return paperBlocker(source.paper ?? null);
 }

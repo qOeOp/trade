@@ -16,10 +16,9 @@ from pathlib import Path
 import platform
 import sys
 import tempfile
-from urllib.request import Request, urlopen
 
 from .release import GitSource
-from .release_host import IMAGE_REF, MANIFESTS, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, sync_directory
+from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, Registry, sync_directory
 
 
 # Field, env key and pattern.
@@ -33,33 +32,6 @@ FIELDS = (
 PREFIXES = {"runtime": "exec-"}
 CHANNELS = {"deploy": "deploy-ready", "main": "main-ready"}
 ARCHITECTURES = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
-
-
-class Registry:
-    """Anonymous reads of the public GHCR packages."""
-
-    def __init__(self):
-        self.tokens = {}
-
-    def get(self, repository: str, path: str, accept: str | None = None) -> dict:
-        name = repository.removeprefix("ghcr.io/")
-        if name not in self.tokens:
-            self.tokens[name] = self.fetch(f"https://ghcr.io/token?scope=repository:{name}:pull", {})["token"]
-        headers = {"Authorization": f"Bearer {self.tokens[name]}"}
-        if accept:
-            headers["Accept"] = accept
-        return self.fetch(f"https://ghcr.io/v2/{name}/{path}", headers)
-
-    @staticmethod
-    def fetch(url: str, headers: dict) -> dict:
-        with urlopen(Request(url, headers=headers), timeout=60) as response:
-            return json.load(response)
-
-    def manifest(self, repository: str, reference: str) -> dict:
-        return self.get(repository, f"manifests/{reference}", MANIFESTS)
-
-    def config(self, repository: str, digest: str) -> dict:
-        return self.get(repository, f"blobs/{self.manifest(repository, digest)['config']['digest']}")
 
 
 def records(source: GitSource, branch: str = CHANNELS["deploy"]):

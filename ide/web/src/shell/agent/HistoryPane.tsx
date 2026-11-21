@@ -1,10 +1,10 @@
-import { useNow } from "../../components/hooks/useNow";
+import { useNow } from "../../ui/hooks/useNow";
 import { clockTime, dateTime, displayDay, timeFormatter, utcInstant, zoneOffset } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useState } from "react";
 import { ThreadListPrimitive } from "@assistant-ui/react";
-import { ThreadRow } from "../../components/chat/ThreadRow";
-import { TextButton } from "../../components/TextButton";
+import { ThreadRow } from "../../ui/chat/ThreadRow";
+import { TextButton } from "../../ui/TextButton";
 import { agentApi } from "../../lib/agentApi";
 import { agentPane, chatControl } from "../../state/agent";
 

@@ -5,11 +5,11 @@ import { openSource } from "../state/editors";
 import { hoverProps, toggleBranch, useExpandedBranches, useLineageMode } from "../state/linking";
 import { useSelection } from "../state/selection";
 import { versionTreeControl } from "../state/versionTree";
-import { TreeRow } from "../components/TreeRow";
-import { ROOT, useSelectionTree } from "../components/hooks/useSelectionTree";
-import { VersionLine } from "../components/VersionLine";
-import { VersionMenu } from "../components/VersionMenu";
-import { PaperButton } from "../components/PaperButton";
+import { TreeRow } from "../ui/TreeRow";
+import { ROOT, useSelectionTree } from "./useSelectionTree";
+import { VersionLine } from "./VersionLine";
+import { VersionMenu } from "./runs/VersionMenu";
+import { PaperButton } from "./paper/PaperButton";
 
 type TreeEntry = { node: LineageNode | null; fold: FoldBar | null };
 const EMPTY_ENTRY: TreeEntry = { node: null, fold: null };

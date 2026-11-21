@@ -1,8 +1,8 @@
 import type { LineageWidget, SummaryWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
 import { select } from "../../state/selection";
-import { Dropdown, DropdownItem, DropdownLabel } from "../../components/Dropdown";
-import { VersionLine } from "../../components/VersionLine";
+import { Dropdown, DropdownItem, DropdownLabel } from "../../ui/Dropdown";
+import { VersionLine } from "../../widgets/VersionLine";
 import { plural } from "../../lib/format";
 
 /** The current recommendation, as IntelliJ's run-configuration widget; the menu lists every version

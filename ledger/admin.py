@@ -109,8 +109,7 @@ def backup_head(backup: Path) -> str | None:
     try:
         binary = server.binary(None)
         phase = "configure"
-        # Dolt flushes usage events from a detached process that would recreate the deleted home.
-        environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home"), "DOLT_DISABLE_EVENT_FLUSH": "1"}
+        environment = server.dolt_env(work / "home")
         server.dolt_home(work / "home", {**server.QUIET, **server.IDENTITY})
         phase = "open"
         repository = work / "repository"

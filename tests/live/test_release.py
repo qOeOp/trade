@@ -162,7 +162,7 @@ class LiveReleaseTests(LiveFixture):
             later.rmdir()
         args = SimpleNamespace(verb="release-inspect", configuration=self.authority.file)
         with patch.object(release, "idle_locked", return_value="busy"):
-            self.assertEqual(live_commands.dispatch(args, []), ({"state": "busy"}, 0))
+            self.assertEqual(live_commands.live_release_inspect(args), {"state": "busy"})
 
     def test_invalid_run_set_partial_native_and_unseen_runner_do_not_mean_idle(self):
         other = self.root / "runs" / "invalid_name"

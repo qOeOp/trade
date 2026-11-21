@@ -119,7 +119,7 @@ from engine.paper_session import Session, declares_recovery, in_flight, unrestor
 from engine.signals import Signals
 from engine.cadence import Cadence
 from engine.realtime import node_base
-from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
+from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, atomic, MINUTE_NS, Refusal, instrument_id, leverage_of,
                            runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
     LoadedStrategy, diagnostics, load_strategy, read_universe, strategy_id, strategy_metadata,
@@ -200,10 +200,8 @@ class Journal:
     def state(self, value: dict) -> None:
         if self.failure is not None:
             return
-        partial = self.output / ".state.json.partial"
         try:
-            partial.write_text(json.dumps(value, default=str, sort_keys=True), encoding="utf-8")
-            os.replace(partial, self.output / "state.json")
+            atomic(self.output / "state.json", json.dumps(value, default=str, sort_keys=True).encode())
         except OSError as exc:
             self.fail(exc)
 
@@ -523,6 +521,23 @@ def _late(self, event) -> None:
                 ts_event=event.ts_event, released_ns=self._paper_released_ns)
 
 
+def _repeated(self, bar) -> bool:
+    """An external bar stamped no later than the latest of its type the source had: Binance pushing a closed kline
+    again, revised or not (rc7's validate_data_sequence passes an equal stamp). It is journalled and the source does
+    not see it, or it decides twice on one bar, as engine.live_connection.bar does for Live. A replay never repeats a
+    bar, so this keeps parity."""
+    kind = bar.bar_type
+    if not (isinstance(kind, BarType) and kind.is_externally_aggregated()):
+        return False
+    latest = self.__dict__.setdefault("_paper_latest_bar", {})
+    previous = latest.get(str(kind))
+    if previous is not None and bar.ts_event <= previous:
+        journal("bar_repeated", bar_type=str(kind), after_ns=previous, received_ns=bar.ts_event)
+        return True
+    latest[str(kind)] = bar.ts_event
+    return False
+
+
 def paper_callbacks(strategy_class: type) -> dict:
     """engine.strategy.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
     the fills its data caused are applied, and every order and position event journalled before the source
@@ -533,6 +548,9 @@ def paper_callbacks(strategy_class: type) -> dict:
     held = {name: (lambda callback: lambda self, value: _hold(self, callback, value, value))(found[name])
             for name in strategy_runtime.DATA_CALLBACKS
             if found.get(name) and name not in ("on_mark_price", "on_funding_rate", "on_data")}
+    if "on_bar" in held:
+        held["on_bar"] = (lambda hold: lambda self, bar: release_before(bar) if _repeated(self, bar) else hold(self, bar))(
+            held["on_bar"])
 
     def at_cadence(name: str):
         method = source[name]
@@ -1168,7 +1186,7 @@ def _main(args) -> bool:
                     data = path.read_bytes()
                     target = backend.root / "attempts" / f"{hashlib.sha256(data).hexdigest()}.{name}"
                     if not target.exists():
-                        checkpoint.atomic(target, data)
+                        atomic(target, data)
             journal("resumed", execution=EXECUTION)
             if SESSION and SESSION.fallen:
                 # The source's recovery is refused and the run is held (Session.hold); `paper compare` reads the
@@ -1217,7 +1235,7 @@ def _main(args) -> bool:
             result["runtime_failures"] = len(strategy_runtime.FAILURES)
             if strategy_runtime.FAILURES:
                 disk(strategy_runtime.write_failures)
-            disk(lambda: checkpoint.atomic(args.output / "summary.json",
+            disk(lambda: atomic(args.output / "summary.json",
                                            json.dumps(result, default=str, indent=2, sort_keys=True).encode()))
             journal("summary_written", stop_reason=result["stop_reason"])
             try:

@@ -5,7 +5,7 @@ import { precisions, symbolOf, type JournalLine } from "../../lib/paperApi";
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, describe, eventMs, utcDay } from "../../model/paper";
 import { bracket, bracketStatus, grouped, lineStatus, type Status } from "../../model/events";
 import { Icon } from "../../icons/Icon";
-import { Chips, PillButton } from "../../components/Tabs";
+import { Chips, PillButton } from "../../ui/Tabs";
 import { useAtom } from "../../state/atom";
 import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "../../state/paperStream";
 import { usePickedScroll } from "./table";
@@ -31,7 +31,7 @@ export function EventsTools({ s, only }: { s: Stream; only: string | null }) {
 }
 
 /** A row's status as a small chip after its text; a failure in the fail colour with its icon. */
-function Chip({ status }: { status: Status | null }) {
+export function Chip({ status }: { status: Status | null }) {
   if (!status) return null;
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 rounded-badge border px-1.5 text-small leading-4 ${status.failed ? "border-fail text-fail-fg" : "border-line-strong text-fg-muted"}`}>

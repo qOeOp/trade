@@ -4,7 +4,7 @@ import { useAtom } from "../state/atom";
 import { viewStatus } from "../state/update";
 import { useOpenFile } from "../state/editors";
 import { useShell } from "../state/shell";
-import { Waiting } from "../components/Waiting";
+import { Waiting } from "../ui/Waiting";
 import { RENDERERS } from "../widgets/registry";
 import { HistoryPage } from "../widgets/history/HistoryPage";
 import { MarketPage } from "../widgets/market/MarketPage";

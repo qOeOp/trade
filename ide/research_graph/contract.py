@@ -1,56 +1,27 @@
-"""The research graph contract: load a graph and check it against schema/graph.schema.json.
-
-The checker covers the subset of JSON Schema the contract uses (type, const, enum, required,
-properties, items) so the service needs only the standard library.
-"""
+"""The research graph contract: load a graph and check it against schema/graph.schema.json."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+
+from jsonschema import Draft202012Validator, ValidationError
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
 GRAPH_FORMAT = "research-graph@4"
-TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
 
 
 def schema(name: str = "graph") -> dict:
     return json.loads((SCHEMA_DIR / f"{name}.schema.json").read_text())
 
 
-def _is(value: Any, kind: str) -> bool:
-    if kind == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if kind == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    return isinstance(value, TYPES[kind])
-
-
-def problems(value: Any, rule: dict, path: str = "$") -> list[str]:
-    """Every place where `value` breaks `rule`, as 'path: reason'."""
-    found: list[str] = []
-    if "const" in rule and value != rule["const"]:
-        return [f"{path}: expected {rule['const']!r}"]
-    if "enum" in rule and value not in rule["enum"]:
-        return [f"{path}: {value!r} is not one of {rule['enum']}"]
-    if "type" in rule:
-        kinds = rule["type"] if isinstance(rule["type"], list) else [rule["type"]]
-        if not any(_is(value, kind) for kind in kinds):
-            return [f"{path}: expected {' or '.join(kinds)}"]
-    if isinstance(value, dict):
-        found += [f"{path}: missing {key}" for key in rule.get("required", []) if key not in value]
-        for key, sub in rule.get("properties", {}).items():
-            if key in value:
-                found += problems(value[key], sub, f"{path}.{key}")
-    if isinstance(value, list) and "items" in rule:
-        for index, item in enumerate(value):
-            found += problems(item, rule["items"], f"{path}[{index}]")
-    return found
+def _path(error: ValidationError) -> str:
+    return "$" + "".join(f"[{part}]" if isinstance(part, int) else f".{part}" for part in error.absolute_path)
 
 
 def check_graph(graph: dict) -> list[str]:
-    """Schema problems plus the cross-references a schema cannot state."""
-    found = problems(graph, schema("graph"))
+    """Schema problems, as 'path: reason', plus the cross-references a schema cannot state."""
+    errors = sorted(Draft202012Validator(schema("graph")).iter_errors(graph), key=lambda error: _path(error))
+    found = [f"{_path(error)}: {error.message}" for error in errors]
     if found:
         return found
     ids = [c["id"] for c in graph["candidates"]]

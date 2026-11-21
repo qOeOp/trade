@@ -118,7 +118,8 @@ seconds apart (one native position and open-order reconciliation cycle), both ag
 instance's positions per side and open orders by venue ID, on the account modes, nothing on a symbol outside the run,
 and a live bar received since the reconnect. A disagreement restarts the check. Orders at Binance the cache does not
 know are canceled with every order on their contract (native cancel-all, regular and conditional), and entries then
-stay closed for the run, as they do after changed account modes. A missing external bar on any contract (Binance's
+stay closed for the run, as they do after changed account modes. An external bar stamped no later than the last of its type (a closed kline pushed again, revised or not) is journalled
+as `bar_repeated` and never reaches the source. A missing external bar on any contract (Binance's
 stream does not resend a close it missed) is not patched: entries on every contract close and working ones are
 withdrawn; a position keeps its instance and exits. Once no instance holds a position, order or held entry, no
 instance sees a further bar, and after two agreeing comparisons this start ends
@@ -182,12 +183,10 @@ against that check's equity) before dispatch, and may join the run's open positi
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
 and refuses when less than 600 seconds ahead. The order rules hold all three paths to the same two terms: a whole
-second (Nautilus's client denies a fraction of one before sending) and at least 600 seconds after the strategy
-submits it. The 600 seconds are the shared floor, not what Live needs: a Live entry waits for its account check and
-is sent only with at least 605 seconds left (the client denies an expiry not strictly more than 600 seconds past its
-own clock), so a GTD entry of 600 to 605 seconds passes a replay and Paper and is refused in Live
-(`LIVE_ORDER_UNSUPPORTED`); one bound for Live expires more than 605 seconds ahead by as long as it is to survive
-that wait. The order can end up to a second early, or late in extreme markets,
+second (Nautilus's client denies a fraction of one before sending) and at least 605 seconds after the strategy
+submits it. A Live entry waits for its account check and is sent only with at least 605 seconds left (the client
+denies an expiry not strictly more than 600 seconds past its own clock; `LIVE_ORDER_UNSUPPORTED`), so one bound for
+Live expires more than 605 seconds ahead by as long as it is to survive that wait. The order can end up to a second early, or late in extreme markets,
 and in the 2026-11-06 trial such an end came back `CANCELED`, not `EXPIRED`. An expiry is no precise end time, and
 a stop placed GTD (a STOP_LIMIT; the order rules refuse a GTD STOP_MARKET) stops protecting when it ends.
 The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
@@ -220,8 +219,8 @@ requests may sign with it while signed reads here carry the venue's time: at mos
 How to write a candidate that
 runs in Live: `.agents/skills/research-round/references/strategy-authoring.md`, section Live. On every one-second
 observation of a `run`, each open position needs stop coverage (`engine.protection`, the audit's rule), read from
-the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. After 90 seconds without cover from when the gap opened (the
-audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
+the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. Once a gap outlasts 90 seconds from when it opened (the
+audit's one bar plus the native open-order check, timed by the same `protection.Gaps` as Paper; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
 native reconciliation. A failed flat run keeps the account slot until `reconcile`. The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
@@ -264,7 +263,7 @@ the refusal's `code`), whether the final account read after a completed native e
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
 runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
 instead, before anything is built or written: a start again whose first account read fails
-(`LIVE_ACCOUNT_UNAVAILABLE`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
+(`LIVE_ACCOUNT_UNAVAILABLE`, after the bounded retries of `engine.live_venue.READ_ATTEMPTS`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
 unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
 20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
 may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its

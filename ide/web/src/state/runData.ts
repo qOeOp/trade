@@ -26,6 +26,9 @@ type RunData = {
   run: PaperRun; s: Stream | null; a: Account | null; stats: TradeStats | null; fills: readonly Fill[]; bridge: Bridge | null;
   /** What the chart shows: "equity", or a contract of the run or the backtest. */
   view: string;
+  /** The contract the Trades window lists: the one picked (or held, below), null for every contract while the chart
+   *  shows Equity or shows a contract only because the run has no Equity yet or none was picked. */
+  scope: string | null;
   stretches: readonly Stretch[];
 };
 const runData = atom<RunData | null>(null);
@@ -41,7 +44,7 @@ export function useRunDriver(): void {
   const flat = stage !== "backtest" && !!run?.symbols.length && !equityMoved(chain);
   const fallback = stage !== "backtest" && run?.symbols[0] ? run.symbols[0] : "equity";
   const view = (tab === "equity" && !flat) || (tab && tab !== "equity" && (stage === "backtest" ? tested : run?.symbols.includes(tab))) ? tab : fallback;
-  const symbol = view !== "equity" && run?.symbols.includes(view) ? view : null;
+  const symbol = view !== "equity" && run?.symbols.includes(view) ? view : null, scope = view !== "equity" && tab === view ? view : null;
   useEffect(() => { follow(run?.paper_id ?? null, symbol); }, [run?.paper_id, symbol]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
   useEffect(() => { followComparison(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
@@ -64,5 +67,5 @@ export function useRunDriver(): void {
   const stats = useMemo(() => (a && s ? tradeStats(a, s.lines) : null), [a]);
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
   const bridge = useMemo(() => (a && s ? bridgeOf(a, closedGross(s.lines)) : null), [a]);
-  useEffect(() => { runData.set(run ? { run, s, a, stats, fills, bridge, view, stretches } : null); }, [run, s, a, stats, fills, bridge, view, stretches]);
+  useEffect(() => { runData.set(run ? { run, s, a, stats, fills, bridge, view, scope, stretches } : null); }, [run, s, a, stats, fills, bridge, view, scope, stretches]);
 }
