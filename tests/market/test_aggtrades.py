@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import tempfile
 import unittest
@@ -61,6 +62,24 @@ class CodecTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
                 trades.scaled(text, 'quantity')
             self.assertEqual(caught.exception.code, 'SOURCE_SHAPE')
+
+    def test_any_spelling_of_a_value_at_the_scale_reads_back_exactly_and_one_digit_finer_refuses(self):
+        # Seeded, bounded property check: values across the whole int64 range at scale 8, in the spellings an archive
+        # could hold (trailing zeros, none, exponent), under any Decimal context precision.
+        draw = random.Random(20261121)
+        for _ in range(400):
+            integer = draw.randint(1, 10 ** draw.randint(0, 18)) if draw.random() < 0.9 else trades.MAX_INT
+            integer = min(integer, trades.MAX_INT)
+            value = Decimal(integer).scaleb(-8)
+            spellings = (f"{value:.8f}", f"{value:.{8 + draw.randint(1, 8)}f}", str(value.normalize()),
+                         f"{value.normalize():E}")
+            with localcontext() as context:
+                context.prec = draw.randint(1, 28)
+                for text in spellings:
+                    self.assertEqual(trades.scaled(text, "price"), integer, text)
+                finer = f"{value:.8f}{draw.randint(1, 9)}"
+                self.assertEqual(refused(trades.scaled, finer, "price", error=sources.MarketError).code, "SCALE_LOSS",
+                                 finer)
 
     def test_stream_retains_every_field_equal_timestamps_headers_and_no_header(self):
         with tempfile.TemporaryDirectory() as temp:

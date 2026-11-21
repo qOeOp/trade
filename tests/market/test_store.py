@@ -655,6 +655,31 @@ class LaterImportTests(unittest.TestCase):
             self.assertEqual((sources.REST_INTERVAL, sources.FUNDING_INTERVAL), (0.001, 0.002))
 
 
+class NoSourceTests(unittest.TestCase):
+    def test_a_month_no_source_holds_asks_no_source_but_its_monthly_archives(self):
+        """NEWUSDT onboards after January; RELUSDT was relisted after it, but its January archives are imported;
+        GONEUSDT left exchangeInfo before January."""
+        found = Exchange(server_time=day_ms(FEB))
+        for symbol in ("BTCUSDT", "NEWUSDT", "RELUSDT"):
+            found.contract(symbol, onboard=day_ms(date(2025, 2, 10)) if symbol != "BTCUSDT" else day_ms(JAN))
+        for symbol in ("BTCUSDT", "RELUSDT"):
+            found.klines("monthly", "LAST", symbol, "2025-01", minutes(day_ms(JAN), day_ms(FEB)))
+            found.klines("monthly", "MARK", symbol, "2025-01", minutes(day_ms(JAN), day_ms(FEB), mark=True))
+            found.funding_month(symbol, "2025-01", [(at + 3, "0.0001") for at in range(day_ms(JAN), day_ms(FEB),
+                                                                                         EIGHT_HOURS)])
+            found.rest[("LAST1d", symbol)] = minutes(day_ms(JAN), day_ms(FEB))
+        profile, cache = directory(self.addCleanup), Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, cache, True)
+        with serving(found):
+            result = store.import_month(profile, JAN, cache, 1, ["BTCUSDT", "GONEUSDT", "NEWUSDT", "RELUSDT"],
+                                        log=lambda line: None)
+        self.assertEqual({symbol: sum(item["bars"].values()) for symbol, item in result["per_symbol"].items()},
+                         {"BTCUSDT": 2 * 31 * 1440, "GONEUSDT": 0, "NEWUSDT": 0, "RELUSDT": 2 * 31 * 1440})
+        asked = [url for url in found.requests if "GONEUSDT" in url or "NEWUSDT" in url]
+        self.assertTrue(asked)
+        self.assertEqual([url for url in asked if url.startswith(sources.REST) or "/daily/" in url], [])
+
+
 class BackfillTests(unittest.TestCase):
     """The month just before the earliest stored one, imported after the fact: the stored months untouched, and the
     rows the forward import from that month gives."""

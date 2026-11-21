@@ -166,6 +166,11 @@ def _prepare(job: dict) -> dict:
     held = job["held"] if job["held"] is not None else job["start"]  # stored before this: compared, never written
     report = {"symbol": symbol, "rows": {}, "gaps": {}, "source_rows": {}, "rounded_volumes": 0, "terms": None,
               "derived_findings": None, "bars": None}
+    if job["held"] is None and not any(job["resumed"].values()) and series.no_source(
+            cache, symbol, job["start"], end, job["onboard"], trading):  # nothing to stitch: no REST asked
+        return {**report, "rows": dict.fromkeys(series.PRICE_TYPES, 0), "funding_reread": [], "funding": [],
+                "gaps": {kind: [] for kind in series.PRICE_TYPES}, "seconds": 0.0,
+                "source_rows": {kind: dict.fromkeys(series.SOURCES, 0) for kind in series.PRICE_TYPES}}
     batches, last = [], None
     for price_type in ("LAST", "MARK"):
         table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end,
@@ -419,6 +424,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                          "stored": {kind: stored_bars.get((symbol, kind), empty) for kind in ("LAST", "MARK")},
                          "resumed": {kind: (symbol, kind) in resumed for kind in ("LAST", "MARK")},
                          "trading": item is not None and item["status"] == "TRADING",
+                         "onboard": item.get("onboard_date") if item is not None else None,
                          "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None})
     stored_funding = _stored_funding(market, start_ms, held_ms) if held_ms is not None and jobs else {}
 

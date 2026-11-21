@@ -300,7 +300,7 @@ class BarsReadyTests(unittest.TestCase):
 class RoundOrderTests(unittest.TestCase):
     """A round with every importer stood in for: what stops what, and the holes once a month."""
 
-    def listing(self, profile, symbols) -> dict:
+    def listing(self, profile, scope) -> dict:
         return {"bars": {JAN: FEB, FEB: MAR, MAR: date(2025, 3, 2)}, "members": {}, "metrics": {"BTCUSDT": days_of(JAN, date(2025, 3, 2))},
                 "quotes": {"BTCUSDT": {JAN, MAR}}, "trades": {"BTCUSDT": {JAN, MAR}}}
 
@@ -479,6 +479,20 @@ class RoundTests(unittest.TestCase):
                          ("caught_up", 288))  # Jan 31 only: nothing before its first day is asked for
         self.assertEqual(files.followed_metrics(files.open_market(profile, "reader")),
                          {"BTCUSDT": date(2025, 1, 31), "ETHUSDT": date(2025, 1, 31)})
+
+    def test_the_metrics_pool_keeps_the_newest_months_members_from_that_month(self):
+        # BTCUSDT, January's only member, has no metrics; ETHUSDT's are held through Jan 30 and it is no member.
+        profile = self.market(("ETHUSDT",))
+        days = {symbol: [date(2025, 1, n) for n in range(1, 32)] for symbol in ("BTCUSDT", "ETHUSDT")}
+        with serving(self.exchange(days)), patch.object(follow, "_bars"), patch.object(follow, "_monthly"), \
+                patch.object(follow, "_holes"):
+            kept = follow.run_round(profile, scope((), metrics_pool=True), self.cache, follow.Memory(), at(FEB),
+                                    lambda _: None)["kinds"]["metrics"]
+            plain = follow.run_round(self.market(("ETHUSDT",)), scope(()), self.cache, follow.Memory(), at(FEB),
+                                     lambda _: None)["kinds"]["metrics"]
+        self.assertEqual({symbol: (entry["state"], entry["rows"]) for symbol, entry in kept.items()},
+                         {"BTCUSDT": ("caught_up", 31 * 288), "ETHUSDT": ("caught_up", 288)})
+        self.assertEqual(sorted(plain), ["ETHUSDT"])
 
     def test_each_contract_imports_its_own_days_across_the_month_end(self):
         profile = self.market()

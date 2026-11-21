@@ -79,7 +79,7 @@ class VerdictTests(unittest.TestCase):
     @staticmethod
     def cell(kind, annual, drawdown, whole=True, short=False, label="2020"):
         return {"kind": kind, "label": label, "whole_year": kind == "veto" and whole, "short": short,
-                "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
+                "status": "passed", "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
 
     @staticmethod
     def unread(label, status="invalid"):
@@ -126,6 +126,19 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(self.verdict(over), (None, None, ["veto 2020"]), "undecided whatever the other years read")
         unknown = self.summary(self.cell("veto", None, 0.1), self.cell("veto", 0.4, 0.1, label="2021"), self.HOLDOUT)
         self.assertEqual(self.verdict(unknown), (None, None, ["veto 2020"]), "a passed year without its annual return")
+
+    def test_a_part_veto_year_without_a_passed_run_leaves_the_verdict_undecided(self):
+        """20261120-01: the first veto year starts after the market's first day plus warm-up; its run sealed invalid
+        (UNPROTECTED_POSITION) was neither read nor missing, so the holdout alone decided."""
+        part = {"trial_id": 41, "kind": "veto", "label": "2020", "trade_start": "2020-01-31T00:00:00",
+                "trade_end": "2021-01-01T00:00:00", "status": "invalid", "whole_year": False, "short": False}
+        alone = self.summary(part, self.HOLDOUT)
+        self.assertEqual((alone["veto"]["whole_years"], *self.verdict(alone)), (0, None, None, ["veto 2020"]))
+        years = self.summary(part, self.cell("veto", 0.5, 0.1, label="2021"), self.HOLDOUT)
+        self.assertEqual(self.verdict(years), (None, None, ["veto 2020"]))
+        rerun = self.summary(part, {**part, "trial_id": 42, "status": "passed",
+                                    "measures": {"annual_return": -0.5, "mark_max_drawdown": 0.6}}, self.HOLDOUT)
+        self.assertEqual(self.verdict(rerun), (True, "holdout", []), "a passed part year is read in no summary")
 
     def test_a_year_takes_its_run_with_readings(self):
         """A trial left without a run (the host died) is replayed again: the year reads its rerun."""
@@ -192,6 +205,7 @@ class HistoryRunTests(unittest.TestCase):
     def test_a_line_closes_only_after_every_segment_has_a_history_run(self):
         world = self.world
         line = world.line["line"]
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))  # passed history runs
         registration, (ref,) = registered_grid(world, ["kept"])  # an open line takes a registration
         passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                            registration=registration)
@@ -232,7 +246,8 @@ class HistoryRunTests(unittest.TestCase):
         self.assertTrue(cells["holdout"]["short"], "two months of holdout in the fixture market")
         self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"], row["summary"]["missing"]),
                          (None, None, ["holdout", "targets"]),
-                         "no whole veto year; no countable holdout to judge by, and the fixture line has no targets")
+                         "no whole veto year and the part year passed, so it is read in no summary; "
+                         "no countable holdout to judge by, and the fixture line has no targets")
 
         # 20261120-04: a sealed history run reads as a research run does, on the Runs page and in `replay report`,
         # and still enters no research comparison or ranking (the research_runs assertions below).
@@ -358,13 +373,32 @@ class HistoryRunTests(unittest.TestCase):
             self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
                              (None, None, ["veto 2024", "control"]))
             self.assertIsNone(found["holdout"]["deflated_sharpe"], "one participant leaves no variance")
-            self.assertEqual(replay(None), [("development", "passed")])
+            self.assertEqual(replay(1), [("development", "passed")], "a segment without a run before a rerun")
+            reproduces, found = summary()
+            self.assertTrue(reproduces)
+            self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]),
+                             (True, True), "the year read and the holdout both reach the targets")
+            self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]))
+
+            # 20261120-03: an invalid segment is replayed again, once per call; one failing again stays invalid
+            (first,), = world.conn.rows("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                                        "WHERE t.purpose = 'history' AND r.status = 'invalid'")
+            world.scenario = {"returns": [0.001], "audit_passed": False, "audit_exit": 1}
+            again = history.run_history(world.profile, world.market, MARKET_DAY, line)
+            self.assertEqual([(item["segment"], item["status"], item["replaces"]) for item in again["ran"]],
+                             [("2024", "invalid", first)])
+            self.assertEqual((again["left"], again["invalid_left"]), (0, 0))
+            self.assertEqual(replay(None), [("2024", "passed")], "the next call replays it again")
         reproduces, found = summary()
-        self.assertTrue(reproduces)
-        self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]), (True, True),
-                         "the year read and the holdout both reach the targets")
-        self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]),
-                         "the invalid year cannot be replayed again: the row stays undecided")
+        self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
+                         (True, "veto and holdout", []), "the rerun supersedes the invalid year")
+        (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+        (year,) = [cell for cell in row["cells"] if cell["label"] == "2024"]
+        self.assertEqual((year["status"], year["superseded"], len(row["cells"])),
+                         ("passed", [first, again["ran"][0]["history_trial_id"]], 5),
+                         "one cell per segment: 2023, 2024, 2025, the holdout and the control")
+        found = status.research_status(world.profile)["excluded_trials"]["reproductions"]
+        self.assertEqual(len(found), 2, "a rerun looks at what its first trial did: counted once")
 
     def test_a_source_without_economic_evidence_is_no_candidate(self):
         """20261114-13: the test's candidates are the participants whose research run carries economic evidence, as

@@ -1,5 +1,5 @@
 """One-minute series (`market.stitch_series`, `market.missing_intervals`, `market.derive_bars`,
-`market.check_derived`).
+`market.check_derived`) and the months no source holds (`market.no_source`).
 
 Sources are stitched in one order (monthly archive, daily archive, public REST) and the stitch is
 invisible above this module: a series is one sorted, duplicate-free run of closed minutes, and a
@@ -214,6 +214,21 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     gaps = gaps_of(table)
     counts = np.bincount(table["source"].to_numpy(), minlength=3) if table.num_rows else np.zeros(3, np.int64)
     return table.drop_columns(["source"]), gaps, {name: int(counts[i]) for i, name in enumerate(SOURCES)}
+
+
+def no_source(cache: Path, symbol: str, start_ms: int, end_ms: int, onboard: int | None, trading: bool) -> bool:
+    """No source holds the contract's month [start_ms, end_ms), which no stored minute continues: Binance published
+    none of its monthly kline, mark-price and funding archives (mark prices may go on after the last trade), and
+    the contract did not trade then: the month ended before its onboard time, or the contract no longer trades and
+    the month after next has begun (a month's archives come out early in the next one). A relisted contract's months
+    before its latest onboard time keep their archives, so they are no such month."""
+    month = _ms_day(start_ms).replace(day=1)
+    settled = universe.next_month(universe.next_month(month)) <= datetime.now(UTC).date()
+    if not (onboard is not None and end_ms <= onboard or not trading and settled):
+        return False
+    months = _months(start_ms, end_ms)
+    return not any(sources.monthly_archives(cache, kind, symbol, interval, months) for kind, interval in (
+        (sources.KIND_OF["LAST"], "1m"), (sources.KIND_OF["MARK"], "1m"), ("fundingRate", None)))
 
 
 # market.derive_bars
