@@ -3,7 +3,7 @@
 const SLICES: Record<string, string> = {
   profit_bridge: "Profit bridge", capital_scaled: "Scale and timing", fee_stress: "Fee stress",
   by_instrument: "Instruments and sides", market_exposure: "Market exposure", by_period: "Periods",
-  by_regime: "Volatility regimes", trade_structure: "Trade structure", trade_pairs: "Trade pairs", drawdown: "Drawdown",
+  by_regime: "Volatility regimes", trade_structure: "Trade structure", entry_orders: "Entry orders", trade_pairs: "Trade pairs", drawdown: "Drawdown",
 };
 const MEASURES: Record<string, string> = {
   price: "Price P&L", fee: "Fees", funding: "Funding", open_mark: "Open positions at mark", account: "Account total",
@@ -18,6 +18,7 @@ const MEASURES: Record<string, string> = {
   low_vol_days: "Low-volatility days", low_vol_mean_log: "Low-volatility mean daily log return", low_vol_log_sum: "Low-volatility summed log return",
   cycles: "Cycles", win_rate: "Win rate", avg_win: "Average win", avg_loss: "Average loss", expectancy: "Expectancy",
   median_holding_hours: "Median hold (hours)", top_exit_share: "Top exit reason's share",
+  entry_orders: "Entry orders", entry_filled_share: "Filled entries' share",
   matched_share: "Matched trades' share", matched_net_share: "Matched trades' net share", removed_net: "Net of removed trades",
   added_net: "Net of added trades", matched_delta_net: "Net change of matched trades", win_to_loss: "Wins turned losses",
   loss_to_win: "Losses turned wins", median_entry_shift_minutes: "Median entry shift (minutes)",

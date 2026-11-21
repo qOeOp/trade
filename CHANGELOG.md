@@ -33,6 +33,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of `{table: sha256}`. The upgrade drops the generation 1 ledger: every command refuses it with
   `SCHEMA_MISMATCH`, and research restarts on a new ledger.
 
+- Measure catalogue: every one of the 27 duties is linked to at least one report slice that can measure
+  its rule (nine had none), and B2 moves from `by_period` to `trade_structure`; the links still locate policies and
+  do not constrain which measure a prediction names. A new `entry_orders` slice gives `entry_orders` and
+  `entry_filled_share` (entry orders whose final status is FILLED), derived from the sealed order funnel and never
+  stored, so a change to entry placement or waiting (C1, G1, G2) can predict a measure instead of writing no slice
+  (`docs/plans/duty-directory-recheck-20261121.zh.md`).
+
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
   Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host
