@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261121-20 | Paper 封存审计在实时时钟的部分成交突发里误报：交易所在撤单请求之前改 reduce-only 单（`EVENT_OUT_OF_ORDER`），连续成交的账户变动配不上（`FUNDING_BALANCE_MISMATCH`）；运行 3 因此审计未通过，经济结果无误 | authority（只在实时时钟下按证据形态放宽两条审计检查；Claude 按用户委托决定） | doctor | unknown | in PR [#3293](https://github.com/qOeOp/trade/pull/3293)（[记录](2026-11-21-paper-fill-burst-audit.zh.md)） | 2026-11-21 | 2026-11-21 |
+| 20261121-20 | Paper 封存审计在实时时钟的部分成交突发里误报：交易所在撤单请求之前改 reduce-only 单（`EVENT_OUT_OF_ORDER`），连续成交的账户变动配不上（`FUNDING_BALANCE_MISMATCH`）；运行 3 因此审计未通过，经济结果无误 | authority（只在实时时钟下按证据形态放宽两条审计检查；Claude 按用户委托决定） | doctor | unknown | fixed a9f0f7928 [#3293](https://github.com/qOeOp/trade/pull/3293)（[记录](2026-11-21-paper-fill-burst-audit.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-01 | 单次运行读数只给出场类别集中度 `top_exit_share`，不给各出场类别净盈亏（`exit_net` 已算出后丢弃） | measure（数会话手算出场拆分的次数，再定产品读数还是留在技能） | doctor | unknown | fixed 050ccf724 [#3272](https://github.com/qOeOp/trade/pull/3272) | 2026-11-21 | 2026-11-21 |
 | 20261116-01 | Web 的产品读取按固定上限 3 个并发，不按容器内存：11-19 生产 Web 容器（1.5 GiB）里内核杀了 9 个读取子进程，页面只见 `PRODUCT_FAILED`（[复发](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | fix（按 cgroup 内存余量与读取峰值放行，被杀的读取答 `OUT_OF_MEMORY`） | doctor | minutes | in PR [#3256](https://github.com/qOeOp/trade/pull/3256)（2026-11-21 recurred，[记录](2026-11-16-web-oom-overview.zh.md#2026-11-21-复发)） | 2026-11-16 | 2026-11-19 |
 | 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | none（观察，攒例子再定） | user（Data and usage cost） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
