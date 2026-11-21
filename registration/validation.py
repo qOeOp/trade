@@ -10,12 +10,13 @@ whatever the replay's outcome.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 
-from ledger import db, execution, metrics, strategies, witness
+from ledger import db, execution, strategies, witness
 from ledger import trials
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import register, seams
@@ -27,17 +28,6 @@ def _naive_utc(moment) -> datetime:
 
 def _month_of(moment: datetime | date) -> str:
     return f"{moment.year}-{moment.month:02d}"
-
-
-def _months(start: datetime, end: datetime) -> list[str]:
-    """Every YYYY-MM month that [start, end) touches."""
-    months, month = [], _month_of(start)
-    last = _month_of(end - timedelta(microseconds=1))
-    while month <= last:
-        months.append(month)
-        year, number = int(month[:4]), int(month[5:7])
-        month = f"{year + number // 12}-{number % 12 + 1:02d}"
-    return months
 
 
 def _by_month(rows) -> dict[str, list[tuple]]:
@@ -80,10 +70,11 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
             raise changed(f"members of {month} changed between the market days: " + ", ".join(symbols), month,
                           *symbols)
     start, end = _naive_utc(registration["window_start"]), _naive_utc(registration["window_end"])
-    absent = [month for month in _months(start, end) if month not in now]
+    start_ns, end_ns = clock.moment_ns(start), clock.moment_ns(end)
+    absent = [month for month in clock.month_names(start_ns // clock.MS_NS, end_ns // clock.MS_NS) if month not in now]
     if absent:
         raise changed("window months not produced at the market day: " + ", ".join(absent), *absent)
-    derived = adapter.membership_path(identity["market_day"], metrics.moment_ns(end))["membership"]
+    derived = adapter.membership_path(identity["market_day"], end_ns)["membership"]
     received = inputs.get("membership")
     given = received.get("membership") if isinstance(received, Mapping) else None
     given = given if isinstance(given, Mapping) else {}
@@ -96,10 +87,10 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
         derived = {symbol: derived[symbol] for symbol in subset if symbol in derived}
     for symbol, intervals in sorted(derived.items()):
         for lo, hi in intervals:
-            clipped = (max(lo, metrics.moment_ns(start)), min(hi, metrics.moment_ns(end)))
+            clipped = (max(lo, start_ns), min(hi, end_ns))
             if clipped[0] < clipped[1] and not _covered(clipped, given.get(symbol)):
                 raise changed(f"{symbol} is removed from or shortened in the strategy's membership",
-                              _month_of(trials._utc(clipped[0])), symbol)
+                              _month_of(trials.utc(clipped[0])), symbol)
 
 
 def candidate_registrations(conn: db.LedgerConnection, source_sha256: str) -> list[dict]:
@@ -140,12 +131,16 @@ def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mappi
 
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
                         universe_rule: str, market: str | None, design: Mapping, retry_of: int | None,
-                        op_id: str | None, *, market_profile, tsa_url: str | None = None) -> dict:
+                        op_id: str | None, *, market_profile,
+                        unfalsified: Callable[[db.LedgerConnection, str], object],
+                        tsa_url: str | None = None) -> dict:
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
     `market` is the market day reference (None: the market's default head), resolved through the
-    market `market_profile`."""
+    market `market_profile`. `unfalsified` (report.history.require_unfalsified, a layer above) refuses a candidate
+    that its line's closing history test falsified or has not decided (20261120-05, user 2026-11-21): a validation
+    spends its window once, on a candidate that survived its history."""
     try:
         register.validate_design(design)
     except Refusal as exc:
@@ -164,6 +159,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
+        unfalsified(conn, row["source_sha256"])
         market_day = seams.current.market(market_profile).resolve_day(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)
@@ -283,7 +279,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
                                         f"registered window is [{start}, {end})", missing=("window",))
     receipts = coverage.get("export_receipts")
     receipts = receipts if isinstance(receipts, Mapping) else {}
-    needed = (metrics.moment_ns(row["input_start"]), metrics.moment_ns(row["trade_end"]))
+    needed = (clock.moment_ns(row["input_start"]), clock.moment_ns(row["trade_end"]))
     uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
                  or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]
                  or not receipts[symbol].get("end_ns", needed[1] - 1) >= needed[1]]

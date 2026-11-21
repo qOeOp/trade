@@ -15,6 +15,7 @@ import pyarrow.compute as pc
 
 from cli import main
 from market import coverage, files, metrics, sources, store
+from shared.errors import Refusal
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, zipped
 
@@ -57,11 +58,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(metrics.exact("0", "ratio"), "0")
         self.assertEqual(metrics.exact("9" * 22 + ".5", "oi"), "9" * 22 + ".5")
         for text in ("0.00000000000000001", "1" + "0" * 22, "1E+1000000000", "1E-1000000000"):
-            with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
                 metrics.exact(text, "oi")
             self.assertEqual(caught.exception.code, "SCALE_LOSS")
         for text in ("-1", "NaN", "Infinity", "oops"):
-            with self.subTest(text=text), self.assertRaises(sources.MarketError) as caught:
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
                 metrics.exact(text, "oi")
             self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
 
@@ -90,7 +91,7 @@ class ParseTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp:
             for name, text in cases.items():
-                with self.subTest(name), self.assertRaises(sources.MarketError) as caught:
+                with self.subTest(name), self.assertRaises(Refusal) as caught:
                     metrics.rows(path_of(temp, text), "BTCUSDT", "2025-01-01")
                 self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
 
@@ -150,7 +151,7 @@ class ImportTests(unittest.TestCase):
                          (31 * 288 - 1, 1, 0))
         self.assertEqual((facts["first_ms"], facts["uncovered_intervals_ms"]),
                          (START, [[day_ms(date(2025, 2, 1)), day_ms(date(2025, 2, 1)) + store.DAY]]))
-        with serving(self.exchange(days)), self.assertRaises(sources.MarketError) as caught:
+        with serving(self.exchange(days)), self.assertRaises(Refusal) as caught:
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "MONTH_EXISTS")
 
@@ -225,7 +226,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual([(part["month"], part["missing_days"]) for part in facts["months"]],
                          [("2025-01", ["2025-01-02"])])
         self.assertEqual(facts["uncovered_intervals_ms"], [[day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))]])
-        with serving(Exchange(START)), self.assertRaises(sources.MarketError) as caught:
+        with serving(Exchange(START)), self.assertRaises(Refusal) as caught:
             metrics.import_month(profile, date(2025, 2, 1), self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
 
@@ -247,7 +248,7 @@ class ImportTests(unittest.TestCase):
                                               pc.greater_equal(filled["create_time"], high))).to_pylist(),
                          held.to_pylist())
         # With no archive of a day still missing, nothing lands and the import waits.
-        with serving(Exchange(START)), self.assertRaises(sources.MarketError) as caught:
+        with serving(Exchange(START)), self.assertRaises(Refusal) as caught:
             imported()
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
 
@@ -271,7 +272,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
                          ("2025-01-03", "2025-01-05", {"BTCUSDT": ["2025-01-02"]}))
         # With nothing before the waiting day to land, the import waits.
-        with serving(self.exchange([date(2025, 1, 7)])), on(date(2025, 1, 8)), self.assertRaises(sources.MarketError) as caught:
+        with serving(self.exchange([date(2025, 1, 7)])), on(date(2025, 1, 8)), self.assertRaises(Refusal) as caught:
             imported()
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
         self.assertEqual(read(profile, "metrics").num_rows, 3 * 288)
@@ -285,7 +286,7 @@ class ImportTests(unittest.TestCase):
             if day == days[-1]:
                 text += line(day_ms(day) + 60_000, symbol="ETHUSDT")
             put(exchange, day, text, "ETHUSDT")
-        with serving(exchange), self.assertRaises(sources.MarketError) as caught:
+        with serving(exchange), self.assertRaises(Refusal) as caught:
             metrics.import_month(profile, JAN, self.cache, ["ETHUSDT", "BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
         self.assertIn("written meanwhile: BTCUSDT", caught.exception.message)

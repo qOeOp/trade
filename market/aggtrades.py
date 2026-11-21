@@ -20,8 +20,9 @@ import zlib
 
 import pyarrow as pa
 
-from market import files, series, sources, store
-from market.sources import _refuse
+from market import files, sources, store
+from shared import clock
+from shared.refusals import refuse
 
 
 CODEC = "binance-aggtrades-int64-scale8-v1"
@@ -41,13 +42,13 @@ def scaled(text: str, label: str) -> int:
             raise ValueError("not a positive finite decimal")
         # Reject extreme exponents before as_integer_ratio could allocate an enormous integer.
         if not MIN_VALUE <= value <= MAX_VALUE:
-            raise _refuse(f"{label}: {text!r} cannot be represented exactly by {CODEC}", "SCALE_LOSS", missing=(label,))
+            raise refuse("SCALE_LOSS", f"{label}: {text!r} cannot be represented exactly by {CODEC}", missing=(label,))
         numerator, denominator = value.as_integer_ratio()
         integer, remainder = divmod(numerator * SCALE, denominator)
     except (InvalidOperation, ValueError, OverflowError) as exc:
-        raise _refuse(f"{label}: invalid decimal {text!r}", "SOURCE_SHAPE", missing=(label,)) from exc
+        raise refuse("SOURCE_SHAPE", f"{label}: invalid decimal {text!r}", missing=(label,)) from exc
     if remainder or not 0 < integer <= MAX_INT:
-        raise _refuse(f"{label}: {text!r} cannot be represented exactly by {CODEC}", "SCALE_LOSS", missing=(label,))
+        raise refuse("SCALE_LOSS", f"{label}: {text!r} cannot be represented exactly by {CODEC}", missing=(label,))
     return integer
 
 
@@ -72,7 +73,7 @@ def follows(last_id: int | None, last_time: int | None, last_trade: int | None, 
 def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int = BATCH_ROWS):
     """One CSV row at a time; retain only a batch of rows and the previous event across days."""
     label = f"{symbol} {day}"
-    low = series._day_ms(date.fromisoformat(day))
+    low = clock.day_ms(date.fromisoformat(day))
     previous_id, previous_time, previous_trade = state.last_id, state.last_time, state.last_trade
     readings["trades"] = 0
     rows = []
@@ -94,8 +95,8 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                     if first > last or maker not in ("true", "false", "True", "False"):
                         raise ValueError("invalid first/last trade ID or maker flag")
                     if not follows(previous_id, previous_time, previous_trade, identity, moment, first):
-                        raise _refuse(f"{label}: aggTrade ids are not contiguous (after agg_trade_id "
-                                      f"{previous_id} comes {identity})", "SEQUENCE_GAP", missing=(label,))
+                        raise refuse("SEQUENCE_GAP", f"{label}: aggTrade ids are not contiguous (after agg_trade_id "
+                                     f"{previous_id} comes {identity})", missing=(label,))
                     if previous_time is not None and moment < previous_time:
                         raise ValueError("transact_time goes backwards")
                     if not low <= moment < low + store.DAY:
@@ -108,9 +109,10 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                         yield rows
                         rows = []
     except (ValueError, csv.Error, UnicodeError, zipfile.BadZipFile, zlib.error, EOFError) as exc:
-        raise _refuse(f"{label}: rows do not parse as complete aggTrades ({exc})", "SOURCE_SHAPE", missing=(label,)) from exc
+        raise refuse("SOURCE_SHAPE", f"{label}: rows do not parse as complete aggTrades ({exc})",
+                     missing=(label,)) from exc
     if not readings["trades"]:
-        raise _refuse(f"{label}: the archive holds no trades", "SOURCE_SHAPE", missing=(label,))
+        raise refuse("SOURCE_SHAPE", f"{label}: the archive holds no trades", missing=(label,))
     state.last_id, state.last_time, state.last_trade = previous_id, previous_time, previous_trade
     if rows:
         yield rows
@@ -133,7 +135,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
     market = files.open_market(profile, "import")
     with files.lock(market):
         if market.empty:
-            raise _refuse("the market holds no bars yet", "MARKET_EMPTY")
+            raise refuse("MARKET_EMPTY", "the market holds no bars yet")
         jobs = []
         for symbol in symbols:
             jobs.append({"root": str(market.root), "symbol": symbol, "cache": str(cache), "start": start, "end": end,
@@ -150,14 +152,14 @@ def month_rows(cache: Path, symbol: str, start: int, end: int, earlier: bool):
     day before) carries the id sequence into the month; it may be unpublished only when the market holds no earlier
     file of the contract (not `earlier`), and the sequence then starts on the first day."""
     state = State()
-    eve = series._ms_day(start - store.DAY).isoformat()
+    eve = clock.ms_day(start - store.DAY).isoformat()
     key = sources.aggtrades_key(symbol, eve)
     path = sources.fetch_archive(cache, key) if earlier else sources.published(cache, key)
     if path is not None:
         for _ in batches(path, symbol, eve, state, {}):
             pass
     for moment in range(start, end, store.DAY):
-        day = series._ms_day(moment).isoformat()
+        day = clock.ms_day(moment).isoformat()
         yield from batches(sources.fetch_archive(cache, sources.aggtrades_key(symbol, day)), symbol, day, state, {})
 
 
@@ -166,8 +168,8 @@ def trade_month(job: dict) -> dict:
     started = time.monotonic()
     symbol, cache, start, end = job["symbol"], Path(job["cache"]), job["start"], job["end"]
     if job["held"]:  # this contract only: the others of the call go on
-        raise _refuse(f"the market already holds {series._ms_day(start):%Y-%m} aggTrades of {symbol}", "MONTH_EXISTS",
-                      missing=(f"{series._ms_day(start):%Y-%m}",))
+        raise refuse("MONTH_EXISTS", f"the market already holds {clock.ms_day(start):%Y-%m} aggTrades of {symbol}",
+                     missing=(f"{clock.ms_day(start):%Y-%m}",))
     total = 0
 
     def rows():
@@ -176,7 +178,7 @@ def trade_month(job: dict) -> dict:
             total += len(found)
             yield record_batch(found)
 
-    written = files.write_file(store.worker_market(job), "agg_trade", series._ms_day(start), symbol, rows())
-    return {"written": written, "result": {"month": series._ms_day(start).strftime("%Y-%m"), "symbols": [symbol],
+    written = files.write_file(store.worker_market(job), "agg_trade", clock.ms_day(start), symbol, rows())
+    return {"written": written, "result": {"month": clock.ms_day(start).strftime("%Y-%m"), "symbols": [symbol],
                                            "codec": CODEC, "trade_rows": total,
                                            "seconds": round(time.monotonic() - started, 1)}}

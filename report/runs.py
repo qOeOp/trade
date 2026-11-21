@@ -21,6 +21,7 @@ from pathlib import Path
 
 from ledger import db, execution, metrics, problems
 from ledger import targets as line_targets
+from shared import clock
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
@@ -419,8 +420,8 @@ def directory_facts(reports: metrics.Reports, sealed: Mapping) -> dict:
             "native_economics": (reports.audit or {}).get("native_economics"),
             "starting_balance": Decimal(str(summary["starting_balance_usdt"])),
             "final_equity": Decimal(str(summary["final_equity_usdt"])),
-            "trade_start_ns": metrics.utc_ns(summary["period_start_utc"]),
-            "trade_end_ns": metrics.utc_ns(summary["period_end_utc"]), "input_identity": {}}
+            "trade_start_ns": clock.utc_ns(summary["period_start_utc"]),
+            "trade_end_ns": clock.utc_ns(summary["period_end_utc"]), "input_identity": {}}
 
 
 def _directory_sealed(directory: Path) -> tuple[metrics.Reports, dict]:

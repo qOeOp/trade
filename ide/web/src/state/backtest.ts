@@ -3,7 +3,8 @@
 // run's report changes only with that row (a later record masking it), not with each commit the research
 // adds, so it stays on the page and the server stays unasked while the ledger moves; when the row does
 // change the last answer stays until the new one is in. One that was no report is asked again at the view's
-// next commit. Where it is not to be had, what the page says instead.
+// next commit, and one the IDE ran out of memory reading (OUT_OF_MEMORY) each time it is shown again. Where it is
+// not to be had, what the page says instead.
 import { useEffect } from "react";
 import { fetchTrial } from "../lib/trialApi";
 import { backtest, type Backtest } from "../model/backtest";
@@ -19,7 +20,8 @@ const put = (id: number, read: Read) => reads.set(new Map(reads.get()).set(id, r
 
 function read(id: number, row: string, at: string): void {
   const last = reads.get().get(id);
-  if (last?.row === row && (last.answer.kind === "ready" || last.answer.kind === "reading" || last.at === at)) return;
+  const retry = last?.answer.kind === "refused" && last.answer.code === "OUT_OF_MEMORY";
+  if (last?.row === row && !retry && (last.answer.kind === "ready" || last.answer.kind === "reading" || last.at === at)) return;
   put(id, { row, at, answer: last?.answer ?? { kind: "reading" } });
   void fetchTrial(id, at).then((r) => {
     if (reads.get().get(id)?.row === row) put(id, { row, at, answer: r.kind === "report" ? { kind: "ready", b: backtest(r.report) } : r });

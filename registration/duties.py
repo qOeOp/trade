@@ -23,7 +23,7 @@ _SLICES = (
       "return_over_drawdown")),
     ("fee_stress", "Fee stress", ("G1", "C2"), ("breakeven_fee_multiple", "daily_turnover")),
     ("by_instrument", "Instruments and sides", ("A1", "A2", "F3"),
-     ("top5_abs_share", "one_side_instruments", "long_net", "short_net")),
+     ("top5_abs_share", "net_without_top_instrument", "one_side_instruments", "long_net", "short_net")),
     ("market_exposure", "Market exposure", ("E2", "D2"), ("beta_basket", "alpha_basket", "beta_btc", "alpha_btc")),
     ("by_period", "Periods", ("A3", "B2"), ("months_won_share", "residual_after_top5_days", "sharpe_lo")),
     ("by_regime", "Volatility regimes", ("A3", "D2"),

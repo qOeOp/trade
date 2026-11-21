@@ -11,10 +11,8 @@ failures (live.notify). An execution record: nothing reaches a ledger, and the c
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date
 from decimal import Decimal
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -28,6 +26,7 @@ from engine.config import utc_text
 from engine.live_errors import LiveRefusal
 from ledger import metrics
 from live import runs, state
+from shared import clock
 from shared.errors import Refusal
 
 
@@ -46,10 +45,6 @@ CPUS = "1"
 LISTED = 20
 STAGE_PREFIX = "trade-live-compare-"
 CONTAINER_MARK = Path("/.dockerenv")
-
-
-def _ns(day: str) -> int:
-    return round(datetime.combine(date.fromisoformat(day), datetime.min.time(), timezone.utc).timestamp()) * 10**9
 
 
 # Records
@@ -72,11 +67,7 @@ def _write(root: Path, run_id: str, value: dict) -> None:
         directory = state.directory(root, run_id)
         if directory.is_symlink() or not directory.is_dir():
             return
-        temporary = directory / f".{RECORD}.{secrets.token_hex(4)}"
-        with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w",
-                  encoding="utf-8") as stream:
-            json.dump({"format": FORMAT, **value}, stream, sort_keys=True, default=str)
-        os.replace(temporary, directory / RECORD)
+        state.replace(directory / RECORD, json.dumps({"format": FORMAT, **value}, sort_keys=True, default=str).encode())
 
 
 # Measures of several trading starts
@@ -191,7 +182,7 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
     done_day = previous.get("done") if isinstance(previous.get("done"), str) else None
     bound = target + DAY_NS
     since = target - (WEEK - 1) * DAY_NS
-    fresh = max(_ns(done_day) + DAY_NS, since) if done_day else since  # decisions not reported before
+    fresh = max(clock.day_ns(date.fromisoformat(done_day)) + DAY_NS, since) if done_day else since  # decisions not reported before
     base = {"day": day, "attempted_ns": time.time_ns(), "done": done_day,
             "window": {"from": utc_text(since), "to": utc_text(bound)}}
     _write(root, run_id, {**base, "state": "running", "failures": streak})
@@ -217,19 +208,6 @@ def compare_run(root: Path, market: dict, run_id: str, today: int, output: Path)
 
 
 # The comparison container
-
-@contextmanager
-def _exclusive(root: Path):
-    """Yield whether this process holds the root's compare.lock (never waiting)."""
-    descriptor = os.open(root / LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as stream:
-        try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
-        yield True
-
 
 def _clean(scratch: Path) -> None:
     """Under the lock: the stage containers and working directories a stopped comparison left."""
@@ -301,7 +279,7 @@ def run(root: Path, market_root: Path, today: str) -> dict:
     root = Path(root).expanduser().absolute()
     with state.reading(root) as root:
         listed = _listed(root)
-    with _exclusive(root) as held:
+    with state.lock(root / LOCK, blocking=False) as held:
         if not held:
             return {"state": "busy", "runs": {}}
         scratch = _scratch(root)
@@ -316,7 +294,7 @@ def run(root: Path, market_root: Path, today: str) -> dict:
         try:
             for run_id in listed:
                 try:
-                    record = compare_run(root, market, run_id, _ns(today), attempt)
+                    record = compare_run(root, market, run_id, clock.day_ns(date.fromisoformat(today)), attempt)
                     if record is not None:
                         _write(root, run_id, record)
                         found[run_id] = record["state"]
@@ -327,11 +305,12 @@ def run(root: Path, market_root: Path, today: str) -> dict:
     return {"state": "done", "runs": found}
 
 
-def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> list[str]:
-    """`docker run` of a comparison container: this control's image, user, groups, capabilities, security options,
-    network and mounts (--volumes-from), with its own memory and CPU limits, removed when it exits."""
+def launch_argv(container: dict, prefix: str, command: list[str]) -> list[str]:
+    """`docker run` of a comparison container running `python -m cli.main *command`: this control's image, user,
+    groups, capabilities, security options, network and mounts (--volumes-from), with its own memory and CPU limits,
+    named `prefix`-<random>, removed when it exits."""
     config, host = container["Config"], container["HostConfig"]
-    argv = ["docker", "run", "--rm", "--init", "--name", f"trade-live-daily-{secrets.token_hex(6)}",
+    argv = ["docker", "run", "--rm", "--init", "--name", f"{prefix}-{secrets.token_hex(6)}",
             "--volumes-from", container["Id"], "--network", host["NetworkMode"],
             "--memory", MEMORY, "--memory-swap", MEMORY, "--cpus", CPUS]
     if config.get("User"):
@@ -348,8 +327,7 @@ def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> l
         value = next((item.split("=", 1)[1] for item in config.get("Env") or [] if item.startswith(name + "=")), None)
         if value is not None:
             argv += ["--env", f"{name}={value}"]
-    return [*argv, "--entrypoint", "python", container["Image"], "-m", "cli.main", "live", "compare-daily",
-            "--root", str(root), "--market-root", str(market_root), "--today", today]
+    return [*argv, "--entrypoint", "python", container["Image"], "-m", "cli.main", *command]
 
 
 def due(now: int, last: int | None) -> bool:
@@ -380,7 +358,8 @@ def launch(root: Path, market_root: Path, now: int) -> str:
     try:
         found = json.loads(subprocess.run(["docker", "inspect", "--type", "container", identity], capture_output=True,
                                           text=True, timeout=60, check=True).stdout)[0]
-        argv = launch_argv(found, root, market_root, metrics.utc_day(now))
+        argv = launch_argv(found, "trade-live-daily", ["live", "compare-daily", "--root", str(root), "--market-root",
+                                                       str(market_root), "--today", metrics.utc_day(now)])
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         return "uninspected"
     name = argv[argv.index("--name") + 1]

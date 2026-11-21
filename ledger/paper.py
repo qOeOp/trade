@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 import gzip
 import hashlib
@@ -32,10 +32,10 @@ import tempfile
 from engine.config import ACCOUNT_CONTRACT, instrument_id, symbol_of
 from engine.kline_events import received
 from ledger import db, metrics, strategies
+from shared import clock
 from shared.refusals import refuse
 
 
-READINGS = "paper-readings@2026-11-15"
 LOG_TAIL_BYTES = 1024 * 1024
 # How a run may end without a reason recorded: the user's stop, the engineering duration, a signal, and the end of a
 # held run once its positions are closed (engine.paper, HELD_FLAT).
@@ -141,7 +141,7 @@ def paper_files(conn: db.LedgerConnection, paper_id: int, *wanted: str) -> dict[
     exact = [name for name in wanted if not name.endswith("/")]
     under = [name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
              for name in wanted if name.endswith("/")]
-    clauses = ([f"path IN ({', '.join(['%s'] * len(exact))})"] if exact else []) + ["path LIKE %s"] * len(under)
+    clauses = ([f"path IN ({db.marks(exact)})"] if exact else []) + ["path LIKE %s"] * len(under)
     where = f" AND ({' OR '.join(clauses)})" if clauses else ""
     return {row["path"]: bytes(row["content"]) for row in conn.dicts(
         f"SELECT path, content FROM paper_file WHERE paper_id = %s{where} ORDER BY path", (paper_id, *exact, *under))}
@@ -185,11 +185,6 @@ def _decimal(value) -> Decimal | None:
 
 
 MINUTE_NS = 60 * 10**9
-
-
-def _month_end(ns: int) -> int:
-    moment = datetime.fromtimestamp(ns // 10**9, UTC)
-    return int(datetime(moment.year + moment.month // 12, moment.month % 12 + 1, 1, tzinfo=UTC).timestamp()) * 10**9
 
 
 def sealed_journal(files: Mapping[str, bytes]) -> list[dict]:
@@ -367,14 +362,15 @@ def audit_inputs(row: dict, inputs: Path, lines: list[dict], summary: dict) -> t
     asked = max((line["wall_ns"] for line in lines if line["kind"] == "stop_requested"), default=None)
     end = max(_ceil_minute(asked or summary["stopped_ns"]), start + MINUTE_NS)
     universe = json.loads((inputs / "universe.json").read_bytes())["membership"]
-    first_month_end = _month_end(start)
+    first_month_end = clock.month_end(start // clock.MS_NS) * clock.MS_NS
     membership = {symbol: [[max(low, start), min(high, first_month_end)] for low, high in universe.get(symbol, [])
                            if high > start and low < first_month_end] for symbol in row["symbols"]}
     for line in lines:
         if line["kind"] == "membership" and line.get("member") is True and line.get("symbol") in membership:
-            month = int(datetime.strptime(line["month"], "%Y-%m").replace(tzinfo=UTC).timestamp()) * 10**9
-            if [month, _month_end(month)] not in membership[line["symbol"]]:
-                membership[line["symbol"]].append([month, _month_end(month)])
+            month = date.fromisoformat(line["month"] + "-01")
+            span = [clock.day_ns(month), clock.day_ns(clock.next_month(month))]
+            if span not in membership[line["symbol"]]:
+                membership[line["symbol"]].append(span)
     closed = [line for line in lines if line["kind"] == "position" and line.get("type") == "PositionClosed"]
     ended = {line.get("client_order_id"): line.get("type") for line in lines if line["kind"] == "order"
              and line.get("type") in ("OrderDenied", "OrderRejected")}
@@ -529,7 +525,7 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         previous = equity
     orders = Counter(line.get("type") for line in lines if line["kind"] == "order")
     return {
-        "readings": READINGS, "paper_id": row["paper_id"],
+        "paper_id": row["paper_id"],
         "status": verdict(reasons), "reasons": sorted(set(reasons)),
         "started_ns": (summary or {}).get("started_ns") or (lines[0]["wall_ns"] if lines else None),
         "stopped_ns": (summary or {}).get("stopped_ns") or (lines[-1]["wall_ns"] if lines else None),

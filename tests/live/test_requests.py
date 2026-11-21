@@ -421,7 +421,7 @@ class PartialPrepareTests(LiveFixture):
         return runs.prepare_locked(root, self.new_id, object(), "a" * 32, "original@1", ["BTCUSDT"], self.universe,
                                     self.credentials, IDENTITY["image_ref"], **self.config,
                                     market_root=Path("unused"), request_id=request_id, credential_ref=self.ref,
-                                    recover_partial=recover)
+                                    reconciled=lambda *_: None, recover_partial=recover)
 
     def test_partial_fixed_prepare_is_completed_only_by_explicit_local_recovery(self):
         original = state.write_new

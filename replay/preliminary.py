@@ -26,6 +26,7 @@ import pyarrow.compute as pc
 from engine.config import utc_text
 from market import files, metrics as stored_metrics, series, sources, store
 from market.sources import DAY, MINUTE
+from shared import clock
 
 MS = 1_000_000
 LINKED = ("instrument", "universe_month", "bar", "funding")
@@ -40,14 +41,10 @@ def _link(real: files.Market, root: Path, table: str, symbols: list[str] | None)
         os.symlink(real.root / entry.relative, target)
 
 
-def _month(ms: int) -> date:
-    return series._ms_day(ms).replace(day=1)
-
-
-def _months(rows: Iterable[tuple], at: Callable[[tuple], int]) -> dict[date, list[tuple]]:
+def _by_month(rows: Iterable[tuple], at: Callable[[tuple], int]) -> dict[date, list[tuple]]:
     found: dict[date, list[tuple]] = {}
     for row in rows:
-        found.setdefault(_month(at(row)), []).append(row)
+        found.setdefault(clock.ms_day(at(row)).replace(day=1), []).append(row)
     return found
 
 
@@ -87,7 +84,7 @@ def _bars(market: files.Market, symbols: list[str], start: int, end: int, fetche
             rows = sources.rest_klines(price_type, symbol, "1m", low, end, patient=False) if low < end else []
             fetched.setdefault(symbol, {})[price_type] = {"from": utc_text(low * MS) if rows else None,
                                                           "bars": len(rows)}
-            for month, part in _months(rows, lambda row: row[0]).items():
+            for month, part in _by_month(rows, lambda row: row[0]).items():
                 bars, _ = store.bar_rows(sources.rows_table(part), symbol, price_type)
                 new.setdefault(month, []).append(store.bar_batch(symbol, price_type, bars))
     return [_whole(market, "bar", month, None, batches) for month, batches in sorted(new.items())]
@@ -101,7 +98,7 @@ def _funding(market: files.Market, symbols: list[str], start: int, end: int, fet
         rows = [row for row in sources.rest_funding(symbol, low, end, patient=False)
                 if last is None or store.funding_slot(row[0]) != store.funding_slot(last)] if low < end else []
         fetched.setdefault(symbol, {})["funding"] = len(rows)
-        for month, part in _months([(symbol, at, rate) for at, rate in rows], lambda row: row[1]).items():
+        for month, part in _by_month([(symbol, at, rate) for at, rate in rows], lambda row: row[1]).items():
             new.setdefault(month, []).extend(part)
     return [_whole(market, "funding", month, None, [store.funding_batch(sorted(rows))])
             for month, rows in sorted(new.items())]
@@ -114,7 +111,7 @@ def _metrics(market: files.Market, symbols: list[str], start: int, end: int, fet
         low = start - start % stored_metrics.STEP if last is None else last + stored_metrics.STEP
         rows = sources.rest_metrics(symbol, low, end, patient=False) if low < end else []
         fetched.setdefault(symbol, {})["metrics"] = len(rows)
-        for month, part in sorted(_months(rows, lambda row: row[1]).items()):
+        for month, part in sorted(_by_month(rows, lambda row: row[1]).items()):
             written.append(_whole(market, "metrics", month, symbol, [stored_metrics.batch(part)]))
     return written
 

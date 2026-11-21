@@ -1,10 +1,10 @@
 import { DAY_S, dateTime, dayStart } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { JournalLine } from "../../lib/paperApi";
 import { type Fill, type Held, type PriceLine, type Restart } from "../../model/paper";
 import { useAtom } from "../../state/atom";
-import { chartTime, pickedDay } from "../../state/paperStream";
+import { chartFocus, pickedDay } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
 import type { Lead } from "./backtestCandles";
 import { CandleController } from "./candleController";
@@ -18,7 +18,8 @@ import { stretchKey } from "./stretchKeys";
  *  trades as boxes and arrows, its orders and position as levels, its events as flags along the foot
  *  with tooltips on them and on the arrows (candleNotes.ts). The component only hands the chart
  *  what changes: the bars, the trading, the theme, and where to look (a change of `fit` brings the
- *  position's whole stretch into view; an event picked elsewhere, or a calendar day). `remembers` names the
+ *  position's whole stretch into view; an event picked elsewhere, a trade picked in a table, which it
+ *  also marks, or a calendar day). `remembers` names the
  *  version and contract: the view the chart had when it last showed them comes back with them. The bars are
  *  the version's stretches' one after another (`stretches`, candleStretches.ts), each named at its first
  *  candle (a lone one's at the legend's head); a click on a name shows that stretch, and the keys are stretchKeys'. Before them may come the
@@ -30,18 +31,24 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
   const host = useRef<HTMLDivElement>(null);
   const [chart] = useState(() => new CandleController());
   const dark = useResolvedTheme() === "dark", zone = useTimeZone();
-  const focus = useAtom(chartTime);
+  const focus = useAtom(chartFocus);
   const day = useAtom(pickedDay);
   const shown = useAtom(chart.period) > 0;
 
   useEffect(() => { chart.mount(host.current!, remembers); return () => chart.destroy(); }, [chart]);
   useEffect(() => { chart.setTimeZone(zone); }, [chart, zone]);
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
-  useEffect(() => { chart.setTrading({ fills, boxes, orders, held, places, size, events, live, restarts }); }, [chart, fills, boxes, orders, held, places, size, events, live, restarts]);
+  // A span picked in a table (a trade) marked, and shown with as much again either side, twenty candles at least.
+  const picked = useMemo(() => (focus?.mark ? { from: Math.floor(focus.from / 1000), to: Math.floor(focus.to / 1000) } : null), [focus]);
+  useEffect(() => { chart.setTrading({ fills, boxes, orders, held, places, size, events, live, restarts, picked }); }, [chart, fills, boxes, orders, held, places, size, events, live, restarts, picked]);
   useEffect(() => { chart.setStretches(stretches); }, [chart, stretches]);
   useEffect(() => { chart.setBars(bars, lead); }, [chart, bars, lead]);
   useEffect(() => { if (fit && openFrom !== null) chart.showPosition(openFrom); }, [chart, fit]);
-  useEffect(() => { if (focus) chart.showAround(focus.ms); }, [chart, focus]);
+  // A moment picked (an event) shown around it; a span picked (a trade) shown and marked, once the candles have a period.
+  useEffect(() => {
+    const step = chart.period.get() * 60, pad = picked && Math.max(picked.to - picked.from, step * 20);
+    if (picked && step) chart.show(picked.from - pad!, picked.to + pad! + step); else if (focus && !focus.mark) chart.showAround(focus.from);
+  }, [chart, focus, shown]);
   useEffect(() => {
     if (!day || !shown) return;
     chart.show(dayStart(day), dayStart(day) + DAY_S);

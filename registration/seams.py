@@ -12,12 +12,13 @@ import argparse
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 import subprocess
 
 from ledger.execution import IDENTITY_FIELDS
-from shared import paths
+from shared import clock, paths
+from shared.errors import Refusal
 from shared.refusals import refuse
 
 
@@ -148,13 +149,6 @@ def require_current() -> None:
 
 # Runner arguments (engine.parse_window and the runner's selection flags)
 
-def _ns(text: str) -> int:
-    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    offset = moment.utcoffset()  # None exactly when the text has no zone
-    if offset is None or offset.total_seconds() != 0:
-        raise ValueError(f"{text!r} is not a UTC time")
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
-
 
 class _RunnerParser(argparse.ArgumentParser):
     def error(self, message):
@@ -177,9 +171,9 @@ def runner_inputs(runner_argv: list[str]) -> dict:
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
         raise refuse("TRADE_TICKS_NEED_QUOTES", "--trade-ticks needs --execution quotes", missing=("--execution",))
-    start = _ns(known.start)
-    window = {"start": start, "trade_start": _ns(known.trade_start) if known.trade_start else start,
-              "end": _ns(known.end)}
+    start, trade_start, end = (clock.moment_ns(clock.utc(text)) if text else None
+                               for text in (known.start, known.trade_start, known.end))
+    window = {"start": start, "trade_start": start if trade_start is None else trade_start, "end": end}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,
             "execution": known.execution, "trade_ticks": known.trade_ticks, "metrics": known.metrics}
@@ -201,19 +195,17 @@ class Market:
 
     def resolve_day(self, at: str | None) -> str:
         from market import files
-        from market.sources import MarketError
         try:
             return files.resolve_day(self._open(), at)
-        except MarketError as exc:
+        except Refusal as exc:
             raise refuse("MARKET_DAY_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
     def _freshness(self, market_day: str) -> dict:
         from market import store
-        from market.sources import MarketError
         try:
             return store.freshness(self.profile, market_day)
-        except MarketError as exc:
+        except Refusal as exc:
             raise refuse("MARKET_DAY_UNRESOLVED", f"market day {market_day} has no complete day ({exc.code})",
                          missing=(str(market_day),)) from exc
 
@@ -233,10 +225,9 @@ class Market:
 
     def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
-        from market.sources import MarketError
         try:
             return universe.membership_path(self._open(), market_day, window_end)
-        except MarketError as exc:
+        except Refusal as exc:
             code = "UNIVERSE_EMPTY" if exc.code == "UNIVERSE_EMPTY_AT_DAY" else (
                 "MARKET_DAY_UNRESOLVED" if exc.code == "MARKET_DAY_UNRESOLVED" else None)
             if code is None:
@@ -248,24 +239,15 @@ class Market:
                         include_metrics: bool = False) -> dict:
         """{root, receipts}."""
         from market import export
-        from market.sources import MarketError
-        try:
-            done = export.export_catalogs(self.profile, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files,
-                                          fresh, include_quotes=include_quotes, include_trades=include_trades,
-                                          include_metrics=include_metrics)
-        except MarketError as exc:
-            if exc.code == "LIFECYCLE_INPUT":
-                raise refuse("LIFECYCLE_INPUT", exc.message) from exc
-            raise
+        done = export.export_catalogs(self.profile, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files,
+                                      fresh, include_quotes=include_quotes, include_trades=include_trades,
+                                      include_metrics=include_metrics)
         return {"root": Path(done["root"]), "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, market_day: str, files: Mapping[str, bytes]) -> dict:
-        """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
+        """market.validate_lifecycle (LIFECYCLE_INPUT)."""
         from market import lifecycle
-        try:
-            return lifecycle.validate_lifecycle(body, market_day, files)
-        except lifecycle.LifecycleInput as exc:
-            raise refuse("LIFECYCLE_INPUT", exc.message) from exc
+        return lifecycle.validate_lifecycle(body, market_day, files)
 
 
 # Economic-evidence qualification (registration.require, registration.assess)

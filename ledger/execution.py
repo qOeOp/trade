@@ -103,37 +103,27 @@ def _json(data: bytes | None):
         return None
 
 
-BATCH = 500  # names in one IN list
-
-
-def _marks(chunk: Sequence) -> str:
-    return ", ".join(["%s"] * len(chunk))
-
-
 def _bundles(conn: db.LedgerConnection, names: Sequence[str],
              paths: Sequence[str] | None = None) -> dict[str, dict[str, bytes] | Refusal]:
     """Every file of each named bundle (only those at `paths` when given) with its hash recomputed (as
-    ledger.load_bundle), by bundle, in one read per BATCH names; a bundle that does not exist is absent, one holding
+    ledger.load_bundle), by bundle, in one read per db.IN_BATCH names; a bundle that does not exist is absent, one holding
     a file that fails its hash maps to the refusal."""
     found: dict[str, dict[str, bytes] | Refusal] = {}
-    only = "" if paths is None else f" AND e.path IN ({_marks(paths)})"
-    for at in range(0, len(names), BATCH):
-        chunk = tuple(names[at:at + BATCH])
-        for bundle, in conn.rows(f"SELECT bundle FROM evidence_bundle WHERE bundle IN ({_marks(chunk)})", chunk):
-            found[bundle] = {}
-        for bundle, path, content, stored in conn.rows(f"SELECT e.bundle, e.path, c.content, e.sha256 FROM "
-                                                       f"{evidence.FILES_FROM} WHERE e.bundle IN ({_marks(chunk)})"
-                                                       f"{only} ORDER BY e.bundle, e.path",
-                                                       (*chunk, *(paths or ()))):
-            files = found.get(bundle)
-            if not isinstance(files, dict):
-                continue
-            content = bytes(content)
-            if hashlib.sha256(content).hexdigest() != stored:
-                found[bundle] = refuse("LEDGER_CORRUPT", f"stored file {bundle}/{path} differs from its content hash",
-                                       missing=(f"{bundle}/{path}",))
-                continue
-            files[path] = content
+    only = "" if paths is None else f" AND e.path IN ({db.marks(paths)})"
+    for bundle, in conn.rows_in("SELECT bundle FROM evidence_bundle WHERE bundle IN ()", names):
+        found[bundle] = {}
+    for bundle, path, content, stored in conn.rows_in(f"SELECT e.bundle, e.path, c.content, e.sha256 FROM "
+                                                      f"{evidence.FILES_FROM} WHERE e.bundle IN (){only} "
+                                                      "ORDER BY e.bundle, e.path", names, after=tuple(paths or ())):
+        files = found.get(bundle)
+        if not isinstance(files, dict):
+            continue
+        content = bytes(content)
+        if hashlib.sha256(content).hexdigest() != stored:
+            found[bundle] = refuse("LEDGER_CORRUPT", f"stored file {bundle}/{path} differs from its content hash",
+                                   missing=(f"{bundle}/{path}",))
+            continue
+        files[path] = content
     return found
 
 
@@ -169,7 +159,7 @@ LISTING_FILES = (problems.RUNTIME_ERRORS, problems.AUDIT_RESULT)
 
 def read_captures(conn: db.LedgerConnection, trial_ids: Iterable[int], *,
                   listing: bool = False) -> dict[int, dict | Refusal]:
-    """read_capture of each trial, by trial ID, in one read of the rows and of the bundles per BATCH trials; a
+    """read_capture of each trial, by trial ID, in one read of the rows and of the bundles per db.IN_BATCH trials; a
     trial read_capture refuses maps to its refusal. A `listing` read reads the bytes of the start receipt and
     LISTING_FILES only: every other captured file is listed by its stored hash (no length) and absent from
     `files`."""
@@ -178,25 +168,20 @@ def read_captures(conn: db.LedgerConnection, trial_ids: Iterable[int], *,
     trials: dict[int, dict] = {}
     captures: dict[int, dict] = {}
     listed: dict[int, dict[str, dict]] = {}
-    for at in range(0, len(ids), BATCH):
-        chunk = tuple(ids[at:at + BATCH])
-        for row in conn.dicts(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ({_marks(chunk)})", chunk):
-            trials[row["trial_id"]] = row
-        for row in conn.dicts(f"SELECT * FROM trial_capture WHERE trial_id IN ({_marks(chunk)})", chunk):
-            captures[row["trial_id"]] = row
-        for row in conn.dicts(f"SELECT * FROM trial_file WHERE trial_id IN ({_marks(chunk)}) ORDER BY trial_id, path",
-                              chunk):
-            listed.setdefault(row["trial_id"], {})[row["path"]] = row
+    for row in conn.rows_in(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ()", ids, dicts=True):
+        trials[row["trial_id"]] = row
+    for row in conn.rows_in("SELECT * FROM trial_capture WHERE trial_id IN ()", ids, dicts=True):
+        captures[row["trial_id"]] = row
+    for row in conn.rows_in("SELECT * FROM trial_file WHERE trial_id IN () ORDER BY trial_id, path", ids, dicts=True):
+        listed.setdefault(row["trial_id"], {})[row["path"]] = row
     names = [f"trial-{trial_id}-{part}" for trial_id in ids for part in ("start", "capture")]
     read = (problems.COVERAGE, *LISTING_FILES)
     bundles = _bundles(conn, names, read if listing else None)
     if listing:
         stored = {}  # the files a listing does not read; one it reads is stored only with its bytes
-        for at in range(0, len(names), BATCH):
-            part = tuple(names[at:at + BATCH])
-            for bundle, path, sha256 in conn.rows(f"SELECT bundle, path, sha256 FROM evidence WHERE bundle IN "
-                                                  f"({_marks(part)}) AND path NOT IN ({_marks(read)})", (*part, *read)):
-                stored.setdefault(bundle, {})[path] = sha256
+        for bundle, path, sha256 in conn.rows_in(f"SELECT bundle, path, sha256 FROM evidence WHERE bundle IN () "
+                                                 f"AND path NOT IN ({db.marks(read)})", names, after=read):
+            stored.setdefault(bundle, {})[path] = sha256
     found: dict[int, dict | Refusal] = {}
     for trial_id in ids:
         try:
@@ -223,7 +208,7 @@ def _capture(trial_id: int, trial: dict | None, row: dict | None, rows: Mapping[
                      missing=(f"trial-{trial_id}-start/{problems.COVERAGE}",))
     coverage_bytes = start_files[problems.COVERAGE]
     coverage = _json(coverage_bytes)
-    argv = json.loads(trial["runner_argv"]) if isinstance(trial["runner_argv"], (str, bytes)) else trial["runner_argv"]
+    argv = db.json_column(trial["runner_argv"])
     start = {"purpose": trial["purpose"], "runtime_identity": runtime_identity(trial), "argv": argv,
              "input_identity": coverage.get("input_identity") if isinstance(coverage, dict) else None}
     common = {"start": start, "input_coverage": coverage, "input_coverage_bytes": coverage_bytes}
@@ -268,7 +253,7 @@ def _capture(trial_id: int, trial: dict | None, row: dict | None, rows: Mapping[
     return {"status": "captured", "purpose": trial["purpose"], "stages": _stages_of(row),
             "outcome": {"kind": row["outcome_kind"], "detail": row["outcome_detail"]}, "argv": argv,
             "files": captured, "statuses": statuses, "listed": listed, "runtime_failures": failures,
-            "table_hashes": json.loads(tables) if isinstance(tables, (str, bytes)) else tables, **common}
+            "table_hashes": db.json_column(tables), **common}
 
 
 def precheck_rows(conn: db.LedgerConnection, trial_id: int) -> dict[str, int] | None:
@@ -422,8 +407,7 @@ def _start_of(conn: db.LedgerConnection, trial_id: int) -> tuple[dict, bytes]:
     if trial is None or files is None or problems.COVERAGE not in files:
         raise refuse("EXECUTION_START_MISSING", f"trial {trial_id} has no trial row or no start bundle",
                      missing=(f"trial-{trial_id}-start",))
-    trial["runner_argv"] = json.loads(trial["runner_argv"]) if isinstance(trial["runner_argv"], (str, bytes)) \
-        else trial["runner_argv"]
+    trial["runner_argv"] = db.json_column(trial["runner_argv"])
     return trial, files[problems.COVERAGE]
 
 

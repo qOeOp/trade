@@ -13,8 +13,8 @@ on:
   push:
     branches: [main]
     # Rebuild when image inputs or the harness which qualifies the tested artifact (check-native-runtime.py; quality
-    # runs the test suites it executes on every PR) changes. Keep this aligned with the runtime input projection and
-    # the execution paths below; the replay paths are a subset.
+    # runs the test suites it executes on every PR) changes. Keep this aligned with the runtime input projection; the
+    # execution build's changes job selects these same paths, and the replay inputs (replay-changed.py) are a subset.
     paths:
       - .github/workflows/runtime-image.yml
       - engine/**/*.py
@@ -55,52 +55,16 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # The replay closure (tests/runtime/test_replay_closure.py keeps these engine paths equal to it).
+      # The replay inputs are what engine/runtime/replay.Dockerfile copies (replay-changed.py replay_paths).
       - id: replay
         env:
           CI_EVENT_NAME: ${{ github.event_name }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_REPLAY_IMAGE: ghcr.io/${{ github.repository_owner }}/trade-runtime:main
-          CI_PATHS: |
-            .github/workflows/runtime-image.yml
-            engine/runtime/replay.Dockerfile
-            engine/runtime/replay.Dockerfile.dockerignore
-            pyproject.toml
-            uv.lock
-            engine/__init__.py
-            engine/audit.py
-            engine/compare.py
-            engine/config.py
-            engine/fill.py
-            engine/history.py
-            engine/klines.py
-            engine/load.py
-            engine/native_csv.py
-            engine/order_rules.py
-            engine/protection.py
-            engine/report.py
-            engine/run.py
-            engine/strategy.py
-            engine/warmup.py
         run: |
           CI_REPLAY_IMAGE="${CI_REPLAY_IMAGE,,}" python3 .github/scripts/replay-changed.py
       - uses: ./.github/actions/ci-paths
         id: execution
-        with:
-          paths: |
-            .github/workflows/runtime-image.yml
-            engine/**/*.py
-            engine/**/Dockerfile*
-            engine/runtime/replay.Dockerfile*
-            .dockerignore
-            pyproject.toml
-            uv.lock
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
-            .github/scripts/replay-changed.py
-            .github/scripts/publish-platform-image.sh
-            .github/scripts/check-native-runtime.py
-            deploy/runtime_inputs.py
 
   replay-image:
     needs: changes

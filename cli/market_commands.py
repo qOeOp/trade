@@ -300,7 +300,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 
 
 def register(verbs, verb, runner) -> None:
-    """Add the market nouns to the parser with `cli.main._parser`'s verbs, verb and runner."""
+    """Add the market nouns to the parser with `cli.main.build_parser`'s verbs, verb and runner."""
     market = verbs("market", "market data")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")

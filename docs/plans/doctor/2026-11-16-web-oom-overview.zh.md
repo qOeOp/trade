@@ -22,3 +22,15 @@
 
 - 2026-11-16 用户："market也修一下"。已重启生产 Web 容器（04:2x UTC），概览健康检查恢复 200。
 - 观察：同一时刻 Paper 运行 2 的 runner 容器内存 521.8 MiB / 640 MiB，没有超限，不另立发现。
+- 2026-11-21 用户对含本项复发的清单答「我都授权」；修复见下节。
+
+## 2026-11-21 复发
+
+生产日志只读复查（`journalctl -k --since 2026-11-19`，`trade-sgp-01`）。v0.4.3 的 Web 容器（`trade-release-web-a556e65…`，上限 1536 MiB，已含 [#3127](https://github.com/qOeOp/trade/pull/3127) 的 `READS = 3`）11-19 被内核在本 cgroup 内杀了 9 个 `python3` 读取子进程：01:17、07:02、08:31 ×2、08:50 ×2、09:42 ×2、11:13 UTC。
+
+- 08:31:33 一次的进程表：3 个 `uv` + 3 个 `python -m cli.main`（anon 328、371、401 MiB），`ide.py serve` 163 MiB、Node 概览 233 MiB；cgroup `anon` 1,595,879,424 字节，撞上 1,572,864 kB 上限。3 个并发没有超出 #3127 的上限，是上限本身装不下：常驻约 400 MiB 加 3 个读取各至多 430 MiB 超过 1536 MiB。
+- 11-16 以来 OOM 进程表里读取子进程 anon 最大 430 MiB、`uv` 4 MiB、概览最大 243 MiB。
+- 同秒的请求日志：`/api/comparison`（registration 57/77/65）与 `/api/trial`（trial 195）答 400；`uv` 对被 SIGKILL 的子进程以 137 退出，服务把它当 `PRODUCT_FAILED`，页面显示成“not served by this IDE”。
+- 生产 Web 容器 `TRADE_IDE_CHAT=0`，只跑一个 Node（概览），#3127 注释里的“两个 Node 服务”不对。
+
+修复 [#3256](https://github.com/qOeOp/trade/pull/3256)（一个根因：放行不看容器内存）：放行数从 cgroup `memory.max` 减去无读取时的 `anon + kernel`、减 64 MiB 余量，按读取类别定价（研究数据读取 450 MiB，账本头、状态、线列表 96 MiB，本机测得 `ledger sql` 最大驻留 78 MiB）；生产容器里即两个重读加一个轻读。读取直接用产品 `.venv` 的 Python 启动并设 `oom_score_adj` 1000，内存不足时内核先杀读取而不是服务或概览；被 SIGKILL 的读取答 `OUT_OF_MEMORY`。`/api/about` 的账本状态按头与 30 s 复用。没有给概览加 `--max-old-space-size`：没测过它的堆与驻留之比，压上限可能让它反复重启。不建议靠调高内存上限：主机 7.4 GB，各容器上限合计已约 9.9 GB，发布时新旧 Web 各占 1.5 GiB；上限调到 2 GiB 只多容一个重读（(2048−400−64)/450 = 3）。

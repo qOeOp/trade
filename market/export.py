@@ -37,8 +37,10 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
-from market import coverage, files, instrument, lifecycle, series, universe
-from market.sources import DAY, MINUTE, _refuse
+from market import coverage, files, instrument, lifecycle, series
+from market.sources import DAY, MINUTE
+from shared import clock
+from shared.refusals import refuse
 
 
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
@@ -55,10 +57,10 @@ def native_symbol(symbol: str, episode: int | None = None) -> str:
     """market.native_symbol: the engine instrument id of a public contract name and an optional episode number; a
     non-ASCII coin is spelled by its UTF-8 bytes."""
     if not isinstance(symbol, str) or not symbol.endswith("USDT") or symbol == "USDT" or "-" in symbol or "." in symbol:
-        raise _refuse(f"{symbol!r} is no USDT perpetual name the engine can identify", "SYMBOL_SHAPE",
-                      missing=(str(symbol),))
+        raise refuse("SYMBOL_SHAPE", f"{symbol!r} is no USDT perpetual name the engine can identify",
+                     missing=(str(symbol),))
     if episode is not None and (type(episode) is not int or episode < 1):
-        raise _refuse(f"episode {episode!r} is not a positive integer", "EPISODE_INDEX", missing=(str(episode),))
+        raise refuse("EPISODE_INDEX", f"episode {episode!r} is not a positive integer", missing=(str(episode),))
     coin = symbol.removesuffix("USDT")
     ascii_coin = coin if coin.isascii() else "X" + coin.encode().hex().upper()
     suffix = f"-E{episode}" if episode is not None else ""
@@ -89,8 +91,9 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
     for index, episode in enumerate(episodes, start=1):
         native = native_symbol(symbol, index)
         if episode.get("instrument_id") != native:
-            raise _refuse(f"episode {index} of {symbol} is {episode.get('instrument_id')}, not {native}",
-                          "EPISODE_SHAPE", missing=(symbol,))
+            raise refuse("EPISODE_SHAPE",
+                         f"episode {index} of {symbol} is {episode.get('instrument_id')}, not {native}",
+                         missing=(symbol,))
         low = episode["start_ns"] // 1_000_000
         ended = lifecycle.termination(episode)
         high = ended // 1_000_000 if ended is not None else None
@@ -141,13 +144,14 @@ def price_grid(market: files.Market, market_day: str, symbol: str, increment: st
 def require_funding_files(market: files.Market, symbol: str, opens: np.ndarray) -> None:
     """Every month holding one of the window's LAST bars has its funding file: without it Nautilus would replay that
     month without a single settlement and no check would see it (FUNDING_FILE_MISSING)."""
-    months = sorted({series._ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
+    months = sorted({clock.ms_day(int(day) * DAY).replace(day=1) for day in np.unique(np.asarray(opens) // DAY)})
     held = {entry.relative for entry in files.entries(market, "funding")}
     absent = [files.relative_path("funding", month) for month in months
               if files.relative_path("funding", month) not in held]
     if absent:
-        raise _refuse(f"{symbol}: the market holds bars but no funding file in {', '.join(absent)}",
-                      "FUNDING_FILE_MISSING", missing=tuple(absent))
+        raise refuse("FUNDING_FILE_MISSING",
+                     f"{symbol}: the market holds bars but no funding file in {', '.join(absent)}",
+                     missing=tuple(absent))
 
 
 def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
@@ -170,11 +174,12 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step_ms: int
     from nautilus_trader.persistence import BarDataWrangler
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
-        raise _refuse(f"{bar_type}: bar closes are not strictly increasing", "BARS_UNSORTED", missing=(bar_type,))
+        raise refuse("BARS_UNSORTED", f"{bar_type}: bar closes are not strictly increasing", missing=(bar_type,))
     if not all(_exact(bars[name], price_scale, price_precision) for name in ("open", "high", "low", "close")) or \
             not _exact(bars["volume"], volume_scale, size_precision):
-        raise _refuse(f"{bar_type}: a price or volume is not exact at precision {price_precision}/{size_precision}",
-                      "BAR_RAW_INEXACT", missing=(bar_type,))
+        raise refuse("BAR_RAW_INEXACT",
+                     f"{bar_type}: a price or volume is not exact at precision {price_precision}/{size_precision}",
+                     missing=(bar_type,))
     if not len(ts):
         return 0
     wrangler = BarDataWrangler(bar_type, price_precision, size_precision)
@@ -203,11 +208,11 @@ def write_marks(catalog, instrument_id, bars: dict[str, np.ndarray], step_ms: in
     from nautilus_trader.model import MarkPriceUpdate, Price
     ts = (bars["ts_open"].astype(np.int64) + step_ms - 1) * 1_000_000
     if len(ts) > 1 and not np.all(np.diff(ts) > 0):
-        raise _refuse(f"{instrument_id}: mark times are not strictly increasing", "MARK_UNSORTED",
-                      missing=(str(instrument_id),))
+        raise refuse("MARK_UNSORTED", f"{instrument_id}: mark times are not strictly increasing",
+                     missing=(str(instrument_id),))
     if not _exact(bars["close"], price_scale, price_precision):
-        raise _refuse(f"{instrument_id}: a mark price is not exact at precision {price_precision}", "MARK_INEXACT",
-                      missing=(str(instrument_id),))
+        raise refuse("MARK_INEXACT", f"{instrument_id}: a mark price is not exact at precision {price_precision}",
+                     missing=(str(instrument_id),))
     factor = 10 ** (NAUTILUS_SCALE - price_scale)
     written = 0
     for offset in range(0, len(ts), CHUNK):
@@ -229,15 +234,15 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
         return 0
     times = np.array([row[0] for row in rows], dtype=np.int64) * 1_000_000
     if len(times) > 1 and not np.all(np.diff(times) > 0):
-        raise _refuse(f"{instrument_id}: funding settlement times are not strictly increasing", "FUNDING_UNSORTED",
-                      missing=(instrument_id,))
+        raise refuse("FUNDING_UNSORTED", f"{instrument_id}: funding settlement times are not strictly increasing",
+                     missing=(instrument_id,))
     try:
         rates = [Decimal(str(row[1])) for row in rows]
     except InvalidOperation as exc:
-        raise _refuse(f"{instrument_id}: a funding rate is no decimal", "FUNDING_RATE_SHAPE",
-                      missing=(instrument_id,)) from exc
+        raise refuse("FUNDING_RATE_SHAPE", f"{instrument_id}: a funding rate is no decimal",
+                     missing=(instrument_id,)) from exc
     if not all(rate.is_finite() for rate in rates):
-        raise _refuse(f"{instrument_id}: a funding rate is not finite", "FUNDING_RATE_SHAPE", missing=(instrument_id,))
+        raise refuse("FUNDING_RATE_SHAPE", f"{instrument_id}: a funding rate is not finite", missing=(instrument_id,))
     stamps = pa.array(times, pa.int64()).cast(pa.timestamp("ns", "UTC"))
     table = pa.table({
         "rate": pa.array([format(rate.normalize(), "f") for rate in rates], pa.string()),
@@ -278,10 +283,10 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
         if not len(block):
             continue
         if not _exact(block[:, 1], scale, price_precision) or not _exact(block[:, 2], scale, price_precision):
-            raise _refuse(f"{instrument_id}: a quote price is not exact at precision {price_precision}", "QUOTE_INEXACT",
-                          missing=(str(instrument_id),))
+            raise refuse("QUOTE_INEXACT", f"{instrument_id}: a quote price is not exact at precision {price_precision}",
+                         missing=(str(instrument_id),))
         if (last is not None and block[0, 0] < last) or np.any(np.diff(block[:, 0]) < 0):
-            raise _refuse(f"{instrument_id}: quote times go backwards", "QUOTES_UNSORTED", missing=(str(instrument_id),))
+            raise refuse("QUOTES_UNSORTED", f"{instrument_id}: quote times go backwards", missing=(str(instrument_id),))
         last = int(block[-1, 0])
         pending = np.concatenate((pending, block))
         while len(pending) >= CHUNK:
@@ -316,11 +321,6 @@ def quote_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, 
     yield from _rows(market, market_day, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
 
-def _month_end(ts_ms: int) -> int:
-    """The first millisecond of the UTC month after the one holding `ts_ms`."""
-    return series._day_ms(universe.next_month(series._ms_day(ts_ms)))
-
-
 def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int) -> int:
     """market.write_trades: one TradeTick per stored aggregate trade (`rows` yields (ts_ms, agg_trade_id, price,
     quantity, is_buyer_maker) integer batches in (time, ID) order): the price and quantity exact at the
@@ -347,12 +347,13 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
             continue
         if not (_exact(block[:, 2], files.TRADE_SCALE, price_precision)
                 and _exact(block[:, 3], files.TRADE_SCALE, size_precision)):
-            raise _refuse(f"{instrument_id}: a trade price or quantity is not exact at precisions {price_precision}, "
-                          f"{size_precision}", "TRADE_INEXACT", missing=(str(instrument_id),))
+            raise refuse("TRADE_INEXACT",
+                         f"{instrument_id}: a trade price or quantity is not exact at precisions {price_precision}, "
+                         f"{size_precision}", missing=(str(instrument_id),))
         pending = np.concatenate((pending, block))
         while len(pending):
             if last is None or pending[0, 0] >= last:
-                last = _month_end(int(pending[0, 0]))
+                last = clock.month_end(int(pending[0, 0]))
             inside = int(np.searchsorted(pending[:, 0], last))
             if inside < len(pending):
                 flush(pending[:inside])  # the month ends here: its trades are complete
@@ -640,10 +641,10 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
-        raise _refuse(f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval", "INTERVAL_INVALID",
-                      missing=("start", "end"))
+        raise refuse("INTERVAL_INVALID", f"export window [{start_ns}, {end_ns}) is not a positive one-minute interval",
+                     missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
-        raise _refuse("export needs each contract once", "EMPTY_SYMBOLS", missing=("symbols",))
+        raise refuse("EMPTY_SYMBOLS", "export needs each contract once", missing=("symbols",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     if fresh:

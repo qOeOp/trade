@@ -100,8 +100,7 @@ batch. Do not add points or tune source within a batch.
 Keep iterating within the turn after interpreting results and recording priority. Reports,
 judgments and a due change of approach do not end the loop. Stop only for the user, an authority
 boundary or a line that cannot continue ([changes.md](references/changes.md)). Reaching both targets is no
-stop: when a recommendation first does, tell the user once that validation is theirs to start and
-only a window after its registration counts, then keep working, asking nothing.
+stop and raises no validation question: keep working, asking nothing.
 A change of approach is due when the last `review_every` research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval`, `annual_return_difference_interval` and
@@ -170,10 +169,11 @@ and makes no change of approach due.
 - Authoring a complete report: [report.md](templates/report.md).
 - Runtime, data, contract or execution environment identity changes: [changes.md](references/changes.md).
 - Out-of-sample validation: [validation.md](references/validation.md), only after the user requests
-  it. When the user accepts a candidate (a recommendation reaching the targets is no acceptance),
-  ask once in that reply whether to validate it, proposing the accepted version, a window rule and
-  universe, and keep researching: the question blocks only the validation registration; disclose a
-  newer recommendation, never swap it in. Only a window
+  it, and only for a candidate its line's closing history test decided meets the targets. Accepting
+  a candidate during research raises no validation question. When the user picks a candidate on the
+  IDE's Line-close history page or after `line close`, read its verdict in `research history`; if it
+  meets the targets, ask once in that reply whether to validate it, proposing that version, a window
+  rule and universe; otherwise say why it cannot be validated. Only a window
   after the validation registration's timestamp is out-of-sample. Development data, including
   previously unused subsets, support conditional observations, never independent validation or
   claims of generalization or absence of overfitting.

@@ -146,9 +146,9 @@ capabilities it adds. A run's runner and egress containers and the daily compari
 runner and egress have no capabilities at all and write only their own root-owned run directories. It is a privileged Docker controller, with the host Docker socket, not a hostile-code sandbox.
 It has no TCP listener or frontend-network membership, and a 768 MiB memory cap.
 
-The custody root is `/var/lib/trade-release/live-root` (`LIVE_ROOT` below). The first release that pairs a control
-creates it, mode 0700 and owned by root, together with its empty `account.lock` (0600, the same owner); a host released before every release paired one gets it on its next release, with no step by hand. Once it
-exists a release only checks it: a root or lock with another owner or mode, a symbolic link or a missing lock is
+The custody root is `/var/lib/trade-release/live-root` (`LIVE_ROOT` below). A new host's install
+(`install-release.sh`) creates it, mode 0700 and owned by root, together with its empty `account.lock` (0600, the
+same owner). Once it exists a release only checks it: a root or lock with another owner or mode, a symbolic link or a missing lock is
 refused and never repaired or recreated, and the release keeps the current pair. The root never moves.
 
 The candidate, its contracts and leverage are chosen for each run on the Live page, as on the Paper page: the
@@ -164,9 +164,10 @@ keeps no compatibility between versions (the user's decision of 2026-11-14): a n
 or migrate a run an earlier version prepared. Such a run stays on disk under `runs/`, and while its runner container
 still runs the account counts as unavailable. During a paired update, new effect-producing Live requests wait for a
 committed owner; reads and STOP remain available. Existing runners are never restarted for publication. Once the new
-pair is committed, the host verifies each retired control's exact Id, disables only its restart policy and sends
-cooperative SIGTERM. It observes completion asynchronously; a slow CLI or handler keeps its old process and
-originals, without forced kill or deletion. Pairing does not query a venue, read a key, arm a strategy or change
+route is committed, still inside the account lock under which Live answered idle, the release stops every other
+control (`docker stop`, verified by its revision label): idle means none of them holds a run or an unresolved request.
+A rollback stops the candidate's control the same way. A stopped control keeps its restart policy, so starting it
+again restores it. Pairing does not query a venue, read a key, arm a strategy or change
 account settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
 
 Once the paired release is verified, operators use the **Live** page in the existing authenticated IDE.
@@ -368,7 +369,7 @@ version's commit and `OLD` the previous one.
    start the timer, let the control recover it, and stop it again.
 2. Make sure Live is idle: no run is running or unresolved on the Live page (or in `live status`, [Live on this
    host](#live-on-this-host)). The recovery takes the account lock but does not ask whether Live is idle, and then
-   stops the bad version's Live control (`Release.retire_live`); the previous control may not read a run a later
+   stops the bad version's Live control (`Release.stop_controls`); the previous control may not read a run a later
    version prepared. Stop such a run from the Live page and wait until it is resolved.
 3. Name the two versions. `NEW` is the revision in `/var/lib/trade-release/router/active.json`
    (`trade-release-web-NEW`). `OLD` is the newest other Web container whose revision has no marker in
@@ -419,10 +420,7 @@ version's commit and `OLD` the previous one.
    EOF
    ```
 
-5. The commit retired `OLD`'s Live control with its restart policy turned off (`LiveHost.drain`); the recovery
-   starts it again but does not turn the policy back on. When `trade-release-live-OLD` exists, give it back what every
-   release container is created with (`contained`): `docker update --restart unless-stopped trade-release-live-OLD`.
-6. Start the timer: `sudo systemctl start trade-release.timer`. The next tick, under the same control, prints
+5. Start the timer: `sudo systemctl start trade-release.timer`. The next tick, under the same control, prints
    `Restored Paper controller trade-release-paper-OLD`, `Rolling back uncommitted Web release NEW` (the code's word
    for any open journal), `Restored previous Web release trade-release-web-OLD` and `Recovered a pending release
    transaction`; the one after prints `No newer successful main image; keeping trade-release-web-OLD`. Check the
@@ -443,7 +441,7 @@ version, as above, and `GitSource.choose` releases it over `OLD`.
 ## Live on this host
 
 Live runs are prepared, started and reconciled only from the Live page, through the Live control pairing
-above, with a credential saved there ([`engine/README.md`](../../engine/README.md#live-execution)). The base Paper
+above, with a credential saved there ([`live/README.md`](../../live/README.md#live-execution)). The base Paper
 overlay mounts no Binance credential. The ledger's Dolt port stays unpublished. Account-mode changes and order tests
 need the user's explicit scope; a successful preflight is not evidence of a completed real trade.
 
@@ -506,7 +504,7 @@ extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpz
 permissions, the root owner and the saved credential versions and metadata, start the timer, then
 `live status` each run. Docker resource names come from the root's path, so a
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
-unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).
+unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../live/README.md#unresolved-live-runs).
 
 ## Release control code
 
@@ -547,25 +545,12 @@ to the admitted version, whose control then recovers a pending transaction; with
 it refuses one. On a new host
 the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
 
-**A host installed before the handoff** (its unit runs `python3 -m deploy.release tick` in `/opt/trade-release`)
-takes it once. Its installed control would otherwise release the next version itself, so stop its timer before
-that version is tagged:
-
-1. Before the version that brings `deploy/control.py` is tagged, run `sudo systemctl stop trade-release.timer` and
-   wait until `systemctl show -p ActiveState --value trade-release.service` says `inactive` or `failed`. Do not
-   kill a running tick. Check that `/var/lib/trade-release/transaction.json` and `paper-transaction.json` do not
-   exist; if one does, start the timer, let the installed control recover it, and stop it again.
-2. Once `deploy-ready` admits that version (its record names the tag's commit), update `/opt/trade-app` to the
-   tag (`git fetch --tags && git checkout vX.Y.Z`) and run `sudo sh deploy/remote/install-release.sh control`
-   from it. It refuses while the timer or a tick runs; otherwise it installs the launcher, the unit, the overlays
-   and the bootstrap copy, reloads systemd and starts the timer.
-3. The next tick (`journalctl -u trade-release.service`) prints `Handed release control from the bootstrap copy
-   to <revision>`, then the same service run releases that version under its own control.
-
-Run `install-release.sh control` again only for a change to the launcher, the unit, the timer or the compose
-overlays (`deploy/remote/`), the same way. Started before the admitted version contains `deploy/control.py`, the
-bootstrap handoff refuses it (the admitted control does not import) and every tick fails until such a version is
-admitted.
+A version that changes the launcher, the unit, the timer or the compose overlays (`deploy/remote/`) needs them
+reinstalled. Stop the timer (`sudo systemctl stop trade-release.timer`) and wait until `systemctl show -p
+ActiveState --value trade-release.service` says `inactive` or `failed`; do not kill a running tick. Once
+`deploy-ready` admits that version, update `/opt/trade-app` to its tag (`git fetch --tags && git checkout vX.Y.Z`)
+and run `sudo sh deploy/remote/install-release.sh control` from it. It refuses while the timer or a tick runs;
+otherwise it installs them and the bootstrap copy, reloads systemd and starts the timer.
 
 ### When the running control fails before it hands over
 

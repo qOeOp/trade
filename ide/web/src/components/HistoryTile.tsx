@@ -25,7 +25,7 @@ function Tile({ step, quiet, short, meets, partial, children }: { step: Step | n
   const [ink] = inkRoles(step);
   return (
     <div className={`relative grid h-7 min-w-[4.75rem] place-items-center whitespace-nowrap rounded-xs px-1.5 text-center tabular-nums ${quiet ? "italic" : ""}`}
-         style={{ background: short ? v("heat-0") : v(fillRole(step)), color: quiet ? v("fg-muted") : v(ink),
+         style={{ backgroundColor: short ? v("heat-0") : v(fillRole(step)), color: quiet ? v("fg-muted") : v(ink),
                   backgroundImage: partial ? HATCH : undefined, opacity: short ? 0.6 : 1 }}>
       {children}
       {meets && <span aria-label="Meets both targets" className="absolute right-[3px] top-[3px] grid"><Icon name="star" size={12} tone="selected-mark" className="size-[9px] fill-current" /></span>}

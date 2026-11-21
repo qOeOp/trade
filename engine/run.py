@@ -86,7 +86,7 @@ from engine.load import (
     terms_approximations,
     trading_end,
 )
-from engine import history, order_rules, warmup
+from engine import history, warmup
 from engine.strategy import Metrics, metrics_data_type
 
 
@@ -838,16 +838,10 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
                                 f"{'; '.join(missing)}")
     for row in rows:
         engine.add_instrument(with_margins(row["instrument"], rates))
-    strategy_runtime.STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
-    strategy_runtime.BREACHES.clear()
-    strategy_runtime.DECLARED.clear()
-    order_rules.WARMING.clear()
-    history.clear()
-    for kind, count in (("TradeTick", "trade"), ("Metrics", "metrics")):
-        strategy_runtime.SERVED[kind].clear()
-        strategy_runtime.SERVED[kind].update(str(row["instrument_id"]) for row in rows if count in row["counts"])
+    strategy_runtime.begin_run(output_dir, {kind: {str(row["instrument_id"]) for row in rows if count in row["counts"]}
+                                            for kind, count in (("TradeTick", "trade"), ("Metrics", "metrics"))})
     if any(period != "1-MINUTE" for period, _ in strategy.warmup):
         engine.add_actor(history.WarmupActor())
     for row, trade_start in planned:
@@ -907,6 +901,7 @@ def main(argv: list[str] | None = None) -> None:
     # parse_configuration refuses a replay without these (REPLAY_ARGUMENT_MISSING); only --describe omits them.
     assert config.output is not None and config.strategy_file is not None and config.strategy_class is not None \
         and config.strategy_sha256 is not None
+    # This main's receipts, from its first stage; the replay stage begins the run again there (engine.strategy.begin_run).
     strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = config.output / "runtime_failures.jsonl"
     stage = "execution_binding"

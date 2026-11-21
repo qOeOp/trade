@@ -174,7 +174,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         directory, _ = prepared(self.root)
         durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
         before = self.files()
-        parser = cli._parser()
+        parser = cli.build_parser()
         for action in ("status", "logs"):
             args = parser.parse_args(["live", action, "--root", str(self.root), "--run-id", "original"])
             value, code = cli._dispatch(args, [])

@@ -18,8 +18,11 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import sources, universe
-from market.sources import DAY, KLINE_SCHEMA, MINUTE, MarketError, _refuse
+from market import sources
+from market.sources import DAY, KLINE_SCHEMA, MINUTE
+from shared import clock
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
@@ -42,28 +45,15 @@ def _same_row(a: dict, b: dict) -> bool:
 PRICE_TYPES = ("LAST", "MARK")
 
 
-def _ms_day(value: int) -> date:
-    return datetime.fromtimestamp(value / 1000, UTC).date()
-
-
-def _day_ms(value: date) -> int:
-    return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp() * 1000)
-
-
-def _months(start_ms: int, end_ms: int) -> list[str]:
-    first, last = _ms_day(start_ms).replace(day=1), _ms_day(end_ms - 1).replace(day=1)
-    return [month.strftime("%Y-%m") for month in universe.months(first, last)]
-
-
 def _bounds(period: str) -> tuple[int, int]:
     """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
     day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
-    return _day_ms(day), _day_ms(universe.next_month(day) if len(period) == 7 else day + timedelta(days=1))
+    return clock.day_ms(day), clock.day_ms(clock.next_month(day) if len(period) == 7 else day + timedelta(days=1))
 
 
 def _days(start_ms: int, end_ms: int, month: str | None = None) -> list[str]:
-    found, day = [], _ms_day(start_ms)
-    while _day_ms(day) < end_ms:
+    found, day = [], clock.ms_day(start_ms)
+    while clock.day_ms(day) < end_ms:
         if month is None or day.strftime("%Y-%m") == month:
             found.append(day.isoformat())
         day += timedelta(days=1)
@@ -77,9 +67,9 @@ def missing_intervals(times, start_ms: int, end_ms: int, step_ms: int = MINUTE, 
     held and zero-volume counts; facts only, nothing filled."""
     times = np.asarray(times, dtype=np.int64)
     if len(times) and (np.any(np.diff(times) <= 0) or np.any((times - start_ms) % step_ms)):
-        raise _refuse("times are not strictly increasing on the step grid", "GRID_MISALIGNED")
+        raise refuse("GRID_MISALIGNED", "times are not strictly increasing on the step grid")
     if volume is not None and len(np.asarray(volume)) != len(times):
-        raise _refuse("volume and times differ in length", "GRID_MISALIGNED")
+        raise refuse("GRID_MISALIGNED", "volume and times differ in length")
     if start_ms >= end_ms:
         return {"intervals": [], "missing_count": 0, "present_count": 0, "first_ms": None, "last_ms": None,
                 "zero_volume_count": None if volume is None else 0}
@@ -117,8 +107,8 @@ def _merge(parts: list[pa.Table], start_ms: int, end_ms: int, label: str) -> pa.
         first, second = fields.take(pa.array(same)).to_pylist(), fields.take(pa.array(same + 1)).to_pylist()
         differs = [int(times[same[i]]) for i in range(len(same)) if not _same_row(first[i], second[i])]
         if differs:
-            raise _refuse(f"{label}: sources disagree at open_time {differs[:5]}", "SOURCE_CONFLICT",
-                          missing=tuple(str(item) for item in differs[:5]))
+            raise refuse("SOURCE_CONFLICT", f"{label}: sources disagree at open_time {differs[:5]}",
+                         missing=tuple(str(item) for item in differs[:5]))
         keep = np.ones(len(times), bool)
         keep[same + 1] = False
         table = table.filter(pa.array(keep))
@@ -127,8 +117,8 @@ def _merge(parts: list[pa.Table], start_ms: int, end_ms: int, label: str) -> pa.
         bad = (table["close_time"].to_numpy() != opens + MINUTE - 1) | (opens % MINUTE != 0)
         if bad.any():
             at = int(opens[int(np.argmax(bad))])
-            raise _refuse(f"{label}: the row at {at} is not a closed one-minute kline", "SOURCE_SHAPE",
-                          missing=(str(at),))
+            raise refuse("SOURCE_SHAPE", f"{label}: the row at {at} is not a closed one-minute kline",
+                         missing=(str(at),))
     return table
 
 
@@ -136,7 +126,7 @@ def _rest(price_type: str, symbol: str, start_ms: int, end_ms: int, trading: boo
     """Public REST minutes; a contract no longer trading may be unknown to REST, which then has none."""
     try:
         return sources.rows_table(sources.rest_klines(price_type, symbol, "1m", start_ms, end_ms))
-    except MarketError as exc:
+    except Refusal as exc:
         if exc.code == "SOURCE_UNKNOWN_SYMBOL" and not trading:
             return KLINE_SCHEMA.empty_table()
         raise
@@ -153,17 +143,17 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     every source too: a listing or delisting month answers nothing there and reports no gap.
     """
     if price_type not in PRICE_TYPES:
-        raise _refuse(f"price type {price_type!r} is neither LAST nor MARK", "PRICE_TYPE_UNKNOWN",
-                      missing=(str(price_type),))
+        raise refuse("PRICE_TYPE_UNKNOWN", f"price type {price_type!r} is neither LAST nor MARK",
+                     missing=(str(price_type),))
     sources.check_symbol(symbol)
     label = f"{symbol} {price_type}"
     empty = KLINE_SCHEMA.empty_table()
     if start_ms >= end_ms:
         return empty, [], {name: 0 for name in SOURCES}
     if start_ms % MINUTE or end_ms % MINUTE:
-        raise _refuse(f"{label}: [{start_ms}, {end_ms}) is not on the minute grid", "SOURCE_SHAPE")
+        raise refuse("SOURCE_SHAPE", f"{label}: [{start_ms}, {end_ms}) is not on the minute grid")
     kind = sources.KIND_OF[price_type]
-    months = _months(start_ms, end_ms)
+    months = clock.month_names(start_ms, end_ms)
     monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months)
     parts = [_tagged(sources.archive_table(path, period, *_bounds(period)), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
@@ -222,11 +212,11 @@ def no_source(cache: Path, symbol: str, start_ms: int, end_ms: int, onboard: int
     the contract did not trade then: the month ended before its onboard time, or the contract no longer trades and
     the month after next has begun (a month's archives come out early in the next one). A relisted contract's months
     before its latest onboard time keep their archives, so they are no such month."""
-    month = _ms_day(start_ms).replace(day=1)
-    settled = universe.next_month(universe.next_month(month)) <= datetime.now(UTC).date()
+    month = clock.ms_day(start_ms).replace(day=1)
+    settled = clock.next_month(clock.next_month(month)) <= datetime.now(UTC).date()
     if not (onboard is not None and end_ms <= onboard or not trading and settled):
         return False
-    months = _months(start_ms, end_ms)
+    months = clock.month_names(start_ms, end_ms)
     return not any(sources.monthly_archives(cache, kind, symbol, interval, months) for kind, interval in (
         (sources.KIND_OF["LAST"], "1m"), (sources.KIND_OF["MARK"], "1m"), ("fundingRate", None)))
 
@@ -236,7 +226,7 @@ def no_source(cache: Path, symbol: str, start_ms: int, end_ms: int, onboard: int
 def _check_minutes(bars: dict, code: str) -> None:
     ts = np.asarray(bars["ts_open"], dtype=np.int64)
     if len(ts) and (np.any(np.diff(ts) <= 0) or np.any(ts % MINUTE)):
-        raise _refuse("bar open times are not strictly increasing whole minutes", code)
+        raise refuse(code, "bar open times are not strictly increasing whole minutes")
 
 
 def buckets(ts: np.ndarray) -> np.ndarray:
@@ -254,7 +244,7 @@ def derive_bars(minute_bars: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
     o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
     if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 63 - 1024:
-        raise _refuse("a daily volume would exceed int64", "VOLUME_OVERFLOW")
+        raise refuse("VOLUME_OVERFLOW", "a daily volume would exceed int64")
     traded = v > 0
     any_traded = np.add.reduceat(traded.astype(np.int64), first) > 0
     big, small = np.iinfo(np.int64).max, np.iinfo(np.int64).min
@@ -287,7 +277,7 @@ def check_derived(derived: dict, native: dict, price_precision: int, size_precis
     for side in (derived, native):
         opens = np.asarray(side["ts_open"], dtype=np.int64)
         if len(opens) and (np.any(np.diff(opens) <= 0) or np.any(buckets(opens) != opens)):
-            raise _refuse("bar open times are not strictly increasing on the daily grid", "GRID_MISALIGNED")
+            raise refuse("GRID_MISALIGNED", "bar open times are not strictly increasing on the daily grid")
     index = {int(ts): i for i, ts in enumerate(native["ts_open"])}
     findings, seen = [], set()
     for i, ts in enumerate(derived["ts_open"]):
