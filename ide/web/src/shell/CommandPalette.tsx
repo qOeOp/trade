@@ -3,7 +3,8 @@ import { Command } from "cmdk";
 import { ACTIVE } from "../model/chain";
 import type { LineageWidget } from "../model/types";
 import { useAtom } from "../state/atom";
-import { select, useSelection } from "../state/selection";
+import { showVersion } from "../state/navigate";
+import { useSelection } from "../state/selection";
 import { paletteOpen } from "../state/shell";
 import { startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { plural } from "../lib/format";
@@ -72,7 +73,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
         )}
         <Command.Group heading={`Versions · ${nodes.length}`}>
           {nodes.map((n) => (
-            <Command.Item key={n.id} value={versionValue(n)} onSelect={close(() => select(n.id, { reveal: true }))} className={ITEM}>
+            <Command.Item key={n.id} value={versionValue(n)} onSelect={close(() => showVersion(n.id))} className={ITEM}>
               <VersionLine node={n} targets={lineage?.targets ?? null} />
               <span className="min-w-0 flex-1 truncate text-small text-fg-faint">{n.change}</span>
             </Command.Item>

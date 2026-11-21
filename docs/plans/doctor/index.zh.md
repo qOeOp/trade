@@ -37,10 +37,10 @@
 | 20261121-12 | ⌘K 给每个没在跑的版本各列一条 `Run paper: <id>` | fix（一条入口打开版本选择，选中版本排第一） | doctor | unknown | fixed db7c9f9aa [#3245](https://github.com/qOeOp/trade/pull/3245) | 2026-11-21 | 2026-11-21 |
 | 20261121-13 | 文档跟不上实现、同一事实多处复述，读起来费力 | restate（按[第三轮瘦身计划](../slimming-round-3-20261121.zh.md)分批，先量重复） | user（Product contracts and delivery） | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-14 | 开发期逐年读数只在恰为三个整年时给出，按覆盖分级得到的 4–11 个季度开发期没有最差年与去最佳年读数 | fix（按实际长度切年，先定切法） | doctor | unknown | fixed 2657b756b [#3238](https://github.com/qOeOp/trade/pull/3238) | 2026-11-21 | 2026-11-21 |
-| 20261121-15 | Agent 回答里的版本链接在 Market、Runs 页面只改选中，不切回版本图 | fix（点链接时回到显示画布的页面；改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-15 | Agent 回答里的版本链接在 Market、Runs 页面只改选中，不切回版本图 | fix（点链接时回到显示画布的页面；改交互先给截图） | doctor | unknown | in PR [#3368](https://github.com/qOeOp/trade/pull/3368) | 2026-11-21 | 2026-11-21 |
 | 20261121-16 | 手机上从运行详情再点一次 Runs 标签不回到列表 | fix（再点当前标签时关闭运行详情，与 iOS 惯例一致；改交互先给截图） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-17 | 权益读数不动时 Equity 开关被禁用，看不了那条平的权益线 | question（权益未动时是否仍可切到 Equity） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
-| 20261121-18 | 研究页 Details 的 Replays 表点行不切换试验，只有 Runs 页面可以 | question（研究页点行是否切到 Runs 页面并选中该试验） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-18 | 研究页 Details 的 Replays 表点行不切换试验，只有 Runs 页面可以 | question（研究页点行是否切到 Runs 页面并选中该试验） | doctor | unknown | in PR [#3368](https://github.com/qOeOp/trade/pull/3368) | 2026-11-21 | 2026-11-21 |
 | 20261121-19 | SourceTree 打开版本时不默认显示与父版本的 Diff | question（有父版本时是否默认对比） | doctor | unknown | open [Gemini 发现复核](2026-11-21-gemini-findings-recheck.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261120-01 | 关线证伪只看整年否决段：不是整年的否决段封存为 `invalid`（审计失败）也不进否决结论 | authority（改证伪判定规则） | doctor | unknown | fixed 0944d9465 [#3223](https://github.com/qOeOp/trade/pull/3223) | 2026-11-20 | 2026-11-20 |
 | 20261120-02 | `Line-close history` 默认隐藏 `noEdge` 行只看否决年收益中位数，留出期为正的候选也被藏起 | fix | doctor | unknown | fixed 509f4dadd [#3215](https://github.com/qOeOp/trade/pull/3215) | 2026-11-20 | 2026-11-20 |
