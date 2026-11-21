@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { paperApi } from "../../lib/paperApi";
-import { signedOut } from "../../lib/transport";
+import { polled } from "../../lib/polled";
 import { SkeletonLines } from "../../components/Missing";
 import { TextButton } from "../../components/TextButton";
 
@@ -12,23 +12,12 @@ export function Logs({ paperId }: { paperId: number }) {
   const [log, setLog] = useState<Log | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let closed = false;
-    let timer: ReturnType<typeof setTimeout>;
     setLog(null); setError(null);
-    const read = async () => {
-      try {
-        const next = await paperApi<Log>(`/runs/${paperId}/logs?source=${source}&tail=300`);
-        if (closed) return;
-        setLog(next); setError(null);
-        if (next.sealed) return;
-      } catch (e) {
-        if (closed) return;
-        setError(e instanceof Error ? e.message : String(e));
-      }
-      if (!signedOut()) timer = setTimeout(() => void read(), 5000);
-    };
-    void read();
-    return () => { closed = true; clearTimeout(timer); };
+    const read = () => paperApi<Log>(`/runs/${paperId}/logs?source=${source}&tail=300`).then((log) => ({ log }),
+      (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return polled(read, (got) => "log" in got && got.log.sealed ? null : 5000, (got) => {
+      if ("log" in got) { setLog(got.log); setError(null); } else setError(got.error);
+    }).stop;
   }, [paperId, source]);
   return (
     <div className="space-y-2 p-3 text-dense">

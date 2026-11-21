@@ -28,7 +28,7 @@ def prepared(root, run_id="original"):
     source, universe = b"class Example: pass\n", b"{}"
     state.write_new(directory / "inputs/strategy.py", source)
     state.write_new(directory / "inputs/universe.json", universe)
-    manifest = {"format": runs.MANIFEST_FORMAT, "run_id": run_id,
+    manifest = {"format": runs.MANIFEST_FORMAT, "run_id": run_id, "research_at": "a" * 32,
                 "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(source).hexdigest()},
                 "universe_sha256": hashlib.sha256(universe).hexdigest(),
                 "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
@@ -81,14 +81,15 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(lambda: authority.from_file(copy, self.fixture.binding))
         self.refused(lambda: authority.from_file(self.fixture.file, release.Binding(self.work / "elsewhere", WEB)))
 
-    def test_missing_lock_is_not_recreated_by_new_effect_or_request_recovery(self):
+    def test_missing_lock_is_not_recreated_by_a_new_effect(self):
         (self.root / "account.lock").unlink()
         self.refused(lambda: authority.from_file(self.fixture.file, self.fixture.binding))
-        status, body = control.execute(self.fixture.config, "resolve", "missing-request",
-                                       {"request_id": "missing-request"}, binding=self.fixture.binding)
+        status, body = control.execute(self.fixture.config, "credential_save", None,
+                                       {"request_id": "missing-lock-save", "api_key": "fake", "api_secret": "fake"},
+                                       binding=self.fixture.binding)
         self.assertEqual((status, body["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertFalse((self.root / "account.lock").exists())
-        self.assertFalse((self.root / "requests").exists())
+        self.assertFalse((self.root / "credentials").exists())
 
     def test_snapshot_and_inode_are_rechecked_after_capture(self):
         scope = authority.from_file(self.fixture.file, self.fixture.binding)
@@ -113,18 +114,16 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(lambda: scope.admit_locked(self.root))
         self.refused(lambda: scope.admit_locked(self.root, maintenance=True))
 
-    def test_exact_receipt_read_survives_retirement_without_new_upload(self):
+    def test_a_retired_control_saves_nothing_new_or_sent_again(self):
         body = {"request_id": "original-save", "api_key": "fake-key", "api_secret": "fake-secret"}
         first = control.execute(self.fixture.config, "credential_save", None, body, binding=self.fixture.binding)
         self.assertEqual(first[0], 200, first)
         durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
         before = self.files()
-        self.assertEqual(control.execute(self.fixture.config, "credential_save", None, body,
-                                         binding=self.fixture.binding), first)
-        self.assertEqual(before, self.files())
-        status, refused = control.execute(self.fixture.config, "credential_save", None,
-                                          {**body, "request_id": "new-upload"}, binding=self.fixture.binding)
-        self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
+        for request_id in ("original-save", "new-upload"):
+            status, refused = control.execute(self.fixture.config, "credential_save", None,
+                                              {**body, "request_id": request_id}, binding=self.fixture.binding)
+            self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertEqual(before, self.files())
 
     def test_actual_web_command_child_preserves_original_stop_without_current_authority(self):
@@ -141,12 +140,12 @@ class InstalledAuthorityTests(unittest.TestCase):
                                                   binding=self.fixture.binding)
                 self.assertEqual(status, 200, response)
                 self.assertTrue((directory / "out/STOP").exists())
-                for action in ("start", "reconcile", "resolve"):
-                    target = "new-unknown-request" if action == "resolve" else "original"
-                    body = {"request_id": target if action == "resolve" else f"{action}-{kind}-request"}
+                for action in ("start", "reconcile"):
+                    body = {"request_id": f"{action}-{kind}-request"}
                     if action == "start":
                         body["confirm_real_orders"] = manifest["source"]["source_sha256"]
-                    status, response = serve.command(self.fixture.file, action, target, body, binding=self.fixture.binding)
+                    status, response = serve.command(self.fixture.file, action, "original", body,
+                                                     binding=self.fixture.binding)
                     self.assertEqual(status, 503, response)
                     self.assertEqual(response["error"]["code"], "LIVE_RELEASE_UNAVAILABLE")
         self.assertFalse(any(row["event"] == "launch_requested" for row in state.events(directory / "lifecycle.jsonl")))

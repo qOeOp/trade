@@ -179,7 +179,7 @@ def _bars(profile: dict, listing: dict, scope: Scope, cache: Path, today: date, 
                 end - timedelta(days=1) >= today - timedelta(days=LAG_DAYS):
             return
         found = store.import_month(profile, month, cache, symbols=scope.bar_symbols, log=log)
-        entry["rows"] += found["bar_rows"] + found["funding_rows"]
+        entry["rows"] += found["rows"] + found["funding_rows"]
         through[month] = date.fromisoformat(found["through"])
         listing["members"][month] = found["universe_members"]
 
@@ -257,11 +257,8 @@ def _sound(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
 
 def _import(kind: str, profile: dict, month: date, cache: Path, symbols: list[str], log) -> list[dict]:
     """One month of `symbols` by the kind's importer: [{symbol, rows}]."""
-    if kind == "quotes":
-        found = quotes.import_quotes(profile, month, cache, symbols=symbols, log=log)
-        return [{"symbol": symbol, "rows": found["per_symbol"][symbol]["quotes"]} for symbol in symbols]
-    found = aggtrades.import_month(profile, month, cache, symbols, log=log)
-    return [{"symbol": item["symbols"][0], "rows": item["trade_rows"]} for item in found["imports"]]
+    found = (quotes.import_quotes if kind == "quotes" else aggtrades.import_month)(profile, month, cache, symbols, log)
+    return [{"symbol": symbol, "rows": item["rows"]} for symbol, item in found["per_symbol"].items()]
 
 
 def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
@@ -504,7 +501,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
                 if not _fetched(cache, symbol, days, today, memory):
                     continue
                 found = metrics.import_month(profile, month, cache, [symbol], log=log, first=first)
-                kinds["metrics"][symbol]["rows"] += found["metrics_rows"]
+                kinds["metrics"][symbol]["rows"] += found["rows"]
             except Exception as exc:
                 if _stop("metrics", symbol, exc, memory):
                     break
@@ -574,11 +571,16 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
 
 def check(path: Path | None = None, now: datetime | None = None, out=print) -> int:
     """The healthcheck: 0 when the latest status is fresh, nothing is stopped, lagging or unknown (skipped months are
-    not). When unhealthy it prints why on one line, which Docker keeps in the container's health log."""
+    not). A status is fresh while it is younger than STALE, or while the round that started after it (running_since)
+    is; a round running longer is stuck. When unhealthy it prints why on one line, which Docker keeps in the
+    container's health log."""
     try:
         status = json.loads((path or default_status()).read_text(encoding="utf-8"))
         now = now or datetime.now(UTC)
         age = now - datetime.fromisoformat(status["at"])
+        # follow() marks a round in progress (running_since) and writes a status without it when the round ends
+        running = status.get("running_since")
+        running_for = None if running is None else now - datetime.fromisoformat(running)
         failing = [f"{kind}/{scope} {entry['state']}" + (f" ({entry['refusal']['code']})" if isinstance(
                        entry.get("refusal"), dict) and isinstance(entry["refusal"].get("code"), str) else "")
                    for kind, entries in status.get("kinds", {}).items() for scope, entry in entries.items()
@@ -586,10 +588,11 @@ def check(path: Path | None = None, now: datetime | None = None, out=print) -> i
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         out(f"status unreadable ({type(exc).__name__})")
         return 1
-    if age > STALE:
-        running = status.get("running_since")
-        out(f"status is {age.total_seconds() / 3600:.1f} h old"
-            + (f", a round running since {running}" if isinstance(running, str) else ""))
+    if running_for is not None and running_for > STALE:
+        out(f"a round running since {running} is stuck")
+        return 1
+    if age > STALE and running_for is None:
+        out(f"status is {age.total_seconds() / 3600:.1f} h old")
         return 1
     if failing:
         out("; ".join(failing[:5]) + (f"; {len(failing) - 5} more" if len(failing) > 5 else ""))

@@ -209,8 +209,7 @@ class CompleteImportTests(unittest.TestCase):
                                 '--symbols', 'BTCUSDT', '--cache-root', str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0)
-        imported, = result['imports']
-        self.assertEqual((result['trade_rows'], imported['codec']), (62, trades.CODEC))
+        self.assertEqual((result['rows'], list(result['per_symbol']), result['codec']), (62, ['BTCUSDT'], trades.CODEC))
         profile = empty
         self.assertEqual(stored(profile), self.expected)
         self.assertEqual(stored(profile, JAN.isoformat()), [row for row in self.expected if row[1] < START + store.DAY])
@@ -262,8 +261,7 @@ class CompleteImportTests(unittest.TestCase):
                 self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
                 continue
             self.assertEqual(held, {'BTCUSDT': 62, 'ETHUSDT': 62})
-            self.assertEqual(([item['symbols'] for item in imported['imports']], imported['trade_rows']),
-                             ([['BTCUSDT'], ['ETHUSDT']], 124))
+            self.assertEqual((list(imported['per_symbol']), imported['rows']), (['BTCUSDT', 'ETHUSDT'], 124))
             self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet', '2025-01/ETHUSDT.parquet'])
 
     def test_a_contract_already_holding_the_month_refuses_alone(self):

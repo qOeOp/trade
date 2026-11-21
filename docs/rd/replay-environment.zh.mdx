@@ -64,8 +64,6 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.stitch_series` `market.monthly_archives` `market.rest_klines`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 归档先核校验和，两个来源同一时刻对不上就整次拒绝 [#W-1-1-2]
 
 每个归档文件先按交易所随文件发布的校验和核对。两个来源都有同一分钟时逐字段比较：相等只留一行；不相等时不拿任何一方覆盖另一方，整次导入被拒绝。任何一处拒绝，本次导入都不改目录里的文件，数据停在导入前。
@@ -77,8 +75,6 @@
 比如某合约某一分钟的收盘价，日归档写 1.2345，公开接口写 1.2346。这次导入整次作废，目录里还是导入前的数据，已经钉住旧提交的回放不受任何影响。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.fetch_archive` `market.import_month` `cli.market_import`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 研究若引用外部经济或持仓数据，只能使用历史决策时已发布且可获得的版本，区分统计所属日期、发布时间与修订版本，并说明可见时刻的证据和假设；只有发布日期，不能据此声称盘中某一时刻已可获得。详细规则见 [research-sources 的数据参考](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-sources/references/data.md)。这由 Agent 的来源核对和独立源码审查负责，当前产品没有通用外部数据接入或自动时点校验能力。
 
@@ -106,8 +102,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:bar">bar</Ref> <Ref id="table:funding">funding</Ref> <Ref id="table:instrument">instrument</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 高于 1 分钟的 K 线不存，导出时从 1 分钟当场算 [#W-1-2-2]
 
 市场数据只算日线，从 UTC 零点开始对齐，用作回放的日线预热。每根的开盘取第一个有成交的分钟，收盘取最后一个分钟，成交量求和；一分钟数据都没有的那天，这根 K 线就不存在，不拿相邻的补。算出来的日线会和交易所原生的日线对照，差异记为数据缺陷，两边都不改。策略要别的周期，在回放里由 Nautilus 从 1 分钟 K 线聚合。
@@ -119,8 +113,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如 RSI 信号看小时线时，每根小时线都由 Nautilus 从这一小时里的 1 分钟 K 线聚合，导出的数据里没有小时线。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.derive_bars` `market.check_derived`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 缺口与市场日 [#W-1-3]
 
@@ -138,8 +130,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.missing_intervals` `market.coverage_facts`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 已存的日子只追加、不改，市场日是数据截至的那一天 [#W-1-3-2]
 
 已存的日子只追加、不改。文件每次写成已存的行加新的日子：K 线和资金费重读已存的日子须逐字段相同，否则 MONTH_EXISTS；报价和成交只导已结束的整月。一次只有一个导入，第二个拒绝 CONCURRENT_IMPORT。K 线导入跨表校验不过时整次拒绝，目录里的文件不动；通过才按固定次序改名到位，K 线最后。市场日就是数据截至的那一天，登记钉住它，回放只读这一天及以前的行。
@@ -151,8 +141,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如一条路线的假设都钉在同一个市场日上。即使之后又导入了新的日子和月份，这些回放读到的仍是截至那一天的数据。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.data_tests` `market.place` `market.import_month` `market.resolve_day` <Ref id="table:market_directory">market_directory</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.2　划定窗口 [#W-2]
 
@@ -208,8 +196,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.parse_window`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 开发窗口随研究路线由你选定，登记的交易段必须等于它 [#W-2-1-2]
 
 你选路线时给出起点候选、开发窗口和市场日。代码核对起点存在且源码审查通过、市场日能解析、窗口没有超出数据覆盖，通过后追加一条路线记录；改窗口只能由你另选。之后每次登记都读所选路线的记录，交易段不等于它的开发窗口就被拒绝。
@@ -221,8 +207,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如一条路线的开发窗口是 2025-10-09 到 2026-10-07T08:30Z，路线里每个假设的交易段都要等于它。某次登记把交易段写到 2026-09-30 就结束，会被拒绝；想换窗口，要由你另选路线。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.select_line` `registration.validate` `cli.line_select`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### K 线对策略可见的时刻只有一个：收盘时刻 [#W-2-1-3]
 
@@ -236,8 +220,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `market.write_bars`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 成绩只算交易段，配对比较只用同一交易段的逐日收益 [#W-2-1-4]
 
 报告的统计期从交易起点开始，预热段不计入任何绩效指标。日收益按 UTC 日排列，必须没有缺、没有重复、逐日相连；不完整的日收益序列不能用，配对比较据此拒绝。两边窗口有任何一个边界不同，就没有可比资格，也就是不能配对比较。
@@ -250,8 +232,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `ledger.daily_returns` `registration.check_comparable`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 预热只准备不提交，提前提交使整次运行无效 [#W-2-1-5]
 
 预热期允许读数据、更新指标和创建尚未提交的订单对象。独立审计读取原生 OrderSubmitted 的 ts_event，按提交者 strategy_id 对照运行器记录的逐实例有效交易起点；早于起点即整次运行无效，不能作为经济证据，恰在起点提交允许。有效起点是全局交易起点与该实例输入就绪起点的较晚者，包含中途上市和日线预热推迟启动。
@@ -259,8 +239,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 运行器在调用策略源码前保存规划出的起点，并写入摘要的 `trade_start_by_strategy`；审计不信策略可变属性或自报计数。有覆盖回执时还核对全局窗口、导出实例身份和上市下界。起点信息缺失或非法、出现未规划的提交者，报 `TRADE_START_INVALID`；提前提交报 `ORDER_BEFORE_TRADE_START`，每个违规订单各留定位。提前挂出但从未成交的订单同样违规；仅在预热创建、到起点才提交的订单允许。
 
 运行器先拦：预热结束、运行器调用 `on_start` 之前的下单违反订单规则（`ORDER_RULE`），单不发出，运行被拒。审计是事后独立的第二道核对：不静默丢单、不改时间、不修补结果。通过这一项也不证明信号输入早于提交；因果时钟仍由原生预检与独立源码审查核验。
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.submission_findings` `engine.write_native_reports` · 原生回归测试 `tests/engine/test_warmup_submissions.py`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 预热与就绪 [#W-2-2]
 
@@ -277,8 +255,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如策略声明 `WARMUP = {"1-DAY": 200}`，某合约在交易起点只有 150 根连续日线，运行器会等它积累到 200 根才启动该实例；若直到窗口结束都不足，就没有该实例。交给策略的日线须连续并紧贴这个实际起点，不拿更短历史凑数。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.plan_instances` `engine.warmup` `engine.read_market`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 改信号周期或指标长度，要登记初始化条件并报告两边实际何时就绪 [#W-2-2-2]
 
@@ -297,8 +273,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 3. 审查结论绑定源码哈希和运行环境身份，只追加入账；状态原样保留，未解决的不改写成通过。
 4. 原始输入有多少条，不能当作已经就绪的证据。
 5. 解读检验结果时写明两边首次就绪的时点。
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.3　产出共同可交易范围 [#W-3]
 
@@ -359,8 +333,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 3. 成员资格只看该月之前的成交历史，不按成交额排名，后来下架的合约照样留在当月名单里；合约的分类取它在市场里最早一次存储的条款观测（首次导入历史时来自当日的 exchangeInfo 或名称推断），不是各历史月当时的元数据；候选合约受库首次导入定下的范围约束（`--symbols` 允许列表，`market.freshness` 报告的 scope）。
 4. 改规则就出新版本，新旧名单并存，旧名单不被改写。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.monthly_universe` `market.classify_contract`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 同一个共同可交易范围由一个确定的市场日定义 [#W-3-1-2]
 
 从钉住的市场日里读出三样：规则版本、合约清单、每个合约的成员时段。成员时段按月成段，相邻月份合并，中断之后另起一段。这三样随登记锁进执行身份的输入数据；输入相同就是同一个范围，策略实际交易的子集可以不同。
@@ -372,8 +344,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如某合约 1 月到 4 月在名单里，5 月不在，6 月又回来：它的成员时段就是两段，1 月初到 4 月底一段，6 月初起另一段。两个候选只要钉同一个提交，就是同一个范围，哪怕其中一个只交易 20 个合约。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.membership_path` `registration.market_inputs`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 成员变化与生命周期 [#W-3-2]
 
@@ -390,8 +360,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如一个合约在输入起点前已终止，就不建实例；一个合约下架后再上市，就分成两个片段、各建一个实例。窗口起点一变，哪些合约在窗前终止也跟着变，不能照搬旧窗口的排除结论。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.episode_active` `engine.episode_membership` `engine.read_universe`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 上市、停止新开仓、下架结算，都以引擎原生事件供给 [#W-3-2-2]
 
@@ -421,8 +389,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 4. 只把窗口内的事件按引擎原生格式交给回放。
 5. 引擎执行原生结算；PRE_CLOSE 开仓截止由策略执行、独立审计核验；没有结算价时只提供终止时刻并核对此前空仓。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.validate_lifecycle` `market.require_native_price` `market.write_lifecycle_events`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 被重用的合约代码按片段拆成独立合约和实例，状态不跨片段 [#W-3-2-3]
 
 同一个代码先后被不同合约使用时，按生命期拆成带编号的片段；每个片段一个原生合约、一份数据、一个策略实例。只收片段内完整的分钟，跨边界的半截分钟不进任何片段。币名不是 ASCII 字符时，换成一个确定的 ASCII 别名，公开名照原样记录。
@@ -434,8 +400,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 比如某个合约下架后重新上市，要拆成两段；又比如中文名的合约，要换成 ASCII 别名才能作为引擎里的合约，公开名另行原样记下。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.split_episodes` `market.native_symbol` `market.export_episode`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 覆盖核验 [#W-3-3]
 
@@ -453,8 +417,6 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.coverage_facts` `market.export_catalogs` `replay.input_coverage`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
 #### 缺口、零成交、资金费缺失各自记为事实并写原因，不当成经济失败 [#W-3-3-2]
 
 Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失分别保留为事实，各自写明还没证实的原因，不默认算作经济失败，也不悄悄删币、缩窗或补数。能继续跑的范围和阻断原因报告给你，改数据范围由你选。缺的月份若归档里有、又是这条线已经在用的合约和数据种类，Agent 先自己补（在 market-import 容器里导入，先看内存和磁盘），在本轮消息里点名、在下一条 priority 判断里引用，不问你。补不上而会阻断或扭曲回放的异常才问你：交易起点及之后长于 60 分钟的 MARK 缺口、交易起点之后缺资金费、缺月或 `market coverage` 拒绝读取、策略读取的输入值上的缺口（如指标用到的预热收盘、决策周期的整根 bar）；零成交分钟、不超过 60 分钟的 MARK 缺口和不移除所读值的 LAST 缺口，Agent 报告位置后继续，不问你；候选身份和研究路线的有效性不因此改变（见 <Ref id="E.1.2.3" />）。这条由 skill 指导，有评测用例检查。
@@ -470,8 +432,6 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 比如某些合约有数据缺口，或者活动与资金费数据有问题，Agent 先停下来报告，等你决定要不要改范围才继续，而不是自己删币或缩窗。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.4　固定账户、条款与已知近似 [#W-4]
 
@@ -521,8 +481,6 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.replay` `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 环境条款共同固定，单笔金额与仓位由策略在敞口上限内决定 [#W-4-1-2]
 
 起始本金、执行环境、保证金模型及保证金率写进有效配置，手续费和其他合约条款随输入固定；源码不能改写这些条件。同一比较要求运行镜像、有效配置和输入一致，策略源码及其仓位规则可以不同。单笔金额、资金分配与风险预算由策略决定，不作为共同账户条款；订单规则把策略在一个合约上的敞口（持仓按开仓均价、挂着的入场单按限价或触发价，多空相加）限在 USDT 权益的 3 倍以内。当前默认仍是 `bars`；启用原生强平须选择 `quotes`，同时声明初始和维持保证金率。账户杠杆（`--leverage`，默认 3，取 Binance 的 1 到 125）也写进有效配置：`bars` 的保证金率为 1，挂单和持仓都冻结名义价值除以杠杆，与 Binance 相同；Paper 和 Live 用同一个杠杆，Live 要求交易所该合约的杠杆就是它。
@@ -534,8 +492,6 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 例如初始保证金率为 2% 时，10 万 USDT 的保证金理论上能撑起约 500 万 USDT 的名义价值，但订单规则只允许一个合约上的敞口到权益的 3 倍，即约 30 万 USDT；手续费、已有持仓和挂单会减少实际可用量。损失与费用照实保留，研究目标和既有审计边界不变。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.effective_configuration` `engine.parse_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 不建模与近似 [#W-4-2]
 
@@ -553,8 +509,6 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 费率、保证金和条款快照按环境声明，历史分档仍是近似 [#W-4-2-2]
 
 手续费（挂单 0.02%、吃单 0.05%）仍是假设值。K 线环境沿用导出合约的初始和维持保证金率（当前均为 10%）；报价环境由运行参数声明一组费率，满足 `0 < 维持保证金率 ≤ 初始保证金率 < 1`，并应用于本次回放的合约。它们不代表已完整还原各合约、各时刻的交易所保证金档位；不能因某个候选敞口较大，就为它单独放宽保证金条件后直接比较成绩。
@@ -566,8 +520,6 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 比如一次历史回放的全年费用来自当时假设的费率。报价环境另行声明的保证金率须从对应有效配置读取，不能从旧运行或“默认杠杆 1”推断出来。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.build_instrument` `market.terms` `engine.read_market`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.5　模拟撮合与结算 [#W-5]
 
@@ -617,8 +569,6 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.write_bars` `market.write_marks` `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 撮合交给原生模型，不加随机滑点；深度和冲击仍未建模 [#W-5-1-2]
 
 运行器和策略都不自己写成交逻辑。两种环境沿用引擎的缺省成交模型，限价触碰成交概率与随机滑点概率均为 0，不加撮合延迟。K 线环境中挂着的限价单须被价格穿过才成交；市价单吃完最优一档（K 线成交量的四分之一）后，剩余量按差一档的价格成交。报价环境按缓存的最优买卖价撮合，不使用 K 线成交量或根内路径。
@@ -630,8 +580,6 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 比如原生限价退出在旧 K 线环境里：卖价只被最高价触到时不成交。报价环境须按其报价序列重跑，不能沿用这根 K 线的成交判断。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 成交与结算规则 [#W-5-2]
 
@@ -649,8 +597,6 @@ K 线环境的根内顺序、各环境的止损处理与资金费结算，由引
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 止损随执行环境处理，不模拟标记价触发 [#W-5-2-2]
 
 K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘价成交，否则按触发价成交。报价环境由原生 L1 撮合器随报价处理止损，不套用 K 线根内路径。两种环境都不因止损单类型而拒单，也未实现交易所标记价触发模式；报价环境的强平估值另见 <Ref id="W.4.2.1" />。
@@ -663,8 +609,6 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
-
 #### 资金费在各合约实际结算时刻结算，正费率多头付、空头收 [#W-5-2-3]
 
 每条资金费按市场数据里记下的实际结算时刻交给引擎，引擎在这个时刻结算一次，只有当时持仓的才收付；费率为正时多头付、空头收。不假设统一的 8 小时周期，各合约的间隔可以不同。某段时间没有资金费记录，记为覆盖事实，不补造。
@@ -676,8 +620,6 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 比如一个候选一年里持仓收到的资金费可能比全部成交费用还多。某合约改成每 4 小时结算一次，引擎就在那几个实际时刻结算，不按 8 小时算。
 
 </div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.write_funding` <Ref id="table:funding">funding</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#W-pending]
 

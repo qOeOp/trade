@@ -3,7 +3,7 @@
 // publishes nothing: it has no public copy fault.
 import { paperApi } from "../lib/paperApi";
 import { pageFetch } from "../lib/transport";
-import { whileVisible } from "../lib/whileVisible";
+import { polled, type Answer } from "../lib/polled";
 import { publicCopyFault, releaseBehind, type About, type PaperHealth } from "../model/about";
 import { atom, useAtom } from "./atom";
 
@@ -22,20 +22,14 @@ export const copyFault = (reading: About): Fault => isReplica() ? null : publicC
 const behind = atom<ReturnType<typeof releaseBehind>>(null);
 export const useReleaseBehind = () => useAtom(behind);
 
-async function readStatus(): Promise<void> {
-  try {
-    const response = await pageFetch("/api/about", { cache: "no-store" });
-    if (!response.ok) return;
-    const reading = await response.json() as About;
-    publicCopy.set(copyFault(reading));
-    behind.set(releaseBehind(reading));
-  } catch { /* the page's own connection is reported elsewhere; the last answer stands */ }
-}
-
-/** Follows the public copy and the released version for the status bar. */
+/** Follows the public copy and the released version for the status bar; a failed read leaves the last answer (the page's
+ *  own connection is reported elsewhere). */
 export function detectStatus(): void {
-  void readStatus();
-  whileVisible(() => void readStatus(), POLL_MS);
+  polled("/api/about", POLL_MS, (answer: Answer) => {
+    if (!answer?.ok || !answer.body) return;
+    publicCopy.set(copyFault(answer.body as About));
+    behind.set(releaseBehind(answer.body as About));
+  });
 }
 
 export async function readAbout(): Promise<void> {

@@ -188,7 +188,7 @@ class ImportQuotesTests(unittest.TestCase):
         return caught.exception
 
     def test_one_month_of_a_contracts_quotes_is_one_file(self):
-        self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute
+        self.assertEqual(self.result["rows"], 31 * 1440 * 2)  # two states a minute
         readings = self.result["per_symbol"]["BTCUSDT"]
         self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve"]), (31 * 2880, 0, True))
         self.assertEqual(readings["minutes_with_trades"], 31 * 1440)
@@ -197,7 +197,7 @@ class ImportQuotesTests(unittest.TestCase):
         market = files.open_market(self.market, "reader")
         self.assertEqual([(entry.relative, entry.start_ms, entry.end_ms) for entry in files.entries(market, "quote")],
                          [("quote/2025-01/BTCUSDT.parquet", day_ms(JAN), day_ms(FEB))])
-        self.assertEqual(stored.num_rows, self.result["quote_rows"])
+        self.assertEqual(stored.num_rows, self.result["rows"])
         eve_trades = 2880
         bid = round(2000.0 - 0.02 * 1440, 2)  # the walk continues from the eve: no stale side, no adjustment
         self.assertEqual(first, [(day_ms(JAN) + 100, eve_trades + 1, round(bid * 10**8), round((bid + 0.03) * 10**8)),
@@ -209,7 +209,7 @@ class ImportQuotesTests(unittest.TestCase):
                                            "2025-02-02T00:00:00Z", None)
         latest = max(read(self.market, "quote").column("ts").to_pylist())
         self.assertEqual(found["coverage"][0]["quotes"],
-                         {"months": [{"month": "2025-01", "rows": self.result["quote_rows"]}],
+                         {"months": [{"month": "2025-01", "rows": self.result["rows"]}],
                           "first_ms": day_ms(JAN) + 100, "last_ms": latest,
                           "uncovered_intervals_ms": [[start, day_ms(JAN)], [day_ms(FEB), end]]})
 

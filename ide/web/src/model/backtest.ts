@@ -27,11 +27,11 @@ export type MarketExposure = {
 };
 /** One volatility regime's return summary from `by_regime` (`high` or `low` prior-day basket volatility):
  *  the number of days in that regime, their compounded return (`exp(log_sum) - 1`) and mean daily return (`exp(mean_log) - 1`). */
-export type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
+type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalReturn: number | null; dailyReturn: number | null };
 /** One development year (cut at the trade start's anniversaries, not a calendar year) or the window's last part year: its UTC dates and compound return. */
-export type DevYear = { start: string; end: string; ret: number };
+type DevYear = { start: string; end: string; ret: number };
 /** The closed cycles of one UTC close year: their count, price move, fees paid and funding (account currency). */
-export type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
+type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
 /** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled`, `dev_years` and `closed_by_year`. */
 export type PeriodBreakdown = {
   monthsWonShare: number | null; monthsCount: number | null; residualAfterTop5Days: number | null;

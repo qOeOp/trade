@@ -154,7 +154,7 @@ async function page(state) {
   };
   const exports = await namespace("widgets/live/LiveLaunch.tsx", { stubs: {
     react: hooks, "icons/Icon": { Icon: () => null }, "components/IconButton": { IconButton: () => null },
-    "components/LiveFacts": { LiveRequestStatus: () => null },
+    "components/LiveNoReply": { LiveNoReply: () => null },
     "state/liveRun": { useLaunchReading: () => ({ reading: null, targets: null }),
       useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null },
     "state/liveWorkspace": { FRESH_DRAFT: { version: null, edits: {}, preparedId: null }, liveDraft: { get: () => state.draft, set: (next) => { state.draft = next; } },

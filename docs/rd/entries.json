@@ -135,78 +135,8 @@
  [
   "design-ledger",
   "rd/design-ledger",
-  "Database overview",
-  "数据库总览",
-  "database"
- ],
- [
-  "design-database-candidates",
-  "rd/design-database-candidates",
-  "Candidates, lineage and source reviews",
-  "候选、谱系与源码审查",
-  "database"
- ],
- [
-  "design-database-trials",
-  "rd/design-database-trials",
-  "Registrations and trials",
-  "登记与试验",
-  "database"
- ],
- [
-  "design-database-runs",
-  "rd/design-database-runs",
-  "Runs and sealed readings",
-  "运行结果与封存读数",
-  "database"
- ],
- [
-  "design-database-evidence",
-  "rd/design-database-evidence",
-  "Evidence bundles and originals",
-  "证据包与原件",
-  "database"
- ],
- [
-  "design-database-judgments",
-  "rd/design-database-judgments",
-  "Research lines, targets and judgments",
-  "研究线、目标与判断",
-  "database"
- ],
- [
-  "design-database-validation",
-  "rd/design-database-validation",
-  "Validation and timestamp witnesses",
-  "样本外登记与时间见证",
-  "database"
- ],
- [
-  "design-database-paper",
-  "rd/design-database-paper",
-  "Paper database",
-  "Paper 库",
-  "database"
- ],
- [
-  "design-database-market",
-  "rd/design-database-market",
-  "Market data and universe",
-  "市场数据与交易范围",
-  "database"
- ],
- [
-  "design-database-coordination",
-  "rd/design-database-coordination",
-  "Schema version, write coordination and review",
-  "模式版本、写入协调与复核",
-  "database"
- ],
- [
-  "design-database-views",
-  "rd/design-database-views",
-  "Read entry points and research history",
-  "读取入口与研究史",
+  "Database",
+  "数据库",
   "database"
  ],
  [

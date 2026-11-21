@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date, datetime
-import os
 from pathlib import Path
+import re
 import threading
 import time
 
@@ -13,8 +13,13 @@ from engine.live_errors import REFUSALS, LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE
 from ledger import db, paper as paper_records
 from shared.errors import Refusal
-from live import authority, configuration, credentials, key, notify, reconcile, release, requests, runs, state, views
+from live import authority, configuration, credentials, key, notify, reconcile, release, runs, state, views
 
+
+REQUEST_ID = re.compile(r"[a-z0-9][a-z0-9-]{7,63}\Z")
+# The actions on one prepared run (POST /api/live/runs/<run_id>/<action>, live.serve).
+RUN_ACTIONS = frozenset({"preflight", "start", "reconcile", "stop", "maintain"})
+LAUNCHES = {"preflight": "preflight", "start": "run", "reconcile": "reconcile"}  # action: runner mode
 
 MESSAGES = {
     "LIVE_RELEASE_UNAVAILABLE": "This Live control is not accepting new operations during release handover.",
@@ -23,10 +28,6 @@ MESSAGES = {
     "LIVE_SYMBOLS": "Name distinct Binance USDT perpetuals such as BTCUSDT.",
     "LIVE_UNIVERSE": "The market directory gives these contracts no membership this month.",
     "LIVE_REQUEST_CONFLICT": "This request ID already belongs to a different operation.",
-    "LIVE_REQUEST_UNRESOLVED": "A previous operation has an unknown outcome. Check that original request.",
-    "LIVE_REQUEST_MISSING": "This request has not been recorded by Live.",
-    "LIVE_REQUEST_CLOSED_UNCLAIMED": "This request ID was closed before acceptance and cannot be used again.",
-    "LIVE_REQUEST_NOT_DISPATCHED": "The original runner was not dispatched. Existing resources still need their own checks.",
     "LIVE_CREDENTIAL_CHANGED": "The selected credential changed. Prepare a new run.",
     "LIVE_CREDENTIAL_BUSY": "An active or unresolved execution still requires its credential version.",
     "LIVE_CREDENTIAL_UNAVAILABLE": "The required local credential version is unavailable.",
@@ -59,8 +60,8 @@ MESSAGES = {
 def error(code: str, request_id: str | None = None) -> dict:
     known = code if code in REFUSALS else "LIVE_RECORD_UNAVAILABLE"
     body = {"ok": False, "error": {"code": known, "message": MESSAGES.get(
-        known, "Live could not confirm this operation. Review the retained request and execution facts.")}}
-    if isinstance(request_id, str) and requests.REQUEST_ID.fullmatch(request_id):
+        known, "Live could not confirm this operation. Check the run or key, then send the same request again.")}}
+    if isinstance(request_id, str) and REQUEST_ID.fullmatch(request_id):
         body["request_id"] = request_id
     return body
 
@@ -69,19 +70,9 @@ def _profile(config: configuration.Configuration) -> db.LedgerProfile:
     return db.LedgerProfile.from_json(state.read(config.research_ledger))
 
 
-def _prepare_claim(root: Path, run_id: str) -> dict:
-    rows = runs.host_events(state.directory(root, run_id))
-    prepared = next((row for row in rows if row.get("event") == "prepared"), None)
-    claim = requests.read_locked(root, prepared["request_id"]) if prepared and prepared.get("request_id") else None
-    if claim is None or requests.is_closed(claim) or claim["command"]["action"] != "prepare":
-        raise state.fail("LIVE_RESEARCH_COMMIT", "the original managed preparation is unavailable")
-    return claim
-
-
 def _review(config: configuration.Configuration, root: Path, run_id: str) -> dict:
-    claim = _prepare_claim(root, run_id)
     _, manifest = runs.read_manifest(root, run_id)
-    result = runs.review(_profile(config), claim["command"]["inputs"]["research_at"], manifest)
+    result = runs.review(_profile(config), manifest)
     # The CLI serializer already formats these reader datetime values. Direct HTTP
     # reads need the same wire dates, without a general str(object) fallback.
     result["validations"] = [
@@ -180,7 +171,7 @@ class Evidence:
 
 
 def candidate(config: configuration.Configuration, ref: str) -> dict:
-    """The candidate `ref` at the research head, as a run of it would be prepared now (_fixed_prepare reads it again),
+    """The candidate `ref` at the research head, as a run of it would be prepared now (_prepare reads it again),
     and the contracts of its last research replay (ledger.paper.last_research_symbols), which the page offers."""
     with db.read_as_of(_profile(config)) as reader:
         found = runs.runnable(reader, ref)
@@ -241,7 +232,7 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
 
 def _universe(config: configuration.Configuration, symbols: list[str]) -> bytes:
     """The membership file of `symbols` at the market's latest market day (market.universe.selection, as Paper
-    derives it): what engine.load.read_universe reads."""
+    derives it): what engine.load.read_universe reads, frozen in the run's inputs."""
     from market.universe import selection
     try:
         _, membership, _ = selection({"root": str(config.market_root)}, None, symbols, time.time_ns())
@@ -250,91 +241,72 @@ def _universe(config: configuration.Configuration, symbols: list[str]) -> bytes:
     return state.encode(membership)
 
 
-def _write_universe(root: Path, data: bytes) -> Path:
-    """universes/<sha256>.json under the custody root, written once: a prepare request names it (inputs.universe_file)
-    and preparation copies it into the run's inputs."""
-    path = state.private_directory(root / "universes") / f"{hashlib.sha256(data).hexdigest()}.json"
-    if not os.path.lexists(path):
-        state.write_new(path, data)
-    elif path.is_symlink() or not path.is_file() or path.read_bytes() != data:
-        raise state.fail("LIVE_UNIVERSE", "a retained universe file differs from its content address")
-    return path
-
-
-def _fixed_prepare(config: configuration.Configuration, body: dict, scope: authority.Authority) -> dict:
-    """The prepare request's inputs, frozen once: the candidate at the research head, the chosen contracts, their
-    membership file and the run settings. A repeated request ID returns its original inputs, never today's head."""
-    target = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
-    parameters = configuration.run_config(body["config"])
-    with scope.serialized(config.root) as root:
-        prior = requests.read_locked(root, body["request_id"])
-        if prior:
-            if requests.is_closed(prior):
-                raise state.fail("LIVE_REQUEST_CLOSED_UNCLAIMED", "this request ID was closed before acceptance")
-            command = prior["command"]
-            original = command["inputs"]
-            if (command["action"] != "prepare" or command["target"] != target
-                    or original.get("candidate") != body["candidate"] or original.get("symbols") != body["symbols"]
-                    or any(original.get("config", {}).get(name) != value for name, value in parameters.items())):
-                raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already binds different preparation inputs")
-            return command
-    with db.read_as_of(_profile(config)) as reader:
-        found = runs.runnable(reader, body["candidate"])
-        research_at = reader.resolved_commit
-    data = _universe(config, body["symbols"])
-    with scope.serialized(config.root) as root:
-        scope.admit_locked(root, inventory=False)  # no write in custody while Live takes no new operation
-        universe = _write_universe(root, data)
-    return {"action": "prepare", "target": target, "inputs": {
-        "research_at": research_at, "candidate": body["candidate"], "symbols": list(body["symbols"]),
-        "source_sha256": found["source_sha256"], "entry_class": found["entry_class"],
-        "universe_file": str(universe), "universe_sha256": hashlib.sha256(data).hexdigest(),
-        "runtime": config.runtime, "config": {**parameters, "memory": configuration.RUNNER_MEMORY}}}
-
-
 def _reconciled(config: configuration.Configuration, ref: str):
     """Preparation's Paper check: this runs in `live web-command`, so it asks the serving control (paper_view)."""
     return lambda source_sha256, symbols: reconcile.require(config, ref, source_sha256, symbols)
 
 
-def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existing=False):
-    path = credentials.prepare_path_locked(root, credential_ref, request_id=request_id)
-    directory = state.directory(root, run_id)
-    universe = directory / "inputs" / "universe.json" if existing else Path(inputs["universe_file"])
-    return runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
-                                inputs["symbols"], universe, path, inputs["runtime"], **inputs["config"],
-                                market_root=config.market_root, source_sha256=inputs["source_sha256"],
-                                request_id=request_id, credential_ref=credential_ref,
-                                reconciled=_reconciled(config, inputs["candidate"]))
+def _prepare(config: configuration.Configuration, root: Path, body: dict, request_id: str) -> None:
+    """Prepare body's run: the candidate at the research head, the chosen contracts, their membership and the run
+    settings, frozen in its manifest. Sent again, a published run is returned as it is (runs.prepared_locked), never
+    read again at a new head."""
+    settings = {**configuration.run_config(body["config"]), "memory": configuration.RUNNER_MEMORY}
+    run_id, ref, candidate, symbols = body["run_id"], body["credential_ref"], body["candidate"], body["symbols"]
+    if runs.prepared_locked(root, run_id, request_id, candidate, symbols, ref, **settings) is not None:
+        return
+    path = credentials.prepare_path_locked(root, ref)
+    research = _profile(config)
+    with db.read_as_of(research) as reader:
+        research_at = reader.resolved_commit
+    manifest = runs.prepare_locked(root, run_id, research, research_at, candidate, symbols,
+                                   _universe(config, symbols), path, config.runtime, **settings,
+                                   market_root=config.market_root, request_id=request_id, credential_ref=ref,
+                                   reconciled=_reconciled(config, candidate))
+    # A failed review cannot open a venue connection.
+    runs.review(research, manifest)
 
 
-def _operation(config, action, command, body, root, request_id):
-    target, inputs = command["target"], command["inputs"]
+def _operation(config: configuration.Configuration, action: str, target: dict, body: dict, root: Path,
+               request_id: str) -> None:
     if action == "credential_save":
-        return credentials.save_locked(root, target["credential_ref"], body["api_key"], body["api_secret"],
-                                       request_id=request_id)
-    if action == "credential_remove":
-        return credentials.remove_locked(root, target["credential_ref"], request_id=request_id)
-    run_id = target["run_id"]
-    if action == "prepare":
-        manifest = _prepare(config, root, run_id, target["credential_ref"], inputs, request_id)
-        # A failed review cannot open a venue connection.
-        runs.review(_profile(config), inputs["research_at"], manifest)
-        return None
-    if action == "stop":
-        return runs.stop_locked(root, run_id)
-    if action == "maintain":
-        return runs.maintain_locked(root, run_id)
-    mode = "run" if action == "start" else action
-    path = credentials.run_path_locked(root, run_id, mode, request_id=request_id)
-    if action == "preflight":
-        original = _prepare_claim(root, run_id)["command"]
-        manifest = _prepare(config, root, run_id, original["target"]["credential_ref"], original["inputs"],
-                            request_id, existing=True)
-        runs.review(_profile(config), original["inputs"]["research_at"], manifest)
-    if action == "start":
-        runs.require_confirmed_locked(root, run_id, inputs["confirm_real_orders"])
-    return runs.launch_locked(root, run_id, path, mode, request_id=request_id)
+        credentials.save_locked(root, target["credential_ref"], body["api_key"], body["api_secret"])
+    elif action == "credential_remove":
+        credentials.remove_locked(root, target["credential_ref"])
+    elif action == "prepare":
+        _prepare(config, root, body, request_id)
+    elif action == "stop":
+        runs.stop_locked(root, target["run_id"])
+    elif action == "maintain":
+        runs.maintain_locked(root, target["run_id"])
+    else:
+        run_id, mode = target["run_id"], LAUNCHES[action]
+        if runs.sent_locked(root, run_id, mode, request_id) is not None:
+            return  # sent again: no key read, no second runner
+        path = credentials.run_path_locked(root, run_id, mode)
+        if action == "preflight":
+            # The original preparation, read at its own research commit.
+            runs.review(_profile(config), runs.read_manifest(root, run_id)[1])
+        if action == "start":
+            runs.require_confirmed_locked(root, run_id, body["confirm_real_orders"])
+        runs.launch_locked(root, run_id, path, mode, request_id=request_id)
+
+
+def _credential_ref(request_id: str) -> str:
+    """A save's version reference: stable for this one upload intent, never a key fingerprint."""
+    return hashlib.sha256(("live-credential:" + request_id).encode()).hexdigest()[:32]
+
+
+def _require_unused(root: Path, request_id: str, action: str, target: dict) -> None:
+    """A request ID names one operation: the effect rows it already made (a preparation or launch row, or a saved
+    version) must be this action's on this target, else LIVE_REQUEST_CONFLICT."""
+    for run_id, row in runs.request_rows(root, request_id):
+        made = "prepare" if row["event"] == "prepared" else next(
+            (name for name, mode in LAUNCHES.items() if mode == row.get("mode")), None)
+        if made != action or run_id != target.get("run_id"):
+            raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already names a different Live operation")
+    if action != "credential_save" and any(row["credential_ref"] == _credential_ref(request_id)
+                                           for row in credentials.events_locked(root)):
+        raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already names a different Live operation")
 
 
 def restart_interrupted_locked(root: Path, run_id: str, now_ns: int) -> dict | None:
@@ -376,34 +348,6 @@ def check_key_locked(root: Path, run_id: str, now: float) -> None:
         state.append(directory / "lifecycle.jsonl", "key_check_passed", run_id)
 
 
-def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:
-    """Explicit local recovery of the original intent; never repeat a venue/runner command."""
-    scope = authority.retained(config, binding)
-    with scope.serialized(config.root) as root:
-        claim = requests.read_locked(root, request_id)
-        if claim is None:
-            scope.admit_locked(root)
-            return requests.recover_locked(root, request_id)
-        view = requests.view_locked(root, request_id)
-        if view["outcome"] != "outcome_unknown":
-            return view
-        scope.admit_locked(root)
-        command = claim["command"]
-        if command["action"] == "prepare":
-            target, inputs = command["target"], command["inputs"]
-            run_id, ref = target["run_id"], target["credential_ref"]
-            # The credential helper proves this target has only local incomplete
-            # preparation evidence, while retaining all other run/ref conflict checks.
-            path = credentials.resolve_prepare_path_locked(root, run_id, ref, request_id)
-            runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
-                                 inputs["symbols"], Path(inputs["universe_file"]), path, inputs["runtime"],
-                                 **inputs["config"], market_root=config.market_root,
-                                 source_sha256=inputs["source_sha256"], request_id=request_id, credential_ref=ref,
-                                 reconciled=_reconciled(config, inputs["candidate"]), recover_partial=True)
-            return requests.view_locked(root, request_id)
-        return requests.recover_locked(root, request_id)
-
-
 def execute(config: configuration.Configuration, action: str, target: str | None, body: dict, *,
             binding: release.Binding | None = None) -> tuple[int, dict]:
     """Called only by `live web-command` for the paired Web, never a general command-line proxy."""
@@ -416,47 +360,42 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             return (502 if code == "LIVE_NOTIFY_TELEGRAM" else 400 if isinstance(exc, LiveRefusal) else 500), error(code)
     request_id = body.get("request_id") if isinstance(body, dict) else None
     try:
-        if not isinstance(request_id, str) or not requests.REQUEST_ID.fullmatch(request_id):
+        if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
             raise state.fail("LIVE_REQUEST_ID", "provide one valid request identifier")
-        if action == "resolve":
-            configuration.fields(body, {"request_id"})
-            if target != request_id:
-                raise configuration.fail()
-            view = resolve(config, request_id, binding=binding)
-            return 200, {"ok": True, "data": {"request": view, **view["target"]}}
         if action == "prepare":
             configuration.fields(body, {"request_id", "run_id", "candidate", "symbols", "credential_ref", "config"})
             configuration.text(body["run_id"], state.RUN_ID)
             configuration.text(body["candidate"], configuration.CANDIDATE)
             configuration.symbols(body["symbols"])
-            command = _fixed_prepare(config, body, authority.retained(config, binding))
+            configuration.text(body["credential_ref"], credentials.REF)
+            configuration.run_config(body["config"])
+            subject = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
         elif action == "credential_save":
             configuration.fields(body, {"request_id", "api_key", "api_secret"})
-            # Stable, opaque version identity for this one upload intent, not a key fingerprint.
-            ref = hashlib.sha256(("live-credential:" + request_id).encode()).hexdigest()[:32]
-            command = {"action": action, "target": {"credential_ref": ref}, "inputs": {}}
+            subject = {"credential_ref": _credential_ref(request_id)}
         elif action == "credential_remove":
             configuration.fields(body, {"request_id"})
-            command = {"action": action, "target": {"credential_ref": target}, "inputs": {}}
-        elif action in requests.RUN_ACTIONS:
+            subject = {"credential_ref": configuration.text(target, credentials.REF)}
+        elif action in RUN_ACTIONS:
             configuration.fields(body, {"request_id", "confirm_real_orders"} if action == "start" else {"request_id"})
-            inputs = {"confirm_real_orders": body["confirm_real_orders"]} if action == "start" else {}
             if action == "start":
-                configuration.text(inputs["confirm_real_orders"], configuration.DIGEST)
-            command = {"action": action, "target": {"run_id": target}, "inputs": inputs}
+                configuration.text(body["confirm_real_orders"], configuration.DIGEST)
+            subject = {"run_id": configuration.text(target, state.RUN_ID)}
         else:
             raise configuration.fail()
         scope = authority.retained(config, binding)
-        result = requests.dispatch(config.root, request_id, command,
-                                   lambda root, identity: _operation(config, action, command, body, root, identity),
-                                   admit_new=None if action == "stop" else lambda root: scope.admit_locked(
-                                       root, maintenance=action == "maintain"), serialized=scope.serialized)
-        return (202 if action in requests.LAUNCHES else 200), {
-            "ok": True, "data": {"request": result["request"], **command["target"]}}
+        # One account lock around the check, the admission and the effect: a request sent twice at once runs once.
+        with scope.serialized(config.root) as root:
+            _require_unused(root, request_id, action, subject)
+            if action != "stop":  # STOP stays available during a release handover
+                scope.admit_locked(root, maintenance=action == "maintain")
+            _operation(config, action, subject, body, root, request_id)
+        return (202 if action in LAUNCHES else 200), {
+            "ok": True, "data": {"request_id": request_id, "action": action, **subject}}
     except Exception as exc:
         code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
         status = (503 if code == "LIVE_RELEASE_UNAVAILABLE" else
-                  409 if code in {"LIVE_REQUEST_CONFLICT", "LIVE_REQUEST_UNRESOLVED", "LIVE_CREDENTIAL_BUSY",
+                  409 if code in {"LIVE_REQUEST_CONFLICT", "LIVE_CREDENTIAL_BUSY",
                                  "LIVE_CREDENTIAL_CHANGED", "LIVE_ACCOUNT_OWNED"}
                   else 400 if isinstance(exc, LiveRefusal) else 500)
         return status, error(code, request_id if isinstance(request_id, str) else None)

@@ -16,7 +16,7 @@ from deploy import release_host
 from deploy.live_configuration import read_object
 from deploy.release_host import REVISION, route_name
 from engine.live_errors import LiveRefusal
-from live import requests, runs, state
+from live import runs, state
 
 
 WEB = re.compile(re.escape(release_host.WEB) + REVISION.pattern)  # a control's own Web
@@ -126,7 +126,6 @@ def idle_locked(root: Path) -> str:
         if (not stat.S_ISDIR(mode) or mode & 0o077
                 or not stat.S_ISREG((root / "account.lock").lstat().st_mode)):
             return "unavailable"
-        requests.require_clear(root)
         account = _events(root / "account.jsonl")
         if any(row.get("event") not in {"reserved", "released"}
                or not isinstance(row.get("run_id"), str) or not state.RUN_ID.fullmatch(row["run_id"])

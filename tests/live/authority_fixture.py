@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from deploy.live_configuration import CONTROL, READER, ROOT
 from deploy.release_host import durable_json, route_config
-from live import authority, configuration, inventory, release, requests, state
+from live import authority, configuration, inventory, release, state
 
 WEB = "trade-release-web-" + "a" * 40
 BOOTSTRAP = """
@@ -88,8 +88,3 @@ def maintain(root, run_id):
     with state.serialized(root) as root:
         return runs.maintain_locked(root, run_id)
 
-
-def recover(root, request_id):
-    """The control's explicit recovery of a request (requests.recover_locked) under the account lock."""
-    with state.serialized(root) as root:
-        return requests.recover_locked(root, request_id)

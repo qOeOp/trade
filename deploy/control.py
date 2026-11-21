@@ -16,14 +16,12 @@ import shutil
 import subprocess
 import sys
 
-from .release_host import REVISION, SERVICE_REF, DockerHost, sync_directory
+from .release_host import REVISION, SERVICE_REF, DockerHost, durable_copy, sync_directory
 
 
 CONTROLS = "control"  # under the release state
 CURRENT = "current"
 HANDOFF = 3  # the exit status of a tick that handed control over: the launcher runs one more tick
-IMAGE_DEPLOY = "/opt/trade/deploy"  # deploy/Dockerfile: WORKDIR /opt/trade, COPY . ./ (deploy/*.py)
-EXTRACTOR = "trade-release-control-extract"
 IMPORTS = ("deploy.release", "deploy.control")
 CHECK = ("import importlib, sys\n"
          "root = sys.argv[1]\n"
@@ -42,14 +40,6 @@ def running(state: Path, code: Path = Path(__file__)) -> str | None:
     return None
 
 
-def _durable_copy(source: Path, target: Path) -> None:
-    with target.open("wb") as out:
-        out.write(source.read_bytes())
-        os.fchmod(out.fileno(), 0o644)
-        out.flush()
-        os.fsync(out.fileno())
-
-
 def hand_off(host: DockerHost, target: dict, current: str | None, python: str = sys.executable) -> None:
     """Install the control code of `target`'s service image as `control/<revision>` and point `current` at it.
     Nothing it does touches a route or a release container; a failure leaves `current` where it was."""
@@ -66,17 +56,12 @@ def hand_off(host: DockerHost, target: dict, current: str | None, python: str = 
     staged = controls / f"{sha}.new"
     shutil.rmtree(staged, ignore_errors=True)  # an interrupted handoff's copy
     staged.mkdir(mode=0o700)
-    host.docker("rm", "--force", EXTRACTOR, check=False)
-    host.docker("create", "--name", EXTRACTOR, "--network", "none", service, "true")  # created, never started
-    try:
-        host.docker("cp", f"{EXTRACTOR}:{IMAGE_DEPLOY}", str(staged / "image"))
-    finally:
-        host.docker("rm", "--force", EXTRACTOR, check=False)
+    host.extract(service, staged / "image")
     modules = staged / "deploy"
     modules.mkdir()
     for path in sorted((staged / "image").iterdir()):
         if path.suffix == ".py" and path.is_file() and not path.is_symlink():
-            _durable_copy(path, modules / path.name)
+            durable_copy(path, modules / path.name)
     shutil.rmtree(staged / "image")
     sync_directory(modules)
     sync_directory(staged)

@@ -50,7 +50,7 @@ export const yearMeets = (y: Year, annual: number | null): boolean | null =>
   annual === null ? null : meets(y.ret, y.part === null ? annual : (1 + annual) ** ((y.days * DAY_S) / YEAR_S) - 1, true);
 
 /** A line of a year's scorecard: its name and its figure, each a text and its colour. */
-export type Line = { name: [string, string]; figure: [string, string] };
+type Line = { name: [string, string]; figure: [string, string] };
 
 /** A year's lines: the year and its return, then the buy and hold's (when `hold`). */
 export function linesOf(y: Year, annual: number | null, look: YearLook, hold = false): Line[] {

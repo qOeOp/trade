@@ -4,7 +4,7 @@
 // is: the drill-down path, the coin picked, what the tiles' area and colour follow.
 import { shared } from "../lib/shared";
 import { pageFetch } from "../lib/transport";
-import { whileVisible } from "../lib/whileVisible";
+import { polled } from "../lib/polled";
 import type { CoinDetail, Color, NewsItem, Path, Size, Snapshot } from "../model/market";
 import { atom, useAtom } from "./atom";
 import { shell } from "./shell";
@@ -13,7 +13,7 @@ const POLL_MS = 30_000;
 
 /** "absent" when the server has no overview service, so the page has no Market button; with one,
  *  "present" while it answers and "offline" while it does not. */
-export const overviewService = atom<"checking" | "absent" | "offline" | "present">("checking");
+const overviewService = atom<"checking" | "absent" | "offline" | "present">("checking");
 const snapshot = atom<{ data: Snapshot; read: number } | null>(null);
 const marketPath = atom<Path>([]);
 export const marketCoin = atom<string | null>(null);
@@ -76,17 +76,18 @@ async function readCoin(): Promise<void> {
 }
 marketCoin.subscribe(() => void readCoin());
 
-/** Follows the service while the server has one: the snapshot while the page shows, its health while not. */
-export async function detectOverview(): Promise<void> {
+/** The snapshot while the Market page or the phone shows, the service's health while not. */
+async function follow(): Promise<void> {
+  if (onPage()) return readSnapshot();
   const health = await read("/api/overview/health");
-  if (health?.status === 404) return overviewService.set("absent");
-  overviewService.set(health?.ok ? "present" : "offline");
+  overviewService.set(health?.status === 404 ? "absent" : health?.ok ? "present" : "offline");
+}
+
+/** Follows the service while the server has one. */
+export async function detectOverview(): Promise<void> {
+  await polled(follow, () => overviewService.get() === "absent" ? null : POLL_MS).read();
+  if (overviewService.get() === "absent") return;
   const stale = () => Date.now() - (snapshot.get()?.read ?? 0) >= POLL_MS;
-  if (onPage()) await readSnapshot();
   shell.subscribe(() => { if (onPage() && stale()) void readSnapshot(); });
   pricesWanted.subscribe(() => { if (onPage() && stale()) void readSnapshot(); });
-  whileVisible(() => {
-    if (onPage()) void readSnapshot();
-    else void read("/api/overview/health").then((r) => overviewService.set(r?.ok ? "present" : "offline"));
-  }, POLL_MS);
 }

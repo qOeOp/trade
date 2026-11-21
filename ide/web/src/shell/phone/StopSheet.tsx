@@ -21,7 +21,8 @@ function steps(run: LiveRun, outcome: string | undefined, held: readonly Held[],
   const refused = outcome === "refused", ended = run.ended, unresolved = liveStatus(run).word === "Unresolved";
   const entries = working.filter((o) => !protects(o, held));
   return [
-    { text: refused ? "Stop refused by Live" : "Stop requested", state: refused ? "failed" : outcome === "effect_recorded" ? "done" : "doing" },
+    { text: refused ? "Stop refused by Live" : outcome === "no_reply" ? "Stop · No reply received" : "Stop requested",
+      state: refused || outcome === "no_reply" ? "failed" : outcome === "effect_recorded" ? "done" : "doing" },
     { text: "Entry orders cancelled", state: refused ? "todo" : entries.length ? "doing" : "done" },
     ...held.map((h): Step => ({ text: <>Closing {h.symbol} {h.long ? "long" : "short"} {fixed(h.qty)}</>, state: refused ? "todo" : unresolved ? "failed" : "doing" })),
     { text: unresolved ? "Unresolved: reconcile on the desktop" : "The run ends when the account is flat", state: unresolved ? "failed" : ended ? "done" : "todo" },
@@ -49,6 +50,8 @@ export function StopSheet({ run, open, onClose }: { run: LiveRun; open: boolean;
             ))}
           </ul>
           <LiveActionFailure failed={action.failed} />
+          {request?.outcome === "no_reply" && <FormButton className="w-full" disabled={!actions.resend || action.busy}
+            onClick={() => void action.submit(() => actions.resend?.(request.request_id))}>{action.busy ? "Sending…" : "Send again"}</FormButton>}
           <p className="text-small text-fg-faint">You can close this. Telegram tells you when the run has ended.</p>
           <FormButton className="w-full" onClick={onClose}>Close</FormButton>
         </> : <>

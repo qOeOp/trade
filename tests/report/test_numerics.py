@@ -210,7 +210,7 @@ def sealed(drawdown: float = 0.05, plans: bool = True) -> dict:
     facts = {name: {"passed": True, "code": None} for name in (
         "real_fills", "fills_match_orders", "cycles_cover_fills", "returns_compound_to_equity",
         "account_endpoints_match", "cycles_reconcile_audit")}
-    return {"activity": facts, "populations": {"bars": 96},
+    return {"activity": facts, "populations": {"bars": 96}, "order_funnel": {"CANCELED": 1, "FILLED": 3},
             "drawdown": {"mark_max_drawdown": {"value": drawdown}, "duration_days": {"value": 1.5},
                          "top_instrument_share_in_drawdown": {"value": 0.6}},
             "limitations": [] if plans else ["PLAN_TAG_MISSING: order O-1 has no plan tag"]}
@@ -344,6 +344,13 @@ class MeasureTests(unittest.TestCase):
         found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
         self.assertEqual(found["top_exit_share"]["exit_net"], {"LIMIT": "20.00000000", "STOP_MARKET": "-4.00000000"},
                          "the open cycle has no exit class")
+
+    def test_entry_orders_read_the_sealed_order_funnel(self):
+        found = self.derive()
+        self.assertEqual((found["entry_orders"], found["entry_filled_share"]), (4, 0.75))
+        empty = self.derive(sealed={**sealed(), "order_funnel": {}})
+        self.assertEqual(empty["entry_orders"], 0)
+        self.assertTrue(empty["_reasons"]["entry_filled_share"].startswith("NO_ENTRY_ORDER"))
 
     def test_a_wanted_measure_alone_reads_as_it_does_among_all(self):
         market = {"days": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],

@@ -24,13 +24,13 @@ Paper 操作（见空闲条件第 1 条）；写入暂停与排空、Live 空闲
 - `paper` 库与研究镜像在 `/srv/trade/dolt`（宿主目录）与 `trade-dolt-data` 卷里，容器重建不动它们；账户密码在
   服务目录里，`ledger mirror` 每次启动重写 reader 与 controller 的 service 文件，内容不变。
 - 发布单元 `trade-release.service`：`ProtectSystem=strict`、`ProtectHome=yes`、`ReadWritePaths=/var/lib/trade-release`。
-  `/etc/trade/remote.env` 与 `/opt/trade-app` 对它只读；它每个 tick 已经用 `docker compose config --environment`
+  `/etc/trade/remote.env` 对它只读；它每个 tick 已经用 `docker compose config --environment`
   读 `remote.env`（`deployment_env`），所以 compose 插件在沙箱里找得到。
 
 ## 设计
 
-**何时换。** 只在没有发布的 tick 里（`choose` 没选出新版本），放在 `retire_live` 之后、清理之前：发布的 tick 可能
-已经花了半小时预热，不再叠一次重建（单元 75 分钟上限），换镜像失败也不会让 `retire_live` 跳过。取
+**何时换。** 只在没有发布的 tick 里（`choose` 没选出新版本），放在清理之前：发布的 tick 可能
+已经花了半小时预热，不再叠一次重建（单元 75 分钟上限）。取
 `deploy-ready` 的记录：它的 revision 是活动 Web 的 revision 时，用它的 `service` 摘要；不是（新版本还在等 Live
 空闲）就什么也不做，等那个版本先发布。
 
@@ -39,19 +39,18 @@ Paper 操作（见空闲条件第 1 条）；写入暂停与排空、Live 空闲
 提交以后它已经被重建过：要么是本步骤换失败后放回了旧镜像，要么是操作员自己重建的，都留到下一个版本。这样不需要
 任何新的状态文件就不会每两分钟重试一次（审阅时的第一版用 `failed/<revision>` 标记，见独立审阅）。
 
-**怎么换。** 用主机已有的 compose 定义，只换镜像：
+**怎么换。** 用该版本自己的 compose 定义，只换镜像：
 
 ```
 TRADE_SERVICE_IMAGE=<admitted service digest> \
 docker --config /var/lib/trade-release/docker --host unix:///var/run/docker.sock compose \
   --env-file /etc/trade/remote.env \
-  -f /opt/trade-app/deploy/compose.yaml -f /opt/trade-app/deploy/remote/compose.yaml \
-  -f /opt/trade-release/deploy/remote/cd.compose.yaml -f /opt/trade-release/deploy/remote/paper-cd.compose.yaml \
+  -f $D/compose.yaml -f $D/remote/compose.yaml -f $D/remote/cd.compose.yaml -f $D/remote/paper-cd.compose.yaml \
   --profile local-research-import up --detach --no-deps --timeout 60 --pull never [--wait --wait-timeout 600] <service>
 ```
 
 compose 让进程环境压过 env 文件，所以摘要在重建时传入，`remote.env` 不改：发布单元写不了 `/etc/trade`，放开它
-是改主机配置，要用户授权，也没必要。文件列表与 `install-release.sh` 的相同；`.github/scripts/check-remote-deploy.py`
+是改主机配置，要用户授权，也没必要。`$D` 是 `/var/lib/trade-release/control/<revision>/deploy`，见下；`.github/scripts/check-remote-deploy.py`
 用原生 compose 核对这一优先级。摘要先经 `DockerHost.pull` 核对（本仓库、该 revision、amd64、admitted 摘要），
 所以 `--pull never`。`--timeout 60` 给 Dolt 60 秒正常停（默认 10 秒后 SIGKILL）。`ledger` 用 `--wait` 等它的健康
 检查（`ledger service check --ledger research`）过，最多 600 秒；`market-import` 的健康检查看数据是否滞后，不是
@@ -59,10 +58,16 @@ compose 让进程环境压过 env 文件，所以摘要在重建时传入，`rem
 而且 compose 本来就会在它崩溃时重启它）。都换完后，经路由的 Web 健康（含 `/api/live`）与 Paper 控制器健康要在
 3 分钟内通过：ledger 自己健康不代表读者已重连。
 
-服务的定义（命令、挂载）仍是操作员检出 `/opt/trade-app` 的，跟 `edge` 一样：一个版本改了这两个服务的定义，
-仍要操作员更新检出；新镜像与旧定义合不上时健康检查不过，按失败处理。重建也会顺带应用检出与 `remote.env` 里
-别的未生效改动，这与操作员自己 `compose up` 一样。不从拉取的 Git 检出读 compose 文件，因为主机从不执行拉取检出
+服务的定义（命令、挂载）随版本走：服务镜像带着 `deploy/compose.yaml`、`deploy/remote/*.yaml`、`Caddyfile` 与
+`oauth2-proxy.cfg`，该版本的控制第一次需要时（发布、安装或跟随）把它们从已核对的服务镜像里拷到
+`control/<revision>/deploy/`，与交接拷代码的方式相同（`DockerHost.definition`）。重建也会顺带应用 `remote.env`
+里别的未生效改动，这与操作员自己 `compose up` 一样。不从拉取的 Git 检出读 compose 文件，因为主机从不执行拉取检出
 里的部署代码。
+
+- 2026-11-21：compose 定义改为从服务镜像读取，删去对操作员检出 `/opt/trade-app` 的依赖、`composes()` 核对与检出
+  漂移通知（0.5.0 计划 P3）。用户委托：「需要我定的部份最后也是一样由你决定按推荐做」。理由：检出要操作员手工
+  跟着版本走，没跟上时发布只能报漂移；镜像已是可信根，从它读定义就不再有这一步。`edge` 与 OAuth2 Proxy 改从
+  `control/current/deploy/` 建，0.5.0 升级时重建一次（`deploy/remote/README.md`）。
 
 **与 Paper 控制器切换的先后。** 在整对提交之后、下一个 tick，不在事务里：事务期间 `ledger` 是受保护容器，重建它
 会让事务的身份核对失败；Web 候选的预热与观察要经 Paper 控制器读 Paper 库（运行数据推进），这时 Dolt 不能断。

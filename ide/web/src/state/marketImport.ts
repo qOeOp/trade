@@ -2,8 +2,7 @@
 // most once a round): "absent" when the server has no status file (`--market-import`), so the status bar
 // shows nothing; otherwise the last reply, or the refusal when there is no readable status.
 import type { Refusal, Reply } from "../model/marketImport";
-import { pageFetch } from "../lib/transport";
-import { whileVisible } from "../lib/whileVisible";
+import { polled, type Answer, type Poll } from "../lib/polled";
 import { atom, useAtom } from "./atom";
 
 const POLL_MS = 60_000;
@@ -12,21 +11,21 @@ type MarketImport = { kind: "checking" } | { kind: "absent" } | { kind: "ready";
 const marketImport = atom<MarketImport>({ kind: "checking" });
 export const useMarketImport = () => useAtom(marketImport);
 
-export async function readMarketImport(): Promise<void> {
-  try {
-    const response = await pageFetch("/api/market-import", { cache: "no-store" });
-    const body = await response.json().catch(() => ({ code: "MARKET_IMPORT_UNREADABLE", message: `${response.status} ${response.statusText}` }));
-    if (response.status === 404) marketImport.set({ kind: "absent" });
-    else if (response.ok) marketImport.set({ kind: "ready", reply: body as Reply });
-    else marketImport.set({ kind: "unavailable", error: { code: body.code ?? "MARKET_IMPORT_UNAVAILABLE", message: body.message } });
-  } catch (error) {
-    marketImport.set({ kind: "unavailable", error: { code: "IDE_UNREACHABLE", message: String(error) } });
-  }
+function map(answer: Answer): void {
+  const body = answer?.body as (Reply & Partial<Refusal>) | null | undefined;
+  if (!answer) marketImport.set({ kind: "unavailable", error: { code: "IDE_UNREACHABLE", message: "The page's server did not answer." } });
+  else if (answer.status === 404) marketImport.set({ kind: "absent" });
+  else if (!body) marketImport.set({ kind: "unavailable", error: { code: "MARKET_IMPORT_UNREADABLE", message: `HTTP ${answer.status}` } });
+  else if (answer.ok) marketImport.set({ kind: "ready", reply: body });
+  else marketImport.set({ kind: "unavailable", error: { code: body.code ?? "MARKET_IMPORT_UNAVAILABLE", message: body.message ?? "" } });
 }
+
+let poll: Poll | null = null;
+/** Reads the status now (the status bar's popover opening). */
+export const readMarketImport = () => poll?.read();
 
 /** Follows the status while the server has one. */
 export async function detectMarketImport(): Promise<void> {
-  await readMarketImport();
-  if (marketImport.get().kind === "absent") return;
-  whileVisible(() => void readMarketImport(), POLL_MS);
+  poll = polled("/api/market-import", (answer: Answer) => answer?.status === 404 ? null : POLL_MS, map);
+  await poll.read();
 }

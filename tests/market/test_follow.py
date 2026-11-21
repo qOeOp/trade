@@ -247,7 +247,7 @@ class BarsTests(unittest.TestCase):
     def importing(self, profile, month, cache, symbols=None, log=print):
         self.calls.append((month, symbols))
         end = min(clock.next_month(month), self.today)
-        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
+        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 
     def run_bars(self, through: date, today: date, bar_symbols=None, members=None):
@@ -384,8 +384,7 @@ class CheckTests(unittest.TestCase):
             path = Path(temp) / "status.json"
             said: list[str] = []
             self.assertEqual(follow.check(path, now, said.append), 1)
-            follow.write_status(path, {"at": (now - timedelta(hours=27)).isoformat(),
-                                       "running_since": (now - timedelta(hours=3)).isoformat(), "kinds": {}})
+            follow.write_status(path, {"at": (now - timedelta(hours=27)).isoformat(), "kinds": {}})
             self.assertEqual(follow.check(path, now, said.append), 1)
             stopped = {"state": "stopped", "refusal": {"code": "MONTH_GAP", "message": "private detail"}}
             follow.write_status(path, {"at": now.isoformat(), "kinds": {
@@ -396,8 +395,26 @@ class CheckTests(unittest.TestCase):
             self.assertEqual(follow.check(path, now, said.append), 0)
             self.assertEqual(said, [
                 "status unreadable (FileNotFoundError)",
-                f"status is 27.0 h old, a round running since {(now - timedelta(hours=3)).isoformat()}",
+                "status is 27.0 h old",
                 "metrics/BTCUSDT lagging; metrics/ETHUSDT stopped (MONTH_GAP)"])
+
+    def test_a_round_in_progress_is_fresh_until_it_has_run_longer_than_stale(self):
+        now = at(FEB)
+        kinds = {"bars": {"scope": {"state": "caught_up"}}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "status.json"
+            for status, expected, why in (
+                    ({"at": (now - timedelta(hours=30)).isoformat(),  # a long daily round, 6 h in
+                      "running_since": (now - timedelta(hours=6)).isoformat()}, 0, None),
+                    ({"at": (now - timedelta(hours=50)).isoformat(),
+                      "running_since": (now - timedelta(hours=27)).isoformat()}, 1,
+                     f"a round running since {(now - timedelta(hours=27)).isoformat()} is stuck"),
+                    ({"at": (now - timedelta(hours=27)).isoformat()}, 1, "status is 27.0 h old")):  # finished
+                follow.write_status(path, {**status, "kinds": kinds})
+                said: list[str] = []
+                with self.subTest(status=status):
+                    self.assertEqual(follow.check(path, now, said.append), expected)
+                    self.assertEqual(said, [] if why is None else [why])
 
 
 class LoopTests(unittest.TestCase):

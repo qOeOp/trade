@@ -3,10 +3,9 @@ import { sessionRequired } from "./session";
 import { LIVE_UNAVAILABLE, type LiveTradingActions, type LiveTradingView } from "../model/liveTrading";
 import { liveHomePresentation } from "../model/liveTradingMap";
 import { liveApi, LiveApiError } from "../lib/liveTradingApi";
-import { createLiveCommands } from "../lib/liveTradingCommands";
-import { newLiveRunId } from "../lib/liveTradingPending";
-import { whileVisible } from "../lib/whileVisible";
-import type { LiveHomeDto, LiveRequest, LiveRunDto } from "../lib/liveTradingDto";
+import { createLiveCommands, newLiveRunId, type LiveRequest } from "../lib/liveTradingCommands";
+import { polled } from "../lib/polled";
+import type { LiveHomeDto, LiveRunDto } from "../lib/liveTradingDto";
 
 export const liveTrading = atom<{ view: LiveTradingView; actions: LiveTradingActions }>({ view: LIVE_UNAVAILABLE, actions: {} });
 export const useLiveTrading = () => useAtom(liveTrading);
@@ -22,10 +21,10 @@ const client = createLiveCommands({
   onRequest: (request) => {
     requests.set(request.request_id, request);
     if (request.outcome === "effect_recorded" || request.outcome === "refused") commandNotice = null;
-    const finished = [...requests.values()].filter((r) => r.outcome === "effect_recorded" || r.outcome === "refused");
-    for (const old of finished.slice(0, -5)) requests.delete(old.request_id);
+    const answered = [...requests.values()].filter((r) => r.outcome === "effect_recorded" || r.outcome === "refused");
+    for (const old of answered.slice(0, -5)) requests.delete(old.request_id);
     publish();
-  }, onError: recordError, onNotice: (text) => { commandNotice = text; publish(); }, refresh: () => readLiveHome(),
+  }, onDrop: (id) => { requests.delete(id); publish(); }, onError: recordError, refresh: () => readLiveHome(),
 });
 
 const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) =>
@@ -44,7 +43,7 @@ const writes: LiveTradingActions = {
   },
   preflight: (id) => perRun("preflight", id), start: (id, source) => perRun("start", id, { confirm_real_orders: source }),
   stop: async (id) => { await perRun("stop", id); }, reconcile: async (id) => { await perRun("reconcile", id); }, maintain: async (id) => { await perRun("maintain", id); },
-  resolveRequest: (id) => client.resolve(id),
+  resend: (id) => client.resend(id),
 };
 // Notification settings are not account operations: no request ID, so a plain call and a fresh read.
 const notifyCall = (path: string, body: Record<string, unknown>) => async (): Promise<string | null> => {
@@ -65,7 +64,7 @@ function publish(): void {
   // STOP remains available during a release or failed observation. Cleanup has its
   // own owner; the server rechecks these derived permissions under the custody lock.
   const retained = home ? { stop: writes.stop, maintain: home.maintenance_enabled ? writes.maintain : undefined,
-    resolveRequest: home.write_enabled ? writes.resolveRequest : undefined } : {};
+    resend: writes.resend } : {};
   liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, ...(home && !readError ? notifyWrites : {}),
     refresh: refreshLiveTrading, inspect: inspectLiveRun } });
 }
@@ -97,11 +96,10 @@ async function inspectLiveRun(id: string): Promise<void> {
   try { await work; } finally { inspecting.delete(id); }
 }
 
-/** Startup, visibility changes and manual refresh read only; none recreate a prior POST. */
-export async function refreshLiveTrading(): Promise<void> { await readLiveHome(); await client.recover(); }
+/** Startup, visibility changes and manual refresh read only; none sends a command again. */
+export async function refreshLiveTrading(): Promise<void> { await readLiveHome(); }
 export async function detectLiveTrading(): Promise<void> {
   if (started) return;
   started = true;
-  await refreshLiveTrading();
-  whileVisible(() => void refreshLiveTrading(), 15_000);
+  await polled(refreshLiveTrading, 15_000).read();
 }

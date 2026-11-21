@@ -5,9 +5,9 @@ archived yet read from its public REST endpoints, as a working copy under the co
 and, for a source that read metrics, the run's contracts' metrics) and rewrites, beside them, only the months the
 window reaches past what the market holds: their stored rows and, after each contract's last stored minute,
 settlement or metrics row, the REST rows up to the window's end (market.sources: klines and markPriceKlines,
-fundingRate, futures/data). Nothing reaches the market directory: every file written lies under the new directory,
-and a link is replaced, never written through. A comparison on it is labelled preliminary (`data_source` rest)
-wherever it is shown; the comparison on the archive stays the one that counts.
+fundingRate; market.metrics: futures/data). Nothing reaches the market directory: every file written lies under the
+new directory, and a link is replaced, never written through. A comparison on it is labelled preliminary
+(`data_source` rest) wherever it is shown; the comparison on the archive stays the one that counts.
 
 The requests are paced (market.sources) and the first refusal by Binance's limits (HTTP 403, 418, 429 or 451) ends
 the comparison instead of being waited out.
@@ -109,7 +109,7 @@ def _metrics(market: files.Market, symbols: list[str], start: int, end: int, fet
     for symbol in symbols:
         last = _last(market, "metrics", symbol, "create_time", start - SEARCH_MS, end)
         low = start - start % stored_metrics.STEP if last is None else last + stored_metrics.STEP
-        rows = sources.rest_metrics(symbol, low, end, patient=False) if low < end else []
+        rows = stored_metrics.rest_metrics(symbol, low, end, patient=False) if low < end else []
         fetched.setdefault(symbol, {})["metrics"] = len(rows)
         for month, part in sorted(_by_month(rows, lambda row: row[1]).items()):
             written.append(_whole(market, "metrics", month, symbol, [stored_metrics.batch(part)]))
