@@ -32,17 +32,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/ci-paths
         id: paths
-        with:
-          paths: |
-            deploy/remote/**
-            deploy/compose.yaml
-            deploy/Dockerfile
-            deploy/*.py
-            tests/deploy/**
-            .github/scripts/check-remote-deploy.py
-            .github/workflows/remote-paper-auth.yml
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
 
   native-auth:
     needs: changes
