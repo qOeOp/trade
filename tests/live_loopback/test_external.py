@@ -7,7 +7,6 @@ from tests.live_loopback.harness import SYMBOL, Loopback
 
 
 class ExternalCloseTests(unittest.TestCase):
-    @unittest.expectedFailure  # re-judge C-140: STOP closes the cached position, not the venue's (2026-11-21)
     def test_a_stop_after_the_leg_was_closed_outside_the_run_leaves_the_venue_clean(self):
         for client_id in ("web_manual", "autoclose-loopback"):  # a manual close; a liquidation
             with self.subTest(client_id=client_id), Loopback() as run:

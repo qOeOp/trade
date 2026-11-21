@@ -222,7 +222,11 @@ observation of a `run`, each open position needs stop coverage (`engine.protecti
 the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. Once a gap outlasts 90 seconds from when it opened (the
 audit's one bar plus the native open-order check, timed by the same `protection.Gaps` as Paper; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
-native reconciliation. A failed flat run keeps the account slot until `reconcile`. The STOP path submits at most five
+native reconciliation. A failed flat run keeps the account slot until `reconcile`. Before its first close the STOP path
+reads Binance once: a position Binance holds less of (its leg closed by hand, a liquidation or ADL outside the run) is
+closed only for what Binance still holds and journalled `venue_closed`; once nothing else is open and the run's orders
+(the orphan stops included) are canceled, the run ends `venue_flat`. If that read fails, closes go from the cache.
+The STOP path submits at most five
 closes on each one-second tick, half the native submit rate of 10 orders a second, and the next ones once those are
 done, so a stop with many positions open stays under the rate. A close that rate still denies (the instances' own
 orders count toward it) was never sent: it marks the run failed like any denied order and is submitted again on a

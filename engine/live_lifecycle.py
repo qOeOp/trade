@@ -1,10 +1,12 @@
 """Native observer callbacks and final source outcome; no duplicate execution state."""
 from __future__ import annotations
 from collections import Counter
+from decimal import Decimal
 from datetime import timedelta
 import time
 from nautilus_trader.common import SocketState
-from nautilus_trader.model import AccountId, ClientId, OrderStatus, OrderType, StrategyId
+from nautilus_trader.model import (AccountId, ClientId, OrderSide, OrderStatus, OrderType, PositionSide, Quantity,
+                                   StrategyId)
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
 from engine.live_commands import pending_orders
@@ -167,7 +169,8 @@ class Observer(Strategy):
                 live_connection.held_tick(session, now)
             if not session.observe_stop_intent():
                 return
-        commands.discard_observation(session)
+        if getattr(session.account_observation, "purpose", None) != "stop":
+            commands.discard_observation(session)
         if session.mode in ("reconcile", "held") or not session.sources or session.venue_flat:
             session.node.handle().stop()  # nothing to close: no source, or Binance holds nothing (venue_flat_exit)
             return
@@ -185,20 +188,75 @@ class Observer(Strategy):
                 session.node.handle().stop()
             return
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
-        if not entries and not closing:
+        held = venue_held(session, positions) if positions else {}
+        if not entries and not closing and held is not None:
             for position in [found for found in positions if str(found.id) not in session.exits][:CLOSES_PER_TICK]:
-                # The native execution engine owns the closing order and asynchronous fills.
-                session.owner(position.strategy_id).close_position(position, reduce_only=True)
-                session.exits.add(str(position.id))
-        if not positions and not entries:
+                close_held(session, position, held)
+        # A position Binance no longer holds (closed outside the run: by hand, a liquidation) is not closed again.
+        if not [found for found in positions if str(found.id) not in session.phantoms] and not entries:
             session.cancel_open(self.cache, pending, now)
-            if not pending:
+            if not pending and positions:
+                live_connection.venue_flat_exit(session, session.stop_read)
+                session.node.handle().stop()
+            elif not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)
                 session.node.handle().stop()
         if session.stop_at is not None and now - session.stop_at > STOP_GRACE_SECONDS:
             session.failed = True
             session.event("unresolved", reason="native_exit_timeout", strict=False)
             session.node.handle().stop()
+
+
+def venue_held(session, positions: list) -> dict | None:
+    """How much of each of `positions` Binance still holds, read once before the STOP path's first close (re-judge
+    C-140, doctor 20261114-25): a leg closed outside the run (by hand, a liquidation) is still open in the native
+    cache, and a close of it from there can only be rejected. The run's positions on a contract and side take
+    Binance's quantity there in turn. None while the read is outstanding; {} when it failed or could not be read,
+    which leaves every close to the cache, as before."""
+    if session.stop_read is not None:
+        return session.stop_held
+    try:
+        if session.account_observation is None:
+            commands.start_observation(session, "stop")
+        snapshot = commands.observed_account(session, "stop")
+        if snapshot is None:
+            return None
+        legs: dict[tuple[str, str], Decimal] = {}
+        for row in snapshot["positions"]:
+            leg = (row["symbol"], row["positionSide"])
+            legs[leg] = legs.get(leg, Decimal(0)) + abs(Decimal(row["positionAmt"]))
+        held = {}
+        for position in positions:
+            leg = (symbol_of(position.instrument_id), "LONG" if position.side == PositionSide.LONG else "SHORT")
+            held[str(position.id)] = min(position.quantity.as_decimal(), legs.get(leg, Decimal(0)))
+            legs[leg] = legs.get(leg, Decimal(0)) - held[str(position.id)]
+    except Exception as exc:
+        commands.discard_observation(session)
+        session.event("stop_read_failed", strict=False, failure_type=type(exc).__name__)
+        session.stop_read, session.stop_held = {}, {}
+        return {}
+    commands.discard_observation(session)
+    session.stop_read, session.stop_held = snapshot, held
+    return held
+
+
+def close_held(session, position, held: dict) -> None:
+    """Close `position` in full, or only what Binance still held of it (venue_held); what it no longer holds is
+    journalled once as `venue_closed` and not closed again. A position venue_held did not see closes in full."""
+    owner = session.owner(position.strategy_id)
+    session.exits.add(str(position.id))
+    key = str(position.id)
+    if key not in held or held[key] == position.quantity.as_decimal():
+        owner.close_position(position, reduce_only=True)  # the native engine owns the order and its fills
+        return
+    if key not in session.phantoms:
+        session.phantoms.add(key)
+        session.event("venue_closed", strict=False, position_id=key, native=str(position.quantity), venue=str(held[key]))
+    if held[key]:
+        side = OrderSide.SELL if position.side == PositionSide.LONG else OrderSide.BUY
+        owner.submit_order(owner.order_factory.market(position.instrument_id, side,
+                                                      Quantity(held[key], position.quantity.precision),
+                                                      reduce_only=True), position_id=position.id)
 
 
 Observer.__module__ = "engine.live"
