@@ -9,6 +9,7 @@ a case whose check differs keeps its own file.
 Skill text is product code. Only a skill's frontmatter description loads into every session; its
 body and references load when it triggers. A skill change restates or deletes what it supersedes,
 states its net words, checks that what it names exists and is not said elsewhere, and runs the eval
-cases it adds or changes; cases it makes wrong are fixed in their own PR. Runner votes are a coarse
+cases it adds or changes and those `python .github/scripts/eval-cases.py` lists (cases citing a name
+from a changed paragraph); cases it makes wrong are fixed in their own PR. Runner votes are a coarse
 read; to keep or delete a rule or case, re-judge stored answers per question, on stdin, with
 `claude -p --model {sonnet,haiku} --setting-sources '' --tools ''`.

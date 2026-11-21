@@ -1,0 +1,1 @@
+- `.github/scripts/eval-cases.py` lists the eval cases a skill change should also run: those citing a backticked name from a changed skill paragraph that at most `--max` (5) cases cite. `.agents/README.md` asks a skill change to run them.
