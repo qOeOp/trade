@@ -558,7 +558,7 @@ class GateTests(unittest.TestCase):
         with mock.patch.object(live_source, "native_cache", return_value=Cache()):
             on_bar(source, bar)
         self.assertEqual(seen, [])
-        self.session.evidence.bar.assert_called_once_with(bar)  # still in the evidence pack
+        self.session.evidence.market.assert_called_once_with("bar", bar)  # still in the evidence pack
         held = Cache(positions=[SimpleNamespace(strategy_id=self.strategy, is_open=True)])
         with mock.patch.object(live_source, "native_cache", return_value=held):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=6 * 60_000_000_000))
@@ -578,7 +578,7 @@ class GateTests(unittest.TestCase):
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=0))  # an earlier one
             on_bar(source, SimpleNamespace(bar_type=BAR, ts_event=2 * minute))
         self.assertEqual([bar.ts_event for bar in seen], [minute, 2 * minute])
-        self.assertEqual(self.session.evidence.bar.call_count, 4)  # every bar Binance sent stays in the evidence pack
+        self.assertEqual(self.session.evidence.market.call_count, 4)  # every bar Binance sent stays in the evidence pack
         self.assertEqual([(row["received_ns"], row["after_ns"]) for row in self.events() if row["event"] == "bar_repeated"],
                          [(minute, minute), (0, minute)])
         self.assertEqual(self.session.connection.closed, {})  # neither a gap nor a reason to close entries

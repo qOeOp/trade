@@ -98,10 +98,7 @@ class Session:
         """The side connection's state changes and the closed klines' event times read since the last call, into
         the evidence pack."""
         if self.kline_events is not None:
-            for state, at, reason in self.kline_events.drain_states():
-                self.evidence.kline_socket(state, at, reason)
-            for iid, close, sent in self.kline_events.drain():
-                self.evidence.kline_event(iid, close, sent)
+            self.evidence.market("kline_events", self.kline_events)
 
     def catalog(self) -> Path:
         """The run's temporary Catalog of warm-up bars (engine.history), made once."""

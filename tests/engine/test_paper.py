@@ -141,9 +141,9 @@ class MetricsJournalTests(unittest.TestCase):
 
     def test_each_row_handed_over_is_journalled_before_it_is_held_whether_or_not_the_source_reads_it(self):
         for seen in ([], None):
-            with self.subTest(reads=seen is not None), mock.patch.object(paper, "journal") as journal:
+            with self.subTest(reads=seen is not None), mock.patch.object(paper, "JOURNAL") as journal:
                 self.instance(seen).on_data(self.row())
-                self.assertEqual(journal.call_args_list, [mock.call(
+                self.assertEqual(journal.write.call_args_list, [mock.call(
                     "metrics", instrument_id=str(IID), ts_event=DAY, sum_open_interest="97897.5650000000000000",
                     count_toptrader_long_short_ratio="3.6904", sum_toptrader_long_short_ratio=None,
                     count_long_short_ratio="2.0001")])
@@ -163,9 +163,9 @@ class MetricsJournalTests(unittest.TestCase):
         source._metrics_setup(None)
         found = {name: Decimal("1.5").quantize(metrics.EXACT) for name in metrics.ENDPOINTS}
         state = {"instrument_id": str(IID), "ts_event": DAY, "found": found, "thread": None, "retry_ns": 0}
-        with mock.patch.object(paper, "journal") as journal:
+        with mock.patch.object(paper, "JOURNAL") as journal:
             self.assertTrue(source._metrics_step(state, DAY + metrics.VISIBLE_NS))
-        self.assertEqual(journal.call_args_list, [mock.call("metrics", instrument_id=str(IID), ts_event=DAY,
+        self.assertEqual(journal.write.call_args_list, [mock.call("metrics", instrument_id=str(IID), ts_event=DAY,
                                                             **{name: "1.5000000000000000" for name in metrics.ENDPOINTS})])
 
     def test_the_feeds_hand_over_releases_no_held_callback_before_its_fills(self):
@@ -193,13 +193,13 @@ class MetricsJournalTests(unittest.TestCase):
         found = {name: Decimal("1.5").quantize(metrics.EXACT) for name in metrics.ENDPOINTS}
         state = {"instrument_id": str(IID), "ts_event": DAY, "found": found, "thread": None, "retry_ns": 0}
         filled = type("OrderFilled", (), {"strategy_id": "R1-BTCUSDT", "client_order_id": "O-1", "ts_event": due})()
-        with mock.patch.object(paper, "journal") as journal, mock.patch.object(paper, "_event_fields", return_value={}):
+        with mock.patch.object(paper, "JOURNAL") as journal, mock.patch.object(paper, "_event_fields", return_value={}):
             self.assertTrue(source._metrics_step(state, due))  # the Feed's tick
             self.assertEqual(seen, [], "the bar's on_bar waits for its fills, the row with it")
             source.on_order_event(filled)  # the execution channel, after the timer
             source.on_mark_price(mark(due + 1))  # the next data dispatch
         self.assertEqual(seen, [("bar", due), ("metrics", DAY)])
-        self.assertEqual([call.args[0] for call in journal.call_args_list], ["metrics", "order"],
+        self.assertEqual([call.args[0] for call in journal.write.call_args_list], ["metrics", "order"],
                          "no release_late: the fill reached the cache before the on_bar of its bar ran")
         self.assertEqual(source._paper_held, [])
 
@@ -208,10 +208,10 @@ class MetricsJournalTests(unittest.TestCase):
         source._metrics_followed = {str(IID): {}}
         clock = mock.Mock(**{"timer_names.return_value": ["runner-metrics"]})
         with mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock), \
-                mock.patch.object(paper, "journal") as journal:
+                mock.patch.object(paper, "JOURNAL") as journal:
             source._metrics_unfollow(str(IID))
             source._metrics_unfollow(str(IID))  # no longer followed: nothing to record
-        self.assertEqual(journal.call_args_list, [mock.call("metrics_unsubscribed", instrument_id=str(IID))])
+        self.assertEqual(journal.write.call_args_list, [mock.call("metrics_unsubscribed", instrument_id=str(IID))])
         self.assertEqual(source._metrics_followed, {})
         clock.cancel_timer.assert_called_with("runner-metrics")
 
@@ -352,7 +352,7 @@ class KlineEventTests(unittest.TestCase):
         session = SimpleNamespace(backend=SimpleNamespace(health=mock.Mock()), ready=True, held=False,
                                   try_cut=calls.try_cut)
         with mock.patch.object(paper, "KLINES", klines), mock.patch.object(paper, "SESSION", session), \
-                mock.patch.object(paper, "journal", calls.journal), mock.patch.object(recorder, "_protection"), \
+                mock.patch.object(paper, "JOURNAL", SimpleNamespace(write=calls.journal)), mock.patch.object(recorder, "_protection"), \
                 mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock):
             recorder.on_stop_timer(None)
         self.assertEqual(calls.mock_calls[:4], [
