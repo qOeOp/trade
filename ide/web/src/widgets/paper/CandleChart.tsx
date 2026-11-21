@@ -13,14 +13,14 @@ import { CandleLegend } from "./CandleLegend";
 import { ChartTip } from "./ChartTip";
 import { stretchKey } from "./stretchKeys";
 
-/** A contract's candles (candleController.ts): their period picked for the span in view, so the user
- *  never picks one, the whole run in view when it first shows; its volume beneath them; the run's
+/** A contract's candles (candleController.ts): their period picked for the span in view unless the user
+ *  pins one in the legend, the whole run in view when it first shows; its volume beneath them; the run's
  *  trades as boxes and arrows, its orders and position as levels, its events as flags along the foot
  *  with tooltips on them and on the arrows (candleNotes.ts). The component only hands the chart
  *  what changes: the bars, the trading, the theme, and where to look (a change of `fit` brings the
  *  position's whole stretch into view; an event picked elsewhere, a trade picked in a table, which it
  *  also marks, or a calendar day). `remembers` names the
- *  version and contract: the view the chart had when it last showed them comes back with them. The bars are
+ *  version and contract: the view the chart had when it last showed them, and the period pinned, come back with them. The bars are
  *  the version's stretches' one after another (`stretches`, candleStretches.ts), each named at its first
  *  candle (a lone one's at the legend's head); a click on a name shows that stretch, and the keys are stretchKeys'. Before them may come the
  *  backtest's (`lead`, backtestCandles.ts); the legend ends in `note`. */
