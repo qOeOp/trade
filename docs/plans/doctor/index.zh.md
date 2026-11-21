@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-45 | `OVERSIZED` 只按名字冻结超长模块，列入的模块继续变长检查不报 | authority（改为逐模块行数上限，只许下调；委托决定） | doctor | none | in PR [#3360](https://github.com/qOeOp/trade/pull/3360)（[记录](2026-11-21-oversized-caps.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-42 | Live 停止时被拒的平仓单从不重发，运行以 `unresolved` 结束、仓位留在账户里（hedge-impl“仍未解决”） | authority（Binance 确定没收下的平仓在后续 tick 重发，每仓至多 3 次；结果不明的不重发；Claude 按用户委托决定） | doctor | unknown | open [记录](../live-close-retry-20261121.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-41 | 账本存的 `candidate.runtime_contract`、`trial.runtime_contract` 在一代账本里恒为常量（契约变更即开新账本），却撑着三处只在升级时卡住全部候选的检查 | authority（删两列，`RUNTIME_CONTRACT_MISMATCH` 改比代码常量；委托决定） | doctor | none | in PR [#3315](https://github.com/qOeOp/trade/pull/3315) [runtime_contract 记录](2026-11-21-runtime-contract-column.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-31 | Live 的 Binance 适配器发不出、回放与 Paper 照收的订单（O-02：TRAILING_STOP_LIMIT、MARKET_TO_LIMIT、DAY 等有效期、非基点的移动偏移、post-only 的 GTD、`close_position` 的 DAY 或 GTD），以及 600–605 秒的 GTD（20261114-26 留下的错位） | authority（订单规则 5 加挡；用户委托决定） | doctor | unknown | in PR [#3311](https://github.com/qOeOp/trade/pull/3311)（[记录](../order-rules-live-shapes-20261121.zh.md)） | 2026-11-14 | 2026-11-21 |
