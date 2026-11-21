@@ -718,7 +718,7 @@ had already reported, so the recorder journals a `protection_gap` again after `r
 still do not cover. The Paper listing derives `held_since` and `unprotected` from the journal: each position with
 such a line after the held start and no later close (`paper/serve.py`). The page marks the run "Unprotected
 position" in the fail tone, and the release tick sends one Telegram notice per position
-(`paper:{id}:unprotected:{position}`, `deploy/release.py` Notices). The holder places no order, so coverage cannot
+(`paper:{id}:unprotected:{position}`, `deploy/notices.py` Notices). The holder places no order, so coverage cannot
 come back while the run is held. A position whose quantity later falls within its remaining stops stays named until
 it closes.
 

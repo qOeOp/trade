@@ -13,11 +13,11 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy import release, telegram
+from deploy import notices as notices_module, release, telegram
 
 
 TOKEN = "123456789:" + "A" * 35
-HEALTHY = {path: {"status": 200, "ok": True} for path, _ in release.WEB_HEALTH}
+HEALTHY = {path: {"status": 200, "ok": True} for path, _ in notices_module.WEB_HEALTH}
 
 
 class Telegram:
@@ -109,7 +109,7 @@ class Notices(unittest.TestCase):
         """One tick: its own outcome, then what the routed Web showed (None: the probe failed), and the compose
         services' containers by name (absent when not named; None: Docker could not be read)."""
         def probe(path, routed=False):
-            if path in dict(release.WEB_HEALTH):
+            if path in dict(notices_module.WEB_HEALTH):
                 self.assertTrue(routed)
                 if web.get(path) is None:
                     raise RuntimeError("probe failed")
@@ -125,8 +125,8 @@ class Notices(unittest.TestCase):
                 raise RuntimeError("docker inspect failed")
             return services.get(container)
 
-        notices = release.Notices(self.state, call or self.call)
-        notices.released(error)
+        notices = notices_module.Notices(self.state, call or self.call)
+        notices.released(None if error is None else release.failure_summary(error))
         notices.watch(probe, condition)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
@@ -268,7 +268,7 @@ class Notices(unittest.TestCase):
 
     def test_drift_is_sent_once_while_it_lasts_and_an_unreadable_one_clears_nothing(self):
         def tick(read):
-            notices = release.Notices(self.state, self.call)
+            notices = notices_module.Notices(self.state, self.call)
             notices.drifted(read)
             notices.send()
 
@@ -297,7 +297,7 @@ class Tick(unittest.TestCase):
             made.return_value.tick.side_effect = error
             with self.assertRaises(RuntimeError):
                 release.tick(host, notices)
-            notices.released.assert_called_once_with(error)
+            notices.released.assert_called_once_with("Agent identity changed")
             made.return_value.tick.side_effect = None
             release.tick(host, notices)
             notices.released.assert_called_with(None)

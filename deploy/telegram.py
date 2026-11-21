@@ -1,6 +1,6 @@
 """Telegram, the deployment's one notification channel: its call and its saved settings.
 
-Shared by the Live control (live/notify.py) and the host's release tick (deploy/release.py `Notices`). The bot
+Shared by the Live control (live/notify.py) and the host's release tick (deploy/notices.py `Notices`). The bot
 token and the one private chat it is bound to are saved only through the Live page, in
 LIVE_ROOT/notify/telegram.json (0600); nothing here writes them. The token never reaches a log, argv, env or
 exception text. Stdlib only: the host's reviewed control code imports this module.
