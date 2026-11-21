@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Sessions | 无研究会话；接续 [瘦身审计](2026-11-13-whole-product-slimming-audit.zh.md) 与 [第一轮授权](2026-11-13-slimming-authority.zh.md) |
+| Sessions | 无研究会话；接续 [瘦身审计](https://github.com/qOeOp/trade/blob/4f02ebc1a/docs/plans/doctor/2026-11-13-whole-product-slimming-audit.zh.md) 与 [第一轮授权](https://github.com/qOeOp/trade/blob/8aaf115da/docs/plans/doctor/2026-11-13-slimming-authority.zh.md) |
 | Audit session | Claude Code desktop，claude-opus-5-5，会话 `c6ee7b85-8de9-4ef4-8eca-13f68718117e`（与瘦身审计同一会话）；实施由 workflow 子 agent 在各自 worktree 完成 |
 | Checkout / ledger | `origin/main` 从 cf095d174 到写本记录时的头；账本只多了配对验收的 explore 试验 118–135（活动账本，见下） |
 | Coverage | 瘦身审计 60 批的实施收尾、第二轮授权项 20261114-01..07、0.x 不兼容决定的全仓清扫（16 个 agent）、实施中发现的副问题；未重跑研究会话 |
