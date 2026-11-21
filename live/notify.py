@@ -12,14 +12,11 @@ docs/plans/live-telegram-notify-20261110.zh.md records the decision.
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import contextmanager
 import copy
 from datetime import date, datetime, timedelta, timezone
-import fcntl
 import os
 from pathlib import Path
 import re
-import secrets
 import stat
 import time
 import urllib.parse
@@ -64,35 +61,10 @@ def _private(path: Path, kind: int) -> bool:
 
 
 def _replace(path: Path, data: bytes) -> None:
-    temporary = path.with_name("." + path.name + "." + secrets.token_hex(8))
     try:
-        state.write_new(temporary, data)
-        os.replace(temporary, path)
-        state.fsync_parent(path)
+        state.replace(path, data)
     except OSError:
-        temporary.unlink(missing_ok=True)
         raise _store() from None
-
-
-@contextmanager
-def _locked(directory: Path, *, wait: float = 0):
-    """Yield whether this process holds notify/lock, trying for up to `wait` seconds."""
-    descriptor = os.open(directory / "lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise _store()
-        deadline = time.monotonic() + wait
-        while True:
-            try:
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    acquired = False
-                    break
-                time.sleep(.2)
-        yield acquired
 
 
 def _settings(directory: Path) -> tuple[str, int]:
@@ -163,7 +135,7 @@ def execute(config: configuration.Configuration, action: str, body: dict, *, cal
     else:
         raise configuration.fail()
     directory = state.private_directory(config.root / "notify")
-    with _locked(directory, wait=WAIT) as acquired:
+    with state.lock(directory / "lock", blocking=False, wait=WAIT, regular=_store) as acquired:
         if not acquired:
             raise state.fail("LIVE_NOTIFY_BUSY", "another control is sending notifications")
         if action == "notify_remove":
@@ -287,7 +259,7 @@ def _messages(run: dict) -> list[tuple[str, str]]:
     elif current == "unresolved":
         result.append((f"{run_id}:unresolved:{mode}",
                        f"{name} is UNRESOLVED and needs attention now: exposure may remain at Binance and nothing "
-                       f"will close it. Follow 'Unresolved Live runs' in engine/README.md.{reason}"))
+                       f"will close it. Follow 'Unresolved Live runs' in live/README.md.{reason}"))
     return result
 
 
@@ -594,7 +566,7 @@ def tick(config: configuration.Configuration, *, call: Call = telegram, now: int
         directory = config.root / "notify"
         if not _private(directory, stat.S_IFDIR) or not _private(directory / "telegram.json", stat.S_IFREG):
             return
-        with _locked(directory) as acquired:
+        with state.lock(directory / "lock", blocking=False, regular=_store) as acquired:
             if not acquired:
                 return  # another control sends this tick
             token, chat = _settings(directory)

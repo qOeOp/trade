@@ -17,7 +17,7 @@ const isSetup = (value: unknown): value is Setup => typeof (value as Setup | nul
  *  is also how a service that has its ledger and never opened the port looks. */
 export async function readSetup(): Promise<Setup | "none" | "down"> {
   try {
-    const response = await fetch(URL, { cache: "no-store" });
+    const response = await pageFetch(URL, { cache: "no-store" });
     if (response.status === 404) return "none";
     const body: unknown = await response.json();
     return response.ok && isSetup(body) ? body : "down";

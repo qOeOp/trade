@@ -14,6 +14,7 @@ image's (live/runs.py REPLAY_CODE).
 
 import json
 import os
+import shlex
 import subprocess
 import tomllib
 from urllib.request import Request, urlopen
@@ -22,6 +23,23 @@ from urllib.request import Request, urlopen
 ACCEPT = ", ".join(f"application/vnd.{kind}+json" for kind in (
     "oci.image.index.v1", "oci.image.manifest.v1",
     "docker.distribution.manifest.list.v2", "docker.distribution.manifest.v2"))
+
+
+WORKFLOW = ".github/workflows/runtime-image.yml"
+DOCKERFILE = "engine/runtime/replay.Dockerfile"
+
+
+def replay_paths(root: str = ".") -> list[str]:
+    """What a replay build reads: the workflow that builds it, its Dockerfile and ignore file, and every file the
+    Dockerfile copies from the build context (the replay closure, pyproject.toml and uv.lock). `root` is the
+    checkout."""
+    copied = []
+    with open(os.path.join(root, DOCKERFILE), encoding="utf-8") as source:
+        for line in source:
+            words = [] if line.lstrip().startswith("#") else shlex.split(line)
+            if words[:1] == ["COPY"] and not any(word.startswith("--from=") for word in words):
+                copied += [word for word in words[1:-1] if not word.startswith("--")]
+    return [WORKFLOW, DOCKERFILE, f"{DOCKERFILE}.dockerignore", *copied]
 
 
 def pathspec(path: str) -> str:
@@ -107,8 +125,8 @@ def _same_replay(name: str, base: str) -> bool:
 
 
 def main() -> None:
-    value = changed(os.environ["CI_EVENT_NAME"], os.environ["CI_PATHS"].splitlines(),
-                    os.environ.get("CI_BASE_SHA", ""), os.environ.get("CI_REPLAY_IMAGE", ""))
+    value = changed(os.environ["CI_EVENT_NAME"], replay_paths(), os.environ.get("CI_BASE_SHA", ""),
+                    os.environ.get("CI_REPLAY_IMAGE", ""))
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"changed={str(value).lower()}\n")
 

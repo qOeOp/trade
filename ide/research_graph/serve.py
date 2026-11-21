@@ -7,8 +7,10 @@ opens (`/api/comparison`, at a full ledger commit), `research state --without-im
 review readings (`/api/state`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a market day, YYYY-MM-DD, on the market
-profile given or the active one), so this module imports no product package. At most `READS` product processes
-(`--reads`) run at once and further reads wait their turn, so a page's burst of reads fits the container's memory. While
+profile given or the active one), so this module imports no product package. Product processes start only while
+the container's memory has room for their peak (`HEAVY` for a read of research data, `LIGHT` for a ledger head, status
+or line list), so a page's burst of reads fits it and further reads wait their turn; the kernel kills a product process
+before this server or the overview, and such a read is answered `OUT_OF_MEMORY`, which a page may ask again. While
 a page without `at` is open the head is read every `poll` seconds (a research mirror's from its controller, the
 only place a Sync moves it, so no product process runs per read); when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
@@ -20,6 +22,7 @@ is then told `unchanged` instead of having one drawn; every other answer goes th
 Up to 16 trials' reports, 64 versions' comparisons, 8 lines' states and 16 contracts' daily bars stay in memory, keyed by what they were read for,
 and `research history` (`/api/history`, the closing history tests of every line, at the head or `at`) for the last 4 commits,
 and the lines with their recommendations (`line list --readings`, `/api/readings`, the phone's Research tab) for the last 4 commits.
+The ledger's state `/api/about` gives (`ledger service status`) is kept for the head for up to `STATUS_SECONDS`.
 A head whose history does not continue the one read before (the old head is not in its log: the ledger was replaced) drops every view, failure and read kept for the old history's commits.
 Nothing is written anywhere.
 
@@ -43,6 +46,11 @@ nothing, so nothing but a read reaches it.
 With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
 answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
 
+With a dev-assets URL (a Vite dev server of `ide/web` on loopback, for working on the page), the page is the dev
+server's index.html read at each open, the same metas put in it here, and every other GET outside `/api/` (modules,
+styles, Vite's client) and Vite's hot-update WebSocket go to that server, so the browser talks only to this origin and
+the token is still put in the page by this service alone. Both this service and the dev server must be on loopback.
+
 `/api/about` also names the newest released version, the product's latest GitHub release read anonymously at
 most once an hour, so a deployment that does not follow versions is told it is behind.
 
@@ -63,7 +71,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import os
 import secrets
+import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -89,16 +100,26 @@ GZIP_FROM = 1024  # below this an answer gains little from compressing
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
 SETUP = "/api/setup/"
+DEV = "/"  # with --dev-assets: what is not the page or under /api/ goes to the Vite dev server
 TRIALS = 16
 BARS = 16
 COMPARISONS = 64
 COUNTS = 16
 STATES = 8
-# Product processes run at once: each holds 220-390 MB, and the Web container (1.5 GiB) also runs two Node services.
-READS = 3
+# A product read's peak memory the kernel cannot reclaim. A read of research data (graph, comparison, trial, history,
+# bars): the largest the kernel's OOM tables showed in the production Web container held 430 MiB anon (2026-11-19,
+# `research comparison`). A ledger head, status or line list: a `ledger sql` holds 78 MiB at most, files included.
+HEAVY = 450 * 2**20
+LIGHT = 96 * 2**20
+LIGHT_READS = (("ledger", "sql"), ("ledger", "service"), ("line", "list"))
+# Room left for this server and the overview to grow past what they held when last measured.
+MARGIN = 64 * 2**20
+CGROUP = Path("/sys/fs/cgroup")
 # What the line menu reads of `research state`; the judgments and their facts stay with the Agent's tool.
 STATE_KEYS = ("ledger_commit", "gates", "review_every", "undistinguished_runs", "unreviewed_trials")
 HISTORIES = 4
+# `/api/about`'s ledger state (its `behind_seconds` moves with time) is read again after this many seconds or a new head.
+STATUS_SECONDS = 30
 READINGS = 4
 SYMBOL = re.compile(r"[^\W_]+\Z")  # market.sources.SYMBOL: a contract as the market holds it, a non-ASCII coin included
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
@@ -151,8 +172,8 @@ def _failure(code: str, message: str) -> dict:
 
 
 def _refusal(stderr: str) -> dict | None:
-    """The refusal a product command printed on stderr: one JSON object, the stream's last output, past any lines a
-    launcher such as `uv` wrote before it (shared.errors.printed_refusal, kept here as this module imports no product
+    """The refusal a product command printed on stderr: one JSON object, the stream's last output, past any lines
+    written before it, such as a warning (shared.errors.printed_refusal, kept here as this module imports no product
     package); None when stderr does not end in one, as after a crash."""
     text = stderr.rstrip()
     for start in reversed([match.start() for match in re.finditer(r"^\{", text, re.MULTILINE)]):
@@ -162,6 +183,20 @@ def _refusal(stderr: str) -> dict | None:
             continue
         return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
     return None
+
+
+def container_memory(cgroup: Path = CGROUP) -> tuple[int, int]:
+    """The bytes this container may use (its cgroup v2 `memory.max`) and what its processes hold now that the kernel
+    cannot reclaim without swap (`anon` and `kernel` of `memory.stat`; page cache is left out). Outside a limited
+    cgroup, the machine's physical memory and nothing held."""
+    try:
+        limit = (cgroup / "memory.max").read_text().strip()
+        if limit.isdigit():
+            stat = dict(line.split() for line in (cgroup / "memory.stat").read_text().splitlines())
+            return int(limit), int(stat.get("anon", 0)) + int(stat.get("kernel", 0))
+    except (OSError, ValueError):
+        pass
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"), 0
 
 
 def mirror_head(url: str) -> Callable[[], str]:
@@ -201,34 +236,64 @@ def _days(start: str, end: str) -> bool:
 
 @dataclass
 class Product:
-    """The product's command line on one ledger profile and a market profile (None: the active one). At most `reads`
-    product processes run at once (each holds a few hundred MB); the rest wait their turn, and the 600 s a process
-    is given starts when it starts, so waiting changes neither an answer nor a refusal."""
+    """The product's command line on one ledger profile and a market profile (None: the active one), run with the
+    product's own environment (`.venv`, which `uv sync` makes). A product process starts while the memory it may
+    reach (`HEAVY`, or `LIGHT` for a light read) fits in what `memory` (the container's limit and what its processes
+    hold) leaves after `MARGIN` and the processes already running, or when none runs; the rest wait their turn, and
+    the 600 s a process is given starts when it starts, so waiting changes neither an answer nor a refusal. What the
+    container holds is read when no product process runs, so it is never a running read's memory. Each process
+    asks the kernel to kill it first when the container runs out of memory."""
 
     root: Path
     ledger: str
     market: str | None = None
-    reads: int = READS
-    slots: threading.Semaphore = field(init=False, repr=False, compare=False)
+    memory: Callable[[], tuple[int, int]] = container_memory
+    turn: threading.Condition = field(init=False, repr=False, compare=False, default_factory=threading.Condition)
+    using: int = field(init=False, repr=False, compare=False, default=0)
+    room: int = field(init=False, repr=False, compare=False, default=0)
 
-    def __post_init__(self) -> None:
-        if self.reads < 1:
-            raise ValueError(f"reads must be at least 1, not {self.reads}")
-        self.slots = threading.Semaphore(self.reads)
+    def _start(self, cost: int) -> None:
+        with self.turn:
+            while self.using and self.using + cost > self.room:
+                self.turn.wait()
+            if not self.using:
+                limit, held = self.memory()
+                self.room = limit - held - MARGIN
+            self.using += cost
+
+    def _end(self, cost: int) -> None:
+        with self.turn:
+            self.using -= cost
+            self.turn.notify_all()
 
     def run(self, *arguments: str) -> dict:
-        argv = ["uv", "run", "--frozen", "--project", str(self.root), "python", "-m", "cli.main", *arguments]
+        argv = [str(self.root / ".venv" / "bin" / "python"), "-m", "cli.main", *arguments]
+        cost = LIGHT if tuple(arguments[:2]) in LIGHT_READS and "--readings" not in arguments else HEAVY
+        self._start(cost)
         try:
-            with self.slots:
-                done = subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=600, check=False)
+            with subprocess.Popen(argv, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+                try:
+                    Path(f"/proc/{process.pid}/oom_score_adj").write_text("1000")
+                except OSError:
+                    pass  # no /proc (macOS): no OOM killer to steer
+                try:
+                    stdout, stderr = process.communicate(timeout=600)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    raise
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ProductError(_failure("PRODUCT_UNAVAILABLE", f"{' '.join(arguments[:2])}: {exc}")) from exc
+        finally:
+            self._end(cost)
+        if process.returncode == -signal.SIGKILL:
+            raise ProductError(_failure("OUT_OF_MEMORY", f"{' '.join(arguments[:2])}: the IDE ran out of memory on "
+                                                         "this read; open it again to retry"))
         try:
-            value = _refusal(done.stderr) if done.returncode else json.loads(done.stdout)
+            value = _refusal(stderr) if process.returncode else json.loads(stdout)
         except ValueError:
             value = None
-        if done.returncode or not isinstance(value, dict):
-            text = (done.stderr or done.stdout).strip()[-500:]
+        if process.returncode or not isinstance(value, dict):
+            text = (stderr or stdout).strip()[-500:]
             raise ProductError(value if isinstance(value, dict)
                                else _failure("PRODUCT_FAILED", f"{' '.join(arguments[:2])}: {text}"))
         return value
@@ -343,6 +408,7 @@ class Hub:
         self.comparisons = Pinned[tuple[int, int, str]](lambda key: product.comparison(*key), COMPARISONS)
         self.counts = Pinned[tuple[str, str]](lambda key: product.counts(*key), COUNTS)
         self.states = Pinned[tuple[str, str]](lambda key: product.state(*key), STATES)
+        self.status = Pinned[tuple[str | None, int]](lambda key: product.service(), 1)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -705,22 +771,29 @@ class Server(ThreadingHTTPServer):
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
             status: Path | None = None, overview: str | None = None,
             research: str | None = None, setup: str | None = None, *,
-            live_socket: Path | None = None, live_router: str | None = None) -> type[BaseHTTPRequestHandler]:
+            live_socket: Path | None = None, live_router: str | None = None,
+            dev_assets: str | None = None) -> type[BaseHTTPRequestHandler]:
     if (live_socket is None) != (live_router is None):
         raise ValueError("Live needs both its private socket and trusted router name")
     token = secrets.token_urlsafe(24)
-    page = _page()
-    if paper or research or setup or live_socket:
-        page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
-    if research:
-        page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
+
+    def dressed(page: bytes) -> bytes:
+        """The page with the metas only this service puts in it."""
+        if paper or research or setup or live_socket:
+            page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
+        if research:
+            page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
+        return page
+
+    page = b"" if dev_assets else dressed(_page())
     zipped_page = gzip.compress(page, 6, mtime=0)
     page_tag = f'"{hashlib.sha256(page).hexdigest()[:32]}'
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
         (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE"),
-        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE"), (SETUP, setup, PAPER_BODY, "SETUP_UNAVAILABLE")) if url}
+        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE"), (SETUP, setup, PAPER_BODY, "SETUP_UNAVAILABLE"),
+        (DEV, dev_assets, 0, "DEV_ASSETS_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -730,6 +803,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
         def show_page(self) -> None:
             """The page, or a 304 when the browser already holds this one. It is private because it carries the token."""
+            if DEV in targets:
+                self.show_dev_page()
+                return
             zipped = self.takes_gzip()
             tag = page_tag + ('-gzip"' if zipped else '"')
             held = (item.strip().removeprefix("W/") for item in self.headers.get("If-None-Match", "").split(","))
@@ -749,6 +825,62 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.send_header("Content-Encoding", "gzip")
             self.end_headers()
             self.wfile.write(body)
+
+        def show_dev_page(self) -> None:
+            """The dev server's page as it is now, with this service's metas; never kept."""
+            target, _, absent = targets[DEV]
+            upstream = http.client.HTTPConnection(target.hostname or "127.0.0.1", target.port, timeout=60)
+            try:
+                upstream.request("GET", "/", headers={"Host": target.netloc, "Accept": "text/html"})
+                response = upstream.getresponse()
+                body = response.read()
+            except OSError as exc:
+                self.json(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
+                return
+            finally:
+                upstream.close()
+            if response.status != 200:
+                self.json(502, _failure(absent, f"{target.netloc} answered {response.status} for the page"))
+                return
+            self.send(200, dressed(body), "text/html; charset=utf-8")
+
+        def tunnel(self) -> None:
+            """Vite's hot-update WebSocket: the upgrade sent on with the dev server's Host, then bytes both ways
+            until either side closes. Vite checks the Origin and the token its client carries in the query."""
+            target, _, absent = targets[DEV]
+            try:
+                upstream = socket.create_connection((target.hostname or "127.0.0.1", target.port or 80), timeout=10)
+            except OSError as exc:
+                self.refuse(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
+                return
+            self.close_connection = True
+            lines = [f"{self.command} {self.path} HTTP/1.1", f"Host: {target.netloc}"] + [
+                f"{name}: {value}".replace("\r", "").replace("\n", "")
+                for name, value in self.headers.items() if name.lower() != "host"]
+            try:
+                upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+                upstream.settimeout(None)
+
+                def back() -> None:
+                    try:
+                        while chunk := upstream.recv(65536):
+                            self.connection.sendall(chunk)
+                    except OSError:
+                        pass
+                    finally:
+                        for end in (self.connection, upstream):
+                            try:
+                                end.shutdown(socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+
+                threading.Thread(target=back, daemon=True).start()
+                while chunk := self.rfile.read1(65536):
+                    upstream.sendall(chunk)
+            except OSError:
+                pass  # either side went away
+            finally:
+                upstream.close()
 
         def send(self, status: int, body: bytes, kind: str, renew: bool = False) -> None:
             self.send_response(status)
@@ -865,6 +997,12 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
+            if DEV in targets and self.headers.get("Upgrade", "").lower() == "websocket":
+                self.tunnel()
+                return
+            if DEV in targets and url.path != "/" and not url.path.startswith("/api/"):
+                self.forward(DEV)
+                return
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values and values[0]}
             if url.path == "/":
                 self.show_page()
@@ -915,7 +1053,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             (null while unknown), and the ledger's state or the refusal reading it."""
             runs = {"version": hub.version, "build": hub.build, "released": hub.released()}
             try:
-                found = hub.product.service()
+                with hub.lock:
+                    head = hub.head
+                found = hub.status.get((head, int(time.monotonic() // STATUS_SECONDS)))
             except ProductError as exc:
                 self.json(200, {**runs, "ledger": None, "refusal": exc.body})
                 return
@@ -997,11 +1137,12 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
           overview: str | None = None, research: str | None = None, setup: str | None = None, *,
-          live_socket: Path | None = None, live_router: str | None = None, version: str | None = None) -> None:
+          live_socket: Path | None = None, live_router: str | None = None, version: str | None = None,
+          dev_assets: str | None = None) -> None:
     hub = Hub(product, build, mirror=mirror_head(research) if research else None, version=version, released=Released())
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview, research, setup,
-                                          live_socket=live_socket, live_router=live_router))
+                                          live_socket=live_socket, live_router=live_router, dev_assets=dev_assets))
     for target in (hub.watch, hub.work, hub.confirm):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { askSetup, namesRepository, question, readSetup, refusesKey, refusesRepository, stepLine, type Setup, type SetupRefusal } from "../lib/setupApi";
+import { signedOut } from "../lib/transport";
 import { useAtom } from "../state/atom";
 import { paperService } from "../state/paper";
 import { FormButton, TextField } from "./chat/Field";
@@ -97,7 +98,8 @@ export function FirstRun({ setup: initial, onReady, onOpen }: { setup: Setup; on
     if (setup.state !== "running") return;
     let misses = 0;
     const timer = window.setInterval(() => void readSetup().then((next) => {
-      if (typeof next === "object") { misses = 0; setSilent(false); setSetup(next); }
+      if (signedOut()) window.clearInterval(timer);
+      else if (typeof next === "object") { misses = 0; setSilent(false); setSetup(next); }
       else if (++misses >= 5) setSilent(true);
     }), POLL_MS);
     return () => window.clearInterval(timer);

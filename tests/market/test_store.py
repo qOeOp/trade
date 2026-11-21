@@ -18,8 +18,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from market import coverage, export, files, follow, instrument, lifecycle, read, series, sources, store, universe
-from market.sources import MarketError
+from shared.errors import Refusal
 from registration import inputs
+from shared import clock
 from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 from tests.helpers import refused
@@ -43,7 +44,7 @@ def exchange() -> Exchange:
              "CCCUSDT": (day_ms(JAN), DELISTED)}
     for symbol, (low, high) in spans.items():
         for month in (JAN, FEB, MAR):
-            start, end = max(low, day_ms(month)), min(high, day_ms(universe.next_month(month)))
+            start, end = max(low, day_ms(month)), min(high, day_ms(clock.next_month(month)))
             if start >= end:
                 continue
             period = f"{month:%Y-%m}"
@@ -79,8 +80,8 @@ class ImportTests(unittest.TestCase):
     def imported(cls, month: date, scope=None) -> dict:
         return store.import_month(cls.market, month, cls.cache, 1, scope or cls.scope, log=lambda line: None)
 
-    def refused(self, code: str, call, *args, **kwargs) -> MarketError:
-        with self.assertRaises(MarketError) as caught:
+    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
+        with self.assertRaises(Refusal) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
@@ -94,7 +95,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.market_days[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
-        self.assertEqual(self.market_days, {month: (universe.next_month(month) - timedelta(days=2)).isoformat()
+        self.assertEqual(self.market_days, {month: (clock.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
         root = Path(self.profile["root"])
         self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),
@@ -291,7 +292,7 @@ class ImportTests(unittest.TestCase):
         first_mark = next(event for event in streamed if type(event).__name__ == "MarkPriceUpdate")
         self.assertEqual(str(first_mark.value), f"{100 + (day_ms(MAR) // MINUTE) % 997 / 100:.2f}345678")
         self.assertEqual(run.mark_timestamps(rows), 2880)
-        self.assertRaises(MarketError, export.export_catalogs, self.profile, None, ["BTCUSDT"], start + 1, end)
+        self.assertRaises(Refusal, export.export_catalogs, self.profile, None, ["BTCUSDT"], start + 1, end)
         for code, args in (("INTERVAL_INVALID", (["BTCUSDT"], end, start)), ("EMPTY_SYMBOLS", (["BTCUSDT", "BTCUSDT"], start,
                                                                                                 end))):
             with self.subTest(code=code):
@@ -368,10 +369,10 @@ class ImportRefusalTests(unittest.TestCase):
             for month in (JAN, FEB):
                 store.import_month(cls.market, month, cls.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
 
-    def refused(self, code: str, market: dict | None = None) -> MarketError:
+    def refused(self, code: str, market: dict | None = None) -> Refusal:
         market = market or self.market
         before = stamps(market)
-        with serving(self.exchange), self.assertRaises(MarketError) as caught:
+        with serving(self.exchange), self.assertRaises(Refusal) as caught:
             store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         self.assertEqual(stamps(market), before)
@@ -423,8 +424,8 @@ class LaterImportTests(unittest.TestCase):
                                                   log=lambda line: None))
         return profile, found, results
 
-    def refused(self, code: str, call, *args, **kwargs) -> MarketError:
-        with self.assertRaises(MarketError) as caught:
+    def refused(self, code: str, call, *args, **kwargs) -> Refusal:
+        with self.assertRaises(Refusal) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
@@ -546,7 +547,7 @@ class LaterImportTests(unittest.TestCase):
         eve = date(2025, 2, 28).isoformat()
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
         self.assertEqual(refused(universe.selection, profile, None, None, noon,
-                                 error=MarketError).code, "UNIVERSE_NOT_COVERING_WINDOW")
+                                 error=Refusal).code, "UNIVERSE_NOT_COVERING_WINDOW")
         self.refused("MARKET_DAY_UNRESOLVED", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
@@ -706,9 +707,9 @@ class BackfillTests(unittest.TestCase):
     def imported(cls, profile: dict, month: date, scope=None) -> dict:
         return store.import_month(profile, month, cls.cache, 1, scope or cls.SCOPE, log=lambda line: None)
 
-    def refused(self, code: str, profile: dict, month: date, scope=None) -> MarketError:
+    def refused(self, code: str, profile: dict, month: date, scope=None) -> Refusal:
         before = stamps(profile)
-        with serving(self.exchange), self.assertRaises(MarketError) as caught:
+        with serving(self.exchange), self.assertRaises(Refusal) as caught:
             self.imported(profile, month, scope)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         self.assertEqual(stamps(profile), before)

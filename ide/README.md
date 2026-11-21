@@ -9,7 +9,7 @@ node and npm:
 ```bash
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
-uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
+uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE] [--dev-assets=URL]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--host=127.0.0.1] [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 ```
@@ -125,6 +125,43 @@ The service warms the line index before exposing a newly synchronized head, cach
 exact commits, and coalesces concurrent reads of the same commit into one product call. A navigation
 metadata failure is reported by `/api/lines` without blocking a valid graph. Browser caching/storage
 is not used; the index and preloader are transient working caches.
+
+## Developing the page
+
+`--dev-assets=URL` serves the page from a Vite dev server of `web/` instead of the built page, with hot updates:
+`ide.py serve` reads the dev server's `index.html` at each open, puts the same token meta in it as in production,
+and forwards every other GET outside `/api/` (modules, styles, Vite's client) and Vite's hot-update WebSocket to it.
+The browser opens only the IDE's address, so the page and its API share one origin and Paper, setup and Live
+actions pass the same Host, same-origin and token checks as in production. The dev server has no `/api` of its own
+and its page carries no token. Both must be on loopback: serve refuses `--dev-assets` off loopback or with a
+`--host` that is not. `npm run dev` listens on `127.0.0.1:5173` only (`strictPort`, so another server on that port
+stops it rather than moving it).
+
+Against an isolated temporary ledger (nothing touches the active one), each in its own terminal:
+
+```bash
+cd ide/web && npm run dev
+uv run --frozen python -m cli.main ledger temp            # prints "profile": a profile file path, and "root"
+uv run --frozen python ide/ide.py serve --ledger=PROFILE --port=8775 --dev-assets=http://127.0.0.1:5173
+```
+
+For Paper too, give the temporary root a Paper database and a daemon, and add `--paper=http://127.0.0.1:8777` to serve:
+
+```bash
+TRADE_LEDGER_HOME=ROOT uv run --frozen python -m cli.main ledger init --name=dev-paper --kind=temporary --holds=paper --service-root=ROOT/p
+uv run --frozen python -m cli.main paper serve --ledger=ROOT/dev-paper.json --research-ledger=PROFILE --port=8777
+```
+
+Against this machine's own ledger (the compose `ledger` service on `127.0.0.1:13330`, read with the profile the
+command line already uses; the page only reads it, and the compose IDE keeps 8765):
+
+```bash
+cd ide/web && npm run dev
+uv run --frozen python ide/ide.py serve --ledger=PROFILE --port=8775 --dev-assets=http://127.0.0.1:5173
+```
+
+Then open `http://127.0.0.1:8775/`. Python changes under `research_graph/` need serve restarted; page changes do not.
+`ledger service stop --ledger=PROFILE` and removing the root end a temporary ledger.
 
 ## Deployment
 

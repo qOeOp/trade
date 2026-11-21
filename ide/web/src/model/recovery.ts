@@ -1,5 +1,5 @@
 // Whether a paper run can come back after it stops without a seal. A run resumes only from a complete native
-// checkpoint of a source that declares Paper recovery (engine/README.md); the daemon tries each interrupted
+// checkpoint of a source that declares Paper recovery (paper/README.md); the daemon tries each interrupted
 // run itself and keeps the last refusal on the run (paper/serve.py recovery_failures).
 import type { PaperRun } from "../lib/paperApi";
 

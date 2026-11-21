@@ -14,6 +14,7 @@ from collections.abc import Mapping
 import hashlib
 
 from ledger import execution, problems
+from shared import clock
 from shared.refusals import refuse
 
 
@@ -21,9 +22,8 @@ FORMAT = "execution-input-coverage-v1"
 
 
 def _instant(value):
-    from ledger.metrics import utc_ns
     try:
-        return utc_ns(value)
+        return clock.utc_ns(value)
     except (TypeError, ValueError):
         return None
 

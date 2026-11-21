@@ -1,6 +1,6 @@
 # 离线扫描的变体数要不要存：字段审阅
 
-2026-11-12。doctor 20261112-16（[b5788262 审计](doctor/2026-11-12-dow-theory-b5788262-full-audit.zh.md)）：有效试验数 N 不含 Agent 的离线参数扫描，扫描只以自由文本的 `search_exposure` 判断记下。用户当天决定把这些扫描计入 N（“按建议做”）。按 AGENTS.md，加存储字段前先做独立子 Agent 审阅，结论记在这里。依据 origin/main `a1775a5a5` 之后的检出。
+2026-11-12。doctor 20261112-16（[b5788262 审计](https://github.com/qOeOp/trade/blob/350eb7cdb/docs/plans/doctor/2026-11-12-dow-theory-b5788262-full-audit.zh.md)）：有效试验数 N 不含 Agent 的离线参数扫描，扫描只以自由文本的 `search_exposure` 判断记下。用户当天决定把这些扫描计入 N（“按建议做”）。按 AGENTS.md，加存储字段前先做独立子 Agent 审阅，结论记在这里。依据 origin/main `a1775a5a5` 之后的检出。
 
 ## 谁在用
 
@@ -28,7 +28,7 @@
 按 (b) 做：
 
 1. `search_exposure` 正文第一行恰为 `Evaluated variants: K`，K 为非负整数（无前导零），定义见上。
-2. `judgment add` 拒绝缺这一行的 `search_exposure`（新写或取代），拒绝码 `SEARCH_EXPOSURE_VARIANTS_MISSING`。这条收紧检查由用户 11-12 委托的圆桌决定（[道氏新旧对比诊断](doctor/2026-11-12-dow-old-vs-new-compare.zh.md)“圆桌裁决”一节）。
+2. `judgment add` 拒绝缺这一行的 `search_exposure`（新写或取代），拒绝码 `SEARCH_EXPOSURE_VARIANTS_MISSING`。这条收紧检查由用户 11-12 委托的圆桌决定（[道氏新旧对比诊断](https://github.com/qOeOp/trade/blob/cb23689d4/docs/plans/doctor/2026-11-12-dow-old-vs-new-compare.zh.md)“圆桌裁决”一节）。
 3. 总体：`multiple_testing` 的重叠总体里每条有试验的线，其当前（未被取代的）`search_exposure` 判断。
 4. `multiple_testing` 与 `trial_counts`（IDE“Picked from”读它）新增 `sweep_variants`（K 之和）、`undeclared_sweeps`（缺这一行的当前判断编号）和 `trials_with_sweeps = all_purpose_trials + sweep_variants`。
 5. `deflated_range` 的上端改用 `trials_with_sweeps`；`effective_trials` 不变，它的 ρ 来自已存的研究收益，扫描没有收益序列。

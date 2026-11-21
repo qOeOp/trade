@@ -86,6 +86,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "running, done, waiting, failed, empty, or unreadable}",
         "LIVE_RECORD_UNAVAILABLE (the root); LIVE_DIRECTORY (compare-tmp or its temporary directory); a run's own "
         "refusal is kept in its record, never raised"),
+    ("live", "paper-compare"): (
+        "one sealed Paper run's journal through the Paper reader profile (--paper-ledger); the market directory "
+        "(--market-root); the run's own runtime image",
+        "paper-compare.lock and paper-compare-tmp/ under the root (the working directory, removed after); never a "
+        "database, credential, order or venue connection",
+        "paper_id, market_day, reason (null: the run reconciles with its replay; else why not), retry (the market "
+        "does not cover the run yet)",
+        "LIVE_RECORD_UNAVAILABLE (the root); LIVE_DIRECTORY (paper-compare-tmp); the comparison's own refusal is "
+        "returned as the reason, never raised"),
 }
 
 
@@ -143,6 +152,12 @@ def register(verbs, verb, runner) -> None:
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--market-root", required=True, type=Path, help="the market directory, read only")
     command.add_argument("--today", required=True, help="the UTC day the comparison runs on, such as 2026-11-13")
+    command = verb(live, "paper-compare", "compare one sealed Paper run with its replay for Live admission (the "
+                   "control's comparison container; live.reconcile)")
+    command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+    command.add_argument("--paper-ledger", required=True, type=Path, help="the Paper database's reader profile")
+    command.add_argument("--market-root", required=True, type=Path, help="the market directory, read only")
+    command.add_argument("--paper-id", required=True, type=int, help="the sealed Paper run")
 
 
 def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
@@ -181,6 +196,11 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.verb == "compare-daily":
         from live import daily
         return daily.run(args.root, args.market_root, args.today), 0
+    if args.verb == "paper-compare":
+        from live import reconcile
+        from paper import compare as paper_compare
+        return reconcile.compare_one(args.root, args.paper_ledger, args.market_root, args.paper_id,
+                                     compare=paper_compare.compare, held_since=paper_compare.held_since), 0
     if args.verb == "compare":
         from live import compare
         return compare.compare(args.root, args.run_id, profiles.market(args.market), args.market_day, Path(args.output),

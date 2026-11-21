@@ -163,6 +163,46 @@ class VerdictTests(unittest.TestCase):
                          (None, None, ["targets"]))
 
 
+class UnfalsifiedTests(unittest.TestCase):
+    """20261120-05 (user 2026-11-21): a validation takes only a candidate its line's closing history test decided and
+    did not falsify; an undecided verdict is refused apart, naming what it lacks."""
+
+    SOURCE = "a" * 64
+
+    @staticmethod
+    def line(name, *rows):
+        return {"line": name, "rows": list(rows)}
+
+    def row(self, *cells, control=True, reproduces=True, source=SOURCE):
+        summary = report_history._summary(list(cells), VerdictTests.TARGETS, control) if reproduces else None
+        return {"source_sha256": source, "candidate": "rsi@1", "run": 7, "summary": summary}
+
+    def refused(self, *tested):
+        with self.assertRaises(Refusal) as refused:
+            report_history.verdict(self.SOURCE, list(tested))
+        return refused.exception.code, list(refused.exception.missing)
+
+    def test_a_decided_verdict_admits_and_a_falsified_one_refuses(self):
+        passed = self.row(VerdictTests.HOLDOUT)
+        failed = self.row(VerdictTests.cell("holdout", 0.25, 0.12))
+        self.assertEqual(report_history.verdict(self.SOURCE, [self.line("one", passed)]),
+                         {"line": "one", "judged_on": "holdout"})
+        self.assertEqual(self.refused(self.line("one", failed)), ("CANDIDATE_FALSIFIED", ["one"]))
+        self.assertEqual(self.refused(self.line("one", passed), self.line("two", failed)),
+                         ("CANDIDATE_FALSIFIED", ["two"]), "falsified on any line it was tested on")
+
+    def test_an_undecided_verdict_is_refused_apart_and_names_what_it_lacks(self):
+        self.assertEqual(self.refused(), ("HISTORY_UNDECIDED", ["line history"]), "no history trial of the source")
+        self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.HOLDOUT, control=False))),
+                         ("HISTORY_UNDECIDED", ["one: control"]))
+        self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.HOLDOUT, reproduces=False))),
+                         ("HISTORY_UNDECIDED", ["one: control"]), "a control unlike the research run voids the row")
+        self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.HOLDOUT, source="b" * 64))),
+                         ("HISTORY_UNDECIDED", ["one: economic evidence"]), "a source the test no longer judges")
+        self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.unread("2020"), VerdictTests.HOLDOUT))),
+                         ("HISTORY_UNDECIDED", ["one: veto 2020"]))
+
+
 class DiscountTests(unittest.TestCase):
     """3.7: a candidate picked by these readings is picked among the participants, so each holdout's deflated Sharpe
     takes the participant count as its trials, through the one formula (measures.deflated_sharpe)."""
@@ -215,6 +255,15 @@ class HistoryRunTests(unittest.TestCase):
             lines.close_line(world.profile, line, b"summary", days)
         self.assertEqual(refused.exception.code, "HISTORY_INCOMPLETE")
         self.assertEqual(len(refused.exception.missing), 3, "2025 (from November), the control and the holdout")
+        source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s", (passed["trial_id"],))
+        unfalsified = report_history.require_unfalsified
+
+        def undecided():
+            with self.assertRaises(Refusal) as refused:
+                unfalsified(world.conn, source["source_sha256"])
+            self.assertEqual(refused.exception.code, "HISTORY_UNDECIDED")
+            return list(refused.exception.missing)
+        self.assertEqual(undecided(), ["line history"], "20261120-05: no history trial of it yet")
 
         first = history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
         self.assertEqual((len(first["ran"]), first["left"], first["participants"]), (1, 2, 1))
@@ -248,6 +297,8 @@ class HistoryRunTests(unittest.TestCase):
                          (None, None, ["holdout", "targets"]),
                          "no whole veto year and the part year passed, so it is read in no summary; "
                          "no countable holdout to judge by, and the fixture line has no targets")
+        self.assertEqual(undecided(), [f"{line}: {item}" for item in row["summary"]["missing"]],
+                         "a validation is refused while the verdict lacks a reading")
 
         # 20261120-04: a sealed history run reads as a research run does, on the Runs page and in `replay report`,
         # and still enters no research comparison or ranking (the research_runs assertions below).

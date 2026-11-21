@@ -39,17 +39,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/ci-paths
         id: paths
-        with:
-          paths: |
-            .github/workflows/docs-pages.yml
-            docs/rd/**
-            docs/index*.mdx
-            docs/assets/**
-            docs-site/**
-            ide/web/fonts/**
-            .github/actions/ci-paths/**
-            .github/scripts/ci-paths.py
-            .github/scripts/docs-pages-current.sh
 
   build:
     needs: changes

@@ -13,7 +13,7 @@ import { candleAt, candleDowns, onScale, slotsFor } from "./candleDown";
 import { CandleNotes } from "./candleNotes";
 import { candleSeries } from "./candleSeries";
 import { CandleStretches, type CandleSpan } from "./candleStretches";
-import { drawTrading, type Parts, type Trading } from "./candleTrading";
+import { drawTrading, pickedMark, type Parts, type Trading } from "./candleTrading";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import { fence, firstPeriod, fitAll, periodFor, recall, remember, reshow, respaced, showFrom, showSpan, wholePeriod, widest, dayFloor } from "./candleView";
 import { Levels } from "./levels";
@@ -45,8 +45,8 @@ export class CandleController {
   mount(element: HTMLElement, key: string): void {
     Object.assign(this, { host: element, key });
     const { chart, candles, volume } = candleSeries(element, () => { const { orders, held } = this.trading; return [...orders.map((o) => o.price), ...(held ? [held.average] : [])]; });
-    const levels = new Levels(), marks = new TradeMarks(() => levels.chips());
-    candles.attachPrimitive(marks); candles.attachPrimitive(levels); candles.attachPrimitive(this.stretches.captions);
+    const levels = new Levels(), marks = new TradeMarks(() => levels.chips()), picked = pickedMark(() => this.times);
+    candles.attachPrimitive(picked); candles.attachPrimitive(marks); candles.attachPrimitive(levels); candles.attachPrimitive(this.stretches.captions);
     const notes = this.notes.attach(candles, levels);
     chart.subscribeClick((param) => {
       const k = param.point ? this.stretches.captions.at(param.point.x, param.point.y) : null;
@@ -60,7 +60,7 @@ export class CandleController {
       ticks.cross(param.point?.x ?? null, param.point?.y ?? null);
       notes.hover(String(param.hoveredObjectId ?? ""), param.point ?? null);
     });
-    this.parts = { chart, candles, volume, marks, levels, ticks };
+    this.parts = { chart, candles, volume, marks, levels, ticks, picked };
     // A zoom that takes the candles out of their band regroups them at once, not once it settles.
     const step = () => this.period.get() * 60, time = chart.timeScale();
     this.release = whenSettled(element, time, (x) => this.settle(x), () => step() > 0 && periodFor(spacing(time), step(), time.getVisibleLogicalRange(), this.leading) !== step());

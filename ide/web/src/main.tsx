@@ -4,6 +4,7 @@ import { App } from "./App";
 import { Crashed } from "./components/Crashed";
 import { Waiting } from "./components/Waiting";
 import { readSetup, type Setup } from "./lib/setupApi";
+import { SIGN_IN, signedOut } from "./lib/transport";
 import { shared } from "./lib/shared";
 import { follow } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
@@ -68,10 +69,11 @@ async function begin(): Promise<void> {
   if (needed()) ask(); else startFollowing();
   status("Reading the ledger…", true);
   if (needed()) return;
-  while (!needed() && answer === "down" && shown === null) {
+  while (!needed() && answer === "down" && shown === null && !signedOut()) {
     await new Promise((resolve) => window.setTimeout(resolve, 3000));
     answer = await readSetup();
   }
+  if (signedOut() && shown === null) status(SIGN_IN);
   if (needed() && shown === null) ask();
 }
 
