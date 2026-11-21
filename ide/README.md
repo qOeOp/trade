@@ -320,7 +320,7 @@ is chunked on word boundaries and translated paragraph by paragraph to retain it
 `npm run check` runs `tsc`, the lineage geometry regression tests (`npm test`), and `scripts/check-rules.mjs`, which fails the build on: a colour literal outside
 `tokens.css`, `var(--…)` in TypeScript outside `roles.ts` (role classes and `v()` instead), `<svg>` outside icons and the
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
-storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
+storage outside `lib/storage.ts`, an import against the table above, a file over 20 KiB, data hues that differ from
 the validated set.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
