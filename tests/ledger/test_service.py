@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from ledger import admin, db, publish, service, strategies
+from ledger import admin, db, publish, server, service, strategies
 from shared import profiles
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
@@ -42,13 +42,13 @@ class RunTests(unittest.TestCase):
             ledger = cls.source.ledger("research")
             strategies.publish_candidate(ledger, source("cloned"), "cloned", "Fixture", "published before the clone")
             cls.origin = (cls.remotes / "research").as_uri()
-            conn = db._admin(db.service_config(ledger.service_root), database=ledger.database)
+            conn = server.connect_root(server.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
                 cursor.execute("CALL DOLT_BRANCH('legacy-x')")
             conn.close()
             publish.set_remote(ledger, cls.origin)
             publish.publish(ledger)
-            conn = db._admin(db.service_config(ledger.service_root), database=ledger.database)
+            conn = server.connect_root(server.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
                 cursor.execute("CALL DOLT_PUSH('origin', 'legacy-x')")
             conn.close()
@@ -75,24 +75,24 @@ class RunTests(unittest.TestCase):
         listen = patch.object(service, "LISTEN", "127.0.0.1")
         listen.start()
         self.addCleanup(listen.stop)
-        self.port = db._free_port()
+        self.port = server.free_port()
         self.log = open(self.root / "server.log", "ab")
         self.addCleanup(self.log.close)
 
     def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None,
               controllers: Path | None = None):
-        server, config = service.start(self.service_root, self.data, self.backups,
+        process, config = service.start(self.service_root, self.data, self.backups,
                                        self.credentials if credentials is None else credentials,
                                        origin or self.origin, self.port, BINARY, "isolated", self.log, readers,
                                        controllers=controllers)
-        self.addCleanup(service._stop, server)
-        return server, config
+        self.addCleanup(server.stop, process)
+        return process, config
 
     def test_a_first_start_bootstraps_the_ledger_from_its_public_copy(self):
-        server, config = self.start()
-        written = db.service_config(self.service_root)
+        process, config = self.start()
+        written = server.service_config(self.service_root)
         self.assertNotIn("socket", written)
-        self.assertTrue(db.managed(written))
+        self.assertTrue(server.managed(written))
         self.assertEqual(written["port"], self.port)
         self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.load_profile("research")
@@ -109,7 +109,7 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)],
                              "the published history comes with the clone")
-        research = db._admin(config, database="research")
+        research = server.connect_root(config, database="research")
         self.addCleanup(research.close)
         with research.cursor() as cursor:
             cursor.execute("SELECT url FROM dolt_remotes WHERE name = 'origin'")
@@ -127,17 +127,17 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(ledger) as conn:
             self.assertEqual(service.check(ledger), {"action": "check", "running": True,
                                                      "ledger_commit": conn.resolved_commit})
-        self.assertEqual(db.start_service(self.service_root)["pid"], None, "the host only waits for it")
-        self.assertEqual(refused(db.stop_service, self.service_root).code, "SERVICE_MANAGED")
-        self.assertIsNone(server.poll(), "and never stops it")
+        self.assertEqual(server.start_service(self.service_root)["pid"], None, "the host only waits for it")
+        self.assertEqual(refused(server.stop_service, self.service_root).code, "SERVICE_MANAGED")
+        self.assertIsNone(process.poll(), "and never stops it")
 
     def test_every_later_start_checks_the_service_before_serving(self):
-        server, _ = self.start()
-        service._stop(server)
-        server, _ = self.start()
-        self.assertIsNone(server.poll(), "a checked service serves")
-        service._stop(server)
-        config = db.service_config(self.service_root)
+        process, _ = self.start()
+        server.stop(process)
+        process, _ = self.start()
+        self.assertIsNone(process.poll(), "a checked service serves")
+        server.stop(process)
+        config = server.service_config(self.service_root)
         profiles.private_write(self.service_root / "service.json",
                           {**config, "databases": {**config["databases"], "gone": config["databases"]["research"]}})
         self.assertEqual(refused(self.start).code, "SERVICE_CHECK_FAILED")
@@ -145,8 +145,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual(refused(self.start).code, "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
 
     def test_disk_dolt_no_longer_needs_is_reclaimed(self):
-        server, config = self.start()
-        service._stop(server)
+        process, config = self.start()
+        server.stop(process)
         left = self.data / ".dolt" / "tmp" / "buffered_file_byte_sink_1974208896"
         left.parent.mkdir(parents=True, exist_ok=True)
         left.write_bytes(b"x" * 4096)
@@ -156,7 +156,7 @@ class RunTests(unittest.TestCase):
         self.assertTrue(left.parent.is_dir())
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)], "the ledger is untouched")
-        conn = db._admin(config)
+        conn = server.connect_root(config)
         self.addCleanup(conn.close)
         with conn.cursor() as cursor:
             cursor.execute("SELECT @@GLOBAL.dolt_auto_gc_enabled")
@@ -164,7 +164,7 @@ class RunTests(unittest.TestCase):
 
     def test_the_reader_only_service_file_reads_and_holds_nothing_that_writes(self):
         readers = self.root / "readers"
-        server, config = self.start(readers=readers)
+        process, config = self.start(readers=readers)
         written = json.loads((readers / "service.json").read_text(encoding="utf-8"))
         self.assertEqual(written, {"port": self.port, "databases": {
             name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
@@ -173,7 +173,7 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(refused(db.connect, ledger, "writer").code, "LEDGER_UNKNOWN")
-        for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
+        for administrator in (server.admin, lambda profile: admin.sync_backup(profile, self.root / "backup", "")):
             self.assertEqual(refused(administrator, ledger).code, "LEDGER_UNKNOWN", "nor the service administrator")
         with db.read_as_of(ledger) as conn:
             for statement in (f"SELECT strategy_id FROM candidate INTO OUTFILE '{self.root / 'cloned.txt'}'",
@@ -182,7 +182,7 @@ class RunTests(unittest.TestCase):
                         conn.raw.cursor() as cursor:
                     cursor.execute(statement)
         self.assertFalse((self.root / "cloned.txt").exists(), "nor a server file")
-        service._stop(server)
+        server.stop(process)
         (readers / "service.json").unlink()
         self.start(readers=readers)
         self.assertEqual(json.loads((readers / "service.json").read_text(encoding="utf-8")), written,
@@ -191,7 +191,7 @@ class RunTests(unittest.TestCase):
     def test_the_paper_controller_files_hold_paper_accounts_and_the_research_reader_only(self):
         """Item 8: the paper container mounts this directory, never the service directory."""
         controllers = self.root / "controllers"
-        server, config = self.start(controllers=controllers)
+        process, config = self.start(controllers=controllers)
         written = json.loads((controllers / "service.json").read_text(encoding="utf-8"))
         self.assertEqual(written, {"port": self.port, "databases": {
             "research": {"reader": config["databases"]["research"]["reader"]}, "paper": config["databases"]["paper"]}})
@@ -202,18 +202,18 @@ class RunTests(unittest.TestCase):
         with db.read_as_of(research) as conn:
             self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(refused(db.connect, research, "writer").code, "LEDGER_UNKNOWN")
-        for administrator in (publish._admin, lambda profile: admin._sync_backup(profile, self.root / "backup", "")):
+        for administrator in (server.admin, lambda profile: admin.sync_backup(profile, self.root / "backup", "")):
             self.assertEqual(refused(administrator, research).code, "LEDGER_UNKNOWN", "nor the service administrator")
         execution = db.LedgerProfile(name="paper", database="paper", service_root=controllers, kind="isolated",
                                      holds="paper")
         with db.connect(execution, "writer") as conn:
             self.assertEqual(conn.role, "writer")
-        service._stop(server)
+        server.stop(process)
         self.assertEqual(refused(self.start, controllers=self.service_root).code, "USAGE_ERROR")
 
     def test_readers_never_replace_the_service_file(self):
-        server, _ = self.start()
-        service._stop(server)
+        process, _ = self.start()
+        server.stop(process)
         before = (self.service_root / "service.json").read_bytes()
         self.assertEqual(refused(self.start, readers=self.service_root).code, "USAGE_ERROR")
         self.assertEqual((self.service_root / "service.json").read_bytes(), before)
@@ -235,8 +235,8 @@ class RunTests(unittest.TestCase):
                          "an empty directory counts as empty and stays")
         self.assertEqual(list(self.data.iterdir()), [])
         self.assertEqual(list(profiles.home().glob("*.json")), [])
-        server, _ = self.start()
-        self.assertIsNone(server.poll(), "the next start bootstraps again")
+        process, _ = self.start()
+        self.assertIsNone(process.poll(), "the next start bootstraps again")
 
     def test_an_empty_copy_starts_a_new_ledger_published_there(self):
         origin = self.remotes / f"new-{self.port}"
@@ -264,9 +264,9 @@ class RunTests(unittest.TestCase):
         origin = self.remotes / f"behind-{self.port}"
         origin.mkdir()
         self.addCleanup(shutil.rmtree, origin, True)
-        server, _ = self.start(origin=origin.as_uri())
+        process, _ = self.start(origin=origin.as_uri())
         answers = []
-        with patch.object(service, "start", return_value=(server, {})), patch.object(service, "PUBLISH_RETRY", 0.05), \
+        with patch.object(service, "start", return_value=(process, {})), patch.object(service, "PUBLISH_RETRY", 0.05), \
                 patch.object(service.signal, "signal"):
             running = threading.Thread(target=lambda: answers.append(service.run(
                 self.service_root, self.data, self.backups, self.credentials, None, self.port)))
@@ -277,7 +277,7 @@ class RunTests(unittest.TestCase):
             while publish.unpublished(profile) and time.monotonic() < deadline:
                 time.sleep(0.05)
             caught_up = not publish.unpublished(profile)
-            service._stop(server)
+            server.stop(process)
             running.join(60)
         self.assertTrue(caught_up, "the service published it")
         self.assertEqual(answers[0][1], 0, "the retry does not hold up the service's exit")
@@ -295,12 +295,12 @@ class RunTests(unittest.TestCase):
 
         service._back_up_paper(synced)
         self.assertEqual(admin.backup_head(target), head())
-        conn = db._admin(config, database="paper")
+        conn = server.connect_root(config, database="paper")
         with conn.cursor() as cursor:
             cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'a stop')")
         conn.close()
         self.assertNotEqual(admin.backup_head(target), head())
-        with patch.object(admin, "_sync_backup", wraps=admin._sync_backup) as syncing:
+        with patch.object(admin, "sync_backup", wraps=admin.sync_backup) as syncing:
             service._back_up_paper(synced)
             self.assertEqual(admin.backup_head(target), head(), "the moved head is copied")
             service._back_up_paper(synced)
@@ -334,7 +334,7 @@ class RunTests(unittest.TestCase):
         work = self.root / "unrelated"
         work.mkdir()
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
-        db.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
+        server.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         for command in (("init",), ("sql", "-q", "CREATE TABLE t (a INT PRIMARY KEY)"), ("add", "."),
                         ("commit", "-m", "another project")):
             subprocess.run([BINARY, *command], cwd=work, env=environment, check=True, capture_output=True)
@@ -352,7 +352,7 @@ class RunTests(unittest.TestCase):
     def test_a_copy_this_code_cannot_read_is_not_bootstrapped(self):
         work = self.root / "copy"
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
-        db.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
+        server.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         subprocess.run([BINARY, "clone", self.origin, str(work)], env=environment, check=True,
                        capture_output=True)
         subprocess.run([BINARY, "sql", "-q", "UPDATE ledger_schema SET version = 99"], cwd=work, env=environment,
