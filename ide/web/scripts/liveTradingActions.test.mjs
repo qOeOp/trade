@@ -13,10 +13,10 @@ async function component(name, fixtures = {}) {
     useRef(initial) { const at = cursor++; if (!(at in slots)) slots[at] = { current: initial }; return slots[at]; },
     useEffect() {},
   };
-  const exports = await namespace(`components/${name}.tsx`, { stubs: {
+  const exports = await namespace(`widgets/live/${name}.tsx`, { stubs: {
     "icons/Icon": { Icon: () => null },
-    "components/InfoTip": { InfoTip: () => null },
-    "components/IconButton": { IconButton: function IconButton() { return null; } },
+    "ui/InfoTip": { InfoTip: () => null },
+    "ui/IconButton": { IconButton: function IconButton() { return null; } },
     "state/market": { useSnapshot: () => null },
     ...fixtures,
     react: hooks,

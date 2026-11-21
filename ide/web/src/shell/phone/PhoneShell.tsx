@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { PhoneTabs, type PhoneTabItem } from "../../components/PhoneTabs";
+import { PhoneTabs, type PhoneTabItem } from "../../ui/PhoneTabs";
 import { runsDot } from "../../model/phoneRuns";
 import { useAtom } from "../../state/atom";
 import { useLiveTrading } from "../../state/liveTrading";

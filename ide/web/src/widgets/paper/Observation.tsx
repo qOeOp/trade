@@ -1,7 +1,7 @@
 import { useTimeZone } from "../../state/timeZone";
 import type { PaperRun } from "../../lib/paperApi";
 import { observedThrough, utcMinute, waitingText, waitingUntil, LAG_MS } from "../../model/observation";
-import { useNow } from "../../components/hooks/useNow";
+import { useNow } from "../../ui/hooks/useNow";
 import type { Stream } from "../../state/paperStream";
 import { heldOnInterruption, NO_RECOVERY, unprotected, unprotectedText, unresumable } from "../../model/recovery";
 

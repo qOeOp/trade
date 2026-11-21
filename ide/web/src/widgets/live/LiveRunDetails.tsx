@@ -1,7 +1,7 @@
-import { LiveEvidenceList, LiveFacts } from "../../components/LiveFacts";
-import { LiveRecovery } from "../../components/LiveRecovery";
-import { LiveReview } from "../../components/LiveReview";
-import { Section } from "../../components/Section";
+import { LiveEvidenceList, LiveFacts } from "./LiveFacts";
+import { LiveRecovery } from "./LiveRecovery";
+import { LiveReview } from "./LiveReview";
+import { Section } from "../../ui/Section";
 import { useLiveRunView } from "../../state/liveRun";
 
 /** The same selected Live run as the canvas and Trades, including without a research view. */

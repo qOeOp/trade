@@ -1,8 +1,8 @@
 import { useState, type KeyboardEvent } from "react";
-import { useNow } from "../../components/hooks/useNow";
-import { FilterChips } from "../../components/FilterChips";
-import { Segmented } from "../../components/Segmented";
-import { TextButton } from "../../components/TextButton";
+import { useNow } from "../../ui/hooks/useNow";
+import { FilterChips } from "../../ui/FilterChips";
+import { Segmented } from "../../ui/Segmented";
+import { TextButton } from "../../ui/TextButton";
 import { Icon } from "../../icons/Icon";
 import { ACTIVE } from "../../model/chain";
 import type { LiveRun } from "../../model/liveTrading";

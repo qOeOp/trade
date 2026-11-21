@@ -171,8 +171,8 @@ async function page(state) {
     useEffect() {},
   };
   const exports = await namespace("widgets/live/LiveLaunch.tsx", { stubs: {
-    react: hooks, "icons/Icon": { Icon: () => null }, "components/IconButton": { IconButton: () => null },
-    "components/LiveNoReply": { LiveNoReply: () => null },
+    react: hooks, "icons/Icon": { Icon: () => null }, "ui/IconButton": { IconButton: () => null },
+    "widgets/live/LiveNoReply": { LiveNoReply: () => null },
     "state/liveRun": { useLaunchReading: () => ({ reading: null, targets: null }),
       useLiveSource: (version) => version ? source(null, { candidate: version }) : null, useLiveEvidence: (read, symbols) => read && symbols ? found : null,
       useLivePaper: (read, symbols) => read && symbols ? reconciled : null },

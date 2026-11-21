@@ -3,8 +3,8 @@ import { ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeChange } f
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget, ProgressWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
-import { progressGutter } from "../../components/ProgressLayout";
-import { TextButton } from "../../components/TextButton";
+import { progressGutter } from "../ProgressLayout";
+import { TextButton } from "../../ui/TextButton";
 import { crosshair, expandedBranches, lineageMode, useAxisView, useCrosshair, useExpandedBranches, useLineageMode } from "../../state/linking";
 import { openSource } from "../../state/editors";
 import { select, selection, useSelection } from "../../state/selection";
@@ -15,7 +15,7 @@ import { Backdrop } from "./Backdrop";
 import { Crosshair } from "./Crosshair";
 import { Elbow } from "./Elbow";
 import { bounds, centredOn, home, MARK_CENTRE, positions as place, ROW, UNIT } from "./geometry";
-import { useSize } from "../../components/hooks/useSize";
+import { useSize } from "../../ui/hooks/useSize";
 import { Ruler } from "./Ruler";
 import { FoldNode, VersionNode, type FoldData, type VersionData } from "./VersionNode";
 

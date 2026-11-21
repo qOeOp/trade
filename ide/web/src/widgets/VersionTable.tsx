@@ -6,9 +6,9 @@ import { textClass } from "../theme/roles";
 import { PredictionMark, RoleMark } from "../icons/marks";
 import { requestFocus } from "../state/linking";
 import { select, useSelection } from "../state/selection";
-import { columns, DataTable, type Column } from "../components/DataTable";
-import { Missing } from "../components/Missing";
-import { VersionMenu } from "../components/VersionMenu";
+import { columns, DataTable, type Column } from "../ui/DataTable";
+import { Missing } from "../ui/Missing";
+import { VersionMenu } from "./runs/VersionMenu";
 
 const col = columns<TableRow>();
 type Measure = "annual_return" | "max_drawdown" | "sharpe" | "plan_win_rate";

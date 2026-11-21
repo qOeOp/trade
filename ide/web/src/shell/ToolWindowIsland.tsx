@@ -1,4 +1,4 @@
-import { PanelHeader } from "../components/PanelHeader";
+import { PanelHeader } from "../ui/PanelHeader";
 import { atom, useAtom } from "../state/atom";
 import type { Side } from "../state/shell";
 import { Island } from "./Island";

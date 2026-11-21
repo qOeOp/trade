@@ -5,7 +5,7 @@ import { precisions, symbolOf, type JournalLine } from "../../lib/paperApi";
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, describe, eventMs, utcDay } from "../../model/paper";
 import { bracket, bracketStatus, grouped, lineStatus, type Status } from "../../model/events";
 import { Icon } from "../../icons/Icon";
-import { Chips, PillButton } from "../../components/Tabs";
+import { Chips, PillButton } from "../../ui/Tabs";
 import { useAtom } from "../../state/atom";
 import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "../../state/paperStream";
 import { usePickedScroll } from "./table";

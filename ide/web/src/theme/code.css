@@ -1,4 +1,4 @@
-/* The source view (components/CodeView): CodeMirror, read-only, in the page's monospace face. It grows to
+/* The source view (ui/CodeView): CodeMirror, read-only, in the page's monospace face. It grows to
    its content, so the editor island's ScrollArea scrolls it and no native bar shows. Token classes come
    from CodeView's highlighter, colours from tokens.css; the selectors outrank CodeMirror's base theme. */
 [data-code] .cm-editor { background: transparent; color: var(--fg); }

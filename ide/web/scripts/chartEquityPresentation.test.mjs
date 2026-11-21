@@ -10,8 +10,8 @@ const run = { paper_id: 777, readings: { final_equity_usdt: "9876.54" } };
 let shown, stream, moved = true;
 const empty = () => null;
 const fixtures = {
-  "components/CoinMenu": { CoinChip: empty, CoinMenu: empty, coinGroups: () => [] },
-  "components/Tabs": { Tabs: ({ label, items }) => createElement("div", { "aria-label": label },
+  "ui/CoinMenu": { CoinChip: empty, CoinMenu: empty, coinGroups: () => [] },
+  "ui/Tabs": { Tabs: ({ label, items }) => createElement("div", { "aria-label": label },
     items.map(({ id, label, disabled }) => createElement("span", { key: id, "data-choice": id, "data-disabled": !!disabled }, label))) },
   "widgets/runs/RunStages": { RunStages: ({ backtest, paper }) => createElement("div", {
     "data-stage-selector": shown.stage, "data-backtest": backtest, "data-paper": paper,

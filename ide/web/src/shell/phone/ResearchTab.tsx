@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { PhonePage } from "../../components/PhoneBar";
-import { PhoneDisclosure } from "../../components/PhoneParts";
-import { ReadingBadge } from "../../components/ReadingBadge";
-import { Missing, Skeleton, SkeletonLines } from "../../components/Missing";
-import { ResearchSyncLine } from "../../components/ResearchSync";
+import { PhonePage } from "../../ui/PhoneBar";
+import { PhoneDisclosure } from "../../ui/PhoneParts";
+import { ReadingBadge } from "../../widgets/ReadingBadge";
+import { Missing, Skeleton, SkeletonLines } from "../../ui/Missing";
+import { ResearchSyncLine } from "../../widgets/ResearchSync";
 import { pct } from "../../lib/format";
 import type { ResearchLine } from "../../lib/lines";
 import { meets } from "../../model/semantics";

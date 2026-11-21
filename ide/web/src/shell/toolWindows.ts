@@ -7,7 +7,7 @@ import type { ComponentType } from "react";
 import type { Widget } from "../model/types";
 import { bottomToolOnPage, type ToolPage } from "../model/toolScope";
 import type { IconName } from "../icons/registry";
-import type { HeaderAction } from "../components/PanelHeader";
+import type { HeaderAction } from "../ui/PanelHeader";
 import { agentPane, chatControl } from "../state/agent";
 import { requestFocus } from "../state/linking";
 import { selection } from "../state/selection";
