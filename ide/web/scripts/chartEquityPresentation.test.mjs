@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { namespace } from "./load.mjs";
+import { loader, namespace } from "./load.mjs";
 
 const run = { paper_id: 777, readings: { final_equity_usdt: "9876.54" } };
 let shown, stream, ret = 0.42;
@@ -78,4 +78,12 @@ test("Paper Equity stays selectable with its reading while the run's equity has 
   } finally {
     ret = 0.42;
   }
+});
+
+test("a flat equity line draws no behind-pace fill and its axis takes in the pace; one that moved keeps both rules", async () => {
+  const { unmoved } = await loader().namespace("widgets/paper/equityLayers.ts");
+  const point = (time, value, pace) => ({ time, value, peak: value, low: value, pace });
+  assert.equal(unmoved([point(0, 10_000, 10_000), point(60, 10_000, 10_000.2)]), true);
+  assert.equal(unmoved([point(0, 10_000, 10_000), point(60, 10_003.5, 10_000.2)]), false);
+  assert.equal(unmoved([]), false);
 });
