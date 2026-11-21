@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nautilus_trader.model import (FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
+from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
                                    TriggerType)
 
 from engine import membership as membership_months, paper, realtime
@@ -85,6 +85,19 @@ class HoldTests(unittest.TestCase):
         self.assertEqual(seen[4:], [("BTC", "bar", 4)])
         btc._paper_held.clear()
         self.assertEqual((btc._paper_held, eth._paper_held), ([], []))
+
+    def test_a_repeated_or_revised_bar_never_reaches_the_source_twice(self):
+        # Binance may push a closed kline again (audit loopback s10_dup_live): the source would decide twice on one bar.
+        seen: list = []
+        btc = self.source(seen)
+        kind = BarType.from_str("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
+        with mock.patch.object(paper, "journal") as journal:
+            for at, stamp in ((10, MINUTE_NS), (11, MINUTE_NS), (12, 0), (13, 2 * MINUTE_NS), (14, 3 * MINUTE_NS)):
+                btc.on_bar(SimpleNamespace(bar_type=kind, ts_event=stamp, ts_init=at))
+        self.assertEqual(seen, [("BTC", "bar", 10), ("BTC", "bar", 13)])  # the last still held for its dispatch
+        self.assertEqual([call.kwargs for call in journal.call_args_list if call.args[0] == "bar_repeated"],
+                         [{"bar_type": str(kind), "after_ns": MINUTE_NS, "received_ns": MINUTE_NS},
+                          {"bar_type": str(kind), "after_ns": MINUTE_NS, "received_ns": 0}])
 
     def test_a_fill_stamped_before_released_callbacks_is_recorded_late(self):
         btc = self.source([])

@@ -521,6 +521,23 @@ def _late(self, event) -> None:
                 ts_event=event.ts_event, released_ns=self._paper_released_ns)
 
 
+def _repeated(self, bar) -> bool:
+    """An external bar stamped no later than the latest of its type the source had: Binance pushing a closed kline
+    again, revised or not (rc7's validate_data_sequence passes an equal stamp). It is journalled and the source does
+    not see it, or it decides twice on one bar, as engine.live_connection.bar does for Live. A replay never repeats a
+    bar, so this keeps parity."""
+    kind = bar.bar_type
+    if not (isinstance(kind, BarType) and kind.is_externally_aggregated()):
+        return False
+    latest = self.__dict__.setdefault("_paper_latest_bar", {})
+    previous = latest.get(str(kind))
+    if previous is not None and bar.ts_event <= previous:
+        journal("bar_repeated", bar_type=str(kind), after_ns=previous, received_ns=bar.ts_event)
+        return True
+    latest[str(kind)] = bar.ts_event
+    return False
+
+
 def paper_callbacks(strategy_class: type) -> dict:
     """engine.strategy.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
     the fills its data caused are applied, and every order and position event journalled before the source
@@ -531,6 +548,9 @@ def paper_callbacks(strategy_class: type) -> dict:
     held = {name: (lambda callback: lambda self, value: _hold(self, callback, value, value))(found[name])
             for name in strategy_runtime.DATA_CALLBACKS
             if found.get(name) and name not in ("on_mark_price", "on_funding_rate", "on_data")}
+    if "on_bar" in held:
+        held["on_bar"] = (lambda hold: lambda self, bar: release_before(bar) if _repeated(self, bar) else hold(self, bar))(
+            held["on_bar"])
 
     def at_cadence(name: str):
         method = source[name]

@@ -118,7 +118,8 @@ seconds apart (one native position and open-order reconciliation cycle), both ag
 instance's positions per side and open orders by venue ID, on the account modes, nothing on a symbol outside the run,
 and a live bar received since the reconnect. A disagreement restarts the check. Orders at Binance the cache does not
 know are canceled with every order on their contract (native cancel-all, regular and conditional), and entries then
-stay closed for the run, as they do after changed account modes. A missing external bar on any contract (Binance's
+stay closed for the run, as they do after changed account modes. An external bar stamped no later than the last of its type (a closed kline pushed again, revised or not) is journalled
+as `bar_repeated` and never reaches the source. A missing external bar on any contract (Binance's
 stream does not resend a close it missed) is not patched: entries on every contract close and working ones are
 withdrawn; a position keeps its instance and exits. Once no instance holds a position, order or held entry, no
 instance sees a further bar, and after two agreeing comparisons this start ends
