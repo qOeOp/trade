@@ -36,6 +36,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   stored (doctor 20261121-01). Read paths that need only a few measures (`research status`, `research runs`, the
   research graph, line history) now derive only those; their output is unchanged.
 
+- market-import health: the check prints why it fails (`status is 27.4 h old, a round running since ...`,
+  `metrics/BTCUSDT lagging`, a stopped scope's refusal code, an unreadable status), Docker keeps that in the
+  container's health log, and the release host's Telegram notice quotes it. The same conditions stay unhealthy.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.

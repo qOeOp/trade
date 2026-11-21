@@ -572,15 +572,26 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
     return status
 
 
-def check(path: Path | None = None, now: datetime | None = None) -> int:
+def check(path: Path | None = None, now: datetime | None = None, out=print) -> int:
     """The healthcheck: 0 when the latest status is fresh, nothing is stopped, lagging or unknown (skipped months are
-    not)."""
+    not). When unhealthy it prints why on one line, which Docker keeps in the container's health log."""
     try:
         status = json.loads((path or default_status()).read_text(encoding="utf-8"))
         now = now or datetime.now(UTC)
-        fresh = now - datetime.fromisoformat(status["at"]) <= STALE
-        return 0 if fresh and all(entry["state"] in ("caught_up", "waiting")
-                                                for entries in status.get("kinds", {}).values()
-                                                for entry in entries.values()) else 1
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        age = now - datetime.fromisoformat(status["at"])
+        failing = [f"{kind}/{scope} {entry['state']}" + (f" ({entry['refusal']['code']})" if isinstance(
+                       entry.get("refusal"), dict) and isinstance(entry["refusal"].get("code"), str) else "")
+                   for kind, entries in status.get("kinds", {}).items() for scope, entry in entries.items()
+                   if entry["state"] not in ("caught_up", "waiting")]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        out(f"status unreadable ({type(exc).__name__})")
         return 1
+    if age > STALE:
+        running = status.get("running_since")
+        out(f"status is {age.total_seconds() / 3600:.1f} h old"
+            + (f", a round running since {running}" if isinstance(running, str) else ""))
+        return 1
+    if failing:
+        out("; ".join(failing[:5]) + (f"; {len(failing) - 5} more" if len(failing) > 5 else ""))
+        return 1
+    return 0
