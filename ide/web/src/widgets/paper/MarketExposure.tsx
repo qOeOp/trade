@@ -120,13 +120,15 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
           </div>
         )}
         {p.devYears.length > 0 && (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 gap-y-1">
             <Head tip="The development window cut at the trade start's anniversaries (UTC), each year's compound return; a last part year when the window ends between two">Development year</Head>
             <Head right>Return</Head>
+            <Head right tip="Each year's sealed maximum drawdown of the bar-close MARK equity; the run is continuous, so a year's drawdown may fall from an earlier year's peak">Drawdown</Head>
             {p.devYears.map((y) => (
               <Fragment key={y.start}>
                 <span className="text-fg-muted">{y.start} – {y.end}</span>
                 <span className={`text-right font-medium ${tone(y.ret)}`}>{signedPct(y.ret, 1)}</span>
+                <span className="text-right text-fg-muted">{pct(y.drawdown)}</span>
               </Fragment>
             ))}
           </div>
