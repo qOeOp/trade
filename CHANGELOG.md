@@ -70,6 +70,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   (column Entry / Mark): a sixth column does not fit a phone's width.
 - IDE Research page: clicking a bar in the Progress chart now selects that version in Details, as Enter on the
   chart and a click on the Scatter already did; before, it only moved the lineage to it.
+- **Breaking** (release host): the release reads a version's compose definition (`deploy/compose.yaml`,
+  `deploy/remote/*.yaml`, the `Caddyfile`, `oauth2-proxy.cfg`) from its service image, as the handoff reads its
+  code, into `/var/lib/trade-release/control/<revision>/deploy/`, and recreates the ledger mirror, market import and
+  the Docker API proxy from it. The checkout `/opt/trade-app` no longer has to follow the routed version: the release
+  never reads it, its `composes()` check and the checkout drift notice are gone, and `install-release.sh` no longer
+  installs overlays in `/opt/trade-release/deploy/remote/`. Upgrade: once 0.5.0 is routed, recreate OAuth2 Proxy and
+  `edge` once from `control/current/deploy/` (`deploy/remote/README.md`, Upgrading a host to 0.5.0); nothing is
+  needed before it.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.

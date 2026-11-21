@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -150,13 +151,25 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
+def durable_copy(source: Path, target: Path) -> None:
+    """Copy a regular file's bytes to `target` (0644), replacing it in one rename."""
+    temporary = target.with_name(target.name + ".pending")
+    with temporary.open("wb") as out:
+        out.write(source.read_bytes())
+        os.fchmod(out.fileno(), 0o644)
+        out.flush()
+        os.fsync(out.fileno())
+    temporary.replace(target)
+
+
 ENV_FILE = Path("/etc/trade/remote.env")
-# The compose files of the host's whole project, as install-release.sh names them: the operator's checkout and the
-# installed release overlays. The release recreates two services of the service image from them, changing only
-# TRADE_SERVICE_IMAGE (docs/plans/release-moves-ledger-mirror-20261116.zh.md).
-COMPOSE_FILES = ("/opt/trade-app/deploy/compose.yaml", "/opt/trade-app/deploy/remote/compose.yaml",
-                 "/opt/trade-release/deploy/remote/cd.compose.yaml",
-                 "/opt/trade-release/deploy/remote/paper-cd.compose.yaml")
+IMAGE_DEPLOY = "/opt/trade/deploy"  # deploy/Dockerfile: WORKDIR /opt/trade, COPY . ./ (deploy/Dockerfile.dockerignore)
+EXTRACTOR = "trade-release-control-extract"
+# The compose files of the host's whole project, as each version's service image carries them under deploy/, and the
+# files they name. The release recreates the services of the service image and docker-api from its own version's
+# files, changing only the image variable (docs/plans/release-moves-ledger-mirror-20261116.zh.md).
+COMPOSE = ("compose.yaml", "remote/compose.yaml", "remote/cd.compose.yaml", "remote/paper-cd.compose.yaml")
+DEFINITION = (*COMPOSE, "remote/Caddyfile", "remote/oauth2-proxy.cfg")
 # What follows a version: each compose service, its container, and whether its health check says the image works
 # (market-import's says whether the data lags, so it is only seen running).
 FOLLOWERS = (("ledger", LEDGER, True), ("market-import", MARKET_IMPORT, False))
@@ -255,6 +268,8 @@ class DockerFailure(RuntimeError):
 
 
 class DockerHost:
+    CODE = Path(__file__).resolve().parent  # this control's deploy/: control/<revision>/deploy on a host
+
     def __init__(self, config: Config):
         self.config = config
         self.state = config.state
@@ -312,20 +327,47 @@ class DockerHost:
                     '{{else}}null{{end}},"oom":{{json .State.OOMKilled}},"restarts":{{json .RestartCount}}}')
         return json.loads(self.docker("inspect", "--format", template, name))
 
-    def composes(self, service: str, variable: str, image: str) -> bool:
-        """Whether the host's compose definition runs `service` on `image` when `variable` names it."""
-        files = [arg for path in COMPOSE_FILES for arg in ("-f", path)]
-        found = json.loads(self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile",
-                                       "local-research-import", "config", "--format", "json", service,
-                                       timeout=60, env={variable: image}))
-        return found["services"][service]["image"] == image
+    def extract(self, service: str, target: Path) -> None:
+        """Copy IMAGE_DEPLOY out of the service image to `target`, from a container created and never started."""
+        self.docker("rm", "--force", EXTRACTOR, check=False)
+        self.docker("create", "--name", EXTRACTOR, "--network", "none", service, "true")
+        try:
+            self.docker("cp", f"{EXTRACTOR}:{IMAGE_DEPLOY}", str(target))
+        finally:
+            self.docker("rm", "--force", EXTRACTOR, check=False)
 
-    def recreate(self, service: str, name: str, image: str, healthy: bool, pull: bool = False,
+    def definition(self, service: str, sha: str) -> list[str]:
+        """The compose files of version `sha`, the one this control runs, beside its code (CODE). The first call
+        reads DEFINITION out of its admitted service image, as the handoff read the code (deploy/control.py)."""
+        root = self.CODE
+        if root.parent.name != sha:
+            raise RuntimeError("the running control is not the version whose compose definition is read")
+        if not all((root / name).is_file() for name in DEFINITION):
+            self.pull(service, SERVICE_REF, sha)
+            staged = root.parent / "definition.new"
+            shutil.rmtree(staged, ignore_errors=True)  # an interrupted read
+            staged.mkdir(mode=0o700)
+            try:
+                self.extract(service, staged / "image")
+                for name in DEFINITION:
+                    source = staged / "image" / name
+                    if source.is_symlink() or not source.is_file():
+                        raise RuntimeError("the admitted service image holds no compose definition")
+                    (root / name).parent.mkdir(mode=0o755, exist_ok=True)
+                    durable_copy(source, root / name)
+            finally:
+                shutil.rmtree(staged, ignore_errors=True)
+            sync_directory(root / "remote")
+            sync_directory(root)
+            print(f"Read the compose definition of {sha} from its service image", flush=True)
+        return [str(root / name) for name in COMPOSE]
+
+    def recreate(self, service: str, name: str, image: str, healthy: bool, files: list[str], pull: bool = False,
                  variable: str = SERVICE_IMAGE) -> None:
-        """Recreate one compose service on `image` from the host's own compose definition: the digest is passed in
-        the process environment as `variable`, which compose reads over the env file, so the env file is not
-        written. Compose recreates a service whose image changed, so its mounts are made anew."""
-        files = [arg for path in COMPOSE_FILES for arg in ("-f", path)]
+        """Recreate one compose service on `image` from the compose `files` of the active version (`definition`): the
+        digest is passed in the process environment as `variable`, which compose reads over the env file, so the env
+        file is not written. Compose recreates a service whose image changed, so its mounts are made anew."""
+        files = [arg for path in files for arg in ("-f", path)]
         wait = ["--wait", "--wait-timeout", str(FOLLOW_WAIT_SECONDS)] if healthy else []
         self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile", "local-research-import", "up",
                     "--detach", "--no-deps", "--timeout", "60", "--pull", "missing" if pull else "never", *wait,

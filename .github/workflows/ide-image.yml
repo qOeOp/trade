@@ -17,6 +17,9 @@ on:
       - deploy/Dockerfile.dockerignore
       - deploy/entrypoint.sh
       - deploy/compose.yaml
+      - deploy/remote/*.yaml
+      - deploy/remote/Caddyfile
+      - deploy/remote/oauth2-proxy.cfg
       - deploy/docker-api/**
       - cli/**
       - engine/**
