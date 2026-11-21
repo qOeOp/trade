@@ -46,7 +46,7 @@ class ReplayEvidenceTests(LiveFixture):
         registered = cls.world.register(cls.world.body(["rsi@1"], {"rsi@1": review}, comparison=None))
         cls.world.research_trial(registered["registration_id"], cls.candidate["source"])  # trades January 2026
 
-    def prepare(self, run_id: str, evidence_code: dict = CODE, **options) -> dict:
+    def prepare(self, run_id: str, evidence_code: dict = CODE, leverage: str = "3", **options) -> dict:
         """Preparation at the ledger's head; the execution image runs CODE, every replay image `evidence_code`."""
         described = lambda identity, _: CODE if identity["image_ref"] == IDENTITY["image_ref"] else evidence_code
         with patch("engine.load.read_universe"), \
@@ -56,7 +56,7 @@ class ReplayEvidenceTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], b"{}", self.credentials, IDENTITY["image_ref"],
-                           scope=self.scope, environment="live", drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage="3",
+                           scope=self.scope, environment="live", drawdown_brake="0.15", duration_seconds=60, memory="2g", leverage=leverage,
                            market_root=Path("unused"), credential_ref="a" * 32, request_id="prepare-" + run_id,
                            **options)
 
@@ -101,6 +101,8 @@ class ReplayEvidenceTests(LiveFixture):
         backing = self.explore()
         other_code = {**CODE, "audit_source_sha256": "4" * 64}
         self.assertEqual(self.unbacked("other-replay-code", evidence_code=other_code), "LIVE_EVIDENCE_MISSING")
+        # The replay traded at leverage 3 (its effective configuration): it backs no run at another leverage.
+        self.assertEqual(self.unbacked("other-leverage", leverage="5"), "LIVE_EVIDENCE_MISSING")
 
         manifest = self.prepare("backed")
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
