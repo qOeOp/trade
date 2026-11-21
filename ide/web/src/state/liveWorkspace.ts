@@ -6,16 +6,14 @@ import { showRunsPage } from "./shell";
 import { selection } from "./selection";
 import { chooseLiveRun, chooseStage } from "./stage";
 
-type Workspace = { review: string | null; credentials: boolean; requests: boolean };
-const workspace = atom<Workspace>({ review: null, credentials: false, requests: false });
+type Workspace = { review: string | null; credentials: boolean };
+const workspace = atom<Workspace>({ review: null, credentials: false });
 export const useLiveWorkspace = () => useAtom(workspace);
 
-export const openLiveReview = (runId: string) => workspace.set({ review: runId, credentials: false, requests: false });
+export const openLiveReview = (runId: string) => workspace.set({ review: runId, credentials: false });
 export const closeLiveReview = () => workspace.set({ ...workspace.get(), review: null });
-export const openLiveCredentials = () => workspace.set({ ...workspace.get(), credentials: true, requests: false });
+export const openLiveCredentials = () => workspace.set({ ...workspace.get(), credentials: true });
 export const closeLiveCredentials = () => workspace.set({ ...workspace.get(), credentials: false });
-export const openLiveRequests = () => workspace.set({ ...workspace.get(), requests: true, credentials: false });
-export const closeLiveRequests = () => workspace.set({ ...workspace.get(), requests: false });
 
 /** The Live launch page's own choices (widgets/live/LiveLaunch.tsx): the version it was begun on, the contracts and
  *  settings changed, and the run it prepared to check the account, kept across stage and page changes until a run

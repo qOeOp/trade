@@ -473,7 +473,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     settings = {"drawdown_brake": drawdown_brake, "duration_seconds": duration_seconds, "memory": memory,
                 "leverage": leverage}
     configuration.symbols(symbols)
-    config = _settings(root, run_id, **settings)
+    config = _settings(root, run_id, drawdown_brake, duration_seconds, memory, leverage)
     prior = prepared_locked(root, run_id, request_id, candidate, symbols, credential_ref, **settings)
     if prior is not None:
         return prior

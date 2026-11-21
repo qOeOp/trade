@@ -3,7 +3,7 @@ import { FormButton } from "../../components/chat/Field";
 import { LiveActionFailure, useLiveAction } from "../../components/LiveActionState";
 import { LiveLaunchColumn } from "../../components/LiveLaunchColumn";
 import { LiveLaunchStart } from "../../components/LiveLaunchStart";
-import { LiveRequestStatus } from "../../components/LiveFacts";
+import { LiveNoReply } from "../../components/LiveNoReply";
 import { TextButton } from "../../components/TextButton";
 import { checkBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
 import { preparedWith, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
@@ -40,17 +40,23 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   const checking = useLiveAction(), starting = useLiveAction();
   // A refusal is said at the control that met it: the account check's under Check account, the start's under Start.
   const [armed, setArmed] = useState(false), [said, say] = useState<{ text: string; at: "check" | "start" } | null>(null);
-  const [unknown, setUnknown] = useState<LiveRequest | null>(null);
+  // The check's or start's request that had no reply, while it has none: its card offers Send again.
+  const [unanswered, setUnanswered] = useState<string | null>(null);
+  const unknown = view.requests.find((request) => request.request_id === unanswered && request.outcome === "no_reply") ?? null;
   const shape = JSON.stringify([source?.candidate, symbols, values]);
   useEffect(() => { setArmed(false); say(null); }, [shape]);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const answer = (receipt: LiveRequest | null | void, at: "check" | "start") => {
-    if (!mounted.current) return;
-    if (!receipt) say({ text: "No answer came back. Requests shows whether Live recorded it.", at });
-    else if (receipt.outcome === "refused") say({ text: refusalText(receipt.code), at });
-    else if (receipt.outcome !== "effect_recorded") setUnknown(receipt);
+    if (!mounted.current || !receipt) return;
+    if (receipt.outcome === "refused") say({ text: refusalText(receipt.code), at });
+    else if (receipt.outcome === "no_reply") setUnanswered(receipt.request_id);
+  };
+  /** Send again from the card: a preparation Live then answers becomes the run this page checks. */
+  const sendAgain = async (id: string) => {
+    const receipt = await actions.resend?.(id), run = receipt?.outcome === "effect_recorded" && receipt.action === "prepare" ? receipt.target.run_id : null;
+    if (run) update(() => ({ preparedId: run })); else answer(receipt, receipt?.action === "start" ? "start" : "check");
   };
   /** The run to check or start: the one this page prepared, while it has not traded and holds this candidate, these
    *  contracts and settings, or a new one prepared now (local only: it freezes the candidate at the research head, the
@@ -59,11 +65,11 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
     if (!source || source.read !== "found" || !symbols || !actions.prepare) return null;
     if (checked && STARTABLE.has(checked.hostState ?? "") && preparedWith(checked, source.candidate, symbols, values)) return checked.id;
     const receipt = await actions.prepare({ candidate: source.candidate, symbols, values });
-    const id = receipt?.outcome === "effect_recorded" ? receipt.target.run_id ?? null : null;
+    const id = receipt.outcome === "effect_recorded" ? receipt.target.run_id ?? null : null;
     if (id) update(() => ({ preparedId: id })); else answer(receipt, at);
     return id;
   };
-  const begin = () => { say(null); setUnknown(null); };
+  const begin = () => { say(null); setUnanswered(null); };
   const check = () => void checking.submit(async () => {
     begin();
     const id = await prepared("check");
@@ -93,7 +99,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
     {(closed || unknown || checking.failed || starting.failed) && <div role="status" className="shrink-0 space-y-2 border-b border-line px-3 py-2">
       {closed && <p className="text-fg-muted">{unavailableReason(view)} Each row below says what it needs.</p>}
       <LiveActionFailure failed={checking.failed || starting.failed} />
-      {unknown && <LiveRequestStatus request={unknown} resolve={actions.resolveRequest} />}
+      {unknown && <LiveNoReply request={unknown} view={view} resend={actions.resend && sendAgain} />}
     </div>}
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto @3xl:flex-row @3xl:overflow-hidden">
       <LiveLaunchColumn column={columns[0]!} index={0} closed={closed} edit={busy ? undefined : edit} />

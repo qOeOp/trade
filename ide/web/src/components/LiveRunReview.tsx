@@ -9,17 +9,16 @@ import { LiveRunReviewDialog } from "./LiveRunReviewDialog";
 /** Review run… of the toolbar: a run that executes or reconciles is reviewed through its observations
  *  (LiveRunReviewDialog); a prepared one shows its frozen plan and account check. Neither starts a run: a run starts
  *  only from the Live page's start control. */
-export function LiveRunReview({ runId, open, close, view, actions, requests }: {
-  runId: string; open: boolean; close: () => void; view: LiveTradingView; actions: LiveTradingActions; requests: () => void;
+export function LiveRunReview({ runId, open, close, view, actions }: {
+  runId: string; open: boolean; close: () => void; view: LiveTradingView; actions: LiveTradingActions;
 }) {
   const reading = useLiveAction();
   const run = view.runs.find((item) => item.id === runId);
   const executing = run?.host.some((fact) => fact.label === "Mode" && (fact.value === "run" || fact.value === "reconcile"));
-  if (run && executing) return <LiveRunReviewDialog run={run} open={open} close={close} view={view} actions={actions} requests={requests} />;
+  if (run && executing) return <LiveRunReviewDialog run={run} open={open} close={close} view={view} actions={actions} />;
   return <LiveDialogFrame notice={view.notice} open={open} close={close} title="Review live run"
     description="A prepared run: its frozen plan and account check. A run starts from the Live page."
     footer={<>
-      <FormButton onClick={requests}>Request status…</FormButton>
       <FormButton disabled={!actions.refresh || reading.busy} onClick={() => void reading.submit(() => actions.refresh?.())}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
     </>}>
     <div className="space-y-4">

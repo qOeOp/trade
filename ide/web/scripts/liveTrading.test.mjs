@@ -11,7 +11,8 @@ let canvasRun, canvasView, draft = null;
 const components = new SourceTextModule(`
   export { LiveCredentialsDialog } from "./components/LiveCredentialsDialog";
   export { LiveRunReview } from "./components/LiveRunReview";
-  export { LiveFacts, LiveRequestStatus } from "./components/LiveFacts";
+  export { LiveFacts } from "./components/LiveFacts";
+  export { LiveNoReply } from "./components/LiveNoReply";
   export { LiveFrozenPlan } from "./components/LiveLaunchReview";
   export { LiveRunIdentity } from "./components/LiveRunIdentity";
   export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
@@ -20,7 +21,7 @@ const components = new SourceTextModule(`
 await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
-  "state/liveWorkspace": { openLiveRequests: () => {}, openLiveCredentials: () => {}, openLiveLaunch: () => {}, showLiveRun: () => {},
+  "state/liveWorkspace": { openLiveCredentials: () => {}, openLiveLaunch: () => {}, showLiveRun: () => {},
     FRESH_DRAFT: { version: null, edits: {}, preparedId: null },
     liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
   "state/paper": { usePaperRuns: () => null },
@@ -56,10 +57,10 @@ const run = {
   host: [{ label: "Container", value: "Running" }], execution: [{ label: "Admission", value: null }],
   account: [], ending: [{ label: "Venue flat", value: null }], evidence: [], accountCheck: null,
 };
-const wizard = (view, actions = {}) => render("LiveRunReview", { runId: run.id, open: true, close: noOp, requests: noOp, view, actions });
+const wizard = (view, actions = {}) => render("LiveRunReview", { runId: run.id, open: true, close: noOp, view, actions });
 
 test("unconnected dialog writes stay disabled and credential saving never implies account verification", () => {
-  const credentials = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp, requests: noOp });
+  const credentials = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp });
   assert.match(credentials, /No request will be sent/);
   assert.match(credentials, /does not connect to the exchange or check the account/);
   assert.equal((credentials.match(/type="password"/g) ?? []).length, 3);  // API key, API secret, Telegram bot token
@@ -73,46 +74,36 @@ test("unconnected dialog writes stay disabled and credential saving never implie
 
 test("the notifications panel shows status, never a token, and offers test and remove only once a bot is saved", () => {
   const off = render("LiveCredentialsDialog", { view: { ...blank, notify: { configured: false, lastSentNs: null, lastError: null, dropped: 0 } },
-    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp, requests: noOp });
+    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp });
   assert.match(off, /Telegram.*Off/);
   assert.match(off, /Create a bot with @BotFather, send it any message/);
   for (const label of ["Send test", "Remove"]) assert.match(off, new RegExp(`<button[^>]* disabled=""[^>]*>${label}</button>`));
   const on = render("LiveCredentialsDialog", { view: { ...blank, notify: { configured: true, lastSentNs: "1794000000000000000",
     lastError: { code: "network", atNs: "1794000060000000000" }, dropped: 2 } },
-    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp, requests: noOp });
+    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp });
   assert.match(on, /On · bound to your private chat/);
   assert.match(on, /network · /);
   assert.match(on, /2 messages/);
   for (const label of ["Send test", "Remove"]) assert.match(on, new RegExp(`<button(?![^>]* disabled="")[^>]*>${label}</button>`));
-  const unknown = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp, requests: noOp });
+  const unknown = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp });
   assert.match(unknown, /Unavailable while Live does not answer/);
 });
 
-test("a recorded request effect remains distinct from a fill, a flat account or native execution", () => {
-  const html = render("LiveRequestStatus", { request: { request_id: "request-fixture", action: "stop", target: { run_id: run.id }, outcome: "effect_recorded" } });
-  assert.match(html, /Stop requested/);
-  assert.match(html, /does not confirm a fill or a flat account/);
-  assert.doesNotMatch(html, /Already flat|Successfully stopped|Trading started/);
-  const preflight = render("LiveRequestStatus", { run, request: { request_id: "check-fixture", action: "preflight", target: { run_id: run.id }, outcome: "effect_recorded" } });
-  assert.match(preflight, /Account check requested/);
-  assert.match(preflight, /separate from the latest observed result/);
-  assert.doesNotMatch(preflight, /Last account check passed|Account check in progress/);
-});
-
-test("a durable unclaimed closure describes acceptance without inferring HTTP delivery", () => {
-  const html = render("LiveRequestStatus", { request: {
-    request_id: "closed-fixture", action: "unknown", target: {}, outcome: "refused", code: "LIVE_REQUEST_CLOSED_UNCLAIMED",
-  } });
-  assert.match(html, /Request closed before acceptance/);
-  assert.match(html, /request ID is permanently closed/);
-  assert.match(html, /late submission with this ID cannot execute/);
-  assert.doesNotMatch(html, /HTTP|not received|never received|Resolve local request/);
-  const unknown = render("LiveRequestStatus", { request: {
-    request_id: "unknown-fixture", action: "start", target: { run_id: run.id }, outcome: "outcome_unknown", code: "LIVE_REQUEST_MISSING",
-  } });
-  assert.match(unknown, /Request result unknown/);
-  assert.match(unknown, /does not repeat the original action or connect to the exchange/);
-  assert.doesNotMatch(unknown, /Request closed before acceptance/);
+test("a command with no reply shows what Live reads now and offers only Send again", () => {
+  const view = { ...blank, runs: [{ ...run, hostState: "running", running: true }],
+    credentials: [{ ref: "abcdef0123456789abcdef0123456789", savedAt: null, selected: true, available: true, runIds: [] }] };
+  const start = render("LiveNoReply", { view, resend: noOp, request: { request_id: "web-start", action: "start", target: { run_id: run.id }, outcome: "no_reply" } });
+  assert.match(start, /Live start · No reply received/);
+  assert.match(start, /This run · Running/);
+  assert.match(start, /<button(?![^>]* disabled="")[^>]*>Send again<\/button>/);
+  assert.match(start, /at most once/);
+  assert.doesNotMatch(start, /Resolve|Request details|web-start/);
+  const save = render("LiveNoReply", { view, request: { request_id: "web-save", action: "credential_save", target: {}, outcome: "no_reply" } });
+  assert.match(save, /Key save · No reply received/);
+  assert.match(save, /Selected key · abcdef012345/);
+  assert.match(save, /<button[^>]* disabled=""[^>]*>Send again<\/button>/, "no resend action: the button is off");
+  const gone = render("LiveNoReply", { view: blank, resend: noOp, request: { request_id: "web-prep", action: "prepare", target: { run_id: "web-unknown" }, outcome: "no_reply" } });
+  assert.match(gone, /Live lists no such run/);
 });
 
 test("review uses the run-bound credential relation, exact decimal text and the frozen contracts", () => {
@@ -144,7 +135,7 @@ test("a prepared run's review shows its account check and starts nothing", () =>
 test("the current run and its review expose the full copyable identity without expanding details", () => {
   canvasRun = { ...run, id: "web-0123456789abcdef012", hostState: "running", host: [{ label: "Mode", value: "run" }] };
   for (const html of [render("LiveRunCanvas", {}), render("LiveRunIdentity", { run: canvasRun }),
-    render("LiveRunReview", { runId: canvasRun.id, open: true, close: noOp, requests: noOp,
+    render("LiveRunReview", { runId: canvasRun.id, open: true, close: noOp,
       view: { ...blank, runs: [canvasRun] }, actions: {} })]) {
     const visible = html.replace(/<details\b[\s\S]*?<\/details>/g, "");
     assert.match(visible, /<code[^>]*>web-0123456789abcdef012<\/code>/);
