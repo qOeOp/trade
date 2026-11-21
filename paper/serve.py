@@ -21,6 +21,7 @@ carries JSON, which a page elsewhere cannot send without a preflight this server
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -516,7 +517,7 @@ class Daemon:
                 except Failure as exc:
                     print(f"paper stop {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
                 continue
-            orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
+            orphan = orphaned(run, now)
             if (run["state"] != "ended" and not orphan) or run["paper_id"] in self.stopping:
                 continue
             try:
@@ -608,8 +609,14 @@ class Daemon:
         return records.sealed_journal(self.files(paper_id, "events/") if files is None else files)
 
 
-def _epoch(value) -> float:
-    return value.timestamp() if hasattr(value, "timestamp") else 0.0
+def orphaned(run: dict, now: float) -> bool:
+    """Whether a declared run with no containers started more than ORPHAN_SECONDS before `now` (epoch seconds). The
+    ledger stamps `created_at` with UTC_TIMESTAMP into a DATETIME, read back naive: it is UTC whatever the host's
+    zone (doctor 20261108-02)."""
+    if run["state"] != "unsealed":
+        return False
+    created = run["created_at"]
+    return now - (created if created.tzinfo else created.replace(tzinfo=UTC)).timestamp() > ORPHAN_SECONDS
 
 
 class Server(ThreadingHTTPServer):

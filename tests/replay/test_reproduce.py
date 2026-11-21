@@ -13,7 +13,7 @@ from ledger import execution, metrics, strategies, trials
 from registration import reproduction
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import comparability, register, seams as registration_seams
+from registration import comparability, register, runner as registration_runner, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, status
 from tests.ledger.dolt import BINARY, MARKET_DAY, RUNTIME, SKIP, context, sha
@@ -280,7 +280,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     def inspect(identity, runner_argv, inputs):
         config = engine_config.parse_configuration([
             "--describe", "--market-root", str(inputs["root"]), "--market-day", MARKET_DAY,
-            "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_seams.ENTRY_FLAGS)])
+            "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_runner.ENTRY_FLAGS)])
         effective = engine_config.effective_configuration(config)
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,
                 "effective_config_sha256": effective.digest}

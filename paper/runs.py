@@ -22,6 +22,7 @@ release needs before it starts a candidate (deploy/release_host.py), so starting
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -61,6 +62,8 @@ EGRESS_START_SECONDS = 3
 LOG_TAIL_LINES = "20000"
 LABEL = "trade.paper"
 CRASH_RESTARTS, CRASH_WINDOW = 3, 3600  # resume: recovery attempts of one source per window (seconds)
+# What a source must name to declare Paper recovery as the runner checks it (engine.paper_session.declares_recovery).
+RECOVERY_NAMES = ("PAPER_RECOVERY", "on_save", "on_load")
 
 
 def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.CompletedProcess:
@@ -237,6 +240,29 @@ def _run_containers(identity: dict, profile: db.LedgerProfile, row: dict, entry_
     return named
 
 
+def unnamed_recovery(source: bytes) -> list[str]:
+    """The names of RECOVERY_NAMES the source never writes, as an identifier or a string. The runner's verdict
+    (engine.paper_session.declares_recovery) needs the class loaded, which only the runtime image may do. A source
+    missing any of these names fails it short of building the name from pieces: the source check refuses getattr,
+    setattr, vars, exec and dunders (engine.load.source_findings). A source naming all three may still fail it, which
+    its run's `started` line says (`recovery_declared`)."""
+    named: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            named.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            named.add(node.attr)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            named.add(node.name)
+        elif isinstance(node, ast.alias):
+            named.add(node.asname or node.name)
+        elif isinstance(node, ast.keyword) and node.arg:
+            named.add(node.arg)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            named.add(node.value)
+    return [name for name in RECOVERY_NAMES if name not in named]
+
+
 def _running(name: str) -> bool:
     found = _docker("inspect", "--format", "{{.State.Running}}", name)
     return found.returncode == 0 and found.stdout.strip() == b"true"
@@ -294,6 +320,12 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         # Every refusal that needs no write comes before the source copy, so a refused start leaves the Paper
         # database as it was (write_status not_written is then true).
         runnable = strategies.read_runnable(source, candidate)
+        unnamed = unnamed_recovery(runnable["source"])
+        if unnamed:
+            raise refuse("PAPER_RECOVERY_UNDECLARED",
+                         f"{candidate} does not declare Paper recovery (its source never names "
+                         f"{', '.join(unnamed)}), so a release, host restart or stall would end or hold its run",
+                         missing=tuple(unnamed))
         identity = image.resolve(runtime or image.EXECUTION)
         present = containers(profile)
         if _source_running(present, runnable["source_sha256"]):

@@ -26,3 +26,9 @@
   - 一张 reduce-only 单在同合约成交突发里由交易所发出的 OrderUpdated 可以落在策略的 OrderPendingCancel 之后、时间戳更早，条件是把这次撤单请求移到这些 Updated 之后事件即按时间有序、单子以 OrderCanceled 结束，且每个 Updated 之前都有该合约的一笔成交、距请求不超过一秒（与方案 A 同一界限）（`engine.audit.venue_updates_before_cancel`）。
   - 之间没有账户变动的连续成交（一笔或一次突发）按序一对一取随后同样多的账户变动：每笔落后其成交不超过一秒，在下一笔成交之前，开仓或加仓的那笔等于负手续费；任何一笔不符则整次突发都不计，仍由资金核对报出（`engine.audit.live_fill_changes`）。
   - 其余仍是发现：Canceled 之后的 Updated、非 reduce-only 单的 Updated、金额不符、多出或缺少的变动。
+
+## 测试夹具
+
+- 提交 a9f0f7928（[#3293](https://github.com/qOeOp/trade/pull/3293)）加入的 `tests/engine/paper_fill_burst.json` 是远端 Paper 运行 3 执行记录的摘录（Sandbox 的订单号、成交与账户行；不含凭据与账户身份），违反了 AGENTS.md 中 Paper 库不进 Git 的规定。起因是协调会话的任务说明要求摘录。
+- [#3307](https://github.com/qOeOp/trade/pull/3307) 把它换成了合成数据。
+- 旧文件的 blob 留在 Git 历史里，按用户 2026-11-21 的决定：「你还是保留历史吧 改写main太麻烦了」。

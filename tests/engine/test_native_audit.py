@@ -680,13 +680,13 @@ class UncoveredIntervalTests(unittest.TestCase):
         self.assertEqual(uncovered_intervals(restored, 10 + BAR_NS + 1), [])
 
 
-BURST = Path(__file__).with_name("paper_fill_burst.json")  # one APT position of Paper run 3, from its sealed reports
+BURST = Path(__file__).with_name("paper_fill_burst.json")  # synthetic: one position, timed like a Paper Sandbox burst
 
 
 class PaperFillBurstTests(unittest.TestCase):
-    """A live clock's burst of partial fills (Paper run 3): the Sandbox resizes the working reduce-only exits after
-    each fill while the strategy's cancel request is already queued, and stamps each fill's account update after the
-    burst. The replay's simulated clock keeps the exact rules."""
+    """A live clock's burst of partial fills (synthetic, timed as in Paper run 3): the Sandbox resizes the working
+    reduce-only exits after each fill while the strategy's cancel request is already queued, and stamps each fill's
+    account update after the burst. The replay's simulated clock keeps the exact rules."""
 
     def setUp(self):
         self.data = json.loads(BURST.read_text(encoding="utf-8"))

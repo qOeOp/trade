@@ -33,7 +33,7 @@ from shared import paths
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import inputs as registration_inputs, precheck as source_precheck, register
-from registration import seams as registration_seams
+from registration import runner as registration_runner, seams as registration_seams
 from registration import validation as registration_validation
 from replay import seams
 from runtime import container, image
@@ -118,7 +118,7 @@ def _identity4(identity: Mapping) -> dict:
 def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research,
             membership_end: int | None = None) -> tuple[dict, dict]:
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
-    runner = registration_seams.runner_inputs(list(runner_argv))
+    runner = registration_runner.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
                                                      include_quotes=runner["execution"] == "quotes",
@@ -137,7 +137,7 @@ def _prepare(workdir: Path, source: bytes, entry_class: str, source_sha256: str,
     (workdir / SOURCE / "strategy.py").write_bytes(source)
     _write_json(workdir / INSPECTION, inspection)
     coverage = input_coverage(workdir, inputs, inspection).read_bytes()
-    argv, mounts = registration_seams.container_runner_args(list(runner_argv), inputs)
+    argv, mounts = registration_runner.container_runner_args(list(runner_argv), inputs)
     argv += _strategy_argv(workdir, identity, inspection, entry_class, source_sha256)
     return coverage, argv, [*mounts, (workdir / COVERAGE, COVERAGE_MOUNT, True),
                             (workdir / SOURCE, STRATEGY_DIR, True), (workdir / REPORTS, container.REPORTS, False)]
@@ -398,7 +398,7 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
 
 def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | None, runner_argv: list[str]) -> None:
     """ledger.lines.check_replay_window for an explore or precheck replay, before anything is exported or written."""
-    inputs = registration_seams.runner_inputs(list(runner_argv))
+    inputs = registration_runner.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
     _, latest = source.days(market_day)
@@ -416,7 +416,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
     output = paths.temporary_path(output)
     if not isinstance(strategy_class, str) or not strategy_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{strategy_class!r} is not one Python class name")
-    registration_seams.require_unreserved(list(runner_argv))
+    registration_runner.require_unreserved(list(runner_argv))
     _check_window(ledger, market, at, line, runner_argv)
     source = Path(strategy_file).read_bytes()
     revision = {"source": source, "entry_class": strategy_class, "source_sha256": hashlib.sha256(source).hexdigest()}
@@ -444,9 +444,9 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
     with db.connect(ledger, "reader") as conn:
         revision = strategies.read_candidate(conn, candidate)
     output = paths.temporary_path(output)
-    registration_seams.require_unreserved(list(runner_argv))
+    registration_runner.require_unreserved(list(runner_argv))
     _check_window(ledger, market, at, line, runner_argv)
-    window = registration_seams.runner_inputs(list(runner_argv))["window"]
+    window = registration_runner.runner_inputs(list(runner_argv))["window"]
     trading_days = (window["end"] - window["trade_start"]) / (86_400 * 10**9)
     if trading_days > source_precheck.PRECHECK_MAX_DAYS:
         raise refuse("PRECHECK_WINDOW_TOO_LONG", f"the trading window is {trading_days:g} days; a precheck trades at "
@@ -486,13 +486,13 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
     if (registration is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
                      expected="registration xor validation")
-    registration_seams.require_unreserved(list(runner_argv))
+    registration_runner.require_unreserved(list(runner_argv))
     if output is not None:
         output = paths.temporary_path(output)
     if validation is not None:
-        registration_seams.require_fresh()
+        registration_runner.require_fresh(registration_seams.current.checkout())
     else:
-        registration_seams.require_current()
+        registration_runner.require_current(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
         revision = strategies.read_candidate(conn, strategy)
         if registration is not None and at is None:
@@ -536,7 +536,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         raise refuse("EXPORT_CHANGED_BEFORE_EXECUTION", "the exported inputs changed after their identity was taken",
                      missing=("export_content_sha256",))
     raw_before = registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"]
-    runner = registration_seams.runner_inputs(list(runner_argv))
+    runner = registration_runner.runner_inputs(list(runner_argv))
     if output is not None:
         workdir = paths.temporary_path(output)
         workdir.mkdir(mode=0o700, parents=True)

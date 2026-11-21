@@ -39,7 +39,7 @@ ended by itself. How a run ended is a reason in `seal.json` (`RUNNER_EXIT_NONZER
 `PAPER_RECOVERY` source or of a held one leaves) or was interrupted before its summary, and seals every other end: a
 signal that ended a flat source without the recovery protocol is an ordinary end, and so is `HELD_FLAT`. The seal stores the run's files (`paper_file`): the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
-(`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
+(`docs/plans/stored-fields.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 `docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
 
 A write the disk refuses (a full disk) stops the run the same way instead of leaving it trading unrecorded. The first
@@ -169,7 +169,11 @@ Whether a source declares the protocol is the runner's own verdict on the class 
 MRO above `Strategy`). A new run journals it on its `started` line as `recovery_declared` (user 2026-11-18); the
 page's mark, the listing's `held_since` and `unprotected`, and `paper compare`'s `held` cause read it from there and
 never read or run the source. A run whose `started` line has no such key (started before this change) has no verdict:
-it is never marked or taken as held.
+it is never marked or taken as held. `paper start` cannot load the class (only the runtime image runs a source), so
+before any write it refuses a source whose text never names one of `PAPER_RECOVERY`, `on_save` and `on_load`, as an
+identifier or a string (`PAPER_RECOVERY_UNDECLARED`, user delegation 2026-11-21): the source check refuses `getattr`,
+`setattr`, `vars`, `exec` and dunders, so such a source fails the runner's check unless it builds the name from
+pieces. One that names all three starts and gets the runner's verdict.
 
 A recovery of a `PAPER_RECOVERY` source whose interruption crossed a funding settlement its source or recorder was
 following is held the same way instead of refused (user 2026-11-17): the source would never see that settlement as it
