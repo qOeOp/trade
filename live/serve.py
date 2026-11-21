@@ -20,7 +20,8 @@ import time
 from urllib.parse import unquote, urlsplit
 
 from engine.live_errors import LiveRefusal
-from live import authority, configuration, control, credentials, daily, notify, release, requests, runs, state
+from live import (authority, configuration, control, credentials, daily, notify, reconcile, release, requests, runs,
+                  state)
 
 
 MAX_BODY = 64 * 1024
@@ -101,17 +102,22 @@ def write_route(path: str) -> tuple[str, str | None]:
 
 
 def read(config: configuration.Configuration, path: str, *, binding: release.Binding | None = None,
-         evidence: control.Evidence | None = None) -> dict:
+         evidence: control.Evidence | None = None, reconciliation: reconcile.Reconciliation | None = None) -> dict:
     if path == "/api/live":
         return control.listing(config, binding=binding)
-    match = re.fullmatch(CANDIDATE + r"(?:/evidence/(" + SYMBOLS + "))?", path)
+    match = re.fullmatch(CANDIDATE + r"(?:/(evidence|paper)/(" + SYMBOLS + "))?", path)
     if match:
         ref = f"{match[1]}@{match[2]}"
         if match[3] is None:
             return control.candidate(config, ref)
+        symbols = configuration.symbols(unquote(match[4]).split(","))
+        if match[3] == "paper":
+            if reconciliation is None:  # derived only by the serving control, in the background
+                raise state.fail("LIVE_RECORD_UNAVAILABLE", "Paper runs are compared by the serving Live control")
+            return control.paper_view(config, reconciliation, ref, symbols)
         if evidence is None:  # read only by the serving control, in the background
             raise state.fail("LIVE_RECORD_UNAVAILABLE", "replay evidence is read by the serving Live control")
-        return control.evidence_view(config, evidence, ref, configuration.symbols(unquote(match[3]).split(",")))
+        return control.evidence_view(config, evidence, ref, symbols)
     match = re.fullmatch(r"/api/live/requests/" + REQUEST, path)
     if match:
         return requests.view(config.root, match[1])
@@ -122,7 +128,7 @@ def read(config: configuration.Configuration, path: str, *, binding: release.Bin
 
 
 def handler(config_file: Path, config: configuration.Configuration, *, binding: release.Binding | None = None,
-            evidence: control.Evidence | None = None):
+            evidence: control.Evidence | None = None, reconciliation: reconcile.Reconciliation | None = None):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, status: int, value: dict):
             body = state.encode(value)
@@ -147,7 +153,7 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
 
         def do_GET(self):
             try:
-                result = read(config, self.route(), binding=binding, evidence=evidence)
+                result = read(config, self.route(), binding=binding, evidence=evidence, reconciliation=reconciliation)
                 self.answer(200, {"ok": True, "data": result})
             except Exception as exc:
                 code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
@@ -195,7 +201,7 @@ class Server(socketserver.ThreadingUnixStreamServer):
 
 @contextmanager
 def listener(config: configuration.Configuration, config_file: Path, *, binding: release.Binding | None = None,
-             evidence: control.Evidence | None = None):
+             evidence: control.Evidence | None = None, reconciliation: reconcile.Reconciliation | None = None):
     directory = state.private_directory(config.socket.parent)
     # This empty process lease protects only this socket inode. Account operations still
     # use the original account.lock, never this lease or a second lifecycle mutex.
@@ -218,7 +224,8 @@ def listener(config: configuration.Configuration, config_file: Path, *, binding:
             if config.socket.lstat().st_ino != old.st_ino:
                 raise configuration.fail()
             config.socket.unlink()
-        server = Server(str(config.socket), handler(config_file, config, binding=binding, evidence=evidence))
+        server = Server(str(config.socket), handler(config_file, config, binding=binding, evidence=evidence,
+                                                    reconciliation=reconciliation))
         os.chmod(config.socket, 0o600)
         identity = config.socket.stat().st_ino
         try:
@@ -276,6 +283,8 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             done.wait(10)
 
     evidence = control.Evidence()
+    # Asked by the page and by preparation (live.reconcile.require); each ask starts a check in its own thread.
+    reconciliation = reconcile.Reconciliation()
 
     def reader():
         # Its own thread: reading replay evidence runs the execution image's probe, never delaying a request.
@@ -294,7 +303,8 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
 
     previous = {}
     try:
-        with listener(config, config_file, binding=binding, evidence=evidence) as server:
+        with listener(config, config_file, binding=binding, evidence=evidence,
+                      reconciliation=reconciliation) as server:
             worker = threading.Thread(target=maintain)
             sender = threading.Thread(target=notifier)
             checker = threading.Thread(target=reader, daemon=True)

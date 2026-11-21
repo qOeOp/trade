@@ -308,11 +308,12 @@ def run(root: Path, market_root: Path, today: str) -> dict:
     return {"state": "done", "runs": found}
 
 
-def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> list[str]:
-    """`docker run` of a comparison container: this control's image, user, groups, capabilities, security options,
-    network and mounts (--volumes-from), with its own memory and CPU limits, removed when it exits."""
+def launch_argv(container: dict, prefix: str, command: list[str]) -> list[str]:
+    """`docker run` of a comparison container running `python -m cli.main *command`: this control's image, user,
+    groups, capabilities, security options, network and mounts (--volumes-from), with its own memory and CPU limits,
+    named `prefix`-<random>, removed when it exits."""
     config, host = container["Config"], container["HostConfig"]
-    argv = ["docker", "run", "--rm", "--init", "--name", f"trade-live-daily-{secrets.token_hex(6)}",
+    argv = ["docker", "run", "--rm", "--init", "--name", f"{prefix}-{secrets.token_hex(6)}",
             "--volumes-from", container["Id"], "--network", host["NetworkMode"],
             "--memory", MEMORY, "--memory-swap", MEMORY, "--cpus", CPUS]
     if config.get("User"):
@@ -329,8 +330,7 @@ def launch_argv(container: dict, root: Path, market_root: Path, today: str) -> l
         value = next((item.split("=", 1)[1] for item in config.get("Env") or [] if item.startswith(name + "=")), None)
         if value is not None:
             argv += ["--env", f"{name}={value}"]
-    return [*argv, "--entrypoint", "python", container["Image"], "-m", "cli.main", "live", "compare-daily",
-            "--root", str(root), "--market-root", str(market_root), "--today", today]
+    return [*argv, "--entrypoint", "python", container["Image"], "-m", "cli.main", *command]
 
 
 def due(now: int, last: int | None) -> bool:
@@ -361,7 +361,8 @@ def launch(root: Path, market_root: Path, now: int) -> str:
     try:
         found = json.loads(subprocess.run(["docker", "inspect", "--type", "container", identity], capture_output=True,
                                           text=True, timeout=60, check=True).stdout)[0]
-        argv = launch_argv(found, root, market_root, metrics.utc_day(now))
+        argv = launch_argv(found, "trade-live-daily", ["live", "compare-daily", "--root", str(root), "--market-root",
+                                                       str(market_root), "--today", metrics.utc_day(now)])
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         return "uninspected"
     name = argv[argv.index("--name") + 1]

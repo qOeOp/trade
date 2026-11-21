@@ -53,3 +53,5 @@
 4. 拒绝码 `LIVE_PAPER_UNRECONCILED`，说明原因：没有匹配的运行、对照还没做完、市场还没覆盖，或哪一项检查没过。
 
 后半在前半合入之后作为单独的 PR 实现。
+
+实现时对第 2 条的一处调整：Paper 读者 profile 的路径不进快照与 `HOST_FIELDS`，而由 `Configuration.paper_ledger` 从研究读者 profile 的同目录推出（`profiles/paper.json`，`release_host.prepare` 每次写）。原因：发布时 `LiveHost.prepare` 会用新代码读上一版本控制的快照，快照字段集合变了，第一次发布就会以 “Live configuration cache does not match its release” 失败。推出的路径与快照字段等价（研究读者路径已由快照检查固定在发布状态目录下），且不需要兼容旧快照。

@@ -196,7 +196,8 @@ class Container(unittest.TestCase):
                                 "CapAdd": ["DAC_READ_SEARCH"], "SecurityOpt": ["no-new-privileges:true"]}}
 
     def test_the_comparison_container_is_the_controls_own_with_its_own_limits(self):
-        argv = daily.launch_argv(self.INSPECTED, Path("/srv/live"), Path("/srv/market"), TODAY)
+        argv = daily.launch_argv(self.INSPECTED, "trade-live-daily", [
+            "live", "compare-daily", "--root", "/srv/live", "--market-root", "/srv/market", "--today", TODAY])
         self.assertEqual(argv[:4], ["docker", "run", "--rm", "--init"])
         pairs = list(itertools.pairwise(argv))
         for pair in (("--volumes-from", "c0ffee"), ("--network", "trade-backend"), ("--memory", "2g"),

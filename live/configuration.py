@@ -90,6 +90,13 @@ class Configuration:
     runtime: str
     market_root: Path  # the market directory, mounted read-only: membership and the contract terms (TERMS_CHANGED)
 
+    @property
+    def paper_ledger(self) -> Path:
+        """The Paper database's reader profile, which every release writes beside the research reader
+        (deploy/release_host.py): the Paper runs admission compares (live.reconcile). Derived, so a release's snapshot
+        of an earlier revision still reads."""
+        return self.research_ledger.with_name("paper.json")
+
 
 def parse(value: dict) -> Configuration:
     """The control's installed snapshot, whose fields, format and runtime digest deploy.live_configuration.snapshot

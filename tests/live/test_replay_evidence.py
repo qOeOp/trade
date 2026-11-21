@@ -45,7 +45,7 @@ class ReplayEvidenceTests(LiveFixture):
         registered = cls.world.register(cls.world.body(["rsi@1"], {"rsi@1": review}, comparison=None))
         cls.world.research_trial(registered["registration_id"], cls.candidate["source"])  # trades January 2026
 
-    def prepare(self, run_id: str, evidence_code: dict = CODE) -> dict:
+    def prepare(self, run_id: str, evidence_code: dict = CODE, **options) -> dict:
         """Preparation at the ledger's head; the execution image runs CODE, every replay image `evidence_code`."""
         universe = self.root / f"{run_id}-universe.json"
         universe.write_text("{}")
@@ -58,7 +58,7 @@ class ReplayEvidenceTests(LiveFixture):
             return prepare(self.root, run_id, self.world.profile, db.head_commit(self.world.conn),
                            self.candidate["candidate"], ["AAAUSDT"], universe, self.credentials, IDENTITY["image_ref"],
                            scope=self.scope, drawdown_brake="0.15", duration_seconds=60,
-                           memory="2g", leverage="3", market_root=Path("unused"), credential_ref="a" * 32)
+                           memory="2g", leverage="3", market_root=Path("unused"), credential_ref="a" * 32, **options)
 
     def read_ahead(self) -> list[dict]:
         """runs.replay_evidence, which the page shows before preparing, on the same images as prepare."""
@@ -118,6 +118,18 @@ class ReplayEvidenceTests(LiveFixture):
                 self.assertEqual(self.refused("falsified"), "LIVE_CANDIDATE_FALSIFIED")
             with patch.object(history, "require_unfalsified", return_value={"line": "rsi-root", "judged_on": "holdout"}):
                 self.assertTrue(self.prepare("passed")["evidence"])
+    def test_preparation_needs_a_reconciled_paper_run_after_the_replay_evidence(self):
+        """20261120-06 (user 2026-11-21): the serving control's answer (live.reconcile.require), asked last."""
+        asked = []
+
+        def unreconciled(source_sha256, symbols):
+            asked.append((source_sha256, symbols))
+            raise state.fail("LIVE_PAPER_UNRECONCILED", "no sealed, complete Paper run of this source")
+        self.explore()  # replay evidence that backs the run
+        self.assertEqual(self.refused("no-paper", reconciled=unreconciled), "LIVE_PAPER_UNRECONCILED")
+        self.assertEqual(asked, [(hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"])])
+        self.assertTrue(self.prepare("reconciled", reconciled=lambda *_: None)["evidence"])
+
 
 @unittest.skipUnless(BINARY, SKIP)
 class CandidateReadTests(unittest.TestCase):

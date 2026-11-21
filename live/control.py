@@ -13,7 +13,7 @@ from engine.live_errors import REFUSALS, LiveRefusal
 from engine.live_venue import EVIDENCE_TOLERANCE
 from ledger import db, paper as paper_records
 from shared.errors import Refusal
-from live import authority, configuration, credentials, key, notify, release, requests, runs, state, views
+from live import authority, configuration, credentials, key, notify, reconcile, release, requests, runs, state, views
 
 
 MESSAGES = {
@@ -44,6 +44,7 @@ MESSAGES = {
     "LIVE_EVIDENCE_BALANCE": "No replay of this candidate started near the account's USDT wallet.",
     "LIVE_CANDIDATE_FALSIFIED": "The line's closing history test found this candidate short of its targets.",
     "LIVE_HISTORY_UNDECIDED": "The line's closing history test has not decided this candidate yet.",
+    "LIVE_PAPER_UNRECONCILED": "No sealed Paper run of this candidate on these contracts matches its replay yet.",
     "LIVE_RESTART_REQUIRES_RECONCILIATION": "An attempted run cannot restart its strategy. Review the original execution.",
     "LIVE_NOTIFY_TOKEN": "Telegram did not accept this bot token. Copy it again from @BotFather.",
     "LIVE_NOTIFY_NO_CHAT": "No private chat has messaged this bot yet. Send it any message from Telegram, then save again.",
@@ -196,6 +197,16 @@ def evidence_view(config: configuration.Configuration, evidence: Evidence, ref: 
             "research_at": head["research_at"]}
 
 
+def paper_view(config: configuration.Configuration, reconciliation: reconcile.Reconciliation, ref: str,
+               symbols: list[str]) -> dict:
+    """Whether a Paper run of `ref`'s source at the research head on `symbols` reconciles (live.reconcile), derived
+    in the background: {state: checking | reconciled | unreconciled, paper_id, reasons, source_sha256}."""
+    configuration.symbols(symbols)
+    head = candidate(config, ref)
+    return {**reconciliation.request(config, (head["source_sha256"], tuple(symbols))),
+            "source_sha256": head["source_sha256"]}
+
+
 def listing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> dict:
     """What the page shows before a run: availability, keys, retained runs, notifications and the run settings'
     defaults. The candidate and its contracts are the page's choice (candidate, evidence_view)."""
@@ -282,6 +293,11 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
         "runtime": config.runtime, "config": {**parameters, "memory": configuration.RUNNER_MEMORY}}}
 
 
+def _reconciled(config: configuration.Configuration, ref: str):
+    """Preparation's Paper check: this runs in `live web-command`, so it asks the serving control (paper_view)."""
+    return lambda source_sha256, symbols: reconcile.require(config, ref, source_sha256, symbols)
+
+
 def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existing=False):
     path = credentials.prepare_path_locked(root, credential_ref, request_id=request_id)
     directory = state.directory(root, run_id)
@@ -289,7 +305,8 @@ def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existi
     return runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                 inputs["symbols"], universe, path, inputs["runtime"], **inputs["config"],
                                 market_root=config.market_root, source_sha256=inputs["source_sha256"],
-                                request_id=request_id, credential_ref=credential_ref)
+                                request_id=request_id, credential_ref=credential_ref,
+                                reconciled=_reconciled(config, inputs["candidate"]))
 
 
 def _operation(config, action, command, body, root, request_id):
@@ -383,7 +400,7 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
                                  inputs["symbols"], Path(inputs["universe_file"]), path, inputs["runtime"],
                                  **inputs["config"], market_root=config.market_root,
                                  source_sha256=inputs["source_sha256"], request_id=request_id, credential_ref=ref,
-                                 recover_partial=True)
+                                 reconciled=_reconciled(config, inputs["candidate"]), recover_partial=True)
             return requests.view_locked(root, request_id)
         return requests.recover_locked(root, request_id)
 

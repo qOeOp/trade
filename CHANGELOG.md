@@ -65,6 +65,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   20261120-06): `LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them, `LIVE_HISTORY_UNDECIDED`
   for one it has not decided. The second condition the user named, a reconciled Paper run of the candidate, comes in
   its own change (docs/plans/live-paper-reconciliation-gate-review-20261121.zh.md).
+- Breaking (Live): preparing a Live run also needs a reconciled Paper run of the candidate (user 2026-11-21, doctor
+  20261120-06): a sealed, complete Paper run of the same source on the same contracts and replay code, not held,
+  whose `paper compare` on the archive has at least one order group and nothing unexplained (no `unexplained` group,
+  look-ahead suspect or equity minute). Otherwise it refuses `LIVE_PAPER_UNRECONCILED` with the reason. The serving
+  control derives the answer in the background (`live paper-compare` in a child container) and stores nothing. Each
+  release now writes `profiles/paper.json`, the Paper database's reader profile, beside the research reader; the
+  control reads it from there. A candidate without such a run can no longer be prepared: run it in Paper first.
 - Paper: a host stall no longer ends a run with `PAPER_CACHE_UNAVAILABLE` (user 2026-11-21). The run ends when the
   native cache process has exited, or when PING has gone unanswered at least 5 times in a row over at least 30
   seconds; a shorter miss is written to the runner's log and an answered PING clears it. Before, one PING not

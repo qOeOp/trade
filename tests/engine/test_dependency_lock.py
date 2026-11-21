@@ -1,5 +1,5 @@
 """engine.config.dependency_lock_sha256: a release, which bumps only the project's own version in `uv.lock`, keeps the
-replay identity Live compares (live/runs.py REPLAY_CODE); a dependency pin changes it."""
+replay identity Live compares (live/admission.py REPLAY_CODE); a dependency pin changes it."""
 
 import re
 import unittest
