@@ -156,6 +156,8 @@ class Observer(Strategy):
         if healthy and now - self.last_query >= ACCOUNT_QUERY_SECONDS:
             self.query_account(AccountId(session.manifest["account_id"]))
             self.last_query = now
+        if session.mode == "run":
+            session.follow_submissions(self.cache, now)
         if not session.observe_stop_intent():
             commands.dispatch_entry(session)
             if session.mode == "run":

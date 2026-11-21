@@ -5,7 +5,7 @@ from nautilus_trader.adapters.binance import (
     BinanceProductType,
 )
 from nautilus_trader.common import CacheConfig, Environment
-from nautilus_trader.live import LiveExecutionEngineConfig, LiveRiskEngineConfig
+from nautilus_trader.live import LiveExecutionEngineConfig, LiveRiskEngineConfig, SubmissionRecoveryPolicy
 from nautilus_trader.model import AccountId, ExecAlgorithmId, OmsType
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 from engine import history, strategy as strategy_runtime
@@ -41,7 +41,8 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0,
         # Account states in memory only (rc7 never trims Redis); orders and positions stay whole for the reports.
         purge_account_events_interval_mins=ACCOUNT_PURGE_MINUTES,
-        purge_account_events_lookback_mins=ACCOUNT_LOOKBACK_MINUTES))
+        purge_account_events_lookback_mins=ACCOUNT_LOOKBACK_MINUTES,
+        submission_recovery_policy=SubmissionRecoveryPolicy.RETAIN_UNRESOLVED))
     # The native per-order notional cap also blocks reductions. Each
     # entry is valued at the admission boundary; all remaining native risk stays on.
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate="10/00:00:01"))
