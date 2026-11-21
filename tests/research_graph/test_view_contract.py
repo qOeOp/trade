@@ -67,6 +67,8 @@ class Shapes:
         kind = kind[:-2] if kind.endswith("[]") else kind
         if kind.startswith("("):
             return None
+        if re.fullmatch(r"[A-Z]\w*", kind) and kind not in self.named:
+            raise AssertionError(f"types.ts declares no type alias {kind}")
         name = kind if kind in self.named else None
         kind = self.named.get(kind, kind)
         if kind.startswith("Widget & "):
