@@ -26,6 +26,9 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
+  BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
+  result (`--help`, progress lines) ends with exit 1.
 - IDE Runs page: clicking a row in the Trades, Cycles or Comparison table now moves the chart to that trade
   (doctor 20261121-10): the equity chart glides to its span with as much again either side, the candle chart shows
   it with at least twenty candles either side, and both mark the span with a band in the focus blue. The row stays
