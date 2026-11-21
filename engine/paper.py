@@ -76,7 +76,7 @@ from __future__ import annotations
 
 # This must precede third-party imports: every native worker must inherit the mask.
 if __name__ == "__main__":
-    from engine.paper_signals import block
+    from engine.signals import block
     block()
 
 import argparse
@@ -99,18 +99,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from nautilus_trader.adapters.binance import (
-    BinanceDataClientConfig, BinanceDataClientFactory, BinanceEnvironment, BinanceInstrumentProviderConfig,
-    BinanceProductType,
-)
 from nautilus_trader.adapters.sandbox import SandboxExecutionClientConfig, SandboxExecutionClientFactory
-from nautilus_trader.common import CacheConfig, DataActor, Environment, LoggerConfig, LogLevel
+from nautilus_trader.common import CacheConfig, DataActor, Environment
 from nautilus_trader.execution import MakerTakerFeeModel
-from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
-from nautilus_trader.persistence import DataCatalogConfig
+from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.model import (
     AccountType, BarType, BookType, Currency, FundingRateUpdate, InstrumentId, Money, OmsType, Price, StrategyId,
-    TraderId, Venue,
+    Venue,
 )
 from nautilus_trader.trading import Strategy
 
@@ -121,8 +116,9 @@ from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
-from engine.paper_signals import Signals
+from engine.signals import Signals
 from engine.cadence import Cadence
+from engine.realtime import node_base
 from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, instrument_id, leverage_of,
                            runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
@@ -538,18 +534,12 @@ def paper_callbacks(strategy_class: type) -> dict:
             for name in strategy_runtime.DATA_CALLBACKS
             if found.get(name) and name not in ("on_mark_price", "on_funding_rate", "on_data")}
 
-    def on_mark_price(self, update):
-        if self._paper_cadence.mark(update) and source["on_mark_price"]:
-            _hold(self, source["on_mark_price"], update, update)
-        else:
-            release_before(update)
+    def at_cadence(name: str):
+        method = source[name]
+        return Cadence.wrap(name, "_paper_cadence", (lambda self, passed, update: _hold(self, method, passed, update))
+                            if method else lambda self, passed, update: release_before(update), release_before)
 
-    def on_funding_rate(self, update):
-        settled = self._paper_cadence.funding(update)
-        if settled is not None and source["on_funding_rate"]:
-            _hold(self, source["on_funding_rate"], settled, update)
-        else:
-            release_before(update)
+    on_mark_price, on_funding_rate = at_cadence("on_mark_price"), at_cadence("on_funding_rate")
 
     def on_data(self, data):
         """A metrics row the Feed hands the source (engine.metrics) is journalled as it comes, whether or not the
@@ -967,16 +957,9 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
     """The node, and the recorder it holds."""
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])
-    builder = LiveNode.builder("paper", TraderId(account["trader_id"]), Environment.SANDBOX)
-    data = LiveDataEngineConfig(
-        time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
-        time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
-        validate_data_sequence=account["validate_data_sequence"], time_bars_build_delay=history.BUILD_DELAY_US)
+    builder = node_base("paper", account["trader_id"], Environment.SANDBOX, catalog,
+                        [item.instrument_id for item in planned], proxy_url)
     balance = Money(Decimal(account["starting_balance_usdt"]), usdt)  # type: ignore[arg-type]
-    # The warm-ups are requested from the run's Catalog, which they fill at T (engine.history).
-    builder = builder.from_config("paper", LiveNodeConfig(
-        environment=Environment.SANDBOX, trader_id=TraderId(account["trader_id"]), data_engine=data,
-        catalogs=[DataCatalogConfig(path=str(catalog))]))
     builder.with_cache_config(CacheConfig(use_instance_id=False, bar_capacity=history.bar_capacity(loaded.warmup)))
     if session:
         session.expected_starts = len(planned) + 1
@@ -1001,15 +984,8 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
             balance = original.balance_total(usdt)
         elif (session.saved or {}).get("sources"):
             raise checkpoint.fail("the checkpoint strategy state has no native account")
-    builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
     builder.with_reconciliation(bool(session))
-    builder.with_data_engine_config(data)
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]))
-    builder.add_data_client(VENUE, BinanceDataClientFactory(), BinanceDataClientConfig(
-        product_type=BinanceProductType.USD_M, environment=BinanceEnvironment.LIVE, api_key=None, api_secret=None,
-        proxy_url=proxy_url,
-        instrument_provider=BinanceInstrumentProviderConfig(load_all=False,
-                                                            load_ids=[item.instrument_id for item in planned])))
     builder.add_simulated_exec_client(VENUE, SandboxExecutionClientFactory(), SandboxExecutionClientConfig(
         venue=Venue(VENUE), starting_balances=[balance],
         base_currency=usdt, oms_type=getattr(OmsType, account["oms_type"]),

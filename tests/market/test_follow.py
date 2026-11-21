@@ -367,7 +367,7 @@ class CheckTests(unittest.TestCase):
         now = at(FEB)
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "status.json"
-            self.assertEqual(follow.check(path, now), 1)  # no round yet
+            self.assertEqual(follow.check(path, now, list().append), 1)  # no round yet
             for states, age, expected in ((("caught_up", "waiting"), 0, 0), (("caught_up", "lagging"), 0, 1),
                                           (("stopped",), 0, 1), (("unknown",), 0, 1), (("caught_up",), 27, 1)):
                 follow.write_status(path, {"at": (now - timedelta(hours=age)).isoformat(),
@@ -375,8 +375,29 @@ class CheckTests(unittest.TestCase):
                                                      "trades": {str(n): {"state": s, "skipped": ["2025-01"]}
                                                                 for n, s in enumerate(states)}}})
                 with self.subTest(states=states, age=age):
-                    self.assertEqual(follow.check(path, now), expected)
+                    self.assertEqual(follow.check(path, now, list().append), expected)
 
+
+    def test_an_unhealthy_check_prints_why_on_one_line(self):
+        now = at(FEB)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "status.json"
+            said: list[str] = []
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            follow.write_status(path, {"at": (now - timedelta(hours=27)).isoformat(),
+                                       "running_since": (now - timedelta(hours=3)).isoformat(), "kinds": {}})
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            stopped = {"state": "stopped", "refusal": {"code": "MONTH_GAP", "message": "private detail"}}
+            follow.write_status(path, {"at": now.isoformat(), "kinds": {
+                "bars": {"scope": {"state": "caught_up"}},
+                "metrics": {"BTCUSDT": {"state": "lagging"}, "ETHUSDT": stopped}}})
+            self.assertEqual(follow.check(path, now, said.append), 1)
+            follow.write_status(path, {"at": now.isoformat(), "kinds": {"bars": {"scope": {"state": "waiting"}}}})
+            self.assertEqual(follow.check(path, now, said.append), 0)
+            self.assertEqual(said, [
+                "status unreadable (FileNotFoundError)",
+                f"status is 27.0 h old, a round running since {(now - timedelta(hours=3)).isoformat()}",
+                "metrics/BTCUSDT lagging; metrics/ETHUSDT stopped (MONTH_GAP)"])
 
 
 class LoopTests(unittest.TestCase):

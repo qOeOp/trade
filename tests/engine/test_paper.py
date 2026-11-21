@@ -13,7 +13,7 @@ from unittest import mock
 from nautilus_trader.model import (FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
                                    TriggerType)
 
-from engine import membership as membership_months, paper
+from engine import membership as membership_months, paper, realtime
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
@@ -896,7 +896,7 @@ class SandboxConfigTests(unittest.TestCase):
         limit entry's ID from it would collide with a cached position (20261114-33); the execution engine's
         IDs live in the cache."""
         builder = mock.MagicMock()
-        with mock.patch.object(paper.LiveNode, "builder", return_value=builder), mock.patch.object(paper, "Recorder"), \
+        with mock.patch.object(realtime.LiveNode, "builder", return_value=builder), mock.patch.object(paper, "Recorder"), \
                 mock.patch.object(paper.history, "ACTORS", []):  # the warm-up actor registers itself here
             paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
                              Path("/nonexistent"), "3", {})
@@ -905,7 +905,7 @@ class SandboxConfigTests(unittest.TestCase):
         self.assertFalse(configs[0].use_position_ids)
 
     def test_a_recorder_the_node_did_not_register_is_refused(self):
-        with mock.patch.object(paper.LiveNode, "builder", return_value=mock.MagicMock()), \
+        with mock.patch.object(realtime.LiveNode, "builder", return_value=mock.MagicMock()), \
                 mock.patch.object(paper.history, "ACTORS", []), self.assertRaises(Refusal) as caught:
             paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
                              Path("/nonexistent"), "3", {})
@@ -930,7 +930,7 @@ class SandboxConfigTests(unittest.TestCase):
                 session.backend = SimpleNamespace(config=None, accounts=lambda: {"a": account},
                                                   open_contracts=lambda: set())
                 builder = mock.MagicMock()
-                with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+                with mock.patch.object(realtime.LiveNode, "builder", return_value=builder), \
                         mock.patch.object(paper, "Recorder"), mock.patch.object(paper.history, "ACTORS", []), \
                         mock.patch.object(paper.strategy_runtime, "configure_strategy") as configure:
                     if refused:
@@ -954,7 +954,7 @@ class SandboxConfigTests(unittest.TestCase):
         defaults, which a paired in-process replay confirmed give identical orders, fills, positions and account."""
         def configured() -> SimpleNamespace:
             builder = mock.MagicMock()
-            with mock.patch.object(paper.LiveNode, "builder", return_value=builder), \
+            with mock.patch.object(realtime.LiveNode, "builder", return_value=builder), \
                     mock.patch.object(paper, "Recorder"), mock.patch.object(paper.history, "ACTORS", []):
                 paper.build_node([], SimpleNamespace(warmup=()), None, (Decimal("0.0002"), Decimal("0.0005")),
                                  Path("/nonexistent"), "3", {})

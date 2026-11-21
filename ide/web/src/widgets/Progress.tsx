@@ -13,6 +13,8 @@ import { progressGutter, tickCount, VALUE_GUTTER as GUTTER } from "../components
 import { chartKeys } from "../components/chartKeys";
 import { EventTip } from "../components/EventTip";
 import { Tip } from "../components/Tip";
+import { FoldedRuns } from "../components/FoldedRuns";
+import { useFolded } from "../components/hooks/useFolded";
 
 // The top margin holds the legend (the panel names the chart); the plot starts right of the tick labels' gutter, the
 // labels and the readout pill's text ending GUTTER short of it (as in the scatter). The linked
@@ -36,15 +38,17 @@ function bar(x: number, w: number, base: number, end: number, r: number) {
 // thin plot line. It pans with the canvas (which marks the selected version above), at once, while a new
 // reading glides: a bar's place along the axis is its group's, its height its own. The trial at the
 // crosshair is a shaded column behind the bars, its run's return read out on the value axis along a
-// dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them.
+// dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them. Runs of versions the
+// lineage folds are not drawn, their trials left empty on the shared axis, but they stay in the value axis's range
+// and the legend counts them.
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
   const id = useId(), glide = useGlide(widget);
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
-  const { points } = widget;
+  const all = widget.points, folded = useFolded(), points = all.filter((p) => !folded.has(p.id));
   const target = widget.targets?.annual_return ?? null;
-  const values = [...points.map((p) => p.annual_return), target ?? 0, 0];
+  const values = [...all.map((p) => p.annual_return), target ?? 0, 0];
   const floor = Math.max(TOP + 1, height - BOTTOM);
   // As many ticks as fit 28px apart, up to 8 (5% steps for a usual range), the frame ending on them.
   const count = tickCount(floor - TOP);
@@ -95,7 +99,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {points.map((p) => (
                 <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
                   note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
-                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => requestFocus(p.id)} transform={`translate(${sx(p.x)} 0)`}>
+                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }} transform={`translate(${sx(p.x)} 0)`}>
                     <path className={glide} d={bar(-barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)} fill={v(tone(p.annual_return))} />
                   </g>
                 </Tip>
@@ -117,8 +121,9 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
         </svg>
       )}
       <div className="pointer-events-none absolute inset-x-3 top-1.5 flex justify-end text-small text-fg-muted">
-        {!points.length && <span className="mr-auto text-fg-faint">Each research run's annual return appears here.</span>}
-        <span className="flex min-w-0 flex-wrap justify-end gap-x-3 text-fg-muted">
+        {!all.length && <span className="mr-auto text-fg-faint">Each research run's annual return appears here.</span>}
+        <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 text-fg-muted">
+          <FoldedRuns n={all.length - points.length} />
           {LEGEND.filter(([role]) => points.some((p) => tone(p.annual_return) === role)).map(([role, label]) => (
             <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
               <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={v(role)} /></svg>{label}

@@ -55,6 +55,10 @@ no-compat 的 PR：[#2970](https://github.com/qOeOp/trade/pull/2970)、[#2971](h
 - -123 删 `run_reading.computed_at`、-04 的两处存储列改名：等下一代 schema（-11）。
 - 第一轮里我建议保留 `legacy_only` 的意见被 0.x 不兼容决定取代。
 
+**2026-11-21：-11 随第 2 代 schema 实施**
+
+0.5.0 破坏性版本重开账本（用户 2026-11-21：「这次所有修复都完成发的是大版本 我们又会清空数据库 重跑的」），按 11-14 授权第 3 项做 -11，范围不超出该项：删 `run_reading.computed_at` 及两个触发器里写它的部分（插入触发器整个删掉，更新触发器保留“读数不换运行”的检查）；`trial_instrument.instrument_id` 改名 `symbol`；`trial_capture.table_hashes` 改存 `run.fingerprints` 形状的语义指纹，两边按同一形状比较。`SCHEMA_VERSION` 升到 2，第 1 代账本被 `SCHEMA_MISMATCH` 拒绝。
+
 ## 实施结果
 
 60 批里 53 批已合入，-116、-118、-120、-121、-122、-131 这条 engine 链在 PR 中（已过配对原生重放验收，正在合入 #2975 之后的 main），-117 由 [#2880](https://github.com/qOeOp/trade/pull/2880) 修复，-114 与 -113 同在 [#2916](https://github.com/qOeOp/trade/pull/2916)。逐行状态见索引。

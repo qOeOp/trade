@@ -343,7 +343,7 @@ class ComparisonTableTests(unittest.TestCase):
                 "SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s AND ts_event_ns >= %s",
                 (trial_id, clock.moment_ns(start)))} for trial_id, start in rows]
             instruments = sorted({name for (name,) in conn.rows(
-                "SELECT instrument_id FROM trial_instrument WHERE trial_id IN (%s, %s)", tuple(ids))})
+                "SELECT symbol FROM trial_instrument WHERE trial_id IN (%s, %s)", tuple(ids))})
         self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
                          (self.world.line["line"], instruments, 2, 2))
         self.assertGreaterEqual(found["all_purpose_trials"], found["research_trials"])

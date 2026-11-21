@@ -1,4 +1,4 @@
--- Research ledger schema, generation 1 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init` on the
+-- Research ledger schema, generation 2 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init` on the
 -- research branch. Until 1.0 a later schema starts a new ledger and migrates no data (AGENTS.md); within a
 -- generation a changed reading is recomputed by reseal.
 --
@@ -259,8 +259,8 @@ ALTER TABLE research_registration ADD FOREIGN KEY (control_trial_id) REFERENCES 
 
 CREATE TABLE trial_instrument (
   trial_id INT NOT NULL,
-  instrument_id VARCHAR(64) NOT NULL,
-  PRIMARY KEY (trial_id, instrument_id),
+  symbol VARCHAR(64) NOT NULL,
+  PRIMARY KEY (trial_id, symbol),
   FOREIGN KEY (trial_id) REFERENCES trial (trial_id)
 );
 
@@ -320,7 +320,8 @@ CREATE TABLE trial_capture (
   fingerprint_exit_code INT NULL,
   outcome_kind ENUM('completed', 'interrupted', 'host_failure') NOT NULL,
   outcome_detail TEXT NULL,
-  -- Per-table hashes of a cross-image explore reproduction (replay/reproduce.py); no run row holds them.
+  -- The semantic fingerprint of a cross-image explore reproduction (replay/reproduce.py), in run.fingerprints'
+  -- shape; no run row holds it.
   table_hashes JSON NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
@@ -371,7 +372,6 @@ CREATE TABLE run_reading (
   product_commit CHAR(40) NOT NULL,
   -- NULL at the first seal (the run's own write); a reseal's own operation.
   op_id VARCHAR(160) NULL UNIQUE,
-  computed_at DATETIME(6) NOT NULL,
   FOREIGN KEY (trial_id) REFERENCES run (trial_id),
   CHECK (JSON_TYPE(report) = 'OBJECT')
 );
@@ -467,7 +467,6 @@ CREATE TRIGGER judgment_created BEFORE INSERT ON judgment FOR EACH ROW SET NEW.c
 -- A run's seal order and time come from the server.
 CREATE TRIGGER run_sealed BEFORE INSERT ON run FOR EACH ROW SET
   NEW.created_at = UTC_TIMESTAMP(6), NEW.sealed_seq = (SELECT seq FROM ledger_head WHERE singleton = 1);
--- A reading's time comes from the server at every write; a reseal never moves it to another run.
-CREATE TRIGGER run_reading_computed BEFORE INSERT ON run_reading FOR EACH ROW SET NEW.computed_at = UTC_TIMESTAMP(6);
+-- A reseal never moves a reading to another run.
 CREATE TRIGGER run_reading_recomputed BEFORE UPDATE ON run_reading FOR EACH ROW BEGIN
-  IF NEW.trial_id <> OLD.trial_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'a reading stays with its run'; END IF; SET NEW.computed_at = UTC_TIMESTAMP(6); END;
+  IF NEW.trial_id <> OLD.trial_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'a reading stays with its run'; END IF; END;

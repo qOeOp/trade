@@ -263,8 +263,8 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
         runs[row["trial_id"]] = row
     for row in conn.rows_in(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ()", ids, dicts=True):
         trials[row["trial_id"]] = row
-    for trial_id, symbol in conn.rows_in("SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN () "
-                                         "ORDER BY trial_id, instrument_id", ids):
+    for trial_id, symbol in conn.rows_in("SELECT trial_id, symbol FROM trial_instrument WHERE trial_id IN () "
+                                         "ORDER BY trial_id, symbol", ids):
         trials[trial_id].setdefault("instruments", []).append(symbol)
     for row in conn.rows_in("SELECT trial_id, report, product_commit FROM run_reading WHERE trial_id IN ()", ids,
                             dicts=True):

@@ -5,8 +5,8 @@ import { fetchMinutes, type FetchedMinutes } from "../../lib/minutesApi";
 import type { JournalLine } from "../../lib/paperApi";
 import { liveChart } from "../../model/liveChart";
 import { heldGap } from "../../model/liveHeld";
-import type { Held } from "../../model/paper";
-import { liveHeld } from "../../model/phoneRuns";
+import type { Held, PriceLine } from "../../model/paper";
+import { liveHeld, liveWorking, protects } from "../../model/phoneRuns";
 import type { LiveRun } from "../../model/liveTrading";
 import { CandleChart } from "../paper/CandleChart";
 
@@ -14,21 +14,28 @@ const NONE: never[] = [];
 const MINUTE = 60_000;
 
 /** One contract of a live run as the paper chart draws one: Binance's public one-minute candles around the run
- *  and its own native fills as arrows, unnetted, so no position box. Live keeps no equity series, so there
- *  is no equity view; while the run executes the minutes are read again each minute. Mounted per run and contract. */
+ *  and its own native fills as arrows, unnetted, so no position box; its open position and protective stops as
+ *  levels. Live keeps no equity series, so there is no equity view; while the run executes the minutes are read
+ *  again each minute. Mounted per run and contract. */
 export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null }) {
   const [now, setNow] = useState(() => Date.now()), [tries, setTries] = useState(0);
   const plan = useMemo(() => liveChart(run, now, symbol), [run, now, symbol]);
   const [read, setRead] = useState<{ key: string; got: FetchedMinutes } | null>(null);
   // The last window read whole: kept drawn while the next is read, and when a read fails.
   const [drawn, setDrawn] = useState<{ head: string; bars: JournalLine[] } | null>(null);
-  // Live infers no position (its fills are drawn alone); the one level it draws is a position the latest check of the
-  // stops found without its stop, at the entry its native position event gives.
+  // The position and its protective stops as the run's native events last leave them (as LiveHoldings lists them),
+  // marked No stop where the latest check of the stops at Binance found it without one.
   const held = useMemo<Held | null>(() => {
     if (!plan) return null;
     const mine = liveHeld(run).find((h) => h.symbol === plan.symbol && h.entry !== null), gap = mine && heldGap(run.heldAlert, mine.symbol, mine.long);
-    return mine && gap ? { long: mine.long, quantity: Number(gap.position) || mine.qty, average: mine.entry!, pnl: null, warn: "No stop" } : null;
+    return mine ? { long: mine.long, quantity: gap ? Number(gap.position) || mine.qty : mine.qty, average: mine.entry!, pnl: null, ...gap ? { warn: "No stop" } : {} } : null;
   }, [run.heldAlert, run.positions, plan?.symbol]);
+  const stops = useMemo<PriceLine[]>(() => {
+    if (!plan) return NONE;
+    const held = liveHeld(run);
+    return liveWorking(run).filter((o) => o.symbol === plan.symbol && protects(o, held)).map((o) =>
+      ({ id: o.key, price: o.trigger!, kind: "stop", label: "SL", side: o.buy ? "BUY" : "SELL", quantity: String(o.qty ?? "") }));
+  }, [run.orders, run.positions, plan?.symbol]);
   const key = plan ? `${plan.symbol}:${plan.from}:${plan.to}` : "", head = plan ? `${plan.symbol}:${plan.from}` : "";
   useEffect(() => {
     if (!plan?.running) return;
@@ -53,6 +60,6 @@ export function LiveChart({ run, symbol }: { run: LiveRun; symbol: string | null
   </div>;
   const note = `Binance public 1m · native fills, no equity series in Live${failed ? ` · last read failed: ${failed}` : ""}`;
   return <CandleChart remembers={`live:${run.id}:${plan.symbol}`} symbol={plan.symbol} bars={bars} lead={null} note={note} stretches={NONE}
-    places={plan.places} size={plan.size} fills={plan.fills} boxes={false} orders={NONE} held={held} events={NONE} live={plan.running}
+    places={plan.places} size={plan.size} fills={plan.fills} boxes={false} orders={stops} held={held} events={NONE} live={plan.running}
     restarts={NONE} openFrom={null} started={null} fit={0} />;
 }

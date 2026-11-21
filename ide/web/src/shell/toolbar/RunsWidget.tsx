@@ -55,7 +55,8 @@ export function RunsWidget() {
 
 /** Stage-specific actions share the main toolbar's one ActionGroup. A remembered Paper run never
  *  contributes controls to Backtest or Live; a Backtest without Paper keeps its explicit Run paper. A new
- *  live run starts from the Live stage's canvas, the run picker or the command palette, not from here. */
+ *  live run starts from the Live stage's canvas (its launch page, or New run over a shown run) or the command
+ *  palette, not from here. */
 export function useRunActions(): ReactNode {
   const service = usePaperService(), { version, run, liveRun, stage } = useShown();
   if (stage === "live") return <>

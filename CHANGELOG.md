@@ -26,10 +26,26 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Breaking (ledger): research ledger schema generation 2 (doctor 20261114-11, approved 2026-11-14 for the next
+  schema generation). `run_reading` no longer stores `computed_at` (its time is the Dolt commit's); its update trigger
+  still keeps a reading with its run. `trial_instrument.instrument_id` is now `symbol`. `trial_capture.table_hashes`
+  holds a cross-image reproduction's semantic fingerprint in `run.fingerprints`' shape (`{table: {rows, sha256}}`)
+  instead of `{table: sha256}`. The upgrade drops the generation 1 ledger: every command refuses it with
+  `SCHEMA_MISMATCH`, and research restarts on a new ledger.
+
 - Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
   failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
   Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host
   (2026-11-19) and the next tick fetched again.
+
+- Reports: the single-run report's `trade_structure` slice gives each exit class's closed-cycle net PnL beside
+  `top_exit_share`, as its `exit_net` (`{closing order type: net}`, open cycles left out), derived on read and never
+  stored (doctor 20261121-01). Read paths that need only a few measures (`research status`, `research runs`, the
+  research graph, line history) now derive only those; their output is unchanged.
+
+- market-import health: the check prints why it fails (`status is 27.4 h old, a round running since ...`,
+  `metrics/BTCUSDT lagging`, a stopped scope's refusal code, an unreadable status), Docker keeps that in the
+  container's health log, and the release host's Telegram notice quotes it. The same conditions stay unhealthy.
 
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
@@ -63,6 +79,8 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - IDE phone, Paper and Live run pages: the Positions heading shows a mark only when one position is held; it showed
   the first position's mark whatever else was held. With several positions each row shows its mark under its entry
   (column Entry / Mark): a sixth column does not fit a phone's width.
+- IDE Research page: clicking a bar in the Progress chart now selects that version in Details, as Enter on the
+  chart and a click on the Scatter already did; before, it only moved the lineage to it.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.
@@ -105,6 +123,10 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   a message naming the line and the version and asking to register out-of-sample validation; the user sends it, and
   the page registers nothing itself.
 
+- IDE: the Progress and Return vs drawdown charts follow the lineage fold. Runs of folded versions are not drawn, and
+  a Pareto-frontier run is always drawn. Each chart's legend counts them ("N runs in folded versions", a click shows
+  every version). They stay in the value ranges and in the frontier, so the fold no longer hides how many runs the
+  line has tried.
 - IDE ⌘K: the separate `Run paper: <version>` entry for every version not running paper is replaced by one
   `Run paper…` entry that opens a version picker, the selected version first (doctor 20261121-12). Backspace on an
   empty query goes back.
@@ -144,6 +166,14 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
   instead of the refusal's code and message. A failure whose stderr does not end in a refusal is still
   `PRODUCT_FAILED`, `PAPER_FAILED` or `REPLICA_SYNC_FAILED`.
 
+- IDE, desktop Live (doctor 20261121-06, -07, -08): `Request stop…` no longer sends at once; the first click arms
+  it inline (no dialog) and lists what the stop does now (entry orders cancelled, each position closed at market
+  once, protective stops kept until flat), and `Confirm stop` (placed away from where the first click landed, and
+  ignored within half a second of it) sends it within 10 seconds, as in the run canvas, Review run and the prepared
+  run's review. A shown run lists its positions (with stop, `No stop` while one runs without, and estimated P&L) and
+  its other working orders from its native events, as the phone does, and its Coins chart draws the position and its
+  protective stops. `New run` beside `Request stop…` opens the launch page over a shown run (until now only the
+  command palette did).
 - `line history` now replays again a segment whose latest history run is invalid (doctor 20261120-03, user
   2026-11-21): once per call, after every segment without a run, so an environment or transient failure no longer
   leaves a candidate missing that segment for good; a failure of the strategy's own fails again. The new trial

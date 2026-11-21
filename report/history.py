@@ -95,7 +95,7 @@ def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, li
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
     if row["status"] == "passed":
         facts = measures.run_facts(conn, row["trial_id"])
-        derived = measures.derive_measures(facts)
+        derived = measures.derive_measures(facts, wanted=MEASURES)
         cell["measures"] = {key: derived[key]["value"] for key in MEASURES}
         if kind == "holdout" and returns is not None:
             returns[row["trial_id"]] = [value for ts, value, _ in facts["returns"]

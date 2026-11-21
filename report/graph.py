@@ -108,7 +108,7 @@ def _run_reading(conn: db.LedgerConnection, trial_id: int, checker: Mapping, rec
     value = report_candidates.assess_listed(conn, trial_id, checker, records, run)
     reading["eligible"] = bool(value["economic_evidence_available"])
     if reading["eligible"] and not isinstance(run, Refusal):  # a run that refuses is never eligible
-        derived = measures.derive_measures(measures.facts_of(run))
+        derived = measures.derive_measures(measures.facts_of(run), wanted=MEASURE_KEYS)
         reading.update({field: derived[name]["value"] for name, field in MEASURE_KEYS.items()})
     else:
         reading["ineligible_reason"] = "; ".join(value["reasons"]) or None

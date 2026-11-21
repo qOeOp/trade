@@ -20,10 +20,11 @@ const components = new SourceTextModule(`
 await components.link(loader({ stubs: {
   "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
   "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
-  "state/liveWorkspace": { openLiveRequests: () => {}, openLiveCredentials: () => {}, showLiveRun: () => {},
+  "state/liveWorkspace": { openLiveRequests: () => {}, openLiveCredentials: () => {}, openLiveLaunch: () => {}, showLiveRun: () => {},
     FRESH_DRAFT: { version: null, edits: {}, preparedId: null },
     liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
   "state/paper": { usePaperRuns: () => null },
+  "state/market": { useSnapshot: () => null },
   "state/atom": { useAtom: () => ({}) },
   "state/timeZone": { useTimeZone: () => "UTC" },
   "state/stage": { choices: {}, choiceOf: () => ({}) },
@@ -66,7 +67,7 @@ test("unconnected dialog writes stay disabled and credential saving never implie
     if (control[0].startsWith("<input") || control[0].includes('type="submit"')) assert.match(control[0], / disabled=""/);
   }
   const html = wizard({ ...blank, runs: [run] });
-  for (const label of ["Check account", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${label}</button>`));
+  for (const label of ["Check account", "Request stop…"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${label}</button>`));
   assert.doesNotMatch(html, /Start live/, "no dialog starts a run");
 });
 
@@ -191,7 +192,7 @@ test("executed and reconciled runs show observation review instead of preparatio
     assert.match(html, /Stopping and custody/);
     assert.match(html, /Host state alone does not confirm a fill, completion or a flat account/);
     // An ended run has nothing to stop; observations can still be refreshed.
-    for (const [label, off] of [["Refresh observations", false], ["Request stop", ended]]) {
+    for (const [label, off] of [["Refresh observations", false], ["Request stop…", ended]]) {
       const button = html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0];
       assert.ok(button);
       assert.equal(/ disabled=""/.test(button), off, `${label} on ${state}`);
@@ -229,7 +230,7 @@ test("run review preserves action availability and names phases without inventin
     assert.match(html, new RegExp(`Phase</dt><dd[^>]*>${label}`));
     assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*><span[^>]*>Unknown/);
     assert.match(html, /No observation received/);
-    for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
+    for (const action of ["Refresh observations", "Request stop…"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
   }
 });
 
@@ -278,5 +279,33 @@ test("a fresh Live canvas selects candles until at least one equity minute is kn
       assert.match(render("LiveRunCanvas", {}), /\[switch equity\].*\[equity of run-fixture\]/s,
         "zero is a known value, and unknown minutes do not hide a known value");
     }
+  } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
+});
+
+test("a shown Live run lists what its native events leave held and working, and offers New run beside Request stop…", () => {
+  const ns = (ms) => String(BigInt(ms) * 1_000_000n), T = Date.UTC(2026, 10, 11);
+  const row = (type, ms, extra) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms), event_ref: { source: "native", cursor: `${type}:${ms}` },
+    instrument_id: "BTCUSDT-PERP.BINANCE", ...extra });
+  try {
+    canvasView = { ...blank, availability: "ready", notice: null };
+    canvasRun = { ...run, running: true, hostState: "running",
+      orders: [row("OrderAccepted", T, { client_order_id: "S-1", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "75880.0", quantity: "0.002" })],
+      positions: [row("PositionOpened", T, { position_id: "P-1", side: "SHORT", signed_qty: "-0.002", avg_px_open: "74652.3" })] };
+    const html = render("LiveRunCanvas", {});
+    assert.match(html, /Positions.*BTCUSDT.*Short.*0\.002 @ 74,652\.3.* · SL <\/span>75,880.*Open orders.*None/s,
+      "the protective stop is shown on its position, not again among the open orders");
+    assert.match(html, />New run<\/button>.*>Request stop…<\/button>/s);
+    assert.doesNotMatch(html, /Confirm stop|Stop this Live run/, "nothing is armed before the first click");
+    const entry = row("OrderAccepted", T, { client_order_id: "E-2", order_side: "SELL", order_type: "LIMIT", price: "76000.0", quantity: "0.001" });
+    canvasRun = { ...canvasRun, orders: [entry] };
+    const bare = render("LiveRunCanvas", {});
+    assert.match(bare, /SL <\/span><span class="text-misses-fg">No stop<\/span>/, "a running position without a stop is flagged before any check");
+    assert.match(bare, /Open orders.*BTCUSDT limit.*Sell.*0\.001 @ 76,000/s);
+    canvasRun = { ...canvasRun, heldAlert: { word: "No stop", tone: "fail", body: "", gaps: [{ symbol: "BTCUSDT", side: "SHORT", position: "0.002", stops: "0" }] } };
+    assert.match(render("LiveRunCanvas", {}), /SL <\/span><span class="text-fail-fg">No stop<\/span>/, "in the failure hue once the check found it");
+    canvasRun = { ...canvasRun, heldAlert: undefined, running: false, ended: true, hostState: "unresolved" };
+    assert.match(render("LiveRunCanvas", {}), /SL <\/span><span class="text-fg-faint">-<\/span>/, "an ended run shows no flag");
+    canvasRun = { ...run, running: true, hostState: "running", orders: [], positions: [] };
+    assert.match(render("LiveRunCanvas", {}), /Positions.*None open.*Open orders.*None/s);
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
 });

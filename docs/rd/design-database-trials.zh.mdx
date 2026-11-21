@@ -144,11 +144,11 @@
 
 试验的合约集，一合约一行
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "instrument_id": { type: "VARCHAR(64)", description: "Binance 合约名（如 BTCUSDT），取自输入身份的 symbols；不是原生合约 ID", required: true } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "symbol": { type: "VARCHAR(64)", description: "Binance 合约名（如 BTCUSDT），取自输入身份的 symbols；不是原生合约 ID", required: true } }} />
 
 **键与约束**
 
-- 主键　`trial_id`, `instrument_id`
+- 主键　`trial_id`, `symbol`
 - 外键　`trial_id` → <Ref id="table:trial">trial</Ref> `trial_id`
 
 **保护与读写规则**
@@ -167,7 +167,7 @@
 
 一次试验捕获的结局：原生、审计、指纹三个阶段各自的状态和退出码，以及结局类别；捕获封存或被拒时写入
 
-<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "native_state": { type: "ENUM('started', 'exited')", description: "原生回放阶段：started 或 exited", required: true }, "native_exit_code": { type: "INT", description: "原生阶段退出码；exited 时必填", required: false }, "audit_state": { type: "ENUM('started', 'exited')", description: "审计阶段状态；没跑到为 NULL", required: false }, "audit_exit_code": { type: "INT", description: "审计阶段退出码", required: false }, "fingerprint_state": { type: "ENUM('started', 'exited')", description: "指纹阶段状态", required: false }, "fingerprint_exit_code": { type: "INT", description: "指纹阶段退出码", required: false }, "outcome_kind": { type: "ENUM('completed', 'interrupted', 'host_failure')", description: "completed 完成；interrupted 中断；host_failure 主机侧失败（如阶段被内存上限杀掉，`STAGE_MEMORY_LIMIT`）", required: true }, "outcome_detail": { type: "TEXT", description: "结局说明", required: false }, "table_hashes": { type: "JSON", description: "跨镜像探索复现的逐表哈希（`replay/reproduce.py`）；运行行不存它", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+<TypeTable type={{ "trial_id": { type: "INT", description: "所属试验", required: true }, "native_state": { type: "ENUM('started', 'exited')", description: "原生回放阶段：started 或 exited", required: true }, "native_exit_code": { type: "INT", description: "原生阶段退出码；exited 时必填", required: false }, "audit_state": { type: "ENUM('started', 'exited')", description: "审计阶段状态；没跑到为 NULL", required: false }, "audit_exit_code": { type: "INT", description: "审计阶段退出码", required: false }, "fingerprint_state": { type: "ENUM('started', 'exited')", description: "指纹阶段状态", required: false }, "fingerprint_exit_code": { type: "INT", description: "指纹阶段退出码", required: false }, "outcome_kind": { type: "ENUM('completed', 'interrupted', 'host_failure')", description: "completed 完成；interrupted 中断；host_failure 主机侧失败（如阶段被内存上限杀掉，`STAGE_MEMORY_LIMIT`）", required: true }, "outcome_detail": { type: "TEXT", description: "结局说明", required: false }, "table_hashes": { type: "JSON", description: "跨镜像探索复现的语义指纹（`replay/reproduce.py`），形状同 `run.fingerprints`；运行行不存它", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
 
 **键与约束**
 

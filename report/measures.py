@@ -10,7 +10,7 @@ is None with a named reason; nothing is guessed.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import functools
@@ -462,10 +462,19 @@ def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]:
     return found
 
 
-def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping | None = None) -> dict:
-    """{name: {value, population, sample_size, null_reason}} of one run's stored facts
-    (`run_facts`), for every measure of the catalogue's single-run slices and the headline."""
+def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping | None = None,
+                    wanted: Collection[str] | None = None) -> dict:
+    """{name: {value, population, sample_size, null_reason}} of one run's stored facts (`run_facts`), for the
+    `wanted` measures (default: the headline and every measure of the catalogue's single-run slices). A group of
+    measures none of which is wanted is not computed."""
     catalogue = catalogue or duties.measure_catalogue()
+    slices = {item["id"]: item["measures"] for item in catalogue["slices"]}
+    wanted = set(HEADLINE) | {name for slice_id, names in slices.items() if slice_id not in COMPARISON_ONLY
+                              for name in names} if wanted is None else set(wanted)
+
+    def needs(*names: str) -> bool:
+        return not wanted.isdisjoint(names)
+
     sealed = run.get("sealed") or {}
     returns, cycles = list(run["returns"]), list(run["cycles"])
     closed = _closed(cycles)
@@ -486,105 +495,112 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     annual = annual_return(growth, window_days) if series_reason is None else None
     put("annual_return", annual, "account_days", days, series_reason or (None if annual is not None else
                                                                           "NONPOSITIVE_EQUITY: no annual return"))
-    sharpe = sharpe_365([value for _, value, _ in returns]) if series_reason is None else None
-    put("sharpe_365", sharpe, "account_days", days, series_reason or "ZERO_VARIANCE: the daily returns do not vary")
-    adjusted = sharpe_lo([value for _, value, _ in returns]) if series_reason is None else None
-    put("sharpe_lo", None if adjusted is None else adjusted["value"], "account_days", days,
-        series_reason or "NOT_COMPUTABLE: the daily returns do not vary, are too few for their lags, or their "
-                         "autocorrelations leave no positive variance")
-    if adjusted is not None:
-        found["sharpe_lo"].update(eta=adjusted["eta"], lags=adjusted["lags"],
-                                  autocorrelations=adjusted["autocorrelations"])
+    if needs("sharpe_365"):
+        sharpe = sharpe_365([value for _, value, _ in returns]) if series_reason is None else None
+        put("sharpe_365", sharpe, "account_days", days, series_reason or "ZERO_VARIANCE: the daily returns do not vary")
+    if needs("sharpe_lo"):
+        adjusted = sharpe_lo([value for _, value, _ in returns]) if series_reason is None else None
+        put("sharpe_lo", None if adjusted is None else adjusted["value"], "account_days", days,
+            series_reason or "NOT_COMPUTABLE: the daily returns do not vary, are too few for their lags, or their "
+                             "autocorrelations leave no positive variance")
+        if adjusted is not None:
+            found["sharpe_lo"].update(eta=adjusted["eta"], lags=adjusted["lags"],
+                                      autocorrelations=adjusted["autocorrelations"])
     drawdown = sealed.get("drawdown") or {}
     for name, read_key in READ_DRAWDOWN.items():
         item = drawdown.get(read_key) or {}
         put(name, item.get("value"), "bars", (sealed.get("populations") or {}).get("bars"),
             None if item.get("value") is not None else item.get("null_reason") or
             "SEALED_DRAWDOWN_MISSING: the reading has no value for this definition")
-    broken = plans_hold(sealed) if sealed else "PLANS_UNAVAILABLE"
-    if broken is not None:
-        put("plan_win_rate", None, "plans", None, f"{broken}: the plan contract does not hold for this run")
-    elif any(cycle["plan_tag"] is None for cycle in cycles):
-        put("plan_win_rate", None, "plans", None, "PLAN_TAG_MISSING: a position cycle has no plan tag")
-    else:
-        plans = defaultdict(list)
-        for cycle in cycles:
-            plans[cycle["plan_tag"]].append(cycle)
-        won = sum(1 for items in plans.values() if all(item["ts_closed_ns"] is not None for item in items)
-                  and sum(Decimal(item["realized_pnl"]) for item in items) > 0)
-        put("plan_win_rate", won / len(plans) if plans else None, "plans", len(plans),
-            None if plans else "NO_PLANS: the run holds no plan")
+    if needs("plan_win_rate"):
+        broken = plans_hold(sealed) if sealed else "PLANS_UNAVAILABLE"
+        if broken is not None:
+            put("plan_win_rate", None, "plans", None, f"{broken}: the plan contract does not hold for this run")
+        elif any(cycle["plan_tag"] is None for cycle in cycles):
+            put("plan_win_rate", None, "plans", None, "PLAN_TAG_MISSING: a position cycle has no plan tag")
+        else:
+            plans = defaultdict(list)
+            for cycle in cycles:
+                plans[cycle["plan_tag"]].append(cycle)
+            won = sum(1 for items in plans.values() if all(item["ts_closed_ns"] is not None for item in items)
+                      and sum(Decimal(item["realized_pnl"]) for item in items) > 0)
+            put("plan_win_rate", won / len(plans) if plans else None, "plans", len(plans),
+                None if plans else "NO_PLANS: the run holds no plan")
 
     # profit_bridge
     starting, final = run.get("starting_balance"), run.get("final_equity")
-    bridge = profit.account_bridge(cycles, starting, final, run.get("native_economics"))
-    for name, value in bridge["values"].items():
-        put(name, metrics.money(value), "account", len(cycles), bridge["reason"])
+    if needs(*slices["profit_bridge"], "breakeven_fee_multiple"):
+        bridge = profit.account_bridge(cycles, starting, final, run.get("native_economics"))
+        for name, value in bridge["values"].items():
+            put(name, metrics.money(value), "account", len(cycles), bridge["reason"])
 
     # capital_scaled
-    notional = [mean for _, _, mean in returns]
-    capital_reason = series_reason
-    if capital_reason is None and (not notional or any(mean is None for mean in notional)):
-        capital_reason = "EXPOSURE_SERIES_MISSING: a day has no mean gross notional"
-    if capital_reason is None and starting is None:
-        capital_reason = "ACCOUNT_UNKNOWN: the starting balance is not recorded"
-    if capital_reason is None and starting is not None:
-        n = [float(mean) for mean in notional]
-        pnl = daily_pnl(returns, starting)
-        mean_n = sum(n) / len(n)
-        split = level_timing(n, pnl)
-        put("mean_notional", mean_n, "account_days", days)
-        put("unit_return", float(final - starting) / mean_n if mean_n and final is not None else None, "account_days",
-            days, "FLAT: the run held no exposure" if not mean_n else "ACCOUNT_UNKNOWN: no final equity")
-        put("level_term", split["level"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
-        put("timing_term", split["timing"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
-        for name in ("level_term", "timing_term"):  # the days without exposure are listed apart (R.3.2.2)
-            found[name].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
-        months, reason = basket_months(returns, market)
-        up = [value for (ts, _, _), value in zip(returns, n, strict=True)
-              if months and months.get(metrics.utc_day(ts)[:7], 0) > 0]
-        down = [value for (ts, _, _), value in zip(returns, n, strict=True)
-                if months and months.get(metrics.utc_day(ts)[:7], 0) <= 0]
-        put("up_month_notional", sum(up) / len(up) if up else None, "basket_up_days", len(up),
-            reason or "NO_UP_MONTH: the basket rose in no month")
-        put("down_month_notional", sum(down) / len(down) if down else None, "basket_down_days", len(down),
-            reason or "NO_DOWN_MONTH: the basket fell in no month")
-    else:
-        for name in ("mean_notional", "unit_return", "level_term", "timing_term", "up_month_notional",
-                     "down_month_notional"):
-            put(name, None, "account_days", days, capital_reason)
+    if needs(*slices["capital_scaled"]):
+        notional = [mean for _, _, mean in returns]
+        capital_reason = series_reason
+        if capital_reason is None and (not notional or any(mean is None for mean in notional)):
+            capital_reason = "EXPOSURE_SERIES_MISSING: a day has no mean gross notional"
+        if capital_reason is None and starting is None:
+            capital_reason = "ACCOUNT_UNKNOWN: the starting balance is not recorded"
+        if capital_reason is None and starting is not None:
+            n = [float(mean) for mean in notional]
+            pnl = daily_pnl(returns, starting)
+            mean_n = sum(n) / len(n)
+            split = level_timing(n, pnl)
+            put("mean_notional", mean_n, "account_days", days)
+            put("unit_return", float(final - starting) / mean_n if mean_n and final is not None else None, "account_days",
+                days, "FLAT: the run held no exposure" if not mean_n else "ACCOUNT_UNKNOWN: no final equity")
+            put("level_term", split["level"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
+            put("timing_term", split["timing"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
+            for name in ("level_term", "timing_term"):  # the days without exposure are listed apart (R.3.2.2)
+                found[name].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
+            months, reason = basket_months(returns, market)
+            up = [value for (ts, _, _), value in zip(returns, n, strict=True)
+                  if months and months.get(metrics.utc_day(ts)[:7], 0) > 0]
+            down = [value for (ts, _, _), value in zip(returns, n, strict=True)
+                    if months and months.get(metrics.utc_day(ts)[:7], 0) <= 0]
+            put("up_month_notional", sum(up) / len(up) if up else None, "basket_up_days", len(up),
+                reason or "NO_UP_MONTH: the basket rose in no month")
+            put("down_month_notional", sum(down) / len(down) if down else None, "basket_down_days", len(down),
+                reason or "NO_DOWN_MONTH: the basket fell in no month")
+        else:
+            for name in ("mean_notional", "unit_return", "level_term", "timing_term", "up_month_notional",
+                         "down_month_notional"):
+                put(name, None, "account_days", days, capital_reason)
     drawn = (drawdown.get("mark_max_drawdown") or {}).get("value")
     put("return_over_drawdown", annual / drawn if annual is not None and drawn else None, "account_days", days,
         "NO_DRAWDOWN: the annual return or the mark drawdown is missing or zero")
 
-    bridge_reason = bridge["reason"]
-    account = bridge["values"]["account"]
-    fees = -bridge["values"]["fee"] if bridge["values"]["fee"] is not None else None
-
     # fee_stress
-    if bridge_reason is None and account is not None:
-        multiple, reason = breakeven_multiple(account, fees) if fees else (None, "NO_FEES: the run paid no fees")
-        put("breakeven_fee_multiple", multiple, "account", len(cycles), reason)
-    else:
-        put("breakeven_fee_multiple", None, "account", len(cycles), bridge_reason)
+    if needs("breakeven_fee_multiple"):
+        account = bridge["values"]["account"]
+        fees = -bridge["values"]["fee"] if bridge["values"]["fee"] is not None else None
+        if bridge["reason"] is None and account is not None:
+            multiple, reason = breakeven_multiple(account, fees) if fees else (None, "NO_FEES: the run paid no fees")
+            put("breakeven_fee_multiple", multiple, "account", len(cycles), reason)
+        else:
+            put("breakeven_fee_multiple", None, "account", len(cycles), bridge["reason"])
     turnover, fills, reason = daily_turnover(sealed.get("fees_by_liquidity_side"), starting, window_days)
     put("daily_turnover", turnover, "fills", fills, reason)
 
     # by_instrument
-    nets = instrument_net(cycles)
-    put("top5_abs_share", top_share(list(nets.values())), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed "
-                                                                                    "cycle")
-    put("one_side_instruments", None, "instruments", len(nets), "COMPARISON_ONLY: counted across two runs")
-    top_name, rest = without_top(nets)
-    put("net_without_top_instrument", metrics.money(rest), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed cycle")
-    found["net_without_top_instrument"]["instrument"] = top_name
-    for name, side in (("long_net", "long"), ("short_net", "short")):
-        put(name, metrics.money(sum((Decimal(cycle["realized_pnl"]) for cycle in closed if cycle["side"] == side),
-                            Decimal(0))), "closed_cycles", sum(1 for cycle in closed if cycle["side"] == side))
+    if needs(*slices["by_instrument"]):
+        nets = instrument_net(cycles)
+        put("top5_abs_share", top_share(list(nets.values())), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed "
+                                                                                        "cycle")
+        put("one_side_instruments", None, "instruments", len(nets), "COMPARISON_ONLY: counted across two runs")
+        top_name, rest = without_top(nets)
+        put("net_without_top_instrument", metrics.money(rest), "instruments", len(nets), "NO_CLOSED_CYCLE: no closed cycle")
+        found["net_without_top_instrument"]["instrument"] = top_name
+        for name, side in (("long_net", "long"), ("short_net", "short")):
+            put(name, metrics.money(sum((Decimal(cycle["realized_pnl"]) for cycle in closed if cycle["side"] == side),
+                                Decimal(0))), "closed_cycles", sum(1 for cycle in closed if cycle["side"] == side))
 
     # market_exposure
     simple = [value for _, value, _ in returns]
     for series, beta_name, alpha_name in (("basket", "beta_basket", "alpha_basket"), ("btc", "beta_btc", "alpha_btc")):
+        if not needs(beta_name, alpha_name):
+            continue
         values, reason = aligned_market(returns, market, series)
         reason = series_reason or reason
         if reason is None and values is not None:
@@ -603,47 +619,50 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             put(alpha_name, None, "account_days", days, reason)
 
     # by_period
-    months = month_logs(returns)
-    put("months_won_share", sum(1 for value in months.values() if value > 0) / len(months) if months and
-        series_reason is None else None, "months", len(months), series_reason or "NO_MONTH: no daily return")
-    logs = [math.log1p(value) for _, value, _ in returns]
-    put("residual_after_top5_days", residual_after_top(logs) if series_reason is None else None, "account_days", days,
-        series_reason or "NO_DAY: no daily return")
+    if needs("months_won_share", "residual_after_top5_days"):
+        months = month_logs(returns)
+        put("months_won_share", sum(1 for value in months.values() if value > 0) / len(months) if months and
+            series_reason is None else None, "months", len(months), series_reason or "NO_MONTH: no daily return")
+        logs = [math.log1p(value) for _, value, _ in returns]
+        put("residual_after_top5_days", residual_after_top(logs) if series_reason is None else None, "account_days", days,
+            series_reason or "NO_DAY: no daily return")
 
     # by_regime
-    labels, reason = regime_labels(market, [metrics.utc_day(ts) for ts, _, _ in returns])
-    reason = series_reason or reason
-    unlabelled = None if labels is None else sum(1 for value in labels.values() if value is None)
-    for regime in ("high", "low"):
-        logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(metrics.utc_day(ts)) == regime]
-        empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
-                           f"({unlabelled} days unlabelled)")
-        put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)
-        found[f"{regime}_vol_days"].update(unlabelled_days=unlabelled)
-        put(f"{regime}_vol_mean_log", sum(logs_in) / len(logs_in) if logs_in and reason is None else None,
-            "regime_days", len(logs_in), empty)
-        put(f"{regime}_vol_log_sum", sum(logs_in) if logs_in and reason is None else None, "regime_days",
-            len(logs_in), empty)
+    if needs(*slices["by_regime"]):
+        labels, reason = regime_labels(market, [metrics.utc_day(ts) for ts, _, _ in returns])
+        reason = series_reason or reason
+        unlabelled = None if labels is None else sum(1 for value in labels.values() if value is None)
+        for regime in ("high", "low"):
+            logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(metrics.utc_day(ts)) == regime]
+            empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
+                               f"({unlabelled} days unlabelled)")
+            put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)
+            found[f"{regime}_vol_days"].update(unlabelled_days=unlabelled)
+            put(f"{regime}_vol_mean_log", sum(logs_in) / len(logs_in) if logs_in and reason is None else None,
+                "regime_days", len(logs_in), empty)
+            put(f"{regime}_vol_log_sum", sum(logs_in) if logs_in and reason is None else None, "regime_days",
+                len(logs_in), empty)
 
     # trade_structure
-    wins = [Decimal(cycle["realized_pnl"]) for cycle in closed if Decimal(cycle["realized_pnl"]) > 0]
-    losses = [Decimal(cycle["realized_pnl"]) for cycle in closed if Decimal(cycle["realized_pnl"]) <= 0]
-    count, empty = len(closed), "NO_CLOSED_CYCLE: no closed cycle"
-    put("cycles", count, "closed_cycles", count)
-    put("win_rate", len(wins) / count if count else None, "closed_cycles", count, empty)
-    win_total, loss_total = sum(wins, Decimal(0)), sum(losses, Decimal(0))
-    put("avg_win", metrics.money(win_total / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning cycle")
-    put("avg_loss", metrics.money(loss_total / len(losses)) if losses else None, "closed_cycles", len(losses),
-        "NO_LOSS: no losing cycle")
-    put("expectancy", metrics.money((win_total + loss_total) / count) if count else None, "closed_cycles", count, empty)
-    hours = [(cycle["ts_closed_ns"] - cycle["ts_opened_ns"]) / HOUR_NS for cycle in closed]
-    put("median_holding_hours", statistics.median(hours) if hours else None, "closed_cycles", count, empty)
-    exits = exit_net(cycles)
-    put("top_exit_share", top_share(list(exits.values()), 1), "exit_classes", len(exits), empty)
+    if needs(*slices["trade_structure"]):
+        wins = [Decimal(cycle["realized_pnl"]) for cycle in closed if Decimal(cycle["realized_pnl"]) > 0]
+        losses = [Decimal(cycle["realized_pnl"]) for cycle in closed if Decimal(cycle["realized_pnl"]) <= 0]
+        count, empty = len(closed), "NO_CLOSED_CYCLE: no closed cycle"
+        put("cycles", count, "closed_cycles", count)
+        put("win_rate", len(wins) / count if count else None, "closed_cycles", count, empty)
+        win_total, loss_total = sum(wins, Decimal(0)), sum(losses, Decimal(0))
+        put("avg_win", metrics.money(win_total / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning cycle")
+        put("avg_loss", metrics.money(loss_total / len(losses)) if losses else None, "closed_cycles", len(losses),
+            "NO_LOSS: no losing cycle")
+        put("expectancy", metrics.money((win_total + loss_total) / count) if count else None, "closed_cycles", count, empty)
+        hours = [(cycle["ts_closed_ns"] - cycle["ts_opened_ns"]) / HOUR_NS for cycle in closed]
+        put("median_holding_hours", statistics.median(hours) if hours else None, "closed_cycles", count, empty)
+        exits = exit_net(cycles)
+        put("top_exit_share", top_share(list(exits.values()), 1), "exit_classes", len(exits), empty)
+        # each exit class's closed-cycle net, the split top_exit_share concentrates (derived on read, never stored)
+        found["top_exit_share"]["exit_net"] = {name: metrics.money(net) for name, net in sorted(exits.items())}
 
     # drawdown: the reading's values above (max_drawdown, drawdown_days, top_instrument_share_in_drawdown)
-    wanted = set(HEADLINE) | {name for item in catalogue["slices"]
-                              if item["id"] not in COMPARISON_ONLY for name in item["measures"]}
     return {name: value for name, value in found.items() if name in wanted}
 
 

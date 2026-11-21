@@ -2,7 +2,9 @@
 and Live alike."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from nautilus_trader.model import FundingRateUpdate
 
@@ -37,3 +39,15 @@ class Cadence:
                 or update.ts_event < settled):
             return None
         return FundingRateUpdate(update.instrument_id, update.rate, settled, update.ts_init, None, settled)
+
+    @staticmethod
+    def wrap(name: str, attribute: str, deliver: Callable[[Any, Any, Any], Any],
+             skipped: Callable[[Any], Any] = lambda update: None) -> Callable[[Any, Any], Any]:
+        """The runner's `name` callback (on_mark_price or on_funding_rate): the instance's Cadence (its `attribute`)
+        decides which live update counts, `deliver(instance, passed, update)` takes the update the replay gives for it
+        and `skipped(update)` every other."""
+        def callback(self, update):
+            cadence = getattr(self, attribute)
+            passed = (update if cadence.mark(update) else None) if name == "on_mark_price" else cadence.funding(update)
+            return skipped(update) if passed is None else deliver(self, passed, update)
+        return callback

@@ -260,16 +260,8 @@ def _live_breach(self, code: str, text: str):
     raise ContractRefusal(code, text)
 
 
-def _at_cadence(name: str, method):
-    """The source sees MARK and funding as a replay does: the first MARK of each minute, one update per settlement
-    (engine.cadence)."""
-    if name == "on_mark_price":
-        return lambda self, update: method(self, update) if self._live_cadence.mark(update) else None
-
-    def funding(self, update):
-        settled = self._live_cadence.funding(update)
-        return method(self, settled) if settled is not None else None
-    return funding
+def _deliver(method):
+    return lambda self, passed, _: method(self, passed)
 
 
 def _reported(source, hook) -> list[str] | None:
@@ -314,9 +306,9 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     callbacks["_runner_reads_funding"] = funding is not None
     if funding:
         callbacks["_warming_settled"] = _gated("on_funding_rate", funding)
-    for name in ("on_mark_price", "on_funding_rate"):
+    for name in ("on_mark_price", "on_funding_rate"):  # as a replay gives them (engine.cadence)
         if callbacks.get(name):
-            callbacks[name] = _at_cadence(name, callbacks[name])
+            callbacks[name] = Cadence.wrap(name, "_live_cadence", _deliver(callbacks[name]))
     for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars",
                  "on_historical_funding_rates"):
         original = callbacks.get(name)
