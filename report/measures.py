@@ -707,35 +707,33 @@ def closed_by_year(cycles: list[dict]) -> dict:
             for year, item in sorted(years.items())}
 
 
+def _day(ns: int) -> str:
+    return datetime.fromtimestamp(ns // 10**9, timezone.utc).date().isoformat()
+
+
 def dev_years(run: Mapping, annual_target: float | None = None) -> dict | None:
-    """The development years of a run's trading window, cut at its trade start's anniversaries, and a last part
-    year (`partial`) when the window does not end on one: each segment's compound return over the stored daily
-    returns dated in it, and with `annual_target` whether a whole year reaches the target or by how much it falls
+    """The development years of a run's trading window (metrics.year_cuts: cut at its trade start's anniversaries,
+    and a last part year, `partial`, when the window does not end on one): each segment's compound return over the
+    stored daily returns dated in it and its sealed bar-close MARK drawdown with its peak and trough (null when the
+    reading has none), and with `annual_target` whether a whole year reaches the target or by how much it falls
     short, how many whole years reach it, the worst whole year's return and the window's annual return over its
     days without the best whole year (the part year's included). A part year is not read against the annual
-    target. A slice of one continuous run: positions and the equity peak carry across segments. None for a window
-    of one whole year or less."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, timezone.utc)
-    end = datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc)
-    cuts = [start]
-    try:
-        while (following := start.replace(year=start.year + len(cuts))) <= end:
-            cuts.append(following)
-    except ValueError:  # a 29 February start has no anniversaries
+    target. A slice of one continuous run: positions and the equity peak carry across segments, so a year's
+    drawdown may start from an earlier year's peak. None for a window of one whole year or less."""
+    cut = metrics.year_cuts(run["trade_start_ns"], run["trade_end_ns"])
+    if cut is None:
         return None
-    whole = len(cuts) - 1
-    if end > cuts[-1]:
-        cuts.append(end)
-    if whole == 0 or len(cuts) < 3:
-        return None
-    bounds = [int(moment.timestamp()) * 10**9 for moment in cuts]
+    bounds, whole = cut
     returns = [math.prod(1 + value for ts, value, _ in run["returns"] if low <= ts < high) - 1
                for low, high in itertools.pairwise(bounds)]
-    days = [(high - low).total_seconds() / 86400 for low, high in itertools.pairwise(cuts)]
+    days = [(high - low) / metrics.DAY_NS for low, high in itertools.pairwise(bounds)]
+    sealed = ((run.get("sealed") or {}).get("drawdown") or {}).get("years") or {}
+    falls = sealed.get("value") or [{}] * len(returns)
     years = []
-    for k, ((begin, finish), value) in enumerate(zip(itertools.pairwise(cuts), returns, strict=True)):
-        item: dict[str, object] = {"start": begin.date().isoformat(), "end": finish.date().isoformat(),
-                                   "return": value, "partial": k >= whole}
+    for k, ((begin, finish), value, fall) in enumerate(zip(itertools.pairwise(bounds), returns, falls, strict=True)):
+        item: dict[str, object] = {"start": _day(begin), "end": _day(finish), "return": value,
+                                   "mark_max_drawdown": fall.get("mark_max_drawdown"), "peak_utc": fall.get("peak_utc"),
+                                   "trough_utc": fall.get("trough_utc"), "partial": k >= whole}
         if annual_target is not None and k < whole:
             item.update(at_target=value >= annual_target, short_by=max(annual_target - value, 0.0))
         years.append(item)
