@@ -40,6 +40,10 @@ class LiveFixture(unittest.TestCase):
             evidence = patch.object(runs, "_evidence", return_value=EVIDENCE)
             evidence.start()
             self.addCleanup(evidence.stop)
+        # The closing history verdict: tests/live/test_replay_evidence.py reads it from the ledger.
+        decided = patch.object(runs.admission, "unfalsified")
+        decided.start()
+        self.addCleanup(decided.stop)
         patcher = patch.object(runs.key, "require_limits")  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)

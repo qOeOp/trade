@@ -760,7 +760,10 @@ says `preflight_failed` and `logs` gives the refusal before any account slot is 
 candidate's own source, read from the ledger at that commit; there is no adapted file, and a source hash that is no
 longer the prepared one is refused (`LIVE_IDENTITY_CHANGED`). The result shows the candidate and its
 out-of-sample registrations at that commit. They inform the operator and no validation is required.
-Preparation also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
+Preparation first needs the candidate's closing history test, read at research_at, to have decided that it meets
+its line's targets, the check `validation registration` makes (`report.history.require_unfalsified`): it refuses
+`LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them and `LIVE_HISTORY_UNDECIDED` for one it has
+not decided (no history test, or a verdict missing a reading). It also needs replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
 audit passed and whose trading window lies inside a research trial's window of the same source (a window it already
 saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars`, on a
 replay image whose `--describe`

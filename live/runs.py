@@ -22,7 +22,7 @@ from ledger import db, strategies
 from shared.errors import Refusal
 from runtime import image
 from live import host as host_runtime
-from live import configuration, key, requests, state
+from live import admission, configuration, key, requests, state
 
 
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
@@ -492,6 +492,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
+    admission.unfalsified(research, research_at, found["source_sha256"])
     evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe)
     if not evidence:
         raise state.fail("LIVE_EVIDENCE_MISSING", "no passed run, or audited explore inside a research window, of this "
