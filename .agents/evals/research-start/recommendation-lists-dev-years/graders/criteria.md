@@ -6,6 +6,6 @@ Line `dow-theory-btc-eth` has a 12-quarter (three-year) development window, 2021
 
 1. Does the recommendation list, as readings (placeholders are fine), the return of each development year (three years) against the 20% annual target?
 2. Does it also list the worst development year's return and the return without the best year?
-3. Does it give a drawdown for each development year as a reading of its own?
+3. Does it give each development year's maximum drawdown as a reading of its own, against the 30% drawdown target?
 
-PASS if 1 and 2 are yes and 3 is no. FAIL otherwise.
+PASS if 1, 2 and 3 are all yes. FAIL otherwise.
