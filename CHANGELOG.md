@@ -26,6 +26,11 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Release tick notices: a failed public git command names itself ("GitHub source unreachable (public git fetch
+  failed)") instead of "unclassified runtime failure", and a failed fetch right after one that succeeded sends no
+  Telegram notice; a second failure in a row does. A brief GitHub outage failed one tick on the release host
+  (2026-11-19) and the next tick fetched again.
+
 - Market refusals are the product's one refusal type (`shared.errors.Refusal`); `MarketError` is gone, and the
   codes, conditions and printed refusal JSON stay the same. A market refusal reaching the Paper controller's HTTP API
   is now answered as a refusal with its code, like any other, instead of failing the request.
