@@ -42,7 +42,7 @@ from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
 from engine.live_records import contract as contract_id, keep, owned, strategy_ids
 from engine.live_venue import require_account_mode, require_clock, require_flat, require_own_symbol
-from engine.order_rules import GTD_MINIMUM_NS, native_cache
+from engine.order_rules import GTD_LEAD_NS, native_cache
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
 COMPARE_RETRY_SECONDS = 10
@@ -60,7 +60,6 @@ CONTRACT_SECONDS = 60  # while the contract is not TRADING, its status is read t
 ORPHAN_NS = 600 * 10**9  # flat after a missing bar, reduce-only orders still at Binance this long: a notice
 ORPHAN_SLACK_NS = COMPARE_RETRY_SECONDS * 10**9  # reads PERIODIC_SECONDS apart land a little early or late
 HOLD_NS = 60_000_000_000  # an entry is held unsent at most this long after its decision
-SEND_MARGIN_NS = 5_000_000_000  # a GTD entry is sent with at least GTD_MINIMUM_NS plus this left
 # Native order states whose venue state may still be changing; a comparison seeing one is not yet consistent.
 IN_FLIGHT = frozenset({OrderStatus.SUBMITTED, OrderStatus.PENDING_UPDATE, OrderStatus.PENDING_CANCEL})
 
@@ -225,7 +224,7 @@ def deadline(order) -> int:
     send-time rule."""
     found = order.ts_init + HOLD_NS
     if order.time_in_force == TimeInForce.GTD:
-        found = min(found, order.expire_time_ns - GTD_MINIMUM_NS - SEND_MARGIN_NS)
+        found = min(found, order.expire_time_ns - GTD_LEAD_NS)
     return found
 
 
@@ -259,7 +258,7 @@ def hold_queued(session) -> None:
 def require_send_time(pending) -> None:
     """Every entry is sent with time left on a GTD order, and a held one by its deadline."""
     order, now = pending.order, time.time_ns()
-    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - now < GTD_MINIMUM_NS + SEND_MARGIN_NS:
+    if order.time_in_force == TimeInForce.GTD and order.expire_time_ns - now < GTD_LEAD_NS:
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "a GTD entry is sent with at least 605 seconds left")
     if pending.deadline_ns is not None and now > pending.deadline_ns:
         raise Refusal("LIVE_CONNECTION_UNVERIFIED", "entry_hold_expired: the gate did not reopen in time")

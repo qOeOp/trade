@@ -245,11 +245,13 @@ the breach's code; Live refuses at once and takes the STOP path.
   trigger price, both sides added, with the new entry stay within 3 times the native portfolio's USDT equity;
   an exit is reduce-only, names its strategy's open position and fits it, and one position's working stops hold at
   most its quantity; no modifications, order lists, emulation,
-  execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order is a LIMIT,
-  STOP_LIMIT or LIMIT_IF_TOUCHED order (the types Nautilus's Binance client sends GTD; it denies any other, so Live
-  could not send one), expires on a whole second (the client denies a fraction of one) and at least 600 seconds
-  after the strategy submits it, by the strategy's clock (Binance's limit; Live needs more, see
-  [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
+  execution algorithms, contingent or linked orders, quote quantities or order parameters; every order is one
+  Nautilus's Binance client sends (no TRAILING_STOP_LIMIT or MARKET_TO_LIMIT; time in force GTC, IOC, FOK or GTD;
+  trailing offsets in basis points) and triggers on the default price (replay and Paper match any other trigger
+  on the bar's price, Binance on its own); a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order (the types
+  the client sends GTD), not post-only, expires on a whole second (the client denies a fraction of one) and at
+  least 605 seconds after the strategy submits it, by the strategy's clock (Binance's 600 seconds plus the margin
+  Live leaves for an entry's account check, see [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
   positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
   `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its

@@ -9,6 +9,7 @@ from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
     Bar, BarType, InstrumentId, MarkPriceUpdate, OmsType, OrderSide, OrderType, PositionId, Price, Quantity, StrategyId, TimeInForce, TraderId,
+    TrailingOffsetType, TriggerType,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
@@ -116,7 +117,7 @@ class OrderRuleTests(unittest.TestCase):
             "beyond three times equity": lambda s: s.submit_order(s.limit(quantity="3000.001")),
             "naming a position": lambda s: s.submit_order(s.limit(), position_id=s.position_id),
             "with parameters": lambda s: s.submit_order(s.limit(), params={"x": 1}),
-            "short GTD": lambda s: s.submit_order(s.limit(time_in_force=TimeInForce.GTD, expire_time=s.expiry(599))),
+            "short GTD": lambda s: s.submit_order(s.limit(time_in_force=TimeInForce.GTD, expire_time=s.expiry(604))),
             "order list": lambda s: s.submit_order_list(object()),
             "on another contract": lambda s: s.submit_order(s.order_factory.limit(
                 InstrumentId.from_str("ETHUSDT-PERP.BINANCE"), OrderSide.BUY, Quantity.from_str("0.500"),
@@ -138,7 +139,7 @@ class OrderRuleTests(unittest.TestCase):
 
     def test_a_long_enough_gtd_entry_is_sent(self):
         breaches, orders = replay({1: lambda s: s.submit_order(s.limit(price="90.00", time_in_force=TimeInForce.GTD,
-            expire_time=s.expiry(600)))})
+            expire_time=s.expiry(605)))})
         self.assertEqual((breaches, [row["status"] for row in orders]), ([], ["EXPIRED"]))  # sent; expires at bar 12
 
     def test_a_gtd_expiry_with_a_fraction_of_a_second_is_refused(self):
@@ -181,10 +182,8 @@ class OrderRuleTests(unittest.TestCase):
                 INSTRUMENT_ID, OrderSide.SELL, quantity, price("110.00"), reduce_only=True, **gtd(s)),
                 position_id=s.position_id)},
             "TRAILING_STOP_MARKET exit": entry | {4: lambda s: s.submit_order(s.order_factory.trailing_stop_market(
-                INSTRUMENT_ID, OrderSide.SELL, quantity, Decimal(100), trigger_price=price("90.00"),
-                reduce_only=True, **gtd(s)), position_id=s.position_id)},
-            "MARKET_TO_LIMIT exit": entry | {4: lambda s: s.submit_order(s.order_factory.market_to_limit(
-                INSTRUMENT_ID, OrderSide.SELL, quantity, reduce_only=True, **gtd(s)), position_id=s.position_id)},
+                INSTRUMENT_ID, OrderSide.SELL, quantity, Decimal(100), trailing_offset_type=TrailingOffsetType.BASIS_POINTS,
+                trigger_price=price("90.00"), reduce_only=True, **gtd(s)), position_id=s.position_id)},
         }
         for name, steps in cases.items():
             with self.subTest(name=name):
@@ -194,6 +193,66 @@ class OrderRuleTests(unittest.TestCase):
                     f"Live cannot send a GTD {name.rsplit(' ', 1)[0]} order"]])
                 self.assertEqual(codes(breaches), ["ORDER_RULE"])
                 self.assertEqual([row["type"] for row in orders], ["LIMIT"] * (len(steps) - 1))
+
+    def test_an_order_live_cannot_send_is_refused(self):
+        # Rule 5: what the pinned Binance USD-M client denies before sending (C-058), and a trigger other than the
+        # default, which replay and Paper match on the bar's price and Binance on another (C-143).
+        quantity, price = Quantity.from_str("0.500"), Price.from_str
+        entry = {2: lambda s: s.submit_order(s.limit(price="99.50"))}
+
+        def exit_(make):
+            return entry | {4: lambda s: s.submit_order(make(s), position_id=s.position_id)}
+        cases = {
+            "TRAILING_STOP_LIMIT exit": exit_(lambda s: s.order_factory.trailing_stop_limit(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, price("89.00"), Decimal(100), Decimal(100),
+                trailing_offset_type=TrailingOffsetType.BASIS_POINTS, trigger_price=price("90.00"),
+                reduce_only=True)),
+            "MARKET_TO_LIMIT exit": exit_(lambda s: s.order_factory.market_to_limit(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, reduce_only=True)),
+            "trailing offset in price": exit_(lambda s: s.order_factory.trailing_stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, Decimal(1), trailing_offset_type=TrailingOffsetType.PRICE,
+                trigger_price=price("90.00"), reduce_only=True)),
+            "DAY exit": exit_(lambda s: s.order_factory.stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, price("90.00"), reduce_only=True,
+                time_in_force=TimeInForce.DAY)),
+            "DAY entry": {2: lambda s: s.submit_order(s.limit(price="99.50", time_in_force=TimeInForce.DAY))},
+            "AT_THE_OPEN entry": {2: lambda s: s.submit_order(s.limit(price="99.50",
+                                                                       time_in_force=TimeInForce.AT_THE_OPEN))},
+            "post-only GTD entry": {2: lambda s: s.submit_order(s.limit(
+                price="90.00", post_only=True, time_in_force=TimeInForce.GTD, expire_time=s.expiry(700)))},
+            **{f"{trigger.name} stop": exit_(lambda s, trigger=trigger: s.order_factory.stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, price("90.00"), trigger_type=trigger, reduce_only=True))
+               for trigger in (TriggerType.MARK_PRICE, TriggerType.LAST_PRICE, TriggerType.INDEX_PRICE,
+                               TriggerType.BID_ASK)},
+            **{f"{tif.name} close": entry | {4: lambda s, tif=tif: s.close_position(
+                s.cache.position(s.position_id), time_in_force=tif)}
+               for tif in (TimeInForce.DAY, TimeInForce.GTD)},
+            "MARK_PRICE stop entry": {2: lambda s: s.submit_order(s.order_factory.stop_market(
+                INSTRUMENT_ID, OrderSide.BUY, quantity, price("120.00"), trigger_type=TriggerType.MARK_PRICE))},
+        }
+        for name, steps in cases.items():
+            with self.subTest(name=name):
+                breaches, orders = replay(steps)
+                self.assertEqual(codes(breaches), ["ORDER_RULE"])
+                self.assertEqual([row["type"] for row in orders], ["LIMIT"] * (len(steps) - 1))
+
+    def test_the_orders_live_sends_go_on(self):
+        # Negative control for the test above: the default trigger, basis-point trailing, GTC, IOC and FOK.
+        quantity, price = Quantity.from_str("0.250"), Price.from_str
+
+        def exits(s):
+            s.submit_order(s.order_factory.trailing_stop_market(
+                INSTRUMENT_ID, OrderSide.SELL, quantity, Decimal(100), trailing_offset_type=TrailingOffsetType.BASIS_POINTS,
+                trigger_price=price("90.00"), trigger_type=TriggerType.DEFAULT, reduce_only=True),
+                position_id=s.position_id)
+            s.submit_order(s.order_factory.limit(INSTRUMENT_ID, OrderSide.SELL, quantity, price("150.00"),
+                                                 reduce_only=True, time_in_force=TimeInForce.GTC),
+                           position_id=s.position_id)
+        breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="101.00", time_in_force=TimeInForce.FOK)),
+                                   3: lambda s: s.submit_order(s.limit(price="101.00", time_in_force=TimeInForce.IOC)),
+                                   4: exits})
+        self.assertEqual(breaches, [])
+        self.assertEqual(sorted(row["type"] for row in orders), ["LIMIT", "LIMIT", "LIMIT", "TRAILING_STOP_MARKET"])
 
     def test_a_gtd_stop_limit_or_limit_if_touched_exit_keeps_the_expiry_rule(self):
         def exits(seconds):
@@ -207,12 +266,13 @@ class OrderRuleTests(unittest.TestCase):
                                                                 price("110.00"), price("110.00"), **gtd),
                                position_id=s.position_id)
             return {2: lambda s: s.submit_order(s.limit(price="99.50")), 4: step}
-        breaches, orders = replay(exits(600))
+        # 605 s: Live sends a GTD order only with Binance's 600 s and its send margin left (C-160).
+        breaches, orders = replay(exits(605))
         self.assertEqual((breaches, sorted(row["type"] for row in orders)),
                          ([], ["LIMIT", "LIMIT_IF_TOUCHED", "STOP_LIMIT"]))
-        breaches, orders = replay(exits(599))
+        breaches, orders = replay(exits(604))
         self.assertEqual(([text.rsplit(": ", 1)[1] for _, text in breaches], [row["type"] for row in orders]),
-                         (["a GTD order expires at least 600 seconds after it is sent"] * 2, ["LIMIT"]))
+                         (["a GTD order expires at least 605 seconds after it is submitted"] * 2, ["LIMIT"]))
 
     def test_random_entries_are_refused_exactly_by_the_gtd_and_exposure_rules(self):
         # Seeded, bounded property check on one replay's clock: random LIMIT and STOP_MARKET entries, GTC or GTD with
@@ -225,7 +285,7 @@ class OrderRuleTests(unittest.TestCase):
                 price = draw.choice((Decimal(draw.randint(1, 20_000)).scaleb(-2), Decimal(draw.choice((50, 75, 120)))))
                 quantity = draw.choice((Decimal(draw.randint(1, 6_000_000)).scaleb(-3),  # or at the limit's edge
                                         (300_000 / price).quantize(Decimal("0.001")) + Decimal(draw.randint(-1, 1)) / 1000))
-                seconds = draw.choice((draw.randint(0, 1_200), draw.randint(598, 601)))
+                seconds = draw.choice((draw.randint(0, 1_200), draw.randint(603, 606)))
                 fraction = draw.choice((0, 0, draw.randint(1, 999_999_999), draw.randint(1, 999) * 1_000_000))
                 gtd = draw.random() < 0.5
                 terms = {"time_in_force": TimeInForce.GTD, "expire_time": s.expiry(seconds) + fraction} if gtd else {}
@@ -236,7 +296,7 @@ class OrderRuleTests(unittest.TestCase):
                     "a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD STOP_MARKET "
                     "order" if gtd and kind == OrderType.STOP_MARKET
                     else "a GTD order expires on a whole second: Live cannot send a fraction of one" if gtd and fraction
-                    else "a GTD order expires at least 600 seconds after it is sent" if gtd and seconds < 600
+                    else "a GTD order expires at least 605 seconds after it is submitted" if gtd and seconds < 605
                     else "the strategy's exposure on the contract with this entry is at most 3 times USDT equity"
                     if quantity * price > 300_000 else None)
                 checked.append((order_rules.violation(s, order), expected))
@@ -244,7 +304,7 @@ class OrderRuleTests(unittest.TestCase):
         breaches, orders = replay({1: entries})
         self.assertEqual((breaches, orders, len(checked)), ([], [], 300))
         self.assertEqual([found for found, _ in checked], [expected for _, expected in checked])
-        self.assertTrue({None, "a GTD order expires at least 600 seconds after it is sent"} <=
+        self.assertTrue({None, "a GTD order expires at least 605 seconds after it is submitted"} <=
                         {expected for _, expected in checked})
 
     def test_several_positions_on_both_sides_each_with_its_stop(self):
