@@ -583,6 +583,37 @@ class GateTests(unittest.TestCase):
                          [(minute, minute), (0, minute)])
         self.assertEqual(self.session.connection.closed, {})  # neither a gap nor a reason to close entries
 
+    def test_a_stop_closes_only_what_binance_still_holds_of_each_leg(self):
+        # Re-judge C-140 (doctor 20261114-25): a leg closed outside the run stays open in the native cache; a close of
+        # it from there is rejected and the run ended unresolved with the orphan stop left at Binance.
+        from nautilus_trader.model import Quantity
+        from engine import live_lifecycle
+        iid = InstrumentId.from_str(f"{SYMBOL}-PERP.BINANCE")
+        owner = mock.Mock()
+        self.session.owner = mock.Mock(return_value=owner)
+
+        def position(key, side, quantity):
+            return SimpleNamespace(id=key, strategy_id=self.strategy, instrument_id=iid, side=side,
+                                   quantity=Quantity.from_str(quantity))
+        a, b, c = position("A", PositionSide.LONG, "0.002"), position("B", PositionSide.LONG, "0.003"), \
+            position("C", PositionSide.SHORT, "0.001")
+        read = {"positions": [{"symbol": SYMBOL, "positionSide": "LONG", "positionAmt": "0.004"},
+                              {"symbol": SYMBOL, "positionSide": "SHORT", "positionAmt": "0"}]}
+        self.session.account_observation = SimpleNamespace(purpose="stop", deadline=time.monotonic() + 30,
+                                                           result=SimpleNamespace(done=lambda: True, result=lambda: read,
+                                                                                  cancel=lambda: None))
+        held = live_lifecycle.venue_held(self.session, [a, b, c])
+        self.assertEqual(held, {"A": Decimal("0.002"), "B": Decimal("0.002"), "C": Decimal(0)})
+        for found in (a, b, c):
+            live_lifecycle.close_held(self.session, found, held)
+        owner.close_position.assert_called_once_with(a, reduce_only=True)  # held in full
+        (order,), kwargs = owner.submit_order.call_args  # B: only the 0.002 Binance holds
+        self.assertEqual((owner.order_factory.market.call_args.args[1:], kwargs["position_id"]),
+                         ((OrderSide.SELL, Quantity.from_str("0.002")), "B"))
+        self.assertEqual(self.session.phantoms, {"B", "C"})  # C: nothing to send
+        self.assertEqual([(row["position_id"], row["venue"]) for row in self.events() if row["event"] == "venue_closed"],
+                         [("B", "0.002"), ("C", "0")])
+
     def test_a_stop_asked_for_while_warming_up_again_ends_the_run(self):
         self.gap()
         live_connection.rewarm(self.session)
