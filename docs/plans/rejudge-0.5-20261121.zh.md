@@ -61,10 +61,10 @@
 | 做 | 192 |
 | 做（委托决定） | 59 |
 | 部分已完成（余项按“做”） | 13 |
-| 已在计划或在途 | 65 |
-| 已完成 | 252 |
-| 需用户 | 19 |
-| 不做 | 180 |
+| 已在计划或在途 | 66 |
+| 已完成 | 253 |
+| 需用户 | 9 |
+| 不做 | 188 |
 
 ### 上次漏掉的两处
 
@@ -111,24 +111,26 @@ doctor 索引里状态过时的行（E-97）：
 
 ## 需用户的项与建议
 
-| id | 事项 | 类别 | 建议 |
-|---|---|---|---|
-| C-044 | 主检出 `.env` 里还留着两行已作废的交易所凭据 | 凭据 | 由你本人删掉这两行。Agent 不读这个文件 |
-| C-139、D-150、D-156、D-289 | 只能在真实账户上回答的项：断线时带仓重启、受控手动平仓、429 与请求权重、实收资金费、`availableBalance` 的口径、按方向的批量撤单、幻影仓位等 | Live 运行 | 0.5.0 发布后，由你划一次小资金试运行的范围并启动。范围按重写后的 Live 验收方案（C-043，做，S）逐项。产品侧能先做的部分已单列为“做”（C-054..C-060、C-133、C-140..C-143、C-158） |
-| C-111 | 上线后表现衰减，产品内没有检测 | Live 运行 | 等第一次 Live 试运行有了日对照数据再定阈值；现在不做 |
-| D-160 | 首次试运行的现金底线上限 100 USDT 仍在代码里（`engine/live_venue.py:241` `LIVE_BUDGET`），与你 11-13 定的“不设上限”不一致 | Live 运行的规模 | 按 11-13 的决定删掉这个固定上限，每次的规模由你在启动时填。请你确认一句，因为它管的是真钱的首次试运行 |
-| D-107 | 分年读数只有收益，没有回撤（分年 MARK 回撤要用分钟 MARK 权益算，日收益推不出） | 新存储字段 | 先做独立字段评审，核对它能不能由回放重算（账本只存回放给不回的东西）。评审若认定必须存，建议申请，跟第 2 代 schema 一起加，发布前加最便宜 |
-| D-108 | 离线变体数 K 写在判断正文的首行，靠正则解析（`ledger/judgments.py:24,72`） | 新存储字段 | 先做独立字段评审。建议申请：K 本来就存在判断正文里，改成一列不是多存一个事实，而是去掉正则解析；并入第 2 代 schema |
-| D-228 | 样本外验证改由 Paper 承担：段与验证登记绑定，封存读数进研究账本 | 新存储字段，并要改 AGENTS.md 的“执行记录不是研究数据” | 本版不申请。等 0.5.0 的第一条线走到验证阶段再提，那时有实际的 Paper 段可以设计 |
-| D-086 | 只放大仓位的运行不该计入换思路，账本里没有这个事实 | 新存储字段 | 不申请。维持由 Agent 扣除 |
-| D-252 | 逐决策记录，包括被拒交易后来的结果 | 新存储字段 | 不申请。judgment 82 已证明用订单 tag 临时代替可行 |
-| C-117 | 用户选择与 Agent 判断没有“作者”字段 | 新存储字段 | 不申请。判断正文已写明来源，`ledger/judgments.py` 是追加式写入 |
-| C-206 | 研究登记没有外部时间戳（RFC 3161 只挂在验证登记上） | 新存储字段 | 不申请。登记顺序已由只增账本和公开的 DoltHub 副本给出 |
-| E-46 | 源码审查加“每 bar 复杂度与有界状态”一项 | 新存储字段（`source_review` 每项两列） | 不申请。K3 已经写了写法，20261121-02 继续观察 |
-| D-146 | 一个会话同时跑两个策略 | 新存储字段，另需真实账户试验 | 本版不做。先做 D-149 |
-| D-284 | 视频转写的语言来自用户回答，这一事实不入证据包 | 新存储字段 | 你 11-07 已答不加，维持 |
-| D-092 | 凭据暴露后的轮换 | 凭据 | 你 11-07「不用换了」只覆盖那两次暴露；没有新的暴露，不需要动作 |
-| H-10 | 在上游 issue 回复“已在 rc8/rc9 验证” | 以你的名义对外发言 | 由你决定是否回帖，草稿在 H-10 行 |
+2026-11-21 用户对本表答「全按推荐」；随后又对 C-044、H-10、D-092 补了三句（见各行）。主表里相应各行已改判，计数表跟着改：需用户 19 行，6 行按「全按推荐」改为不做（D-086、C-117、C-206、D-146、D-252、E-46，不加字段），D-284 按用户 11-07「不加，结案」改为不做，C-044 按用户决定改为不做，H-10 已完成，D-092 已在计划，余 9 行仍是需用户（D-228 延后，不在用户答复的范围内）。D-107、D-108、D-160 由别的 lane 处理，本次没改。
+
+| id | 事项 | 类别 | 建议 | 决定（2026-11-21） |
+|---|---|---|---|---|
+| C-044 | 主检出 `.env` 里还留着两行已作废的交易所凭据 | 凭据 | 由你本人删掉这两行。Agent 不读这个文件 | 用户留着这两行（「我不准备删」），无产品动作 |
+| C-139、D-150、D-156、D-289 | 只能在真实账户上回答的项：断线时带仓重启、受控手动平仓、429 与请求权重、实收资金费、`availableBalance` 的口径、按方向的批量撤单、幻影仓位等 | Live 运行 | 0.5.0 发布后，由你划一次小资金试运行的范围并启动。范围按重写后的 Live 验收方案（C-043，做，S）逐项。产品侧能先做的部分已单列为“做”（C-054..C-060、C-133、C-140..C-143、C-158） | 0.5.0 发布后用户按 [`live-real-account-trial-0.5.zh.md`](live-real-account-trial-0.5.zh.md) 做一次受控试运行；D-289 的修法随后按委托决定 |
+| C-111 | 上线后表现衰减，产品内没有检测 | Live 运行 | 等第一次 Live 试运行有了日对照数据再定阈值；现在不做 | 等首批真实 Live 日对照 |
+| D-160 | 首次试运行的现金底线上限 100 USDT 仍在代码里（`engine/live_venue.py:241` `LIVE_BUDGET`），与你 11-13 定的“不设上限”不一致 | Live 运行的规模 | 按 11-13 的决定删掉这个固定上限，每次的规模由你在启动时填。请你确认一句，因为它管的是真钱的首次试运行 | 另一 lane 按用户的话删掉 |
+| D-107 | 分年读数只有收益，没有回撤（分年 MARK 回撤要用分钟 MARK 权益算，日收益推不出） | 新存储字段 | 先做独立字段评审，核对它能不能由回放重算（账本只存回放给不回的东西）。评审若认定必须存，建议申请，跟第 2 代 schema 一起加，发布前加最便宜 | 另一 lane 处理 |
+| D-108 | 离线变体数 K 写在判断正文的首行，靠正则解析（`ledger/judgments.py:24,72`） | 新存储字段 | 先做独立字段评审。建议申请：K 本来就存在判断正文里，改成一列不是多存一个事实，而是去掉正则解析；并入第 2 代 schema | 另一 lane 处理 |
+| D-228 | 样本外验证改由 Paper 承担：段与验证登记绑定，封存读数进研究账本 | 新存储字段，并要改 AGENTS.md 的“执行记录不是研究数据” | 本版不申请。等 0.5.0 的第一条线走到验证阶段再提，那时有实际的 Paper 段可以设计 | 延后 — 本版不申请；第一条研究线走到验证阶段时，带实际 Paper 段的设计再问用户（字段评审 + AGENTS.md 改动都需用户授权） |
+| D-086 | 只放大仓位的运行不该计入换思路，账本里没有这个事实 | 新存储字段 | 不申请。维持由 Agent 扣除 | 不加，Agent 照旧扣除 |
+| D-252 | 逐决策记录，包括被拒交易后来的结果 | 新存储字段 | 不申请。judgment 82 已证明用订单 tag 临时代替可行 | 不加，有值得的候选时再议 |
+| C-117 | 用户选择与 Agent 判断没有“作者”字段 | 新存储字段 | 不申请。判断正文已写明来源，`ledger/judgments.py` 是追加式写入 | 不加 |
+| C-206 | 研究登记没有外部时间戳（RFC 3161 只挂在验证登记上） | 新存储字段 | 不申请。登记顺序已由只增账本和公开的 DoltHub 副本给出 | 不加 |
+| E-46 | 源码审查加“每 bar 复杂度与有界状态”一项 | 新存储字段（`source_review` 每项两列） | 不申请。K3 已经写了写法，20261121-02 继续观察 | 不加 |
+| D-146 | 一个会话同时跑两个策略 | 新存储字段，另需真实账户试验 | 本版不做。先做 D-149 | 不加，先做 D-149 |
+| D-284 | 视频转写的语言来自用户回答，这一事实不入证据包 | 新存储字段 | 你 11-07 已答不加，维持 | 不做：用户 11-07「不加，结案」 |
+| D-092 | 凭据暴露后的轮换 | 凭据 | 你 11-07「不用换了」只覆盖那两次暴露；没有新的暴露，不需要动作 | 0.5 新活动账本换 Dolt 密码，部署时重新生成 Paper token；PID 95669 已不在主机上 |
+| H-10 | 在上游 issue 回复“已在 rc8/rc9 验证” | 以你的名义对外发言 | 由你决定是否回帖，草稿在 H-10 行 | 用户已自己回帖 |
 
 另有三条“不做”行，理由是用户作过决定，提醒你知道：
 
@@ -460,7 +462,7 @@ doctor 索引里状态过时的行（E-97）：
 | C-039 | close-line 记录前言（“研究方法、职责目录、全仓架构与文档规模的重设计意见…不记为发现”） | Gemini #3201 的研究流程与职责目录重设计提议 | 不记 | 已在计划 | 在途：27 职责目录 lane（slimming-round-3 G-13）、Gemini 研究流程 8 项表所在 lane；文档规模 X1–X4 | 他 lane |
 | C-040 | 工程治理盘点 Decisions（-11、-13：不加 vulture、deptry、hypothesis，因进 `uv.lock` 改 `dependency_lock_sha256`） | 用第三方工具做死代码、依赖声明与性质测试 | 用标准库实现，不加依赖 | 已完成 | 兼容理由在 0.5.0 失效，但功能已由标准库实现：#3220 `tests/test_source_hygiene.py`（无使用者顶层函数 0、第三方导入对 `pyproject.toml`），#3226 固定种子性质测试；plan 计量 vulture/knip 死代码近零 | #3220、#3226 |
 | C-043 | followup“仍然开着的”、Decisions（重写 Live 验收文档 #3070）；`live-acceptance.zh.md` 被 #3274 删除<br>**并入**：D-231：live-acceptance.zh.md 全文（草稿，2026-11-15）；#3274 删除 | Live 小资金试运行方案（带 13 处【待确认】与验收阈值）被当作无引用计划删掉，审计记录仍引用它 | 用户验收时逐条确认 | 做（Agent 侧文档）；真实账户执行 需用户（Live run） | `git log -- docs/plans/live-acceptance.zh.md` 末次 3ddcd1446（#3274 删除）；`2026-11-14-pre-production-audit.zh.md`、followup 仍引用；按 0.5.0（P2、#3271 对账闸门、杠杆核对）重写一份<br>**合并说明**：同一项：Live 小额试运行/验收方案被 #3274 当无引用计划删掉。C-043 判 做（文档），D-231 判 需用户（执行）；两半都成立，分开写 | S：把被 #3274 删掉的 `live-acceptance.zh.md` 草稿第 3–6 节压成 `live/README.md` 一节（步骤、停止标准、待确认项），偏差阈值留给用户；依赖 C-083；执行由用户给范围并启动（见 C-139）；tag `docs-live-acceptance` |
-| C-044 | followup Decisions（C 类：清理项目 `.env` 里已作废的两行） | 主检出 `.env` 留着已作废的交易所凭据两行 | 用户亲自做 | 需用户 | 凭据（AGENTS.md：Agent 不读交易所凭据） | 凭据 |
+| C-044 | followup Decisions（C 类：清理项目 `.env` 里已作废的两行） | 主检出 `.env` 留着已作废的交易所凭据两行 | 用户亲自做 | 不做（用户决定：两行留在 `.env`，「我不准备删」，用户 2026-11-21） | 凭据（AGENTS.md：Agent 不读交易所凭据） | 无产品动作 |
 | C-045 | pre-production-audit.zh.md 20261112-15 / A1-02 (line 158)；索引 20261112-15<br>**并入**：C-163：F.1 20261112-15、研究流程表 3.1 A13（line 1304）、C.2 A1-02 | `hypothesis compare` 局限文字与站点写回撤差区间不计入换思路计数，代码与技能计入 | fix（文字），不需授权 | 已完成 | `report/comparison.py:39-41` 现写“like the return intervals it counts toward telling candidate and control apart in the change-of-approach count”<br>**合并说明**：同一项：C-045（pre-production-audit.zh.md 20261112-15 / A1-02 (line 158)；索引 20261112-）；C-163（F.1 20261112-15、研究流程表 3.1 A13（line 1304）、C.2 A1-02）。各行判定一致 | #3046（21be695ab），原修 #2919 |
 | C-046 | 同上 20261114-37（L-22+T-16+T-12+X-09）(line 159)；授权 §6 L-22 | Live、Paper、回放文档与代码不符多处；`live-acceptance` 五轮方案过期；`order_quantity` 文档串；Paper 设计文档两处 | fix（文字） | 已完成 | 索引 :70 fixed；`engine/protection.py:7-9` 注释已改为“native code's open-order check confirms it”（97a33d516）；`live-acceptance.zh.md` 按现行设计重写 | #3023、#3066、#3070；97a33d516 |
 | C-047 | 同上 20261114-38 / L-26 (line 160)；授权 §4 | 被杀 Paper 运行 `positions_open_at_stop` 恒为 0 | fix 或 remove，问用户 | 已完成 | 读数无读者，已删；followup 文档 Removal list | #3088（10aaebc81） |
@@ -519,13 +521,13 @@ doctor 索引里状态过时的行（E-97）：
 | C-105 | 同上 已覆盖 A1-04 (line 240) | 折扣夏普下端相关折两次，偏乐观 | 已覆盖（用户 11-07“不进产品”） | 已完成 | `research-round/SKILL.md:136` 与 `ratios.md` 要求给两端范围、不对比门槛 | 现有机制 |
 | C-107 | 同上 已覆盖 A1-07 (line 242)；授权 §2 | 无按试验数或平台期的停止 | 已覆盖；硬停止要授权且与决定相反 | 已完成 | `registration/register.py` `REVIEW_DUE`；`feedback.md:37-56` 换思路计数；硬停止属对用户目标的可行性判停，用户规则“目标是迭代目标，不做可行性检查” | 现有机制 |
 | C-109 | 同上 已覆盖 A1-11 (line 245) | 验证无窗口长度下限；半年窗口功效上界约 0.13 | 已覆盖 | 已完成 | `validation.md:26` 先告知集中度；长度由用户选；X4 重置 `appendix-open` 时保留此未决项 | 现有机制 |
-| C-111 | 同上 已覆盖 A1-13 (line 247)；授权 §2 | 上线后表现衰减无产品内检测 | 已知并延后（等最初几份真实对照） | 需用户（Live 运行） | 阈值依据只能来自真实 Live 日对照；回撤刹车 `engine/live_brake.py` 已在 | 首次 Live 试运行后再定 |
+| C-111 | 同上 已覆盖 A1-13 (line 247)；授权 §2 | 上线后表现衰减无产品内检测 | 已知并延后（等最初几份真实对照） | 需用户（已定，「全按推荐」（用户，2026-11-21）：等首批真实 Live 对回放的日对照再定阈值） | 阈值依据只能来自真实 Live 日对照；回撤刹车 `engine/live_brake.py` 已在 | 首批真实 Live 日对照之后再定 |
 | C-112 | 同上 已覆盖 A1-14 (line 248)；授权 §2 | 审阅与复算的独立靠技能文字，常同一模型 | 已知并有意保留 | 已完成 | `research-round/SKILL.md` 简报收紧；评测 `reviewer-reads-no-memory`、`reviewer-gets-technical-cache`；`reviewer ≠ author` 在同一模型下不可由代码判 | 现有机制；与 27 职责目录 lane 交叉 |
 | C-113 | 同上 已覆盖 A1-15 (line 249) | AHM 22 条清单对照 | 已覆盖，无新问题 | 已完成 | 对照逐行核对无误；6b 无代价证据 | 无待办 |
 | C-114 | 同上 已覆盖 A2-04 (line 250) | 否决段只有一个整年，留出一个读数 | 已覆盖 | 已完成 | `HistoryPage.tsx:17,115` `Whole yrs`；`judged_on` | 现有机制 |
 | C-115 | 同上 已覆盖 A2-06 (line 251) | 2022-09 quotes 与 aggTrades 缺月；文档只写 ETH 漏 BTC | 已覆盖；文字顺手修 | 已完成 | `market/README.md:103,177` 改为通用 `SEQUENCE_GAP` 规则，不再逐月列举；缺口由 `market coverage` 报 | 现有机制 |
 | C-116 | 同上 已覆盖 A2-08 (line 253) | `bars` 环境偏差方向相反，无净偏差读数 | 驳回（推断无依据） | 已完成 | 选环境规则在 `research-round/SKILL.md` 与评测 `execution-mode-for-margin-exposure` 等 | 现有机制 |
-| C-117 | 同上 已覆盖 A2-09 (line 254) | 用户选择与 Agent 判断无“作者”字段 | 已覆盖（D5 决定不加字段） | 需用户（新增存储字段） | 只能加字段才能结构化；推荐不申请：判断正文已写来源，`ledger/judgments.py` 追加式 | 不建议发起 |
+| C-117 | 同上 已覆盖 A2-09 (line 254) | 用户选择与 Agent 判断无“作者”字段 | 已覆盖（D5 决定不加字段） | 不做（用户决定：不加这个字段，「全按推荐」（用户，2026-11-21）） | 只能加字段才能结构化；推荐不申请：判断正文已写来源，`ledger/judgments.py` 追加式 | — |
 | C-118 | 同上 已覆盖 A2-10 (line 255) | 复现与“丢了就重算”从未执行 | 已覆盖 | 已完成 | `replay/reproduce.py` 复现命令；市场重建实测；镜像全部保留 | 现有机制 |
 | C-119 | 同上 已覆盖 A2-11 (line 256) | 外部来源取得时间、版本靠自述；`hypothesis.md` 的 “originals” 措辞与做法（摘录加校验和）不一致 | 驳回（收益低；措辞不必处理） | 做 | `hypothesis.md:7,12` 仍写 “Retain originals”；措辞会误导 Agent 存原件（公开账本再分发风险） | S；改为 “excerpts with their checksums”；并入 K5；验收 `.agents/README.md` 评测；tag skill-originals-wording |
 | C-120 | 同上 已覆盖 A2-12 (line 257) | 独立挑战只覆盖源码技术属性 | 已知并有意保留 | 已在计划/在途：27 职责目录 lane | 职责目录 `research-round/references/duty-directory.md` 正由该 lane 重判（G-13） | 27-duty lane |
@@ -545,7 +547,7 @@ doctor 索引里状态过时的行（E-97）：
 | C-134 | 同上 补查 20261114-12 / P8-01 (line 281; 授权 §2 line 341) | 整年否决无效或对照缺失时按留出单判达标 | authority（收紧读时判定） | 已完成 | 索引 :79 fixed | #3079（75428cf9b） |
 | C-136 | 同上 补查 20261114-14 / P8-03 (line 283) | 预检默认把年化、回撤、夏普给作者 | fix | 已完成 | `replay/entry.py:50` `PRECHECK_SCOPE` 只给技术事实 | #3069（f9f8bb892） |
 | C-138 | 同上 补查 20261113-120 子项 n364 / P8-05 (line 285)；followup recurred；并入 C-138: F.1 20261113-120 n364（line 952）、B.1 P8-05（line 846）；index 20261113-120 n364（followup recurred） | Live 写的 `runtime_failures.jsonl` 无读者，回调异常时操作者只看到 “Source failed: yes” | fix（视图读回执），不需授权 | 已在计划 + 做 | 写入一半：grep `FAILURE_PATH` 只在 `engine/run.py:906,938`，Live 不设，属 E1；读取一半：`live/views.py:462` 只读 `source_failed`，`liveTradingMap.ts:114` 只显示 yes/no；另（C-138）：计划 E1 管写入（`begin_run` 设 `FAILURE_PATH`、结束 `write_failures()`）；读者仍缺：`git grep runtime_failures -- live ide` 零命中；建议 E1 验收加“Live 页或证据包列出失败回执” | 写入 E1；读取 S：Live 视图与页面显示失败回调名与计数，依赖 E1；验收 `test_views`、截图；tag live-failure-view |
-| C-139 | 同上 授权 §1 全表、§1 D.4、已覆盖 L-23 (line 231)、M-04/M-16 的 Binance 口径；并入 C-139: D.1 D-1..D-15 中只有交易所能答的部分（O-08、O-10、O-11、M-02、L-25、M-11、T-05、T-15 真实推送、L-05、D-14 刹车真实触发、D-15 维护）、(e)1 第 8/9/10 类与 3e/7c/P6-d/10f（line 626-630）、执行链表 §2 N10；C-139: D.4 对账允许偏差表（line 733-741）；C-139: 同上 待证实 O-08 (line 178)；授权 §1<br>**并入**：D-236：live-acceptance 待确认 5、6、7、9、10、11；§2 只能真实账户回答的清单；live-release “未核实”；step3、step5 “没有验证”；C-082：同上 待证实 X-07 (line 205) | 真实账户受控试验清单：L-10 断线带仓重启、L-09/M-13 受控手动平仓、D.4 四项（空仓短断、空仓缺根、有仓断线不少于 60 秒、带仓停容器重启）、L-07/L-11 权重与 429、M-14 实收资金费、M-02/L-25 `availableBalance` 口径、O-04、O-08、M-11、L-05/L-20、L-23 十二项观察、X-07、对冲保证金口径 | 每项由用户给范围并启动 | 需用户（Live 运行与真实下单） | AGENTS.md：Agent 不启动 Live、不下改撤真实订单；各项的产品侧可先做部分已单列（C-054、C-055、C-056、C-057、C-060、C-133、C-140、C-141）；另（C-139、C-139、C-139）：AGENTS.md：真实账户试验由用户划定范围并启动；产品侧可先做的已拆成 C-158..C-160、C-133、C-065、C-172、C-059 / 随试运行范围由用户定；资金费逐笔对照的产品读数见 C-133 / `engine/order_rules.py`、`engine/protection.py`；技能 `strategy-authoring.md` 已写“模拟场所会缩量，Binance 不会”<br>**合并说明**：同一项：只有真实账户能回答的 Live 受控试验清单（C-139 审计授权 §1、D-236 live-acceptance 待确认、C-082 X-07 已写并入 C-139）。D-150、D-156、D-289 是其中个别项，未并入 | 用户在小资金试运行时按 `live-acceptance.zh.md`（#3070 重写）逐项 |
+| C-139 | 同上 授权 §1 全表、§1 D.4、已覆盖 L-23 (line 231)、M-04/M-16 的 Binance 口径；并入 C-139: D.1 D-1..D-15 中只有交易所能答的部分（O-08、O-10、O-11、M-02、L-25、M-11、T-05、T-15 真实推送、L-05、D-14 刹车真实触发、D-15 维护）、(e)1 第 8/9/10 类与 3e/7c/P6-d/10f（line 626-630）、执行链表 §2 N10；C-139: D.4 对账允许偏差表（line 733-741）；C-139: 同上 待证实 O-08 (line 178)；授权 §1<br>**并入**：D-236：live-acceptance 待确认 5、6、7、9、10、11；§2 只能真实账户回答的清单；live-release “未核实”；step3、step5 “没有验证”；C-082：同上 待证实 X-07 (line 205) | 真实账户受控试验清单：L-10 断线带仓重启、L-09/M-13 受控手动平仓、D.4 四项（空仓短断、空仓缺根、有仓断线不少于 60 秒、带仓停容器重启）、L-07/L-11 权重与 429、M-14 实收资金费、M-02/L-25 `availableBalance` 口径、O-04、O-08、M-11、L-05/L-20、L-23 十二项观察、X-07、对冲保证金口径 | 每项由用户给范围并启动 | 需用户（已定，「全按推荐」（用户，2026-11-21）：0.5.0 发布后由用户按清单做一次小资金受控试运行并亲自启动每一步） | AGENTS.md：Agent 不启动 Live、不下改撤真实订单；各项的产品侧可先做部分已单列（C-054、C-055、C-056、C-057、C-060、C-133、C-140、C-141）；另（C-139、C-139、C-139）：AGENTS.md：真实账户试验由用户划定范围并启动；产品侧可先做的已拆成 C-158..C-160、C-133、C-065、C-172、C-059 / 随试运行范围由用户定；资金费逐笔对照的产品读数见 C-133 / `engine/order_rules.py`、`engine/protection.py`；技能 `strategy-authoring.md` 已写“模拟场所会缩量，Binance 不会”<br>**合并说明**：同一项：只有真实账户能回答的 Live 受控试验清单（C-139 审计授权 §1、D-236 live-acceptance 待确认、C-082 X-07 已写并入 C-139）。D-150、D-156、D-289 是其中个别项，未并入 | 清单 [`live-real-account-trial-0.5.zh.md`](live-real-account-trial-0.5.zh.md) |
 | C-140 | 同上 授权 §1 20261114-25 第一、二类；§2 -25；§6 -25；索引 :58 open；并入 C-140: (e)1、D.1 D-7（line 667）、C.2 L-09/M-13（line 899）；index 20261114-25 剩余项；index 20261114-25（open） | 交易所侧成交未并入缓存成幻影仓位：剩余为重启时换新原生身份继续交易、交易所仍留止损或部分仓位时 STOP 按缓存平仓、止损覆盖检查先于比对 | 剩 measure（真实试验）→ authority | 做（委托决定） | 产品侧一半已合：#3058（入场读取比较持仓两次不符即拒、交易所全空记 `venue_flat`，`engine/live_commands.py`、`engine/live.py`）；余下三种情形可在回环假交易所上构造，不需账户；另（C-140）：#3058 只覆盖入场读取比较与 `venue_flat`（index 20261114-25 状态 open）；STOP 路径 `engine/live.py:300-330` 仍以缓存为准；后两种情形不需要真实账户，回环可复现 | M；回环构造三种情形；STOP 前先读交易所持仓与条件单，按交易所平；重启时缓存与交易所不符则换新原生身份；验收回环与 `test_live*`；真实验证在 C-139；tag live-phantom-exit |
 | C-141 | 同上 授权 §1、§2 20261114-29（L-07、L-11）；索引 :62 open；并入 C-141: D.1 D-3（line 665）；index 20261114-29 剩余“只读客户端每请求只发一次、429 不退避”；C-141: index 20261114-29 剩余“下单或撤单结果不明时 rc7 约 30 秒后本地判定”；用法表“rc8、rc9 对启动对账…的修复”（L-12）；index 20261114-29（open） | 只读 REST 客户端每请求只发一次、429 不退避；下单或撤单结果不明时 rc7 约 30 秒本地判定 | 先在真实账户量权重 → authority | 做（委托决定） | 应答形状一项已做（#3072）；重试与退避可在假交易所注入 429 验证，无需真实权重读数先行（有界重试本身不增加封禁风险）；另（C-141、C-141）：退避本身不依赖真实权重读数：Binance 文档给 `Retry-After` 与 418 升级规则；#3072 只把应答形状并入 `LIVE_ACCOUNT_RESPONSE`、未加重试（followup line 47 行表 -29） / AGENTS.md 硬规则：Nautilus 管订单状态，产品不建平行判定；产品侧出口已由 C-140 的“STOP 前读交易所持仓”覆盖；升级 Nautilus 时复测归计划 Nautilus 条 | S；只读读取加有界重试与 429 `Retry-After` 退避；下单侧启用 `RETAIN_UNRESOLVED`；验收回环 `s5_cancel_429` 与 `test_live_venue`；权重读数在 C-139；tag live-rest-retry |
 | C-142 | 同上 授权 §2 20261114-30（T-01）；索引 :63 open；并入 C-142: D.1 D-11（line 673）、没有解决的分歧 6（line 1074）；index 20261114-30（open）；index 20261114-30（open）<br>**并入**：D-288：索引 open 20261114-30 | 主机休眠或 VM 挂起后聚合 bar 收盘一直晚下去，产品不检测；对照把这类差异标成疑似偷看未来 | measure → fix，扩大关入场与新增已知原因都先问用户 | 做（委托决定） | 计量仍缺（远端 kvm 无挂起记录，Mac compose 会休眠）；`engine/live_connection.py:312-329` 只查外部 bar 缺口，不查聚合 bar 送达时刻；另（C-142）：当前镜像不休眠时日线实测桶末 +5.01-5.04 s（line 1107）；休眠未测；`engine/kline_events.py:8-10` 只量 1 分钟 bar 的 `ts_init − E`，聚合 bar 无检测；#2997 只在对账事后列早到 K 线<br>**合并说明**：同一项：C-142（同上 授权 §2 20261114-30（T-01）；索引 :63 open；并入 C-142: D.1 D-11（line 673）、没有）；D-288（索引 open 20261114-30）。各行判定一致 | S；聚合 bar 送达晚于桶末超过阈值即按 `bars_missing` 关入场并记事件，`paper compare` 归为已知原因；验收 `test_live_connection` 注入单调时钟停走；tag late-aggregate-gate |
@@ -604,7 +606,7 @@ doctor 索引里状态过时的行（E-97）：
 | C-203 | 研究流程表 3.4 第 2 条（line 1342） | 比较表的非劣（支配）判定把 `plan_win_rate` 当第四个度量，AGENTS.md 写胜率只是报告维度 | 值得后续核对 | 做（委托决定） | `report/status.py:31` `TABLE_MEASURES` 含 `plan_win_rate`，`:540-544` 用它定 `non_dominated`；推荐必须权衡 non_dominated 运行（`review.md:26`） | S；依赖 无；验收 支配只用年化、MARK 回撤、夏普，胜率留在表里展示；report 单测与 `research status` 抽样对比 |
 | C-204 | 研究流程表 3.4 第 3 条（line 1343） | 四个区间任一排除 0 即“分得出”，没有跨区间多重性处理 | 未判断 | 不做 | 有测量证据：20261112-15 计数重放 R1 加回撤区间后分出 9/40（原 3/40）、回撤预测与 MARK 同号 6/6 过 4/5 门槛后采纳（index 20261112-15） | — |
 | C-205 | 研究流程表 3.4 第 4、5 条（line 1344-1345） | `INTERPRETATION_REQUIRED` 只查存在不查内容；`Line decision.` 判断登记前不检查 | 值得后续核对 | 不做 | AGENTS.md “Code or Agent”：解读内容与线决定是 Agent 工作，代码只管信任边界；代码已校验主体关联（`registration/register.py:494-526`） | — |
-| C-206 | 研究流程表 3.4 第 6 条（line 1346） | 研究登记没有外部时间戳，只有验证登记有 RFC 3161 | 值得后续核对 | 需用户（新存储字段） | `ledger/witness.py:112-119`、`ledger/schema.sql:203` 只挂验证登记；给研究登记加见证是新存储行。建议不提：开发期是样本内，登记顺序已由只增账本与公开 DoltHub 副本给出 | 字段评审后问用户（建议不申请） |
+| C-206 | 研究流程表 3.4 第 6 条（line 1346） | 研究登记没有外部时间戳，只有验证登记有 RFC 3161 | 值得后续核对 | 不做（用户决定：不加这个字段，「全按推荐」（用户，2026-11-21）） | `ledger/witness.py:112-119`、`ledger/schema.sql:203` 只挂验证登记；给研究登记加见证是新存储行。建议不提：开发期是样本内，登记顺序已由只增账本与公开 DoltHub 副本给出 | — |
 | C-207 | 没有解决的分歧 2、9、10、11、12（line 1067-1077） | 授权口径、用法分类口径、否决审阅的缺陷类别、成员规则作用、故障矩阵口径 | 照实保留 | 不做（非产品提议） | 不是产品提议：均为审计口径或旧账本读数；授权口径已由用户委托决定取代，旧账本随 0.5.0 清空<br>**复核（origin/main `db7c9f9aa`）**：协调员裁定 | — |
 | C-210 | 局限“外部材料”（line 1112）、D.1 D-6 | Binance 分档保证金表与 `availableBalance` 是否扣持仓保证金没读到 | 放在待证实 | 做 | 公开文档可读，不需要账户；现金底线与 3 倍入场上限依赖该口径（`engine/live_venue.py`） | S；依赖 无；验收 按 `research-sources` 读官方文档并留引文，能定则写进 `live/README.md`，不能定留给 C-139 |
 | C-211 | Removal list（line 1129-1135）、B.3 | 可选删除 `positions_open_at_stop`；`slippage_stress`、`minimum_effect` 无消费者 | 由用户定 | 已完成 | `positions_open_at_stop` 已删；后两项见 C-200、C-199 | #3088 |
@@ -690,13 +692,13 @@ doctor 索引里状态过时的行（E-97）：
 | D-083 | 八线程 20261107-16 “是否保留随 -01 一起定” | `research state` 读时 `docker pull` | 只改 help | 已完成 | `cli/research_commands.py:624` help 写明拉取并移动本地 tag，`:919` `--no-pull`（IDE 用）；需要当前 main 摘要时拉取是必要的 | — |
 | D-084 | 八线程 20261107-21 选项 B（`minimum_effect` 不再必填）<br>**并入**：D-174：codex-flow §三 T01；C-199：研究流程表 3.3 C1（line 1322） | 必填字段没有判断读它 | 只写单位，不放松 | 不做（实测有价值） | dow 新线 25 次登记都设 0.02 并与目标挂钩，“可检测 33 点对最小效应 2 点”靠它一眼可见（dow-old-vs-new Removal list）；`registration/register.py:172-174`<br>**合并说明**：同一项：`minimum_effect` 改非必填或删除。D-174 的“做（委托决定）：维持必填”是 0 行改动，C-199 的“无消费者”不成立（`feedback.md:37` 让 Agent 对照可检出差） | — |
 | D-085 | 八线程 20261107-23 残余（“用户的选线账本没有，仍由 Agent 扣除”）；leftovers L2 | 换思路计数要 Agent 自己扣掉用户已答的那次选择 | 只读提示，Agent 自扣 | 做 | 用户选择已以 `Change of approach.` 开头的 priority 判断入账（leftovers L2 判断 69），但 `report/status.py:769-793` `_undistinguished_runs` 不在它处停止（`:774` 写明由 Agent 扣除）；Agent 自算即给自己打分 | S；无依赖；读到最近一条 `Change of approach.` priority 判断所答的试验即停；验收：status 单测；tag report-change-of-approach |
-| D-086 | 八线程 20261107-23 残余（只改规模的运行）、20261107-05 | 只放大仓位的运行不应计入换思路，账本无此事实 | Agent 扣除 | 需用户（存储字段） | 产品无法从源码差异可靠推出“只改规模”；要么登记时声明一个字段，要么维持 Agent 扣除；先做字段评审（X3 登记表） | 字段评审后问用户 |
+| D-086 | 八线程 20261107-23 残余（只改规模的运行）、20261107-05 | 只放大仓位的运行不应计入换思路，账本无此事实 | Agent 扣除 | 不做（用户决定：不加字段，Agent 在判断里照旧扣除，「全按推荐」（用户，2026-11-21）） | 产品无法从源码差异可靠推出“只改规模”；要么登记时声明一个字段，要么维持 Agent 扣除；先做字段评审（X3 登记表） | — |
 | D-087 | 八线程 20261107-30；索引 rejected（由 cross-line-fusion §3 取代） | 跨线经验没有提炼与检索路径 | 由融合计划取代 | 已完成 | `research-round/references/feedback.md:58-61` 借用他线假设、融合关线候选规则；`research-start/SKILL.md:85-86` 读关线总结与历史 | — |
 | D-088 | 八线程 20261107-38 | 可检测差按单侧 alpha 算，区间却是双侧 | 改公式会动封存读数，不做 | 【到期】做 | `report/comparison.py:207` `inv_cdf(1 - alpha)`，区间 `:123,150` 用 `alpha/2`；0.5 账本重来，不再有旧读数要保持 | S；无依赖；改为 `1 - alpha/2` 并同步 R1 门槛说明；验收：comparison 单测；tag report-detectable |
 | D-089 | 八线程 Removal “33 个同修复的拒绝码合并”；发布计划 D 段不做“合并修复文字相同的 12 个拒绝码（收益低）”<br>**并入**：A-84：BR D 不做“合并修复文字相同的 12 个拒绝码” | 条件与修复文字都相同的拒绝码重复 | 不做：无会话代价 / 收益低 | 做（委托决定） | “收益低”“无会话代价”不是允许的理由；0.5 破坏性、评测与 skill 引用一起改即可；只合并条件与修复文字都相同、且 skill 未点名的码<br>**合并说明**：协调员裁定：A-84 与发布计划 D 段以“收益低”判不做，“收益低”不是允许的理由；改拒绝码属委托决定，按推荐做 | S；排在 D-090 拒绝码普查与 D7 之后；合并条件与修复文字都相同的拒绝码；拒绝路径测试、`skill-names.py`、受影响评测 |
 | D-090 | 八线程 Removal 末行（f47d 普查 544 码：静默且未逐码读 454，unverified） | 大量拒绝码从未触发、是否有引发处未核 | 不能据此删 | 做 | 普查从未完成；`shared/refusals.py` `CATALOGUE` 现 249 码（paper-stream-flash 记录） | S（计量）；无依赖；逐码查引发处与测试，无引发处的删，结果并入 D-089；验收：拒绝码普查脚本输出 + 全量测试 |
 | D-091 | 八线程 Removal “`COMPARISON_ONLY` 单次报告行、`process.json`、`run_sealed` 分表” | 无读者或从未多行 | 现在不动，影响指纹或存储（兼容） | 已完成 | `ledger/execution.py:287` process.json 不存；schema 无 `run_sealed`；`COMPARISON_ONLY` 只剩过滤常量（`report/measures.py:56,646`） | — |
-| D-092 | 八线程 Decisions 13（PID 95669；本地 Dolt 密码与 IDE paper token 进了审计转录，是否轮换） | 凭据暴露后的轮换 | 待用户 | 需用户（凭据） | 记忆：用户 11-07「不用换了」只覆盖这两次暴露；PID 属 11-06 会话，终止宿主进程归用户 | — |
+| D-092 | 八线程 Decisions 13（PID 95669；本地 Dolt 密码与 IDE paper token 进了审计转录，是否轮换） | 凭据暴露后的轮换 | 待用户 | 已在计划（「全按推荐」（用户，2026-11-21）：0.5 的新活动账本换 Dolt 密码，0.5 部署时重新生成 Paper token；PID 95669 2026-11-21 核实已不在主机上，无需动作） | 记忆：用户 11-07「不用换了」只覆盖这两次暴露；PID 属 11-06 会话，终止宿主进程归用户 | 0.5.0 部署 |
 | D-093 | 八线程 20261105-02 新证据（审查者被指向早先探针；“是否允许复用探针由用户定”）；slimming G-09 | 审查是否可复用早先的原生探针 | 未答 | 做 | 从未测；-14 的种缺陷法（6/6 检出、每份约 10 万 token）可直接比较“复用探针”与“全新探针”的检出率 | S（计量）；无依赖；8 份种缺陷源码各审两次；验收：检出率表；仅当复用不降检出才改 skill（评测） |
 | D-094 | 八线程“既有条目新证据” 20261021-23、20261021-28、20261023-07、20261025-18、20261031-16 | 更正不可见、四角合并、压缩后重读、上下文增长、人查账本 | refactor-coverage-20261111 §1 U16：接受，复发时再测 | 已在计划/在途：持有 refactor-coverage-20261111 的组 | 这些 id 的判定在那份文件；本文件只加了复发证据（99f6 7 个、f47d 18 个更正；压缩 3–14 次） | 由该组重判 |
 | D-095 | release-readiness 20261107-102；11-13 圆桌 rejected；b5788262 审计复发 | Supply 字体无授权文件 | 用户「你永远不许修改现在正在使用的字体」 | 不做（AGENTS.md 硬规则：字体） | AGENTS.md 字体条款；MIT LICENSE 与第三方声明已在 | — |
@@ -742,16 +744,16 @@ doctor 索引里状态过时的行（E-97）：
 | D-143 | aggtrades-plan Dolt 容量实测“超线性部分按月观察” | 按月观察报价表的 Dolt 超线性增长 | 待观察 | 不做（主张在 main 上已不成立） | 市场不再在 Dolt：market/files.py、market/store.py 为 Parquet（release plan 总述） | — |
 | D-144 | aggtrades-plan 报价表评审“原始归档保留在持久目录，备份由用户安排” | `market-archive-cache` 的备份 | 交用户安排 | 不做（AGENTS.md：市场目录无副本，丢失即从 Binance 公开归档重算） | AGENTS.md“Where things go” | — |
 | D-145 | aggtrades-plan“本项验证”第 2 条 | 评测 `coverage-gap-not-economic-failure` 留红 | 保留失败记录 | 已完成 | 同页末段：修复后三次通过（coverage-readiness-disposition） | — |
-| D-146 | hedge-design §5 阶段二、§7 阶段 C、§8 | 一个会话固定两个策略并发（v2 manifest `strategies[]`、非原生事件的 `strategy_id`） | 延后（阶段 A 反例未闭合） | 需用户（新增存储字段：manifest 成员数组与诊断来源 ID；另需真实账户试验） | 现行 Live 一次运行一个候选、按合约多实例：live/README.md:50-53；`live/runs.py` 无成员数组 | 先做 D-149 |
+| D-146 | hedge-design §5 阶段二、§7 阶段 C、§8 | 一个会话固定两个策略并发（v2 manifest `strategies[]`、非原生事件的 `strategy_id`） | 延后（阶段 A 反例未闭合） | 不做（用户决定：本版不加，先做 D-149，「全按推荐」（用户，2026-11-21）） | 现行 Live 一次运行一个候选、按合约多实例：live/README.md:50-53；`live/runs.py` 无成员数组 | 先做 D-149 |
 | D-147 | hedge-design §6 问题 1、§8；hedge-impl“连接与恢复”<br>**并入**：D-148：hedge-design §6 问题 2 | 启动对账 `generate_missing_orders` 用默认还是 False 未决（默认路径在双腿时合成修正后拒绝） | 保持默认，阶段 A 再定 | 做 | engine/ 与 live/ 无 `generate_missing_orders` 设置（grep 0 命中），仍是默认；现在每策略多仓位 HEDGING（engine/order_rules.py:5-8），双腿场景是常态<br>**合并说明**：同一原生探针：D-147（`generate_missing_orders`）与 D-148（策略均价与账户均价不同）在钉住版本上同一个双腿探针回答；D-153（离线 Rust 上游测试）随行但是另一件，未并入 | S；依赖无；验收：钉住版本上原生探针（双腿正反序、缺失首成交），结论写进 live/README；tag live-native-probe |
 | D-149 | hedge-design §3、§9 阶段 A 后补充；hedge-impl“权限与范围”<br>**并入**：C-057：同上 待证实 M-11 (line 180)；授权 §1 | 同侧迟到保护单成交：A 已平而其止损迟到触发，会减掉同一 Binance 腿上 B 的仓位；原生成交与持仓不一致且节点不自动停 | 同向并发不开放 | 做 | Binance Hedge 每侧一条腿，而现行规则允许一个策略同侧多仓位各挂止损（engine/order_rules.py:5-8、protection.py:1-9），风险从跨策略移到策略内；main 上无针对迟到止损的检测（grep late/leg 0 命中），只有 5 分钟比对与覆盖检查间接发现<br>**合并说明**：同一项 M-11：同侧迟到保护单减掉同腿另一仓位。C-057 的回环竞态探针（S）是 D-149（M）的第一步；真实账户验证在 C-139 | M；依赖 D-147 探针；验收：原生回环探针复现与修复后不复现，Live 单测；tag live-hedge-legs |
-| D-150 | hedge-design §7 阶段 B；hedge-impl“验证与限制” | 两个 Retest 在真实账户顺序实测 | 待用户确认真实动作 | 需用户（Live run） | AGENTS.md：Agent 不启动 Live | — |
+| D-150 | hedge-design §7 阶段 B；hedge-impl“验证与限制” | 两个 Retest 在真实账户顺序实测 | 待用户确认真实动作 | 需用户（已定，「全按推荐」（用户，2026-11-21）：并入 C-139 的受控试运行；两个 Retest 不在 0.5 账本里，试的是 Hedge 下单腿开平） | AGENTS.md：Agent 不启动 Live | 清单 [`live-real-account-trial-0.5.zh.md`](live-real-account-trial-0.5.zh.md) |
 | D-151 | hedge-design §3 末段 | 账户锁只管一个 root，挡不住另一 root、别的主机或手工交易 | 首批不宣称跨主机租约 | 不做（主张在 main 上已不成立：外来单会被发现并关闭开仓） | engine/live_connection.py:564-575（`unknown_orders`、`foreign` 关闭开仓、撤该合约全部单） | — |
 | D-152 | hedge-design §5“留作后续需求”、§7 阶段 C 末段 | 不同账户、多品种、同策略多实例、热增减、单成员停止、账户池、独立资金份额、完整冷恢复、UI | 后续再按消费者设计 | 已完成（多合约、UI、冷恢复续跑）；其余需用户（新增存储字段） | 多合约多实例 live/README.md:50-53；Live 页启动；续跑 engine/live.py:233 `live_brake.resume` | — |
 | D-153 | hedge-design §9 | 离线 Rust 上游测试因依赖未缓存没有跑 | 不归为 Nautilus 缺陷 | 做 | 测量从未完成；并入 D-147 的探针一并跑上游对账测试 | S；随 D-147 |
 | D-154 | hedge-design §3 `close_all_positions` 段 | 采用原生 `close_all_positions` 前须先处理产品对它的拒绝 | 待定 | 不做（主张已由规则定案） | 源码不能调用：engine/order_rules.py:34-35（`FORBIDDEN_ORDER_APIS`）；STOP 路径自己逐仓平（live/README.md:215-219） | — |
 | D-155 | hedge-impl 文末“仍未解决” | 撤单丢失或输给成交时开仓成交无止损；断线后止损被拒只能人工；提议入场强制交易所侧 GTD（新拒绝） | 未解决；GTD 需另行授权 | 做（委托决定） | 无止损已由覆盖检查兜底：90 s 无覆盖即走 STOP（live/README.md:211-214），故 GTD 强制不再需要；剩下的是平仓被拒后不重试、留 `unresolved`（live/README.md:219-221） | S；先做原生回环探针列出被拒原因，再决定可安全重试的类别；验收 Live 单测；tag live-close-retry |
-| D-156 | hedge-impl“真实资金路径的修订”撤单重试 | 按方向 `cancel_all_orders` 走 `DELETE /fapi/v1/batchOrders`，只做过回环 | 真实账户未跑 | 需用户（Live run） | engine/live_session.py:261-273 | — |
+| D-156 | hedge-impl“真实资金路径的修订”撤单重试 | 按方向 `cancel_all_orders` 走 `DELETE /fapi/v1/batchOrders`，只做过回环 | 真实账户未跑 | 需用户（已定，「全按推荐」（用户，2026-11-21）：并入 C-139 的受控试运行，只能在发生时观察） | engine/live_session.py:261-273 | 清单 [`live-real-account-trial-0.5.zh.md`](live-real-account-trial-0.5.zh.md) |
 | D-157 | hedge-impl“验证与限制”“保留多资产后的准入修订”末段 | 待记录的验收：固定 CI 镜像、延迟查询断线反例重测、配对回放、部署观测 | 另记结果，不预先宣称 | 已在计划（第三波“全量测试与配对原生验收复核”）；部署观测需用户（Live run） | release plan“执行顺序”第三波 | 计划第三波 |
 | D-158 | hedge-impl“保留多资产”末段 | 多资产能力边界：余额不一致、离线成交后保护单不自动扩容、平仓历史费用不向交易所复核 | 接受为能力边界 | 不做（AGENTS.md：Nautilus 管账户状态）；保护缺口已由覆盖检查兜底 | live/README.md:211-214 | — |
 | D-159 | hedge-impl“保留多资产”“首轮不修改订单价格/数量” | Live 不支持改单 | 首轮不做 | 不做（主张已被取代：三种模式统一禁止修改） | engine/order_rules.py:17-18 规则 4 | — |
@@ -818,7 +820,7 @@ doctor 索引里状态过时的行（E-97）：
 | D-225 | image-version 第 1 步 | docker-api 代码改了只发 warning，靠人工改 digest PR | 设计如此 | 已完成 | deploy/compose.yaml:188 `TRADE_DOCKER_API_IMAGE` 由发布移动（11-16 授权） | — |
 | D-226 | image-version“明确不做” | 镜像签名与 SBOM、语义化版本标签、预发布仓库、digest 机器人、PR 镜像拆包、arm64 自动发布 | 不做（成本超收益） | 部分已完成；其余不做 | 已有：.github/workflows/runtime-image-sbom.yml:42 Sigstore 证明、`vX.Y.Z` 标签；arm64 自动发布不做（发布主机为 amd64：release_host.py 架构核对）；其余无具体需求 | — |
 | D-227 | image-version“验证”回滚演练 | 用 `--revision` 写临时 env 文件解析的回滚演练 | 计划内 | 做 | 无记录；0.5 发布前做一次 | S；验收 `deploy/images.py --revision` 写临时文件成功；tag deploy-rollback |
-| D-228 | forward-observation §3–§8、§6 第 2 项 | 样本外验证改由 Paper 承担：预声明段、取回整个捕获包进研究账本、按日接续序列、绑定与报告（R1–R8） | 草稿，未开始；需逐项授权与新增存储 | 【到期】需用户（新增存储字段：验证登记↔Paper 段绑定、封存读数；并改 AGENTS.md“Execution records are not research data”） | AGENTS.md:73 仍禁止；validation.md 仍按回放验证；用户 11-11“Paper is the only holdout that never runs out”；0.5 新 schema 是加表最便宜的时候 | L；依赖字段评审、K4 |
+| D-228 | forward-observation §3–§8、§6 第 2 项 | 样本外验证改由 Paper 承担：预声明段、取回整个捕获包进研究账本、按日接续序列、绑定与报告（R1–R8） | 草稿，未开始；需逐项授权与新增存储 | 需用户（延后 — 本版不申请；第一条研究线走到验证阶段时，带实际 Paper 段的设计再问用户（字段评审 + AGENTS.md 改动都需用户授权）） | AGENTS.md:73 仍禁止；validation.md 仍按回放验证；用户 11-11“Paper is the only holdout that never runs out”；0.5 新 schema 是加表最便宜的时候 | 第一条研究线到验证阶段时再问用户 |
 | D-229 | forward-observation §3.2、§8 第 4 项、R3 | 覆盖率下限（如 <90% 不出检验）与缺失日进检验的口径；需放宽 `RETURN_CLOCK_GAP`、`RETURN_COMPOUNDING_MISMATCH`、`REGISTRATION_CONSUMED`、`WINDOW_MISMATCH`、`CONFIG_MISMATCH` | 用户决定，未答 | 做（委托决定）（随 D-228） | 属改拒绝，已委托 | 随 D-228 |
 | D-230 | forward-observation §5、§6 第 1 项 | registration 1、2 在 2027-05-12 后按旧做法回放 | 已决定保留 | 不做（0.5 账本重来，登记不存在） | — | — |
 | D-233 | live-acceptance §3.0 待确认 2<br>**并入**：C-173：D.3 第一段“订单生命周期 24-48 小时”（line 697） | Live 工程试验（成交频繁的小额源码）必须是研究账本头部的候选，在公开活动账本留只增记录，与 AGENTS.md“工程试验只写隔离账本”冲突；#3251、#3271 之后它还得过关线证伪与 Paper 对账，工程源码实际上无法上 Live | 待用户确认，未答 | 做（委托决定） | `live/admission.py:25-36` `unfalsified`、#3271 Paper 对账准入；`live/runs.py:335-344` 候选只从研究账本读<br>**合并说明**：同一问题：Live 工程试验（交易频繁的小额源码）在 #3251、#3271 后无法上 Live。C-173 判 需用户（活动账本），但登记进现有活动账本不是创建或切换活动账本，不在允许的需用户类别；按 D-233 先做只读设计评审（来源、名义硬上限、不进研究账本），新增或改 Live 准入拒绝属委托决定；启动运行仍归用户 | M；先只读设计评审（工程运行的来源、名义硬上限、不进研究账本）再实施；依赖 #3271；验收：拒绝路径测试与假交易所回环；tag live-engineering-run |
@@ -837,7 +839,7 @@ doctor 索引里状态过时的行（E-97）：
 | D-249 | market-data-sources “没有做的”；“全量 5–6 小时，用户认为不值得，中途停下” | 市场目录无副本、丢失时从 Binance 归档重算，但从零恢复从未跑过，抽样重下载也只覆盖部分月份 | 暂停，另外决定 | 已在计划（20261118-01/02 全量市场切换本身就是一次从零导入） | `docs/plans/doctor/index.zh.md` 20261118-01/02；#3231 | 在途: market lane；切换时记录导入耗时与文件哈希 |
 | D-250 | market-data-sources “条款是克隆的……合约以后改 tick 时，重建的旧月份报价可能不同（没有实测）” | 推算报价按导入时最新 tick 取整，tick 改过的合约（BTC 0.01→0.10）重建的旧月份报价会变 | 没有实测 | 做 | 记忆 instrument_tick_changes：BTC、SOL 历史上改过 tick；`market/` 推算报价规则未区分历史 tick | S（计量）；对 BTC 2021 年一个月按当前与历史 tick 各推一次，比文件哈希与价格差；在途: market lane；tag quote-tick-history |
 | D-251 | market-data-sources “没有做的” | 旧数据清理（`market-old`、R2 旧对象、DoltHub `vincent/trade-market`）一直暂停 | 暂停，另外决定 | 做（委托决定） | 用户 11-21“激进策略清理技术债”与“由你决定按推荐做”；旧市场副本已不是活动输入 | S；先只读列清单（大小、最后引用），再删；不碰活动市场目录；在途: market lane 或清理批次；tag old-market-copies |
-| D-252 | ml-fusion-desk-study 计划项 1 | 逐决策记录（含被拒交易后来的结果），没有它算不出 AUC、校准与通过/拒绝对比 | 触发式，等有能覆盖成本的候选 | 需用户（新存储字段，先独立评审） | judgment 82 用订单 tag 临时代替 | 评审后逐字段问用户 |
+| D-252 | ml-fusion-desk-study 计划项 1 | 逐决策记录（含被拒交易后来的结果），没有它算不出 AUC、校准与通过/拒绝对比 | 触发式，等有能覆盖成本的候选 | 不做（用户决定：不加，有值得的候选时再议，「全按推荐」（用户，2026-11-21）） | judgment 82 用订单 tag 临时代替 | 有值得的候选时再议 |
 | D-253 | ml-fusion-desk-study 计划项 2 | 报告里的过滤归因与“同接受率随机否决基线” | 触发式 | 做 | 任何过滤规则都可用，不止 ML；`nautilus-report-analysis` 无随机否决基线 | S；技能一段加一个评测（`.agents/README.md`）；tag filter-attribution |
 | D-254 | ml-fusion-desk-study 计划项 3 | 策略源码不能用 numpy（向量计算、波动率缩放也受限） | 触发式，属运行契约变更 | 做（委托决定） | `engine/load.py:44-46` `SOURCE_STDLIB` 不含 numpy，越界即 `SOURCE_REACH`（`engine/load.py:218`）；numpy 已是运行依赖（`pyproject.toml:9`） | S；放宽 `SOURCE_REACH` 允许 `numpy`；验收：loader 拒绝路径测试与一次配对原生验收（运行镜像不变）；tag source-numpy |
 | D-255 | ml-fusion-desk-study 计划项 4 | 预训练模型热启动（Paper/Live 45 秒启动限制） | 触发式 | 不做（实测无价值） | judgment 82：过滤器配对比较 p=0.51，根策略年化 −14.4%；ML 判定 11-14“工程可行，模型无价值” | — |
@@ -859,10 +861,10 @@ doctor 索引里状态过时的行（E-97）：
 | D-280 | 索引已结 20261029-21 | 审计按 rc3 订单名前缀 `EXPIRATION-` 认引擎结算单，Nautilus 升级可能改名 | rejected（10-31 用户决定） | 已完成（有守卫） | `engine/audit.py:484,636`；`tests/engine/test_entry_membership.py:214` 原生断言前缀，升级改名即失败 | — |
 | D-281 | 索引已结 20261029-12 | 起线审查豁免只有 activity 失败的评审要 3 个条件 | rejected（用户保留三条件） | 不做（claim 失效：`_untraded_review` 已不在代码里） | grep `untraded` 0 处；现行在 `registration/availability.py:7-33` | — |
 | D-283 | 索引已结 20261107-161 | doctor 状态词没有“使用方已核实” | rejected（试补一句评测掉线） | 不做（实测：`finding-needs-proof` sonnet 6/6→4/6） | #2430 | — |
-| D-284 | 索引已结 20261107-152 | 视频转写语言来自用户回答这一事实不入包 | rejected（用户“不加，结案”） | 需用户（存储字段；用户 11-07 已答不加） | #2408 | — |
+| D-284 | 索引已结 20261107-152 | 视频转写语言来自用户回答这一事实不入包 | rejected（用户“不加，结案”） | 不做（用户 2026-11-07「不加，结案」，前提变化不影响） | #2408 | — |
 | D-285 | 索引已结 20261107-145 | 评测里 17/105 个无 skill 回答说文件搜索被拒 | rejected | 不做（claim 不是缺陷：沙箱 don't-ask 模式拒绝目录外读取以保护基线，实测复现） | 评测清理收尾记录 | — |
 | D-286 | 索引已结 20261107-146、-151；fixed 行残留 20261105-40、-42、-44、-45 | 留红或“等用户定”的评测用例：`gross-negative-updates-priority` Q4、`user-first-miss`、`attribution-cites-and-predictions`、`inferred-quotes-matched-scope`、`recommendation-not-next-parent`、`withdrawn-reading-told`、`report-follows-template`、`window-extension-user-decides`、`review-is-not-stop` 等 | 留红、等用户 | 已在计划 K2（逐题复判，不能区分的改写一次再删） | — | K2 |
-| D-289 | 索引 open 20261114-25、-29 残留 | 幻影仓位后的 authority 三项（换原生身份后继续交易、交易所留止损或部分仓位时 STOP 仍按缓存平仓、覆盖检查先于比对）；只读客户端 429 不退避；撤单结果不明时本地判定 | 剩 measure（真实账户）→ authority | 需用户（Live run：先在真实账户量请求权重与外部平仓报文） | `RETAIN_UNRESOLVED` 只管下单一侧；撤单侧与 D-155、D-156 同题 | measure 之后按委托决定 |
+| D-289 | 索引 open 20261114-25、-29 残留 | 幻影仓位后的 authority 三项（换原生身份后继续交易、交易所留止损或部分仓位时 STOP 仍按缓存平仓、覆盖检查先于比对）；只读客户端 429 不退避；撤单结果不明时本地判定 | 剩 measure（真实账户）→ authority | 需用户（已定，「全按推荐」（用户，2026-11-21）：并入 C-139 的受控试运行；读数出来后修法按用户委托决定） | `RETAIN_UNRESOLVED` 只管下单一侧；撤单侧与 D-155、D-156 同题 | 清单 [`live-real-account-trial-0.5.zh.md`](live-real-account-trial-0.5.zh.md)；读数之后按委托决定 |
 | D-292 | 索引 open 20261121-02、-03、-11、-15、-16、-17、-18、-19 | 回放耗时超线性；技能改动找不出覆盖用例；K 线周期不能固定；Agent 版本链接不回画布；手机再点 Runs 不回列表；Equity 开关被禁用；研究页 Replays 点行不切试验；SourceTree 不默认 Diff | open（观察、计量或问题） | 在途: Gemini lane（Gemini 发现复核记录未被 #3274 删除） | — | 由 Gemini lane 判定 |
 | E-01 | 8 项表 #1；G-16①（1eac78df3）；claims 问题 7、拟 -16；#3201 Removal 表<br>**并入**：C-037：close-line 记录 Decisions（20261120-16 余项） | `replay report` 原生给逐合约闭仓明细 `closed_by_instrument`（笔数、胜率、毛利、费用、资金费、净利）；真问题：每条线反复起子代理用 `tables()` 手算同一张表 | #3201 评审删；slimming G-16 只做去首合约标量；20261121-01 只计量出场一半 | 做 | `report/measures.py:411-416` `instrument_net` 已算出逐合约净值，`:574-580` 只留 `top5_abs_share` 与 `net_without_top_instrument`；close-line 记录 Decisions 行写 Line 2 的 13 条 `search_exposure` 全部、Line 3 的 8 条中 6 条自算逐合约净值表——重复成本已计量；读时派生、不存储，与 D9 同类<br>**合并说明**：同一项 20261120-16 余项（逐合约明细）。C-037 以 Code-or-Agent 判不做；但同类的出场明细（D9 #3272）与去首合约净值（#3233）已按读时派生进产品，E-01 给出重复成本已计量（Line 2 13/13、Line 3 6/8 条 `search_exposure` 自算逐合约表），按同一口径做。C-037 的比较级滑点半边见 E-16、C-200 | S；读时派生 `closed_by_instrument`（笔数、胜率、毛利、费用、资金费、净利），`report/measures.py:411-416` `instrument_net` 已算出后丢弃；D9 已由 #3272 合入，单独一个 PR；report 单测 + `replay report --help` 契约文字；tag `report-closed-by` |
 | E-04 | 8 项表 #2；G-16②；claims 问题 1<br>**并入**：H-12：eec22f6c s94 第 3 节；A-17：S3 G-16c；20261121-14；Gemini -16② | `dev_years` 写死三年，非三年开发期无逐年读数 | 20261121-14 fix | 已完成（#3238） | `report/measures.py:679-718` 按交易起点周年切，任意长于一年的窗口给读数<br>**合并说明**：同一项 20261121-14 / G-16②（`dev_years` 只认三整年）；H-12 的结构健康读数即同一读数。A-17 的“去最佳子段不退化推荐准则”半边在 D-106 组判不做 | #3238（2657b756b） |
@@ -887,7 +889,7 @@ doctor 索引里状态过时的行（E-97）：
 | E-37 | G-10 | `replay run --registration` 默认取市场 head 而非登记日 | fix | 已完成 | — | #3213（726862a0d） |
 | E-38 | G-11①② | 技能列出不带 `--line` 的命令、`--body` 文件、`Change of approach.` 首句模板；改善拒绝文字 | slimming G-11 不做（措辞无误） | 已完成 | `shared/refusals.py:189-193,345` 已给精确首句与“写入文件再传”；`feedback.md:68-70` 写明首句与 chooser 措辞 | — |
 | E-40 | G-12①（按分段复用导出）<br>**并入**：C-032：index 已结 20261120-09；close-line 记录 -09 | 同一分段对所有候选只导出一次 Catalog | 计量后关闭（20261120-09） | 不做 | 已计量无价值：每段导出 1.4–4.2 秒，占一段回放 2–13%（日频候选 8–12%），且只在预热、合约、`include_*` 全同时可共享<br>**合并说明**：同一项：同一分段对所有候选复用导出（G-12① 前半 / 20261120-09）。D-033（研究试验内三次导出）范围不同，未并入 | — |
-| E-46 | G-14①（审查加复杂度第五项） | 源码审查新增“每 bar 复杂度与有界状态”项 | slimming G-14 不做产品改动 | 需用户 | 新存储字段：`source_review` 每项是两列 `{item}_status/_note`（`ledger/schema.sql:275-282`，`registration/precheck.py:30,42`），加一项即两列。建议不提：K3（#3265）已写写法，20261121-02 观察中 | 需用户（新存储字段 `source_review.bounded_status/_note`），建议不加 |
+| E-46 | G-14①（审查加复杂度第五项） | 源码审查新增“每 bar 复杂度与有界状态”项 | slimming G-14 不做产品改动 | 不做（用户决定：不加这个字段，「全按推荐」（用户，2026-11-21）） | 新存储字段：`source_review` 每项是两列 `{item}_status/_note`（`ledger/schema.sql:275-282`，`registration/precheck.py:30,42`），加一项即两列。建议不提：K3（#3265）已写写法，20261121-02 观察中 | — |
 | E-69 | G-23⑥；蓝图 #6 | 删 `EARLIER_SOURCE_PATHS`、`skill-heat.jsonl`；CLI 声明式绑定 | — | 已完成 / 已在计划 | `EARLIER_SOURCE_PATHS` 只剩 CHANGELOG 一处；`skill-heat.jsonl` 仍是 20261121-04 计量的输入 | K5（skill-heat 去留）；D7（CLI） |
 | E-70 | 蓝图 #6（兼容残留） | profile `kind` 可为 None、市场日 `head` 别名、发布跨提交携带旧运行时镜像 | 未判 | 不做 / 已在计划 | 说法不成立：`kind=None` 是共享服务 profile 的现行写法（`ledger/service.py:284`），`head` 是现行默认（`market/files.py:364`），都不是旧格式；发布携带旧镜像归 P3 | P3（deploy lane） |
 | E-71 | 蓝图 #7（CLI 越界） | `STRATEGY_STUB` 与 `candidate_export` 字节校验从 `cli/` 移到 `ledger/strategies.py` | 未判 | 做 | `cli/research_commands.py:83,102,168` 脚手架与导出逻辑在 CLI 层 | S；并入 D7；`--help` 快照 + 单测；tag 随 D7 |
@@ -982,7 +984,7 @@ doctor 索引里状态过时的行（E-97）：
 | H-06 | af007f91、be0970cd s42 | History 每条线下重复列头、吸顶不重叠；长线名与 `No trades` 溢出 | Gemini 修复 | 已完成 | #3199 合入（191b6084b），并有 611172275、94d3ca6b8 | #3199 |
 | H-07 | f434590b s81 | 空卡片（无平仓、无对照、无回放、空文本、无 7 天收盘）默认收起，数据到达后随默认展开 | Gemini 修复 | 已完成 | #3193 合入；`components/Section.tsx:10-11` 默认值变化时清掉手动状态 | #3193 |
 | H-08 | 788827a2 s36、s62 | 续跑链在 SSE 重连或切合约时闪现 `No equity yet` 与 `Historical data through … Stream disconnected`；Gemini 提议保留上一帧或改骨架屏 | 记为 doctor 20261120-14 | 已完成 | index 20261120-14 `fixed f31b28b46`（#3209） | #3209 |
-| H-10 | aeffa732 s54 | 代用户在上游 issue 回复“已在 rc8/rc9 验证” | Gemini 起草英文回复，交用户 | 需用户 | 以用户名义对外发言，只能用户本人发；草稿已给出 | 用户自行决定是否回帖 |
+| H-10 | aeffa732 s54 | 代用户在上游 issue 回复“已在 rc8/rc9 验证” | Gemini 起草英文回复，交用户 | 已完成（用户 2026-11-21 已自己在上游 issue 回复） | 以用户名义对外发言，只能用户本人发；草稿已给出 | — |
 | H-13 | c0c6cca5 s138 第二节 | 三个新开线选项 A/B/C（regime-gated-vwap-reversion、cross-sectional-momentum-pullback、multi-major-vol-breakout-pullback）待用户选，未答复 | 等待用户 | 不做（作为产品项） | research-start 规则：研究线由用户选；0.5.0 新账本重开研究时，这三条可作为 research-start 的候选输入，旧账本的试验不带入 | 无 |
 | H-15 | 66450bb2 | `orders.csv` 里已撤的限价单没有 `position_id` | 子 agent 判为报告层现象 | 不做 | AGENTS.md：订单与成交报告归 Nautilus；源码审查已 passed（review 115） | 无 |
 | H-16 | 58d79c0b s31、4dc6e2c3 | 多合约同时 `subscribe_bars` 在启动时打出聚合器“已在运行”警告 | 子 agent 判为无害 | 不做 | AGENTS.md：策略源码是 Agent 工作，不是产品代码；两次审查都 passed（review 107、121） | 无 |
