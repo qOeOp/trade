@@ -10,6 +10,10 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261121-25 | `bars` 执行下成交可超过该分钟市场总成交量（`above_volume`），推荐流程从不看这个读数 | authority（推荐须引用该读数并在 `quotes` 下复跑或写明成交不可信；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-24 | `research status` 比较表的非劣判定把计划胜率当第四个度量，胜率只是报告维度 | authority（支配只用年化、MARK 回撤、夏普；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-23 | 关线留出期 DSR 只按本线参与者数折扣，不计看过同一留出期的跨线试验；IDE 只对达标行显示 | authority（另给计入 `holdout_prior_trials` 的 DSR；Claude 按用户委托决定） | doctor | unknown | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
+| 20261121-22 | 派生候选的源码审查每次从零读父本，同批只差常数的网格点各起一个审查者 | authority（审查收父本 diff；同批常数网格点由一个审查者审完；Claude 按用户委托决定） | doctor | hours | open [记录](2026-11-21-research-flow-delegated.zh.md) | 2026-11-21 | 2026-11-21 |
 | 20261121-20 | Paper 封存审计在实时时钟的部分成交突发里误报：交易所在撤单请求之前改 reduce-only 单（`EVENT_OUT_OF_ORDER`），连续成交的账户变动配不上（`FUNDING_BALANCE_MISMATCH`）；运行 3 因此审计未通过，经济结果无误 | authority（只在实时时钟下按证据形态放宽两条审计检查；Claude 按用户委托决定） | doctor | unknown | in PR [#3293](https://github.com/qOeOp/trade/pull/3293)（[记录](2026-11-21-paper-fill-burst-audit.zh.md)） | 2026-11-21 | 2026-11-21 |
 | 20261121-21 | market-import 每日轮次跑得久时，健康检查在轮次进行中就报过期 | authority（进行中轮次不满 26 小时算新鲜；委托决定） | doctor | unknown | in PR [#3297](https://github.com/qOeOp/trade/pull/3297) [长轮次记录](2026-11-21-market-import-long-round.zh.md) | 2026-11-20 | 2026-11-20 |
 | 20261121-01 | 单次运行读数只给出场类别集中度 `top_exit_share`，不给各出场类别净盈亏（`exit_net` 已算出后丢弃） | measure（数会话手算出场拆分的次数，再定产品读数还是留在技能） | doctor | unknown | fixed 050ccf724 [#3272](https://github.com/qOeOp/trade/pull/3272) | 2026-11-21 | 2026-11-21 |
