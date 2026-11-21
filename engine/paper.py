@@ -49,7 +49,7 @@ each runtime failure, and ``<output>/summary.json`` and ``<output>/reports/`` (t
 events as a replay writes them, which the sealing step audits) are written at the end. Sandbox
 settles no funding (it takes no funding or MARK data), so the journal records each settlement the stream announced,
 and the sealing step settles each one Binance published, at its rate and the MARK a replay settles at, for the
-positions the journal held then (ledger.paper.settlements).
+positions the journal held then (ledger.run_journal.settlements).
 
 Explicit STOP/duration cancels working orders and stops the node. For a recovery-capable source, SIGTERM/
 SIGINT instead pauses without calling the source terminal stop hook and without cancelling: it waits for the orders
@@ -134,7 +134,7 @@ VENUE = ACCOUNT_CONTRACT["venue"]
 # (TERMS_CHANGED; docs/plans/r1-2d-leverage-terms-20261111.zh.md).
 LOADER_MARGIN = Decimal("0.1")
 STOP_CANCEL_SECONDS = 10
-# The runner's exit status after its journal failed (ledger.paper.JOURNAL_FAILED_EXIT reads it: with a full disk the
+# The runner's exit status after its journal failed (ledger.run_journal.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
 JOURNAL_FAILED_EXIT = 3
 JOURNAL_WRITE_FAILED = "PAPER_JOURNAL_WRITE_FAILED"

@@ -240,7 +240,7 @@ class Warming:
         STATES[str(strategy_id)] = {
             "at": at, "instrument_id": instrument_id, "declared": declared, "funding": funding, "fetch": fetch,
             "settlements": settlements if fetch is None else None, "pending": set(), "received": {}, "expected": {},
-            "delivered": {}, "result": None, "thread": None, "fetched_ns": None, "requested": False, "done": False,
+            "delivered": {}, "result": None, "thread": None, "requested": False, "done": False,
             "follow": fetch is not None and follows and at % HOUR_NS == 0, "subscribed": False, "following": [],
             "reads": fetch is not None and reads, "since": dict(since or {})}
 
@@ -285,7 +285,6 @@ class Warming:
                 state["result"] = read_until(fetch, state["at"] + DEADLINE_NS)
             except BaseException as exc:  # handed to the node's thread by _warming_wait
                 state["result"] = exc
-            state["fetched_ns"] = time.time_ns()
 
         state["thread"] = threading.Thread(target=work, name=f"warmup-{state['instrument_id']}", daemon=True)
         state["thread"].start()
