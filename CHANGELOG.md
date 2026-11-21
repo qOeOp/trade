@@ -37,6 +37,12 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 - Breaking (line-close summary): `research-start` has the closing summary state that the three earlier ledger
   generations searched the holdout 2024-10 to 2026-10 about 3,100 times, which the new ledger does not count; only
   Paper and later data are unseen.
+- **Breaking** (release host): a release stops the previous Live control with `docker stop` inside the account lock,
+  right after it commits the new route while Live answered idle, instead of turning off its restart policy and
+  signalling it to drain. A rollback stops the candidate's control the same way. The branches for a host whose
+  routed Web has no paired Live control are gone: every release since 0.4.0 paired one, and the custody root is
+  created only by a new host's install. Returning to the previous version by hand no longer needs
+  `docker update --restart`.
 - Command line: a reader that closes the pipe early (`python -m cli.main ... | head`) no longer prints a
   BrokenPipeError traceback. A JSON result cut short keeps the command's own exit code; output cut short before the
   result (`--help`, progress lines) ends with exit 1.

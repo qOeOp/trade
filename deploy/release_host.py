@@ -433,10 +433,6 @@ class DockerHost:
             raise RuntimeError("image source, platform or revision differs from admission")
         return source
 
-    def requires_live(self, name: str) -> bool:
-        args = json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name))
-        return any(arg.startswith(("--live-socket", "--live-router")) for arg in args)
-
     def prepare(self) -> None:
         self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
         profiles = self.state / "profiles"
@@ -585,7 +581,7 @@ class DockerHost:
             "/api/overview/health",
             "/api/agent/health",
             "/api/agent/agents",
-            *(["/api/live"] if routed and live and self.requires_live(name) else []),
+            *(["/api/live"] if routed and live else []),
         ]:
             if not (value := self.answer(name, path, routed)).get("ok", value.get("valid", True)):
                 raise ReaderFailure("routed Web" if routed else "Web", path, "not ok")

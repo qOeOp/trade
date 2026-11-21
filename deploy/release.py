@@ -6,7 +6,6 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 """
 
 import argparse
-from contextlib import nullcontext
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -146,7 +145,7 @@ def failure_summary(error: Exception) -> str:
 
 def report_failure(phase: str, error: Exception) -> None:
     labels = {"primary": "Primary release failure", "recovery": "Release recovery failure",
-              "retired": "Retired Live controller retained", "previous": "Previous Web left running",
+              "previous": "Previous Web left running", "control": "Previous Live control left running",
               "cleanup": "Release cleanup skipped", "release": "Release tick failed",
               "services": "Compose service move failed"}
     try:
@@ -366,9 +365,8 @@ def drift(host: DockerHost, github: GitSource, checkout: Path = CHECKOUT) -> dic
 
 class Release:
     """One version moves Web, the Agent, its Live control and the Paper controller together: either all reach it,
-    or all stay on the previous version and `failed/<revision>` blocks it. Every host pairs a control; the first
-    release of a host without one creates the custody root (deploy/live_host.py). Paper's own journal and the
-    roll-forward rule between the two commits are deploy/paper_release.py's."""
+    or all stay on the previous version and `failed/<revision>` blocks it. Paper's own journal and the roll-forward
+    rule between the two commits are deploy/paper_release.py's."""
 
     def __init__(self, host: DockerHost, github: GitSource, live=None, paper: PaperRelease | None = None):
         self.host = host
@@ -379,11 +377,14 @@ class Release:
         self.live = live or LiveHost(host, github)
         self._paper = paper
 
-    def retire_live(self) -> None:
+    def stop_controls(self, kept: str) -> None:
+        """Inside the account lock, once the route is committed: stop every Live control but `kept`'s. A failure
+        leaves one running, which the account no longer admits (live/release.py admission_locked); the next
+        release stops it."""
         try:
-            self.live.retire()
+            self.live.stop_others(kept)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-            report_failure("retired", error)
+            report_failure("control", error)
 
     def journal(self, candidate: str, previous: str, agent_before: str | None = None) -> dict:
         """`agent_before` names the Agent a release replaces; None keeps it."""
@@ -467,9 +468,9 @@ class Release:
             self.host.persist_route(previous)
             self.mark_failed(candidate)
             self.clear()  # only a verified rollback commits removal of the recovery journal
+            self.stop_controls(previous)  # the candidate's control admitted no effect while the journal was open
         if self.host.exists(candidate):
             self.host.stop(candidate)
-        self.retire_live()
         print(f"Restored previous Web release {previous}", flush=True)
 
     def retire_webs(self, routed: str) -> None:
@@ -503,11 +504,10 @@ class Release:
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
         # Every release pairs: the candidate brings its own control and takes the account, only while Live is idle
-        # (0.x keeps no compatibility between versions, the user 2026-11-14). A routed Web without a control (a
-        # host's first pairing) has no owner: the candidate's control, on the root prepare creates, answers.
-        owner = revision(previous) if self.host.requires_live(previous) else None
+        # (0.x keeps no compatibility between versions, the user 2026-11-14).
+        owner = revision(previous)
         # When this host's inputs changed only the candidate's control reads them, so its inspection answers.
-        if owner is not None and self.live.current(owner):
+        if self.live.current(owner):
             # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
             # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
             try:
@@ -580,6 +580,8 @@ class Release:
                 held()
                 self.host.persist_route(candidate)
                 self.clear()
+                # Live is idle under this lock, so the previous control holds no run: stop it now.
+                self.stop_controls(candidate)
             print(f"Committed Web release {sha} as {image}", flush=True)
             if paper_plan is not None:
                 paper.commit(paper_plan["candidate"])  # a crash before this rolls Paper forward on recovery
@@ -592,7 +594,6 @@ class Release:
             self.retire_webs(candidate)  # the previous Web held its memory until the next release
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("previous", error)  # the next release's admission stops it
-        self.retire_live()
 
     def paper(self) -> PaperRelease:
         if self._paper is None:
@@ -697,13 +698,12 @@ class Release:
             return False
         active = self.host.disk_route()
         self.host.checked(active)
-        self.live.restore(active)  # only a Web that uses Live has a control to keep running
+        self.live.restore(active)
         target = self.github.choose(revision(active), self.failed)
         if target:
             self.apply(target)
         else:
             print(f"No newer successful main image; keeping {active}", flush=True)
-        self.retire_live()
         if not target:  # a tick that released something leaves the services to the next one
             self.follow(active)
         self.prune()
@@ -794,8 +794,7 @@ class Release:
             if before is None:
                 print("A Paper operation began; the compose services wait", flush=True)
                 return
-            live = self.live.barrier(active, idle=True) if self.host.requires_live(active) else nullcontext(lambda: None)
-            with live as held:
+            with self.live.barrier(active, idle=True) as held:
                 held()
                 self.move(active, controller, moving, held)
         except LiveBusy as busy:

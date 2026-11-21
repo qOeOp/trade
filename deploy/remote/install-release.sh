@@ -5,8 +5,8 @@
 #
 #   install-release.sh          a new host, after the whole-project `up` of README.md: the first Paper controller,
 #                               Web and Agent, then the timer
-#   install-release.sh control  once, on a host installed before the handoff, with its timer stopped: the next
-#                               tick hands control over
+#   install-release.sh control  with the timer stopped, after a version changed the launcher, the unit, the timer or
+#                               the compose overlays: reinstalls them and the bootstrap copy
 set -eu
 [ "$(id -u)" = 0 ] || { echo 'Install the release plane as the deployment administrator'; exit 1; }
 source_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -43,7 +43,7 @@ units() {
 if [ "$mode" = control ]; then
   units
   systemctl start trade-release.timer
-  echo 'Launcher installed; the next tick hands release control to the admitted version (journalctl -u trade-release.service).'
+  echo 'Launcher, unit, timer and bootstrap copy reinstalled; the timer runs again (journalctl -u trade-release.service).'
   exit 0
 fi
 cd /opt/trade-release

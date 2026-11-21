@@ -93,4 +93,6 @@ GET 纯读，不能调用有释放/归档/回收副作用的原 status。共享�
 
 初次 busy/unknown 只是延后本次发布，不建立失败标记。事务开始时必须 idle，或者忙的 run 都能交给候选控制接管（声明未变、候选声明 `ADOPT_INSPECT`、每个忙 run 的运行镜像构建版本与候选声明同一个 `RUNNER_CONTRACT`，见 `live-continuous-step6-adopt-20261113.zh.md`）；提交前再次在同一原锁内检查。事务中的新增 prepare/preflight/start/reconcile/凭据变更及实际 resolve 修复被暂停，精确 request 查回与 STOP 保留。后台/显式 maintenance 仅由已提交 owner 或合法事务 previous 执行。若途中发现独立 CLI 或未知状态，恢复旧 pair 不要求重新 idle，不终止真实 runner。candidate 未提交时不能开始新 runtime 的运行，旧 control 等锁后也必须重新核对归属。
 
-成功提交后才退任旧 control：核对容器完整 Id 与当前 selector，先取消其自动重启，再仅发送协作 SIGTERM；handler、已接受的 CLI 和当前维护完成前进程与原件保留。没有 20 秒后 SIGKILL、自动删除或持久 draining 字段。Web/Agent/Paper 现有收尾规则不因此扩展到 Live runner。
+成功提交后才停旧 control：在提交所持的同一把原账户锁内、Live 已答空闲之后，按 revision 标签核对每个其他 control 再 `docker stop`；空闲即没有 run 或未决请求落在它们身上。回滚同样在锁内停候选的 control。重启策略不改，回滚 `start` 即恢复。Web/Agent/Paper 现有收尾规则不因此扩展到 Live runner。
+
+- 2026-11-21：协作式排空（先取消自动重启、再发 SIGTERM、异步观察）改为上面的直接停止（0.5.0 计划 P2）。用户委托：「需要我定的部份最后也是一样由你决定按推荐做」。理由：提交时锁内已确认空闲，旧 control 没有要等的 run，排空状态与每个 tick 的退役轮询都是多余机制。
