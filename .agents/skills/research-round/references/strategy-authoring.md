@@ -154,8 +154,11 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   their average open price) and entries (at their limit or trigger price), both sides added, stay
   within 3 times USDT equity. An exit is reduce-only and names its position (`position_id`); one
   position's working stops hold at most its quantity. Every order is on the instance's own
-  contract. Nothing is modified, listed, bracketed, emulated or given params. Only a LIMIT,
-  STOP_LIMIT or LIMIT_IF_TOUCHED order is GTD, expiring on a whole second at least 600 s ahead. A
+  contract. Nothing is modified, listed, bracketed, emulated or given params. Every order is one
+  Binance's client sends: no TRAILING_STOP_LIMIT or MARKET_TO_LIMIT, time in force GTC, IOC, FOK
+  or GTD, the default trigger, trailing offsets in basis points. Only a LIMIT, STOP_LIMIT or
+  LIMIT_IF_TOUCHED order is GTD, not post-only, expiring on a whole second at least 605 s after
+  it is submitted (rule 5 of `engine/order_rules.py`: Binance's 600 s plus Live's send margin). A
   breach is not sent and the run is refused; naming `bracket`, `submit_order_list`,
   `add_exec_algorithm` or `close_all_positions` anywhere in the file is refused at load.
 - Keep one stop per position, submitted on the entry's first fill, and a target or partial exit as
@@ -166,7 +169,7 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   on its `OrderCanceled`: submitted first, the new one would hold more than the position. A rejected
   cancel leaves the old stop working; close with a reduce-only order when the new one is rejected or
   its trigger is already passed. Honor a declared entry lifetime with native expiry or a
-  cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`,
+  cancellation Nautilus acknowledges; under 605 s, submit GTC and cancel on a timer. Under `bars`,
   native expiry fires at the first bar stamp at or after the deadline whose price differs from the
   last, but only after that bar's first price point that differs from the last has matched (its
   open when that differs from the previous close, else its first high or low leg), so a gap
@@ -247,8 +250,8 @@ is in `live/README.md`.
 
 - Round a GTD expiry up to the whole second (the clock at a bar reads 1 ms before the minute),
   `(self.clock.timestamp_ns() + 661 * 10**9 - 1) // 10**9 * 10**9` for 660 s: Live sends an entry
-  only with at least 605 s left. Binance may end the order early or late and report `CANCELED`:
-  handle the end as a cancel.
+  only with 605 s still left after its account check. Binance may end the order early or late and
+  report `CANCELED`: handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
   wallet and available balance, and each entry needs USDT cash of at least the run's

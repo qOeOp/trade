@@ -76,7 +76,7 @@ def venue_snapshot(base: dict, cache, *, unknown: bool = False, observed_ns: int
 
 class NativeConnectionTests(unittest.TestCase):
     def native(self, root: Path, gtd: bool = True):
-        """A Live session whose source sends one LIMIT entry (GTD, a whole second 600 to 601 s ahead, or GTC) on its first mark price, on the
+        """A Live session whose source sends one LIMIT entry (GTD, a whole second 605 to 606 s ahead, or GTC) on its first mark price, on the
         native backtest engine; the venue fills it only against a crossing quote. Startup is covered separately: the
         entry still performs the real require_entry -> asynchronous observation -> require_admission -> dispatch."""
         live.strategy_runtime.begin_run(root, {"Metrics": {"AAAUSDT-PERP.BINANCE"}})
@@ -92,11 +92,11 @@ class NativeConnectionTests(unittest.TestCase):
             return
         self.sent = True
         self.pending = self.order_factory.limit(self.iid, OrderSide.BUY, Quantity.from_str('0.003'),
-            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=(quote.ts_event // 10**9 + 601) * 10**9)
+            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=(quote.ts_event // 10**9 + 606) * 10**9)
         self.submit_order(self.pending)
 '''
         if not gtd:
-            text = text.replace("time_in_force=TimeInForce.GTD, expire_time=(quote.ts_event // 10**9 + 601) * 10**9",
+            text = text.replace("time_in_force=TimeInForce.GTD, expire_time=(quote.ts_event // 10**9 + 606) * 10**9",
                                 "time_in_force=TimeInForce.GTC")
         path, universe = root / "source.py", root / "universe.json"
         path.write_text(text)
@@ -264,7 +264,7 @@ class NativeConnectionTests(unittest.TestCase):
                         self.assertFalse(session.failed or session.stopping)
                         self.assertEqual(set(session.connection.closed), {"disconnected"})
                         advance(start + 70_000_000)  # the venue receives the withdrawal
-                    advance(start + 601_000_000_000)  # the GTD expiry, at least 600 s ahead (engine.order_rules)
+                    advance(start + 606_000_000_000)  # the GTD expiry, at least 605 s ahead (engine.order_rules)
                     withdrawn = disconnected and cancel_reaches_venue
                     self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
                                      OrderStatus.CANCELED if withdrawn else OrderStatus.EXPIRED if gtd
@@ -273,7 +273,7 @@ class NativeConnectionTests(unittest.TestCase):
                     self.assertEqual(engine.cache.order(protection.client_order_id).status, OrderStatus.ACCEPTED)
                     if disconnected:
                         if not gtd:
-                            advance(start + 601_005_000_000, bid="88.00", ask="89.00", size="0.002")
+                            advance(start + 606_005_000_000, bid="88.00", ask="89.00", size="0.002")
                             self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
                                              OrderStatus.CANCELED if withdrawn else OrderStatus.FILLED)
                         socket.state = SocketState.CONNECTED
@@ -282,7 +282,7 @@ class NativeConnectionTests(unittest.TestCase):
                         self.assertEqual(set(session.connection.closed), {"unverified"})
                         if withdrawn and gtd:
                             self.assert_reopens_and_cancels_unknown(session, engine, protection)
-                            advance(start + 601_015_000_000)  # the venue receives the cancel-all
+                            advance(start + 606_015_000_000)  # the venue receives the cancel-all
                             self.assertEqual(engine.cache.order(protection.client_order_id).status,
                                              OrderStatus.CANCELED)
                     self.assertEqual(live.strategy_runtime.FAILURES, [])

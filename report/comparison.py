@@ -204,7 +204,8 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int, *, s
                            "empty")
     studentized, degenerate = _studentized(values, outer, design, alpha, limitations)
     normal = NormalDist()
-    detectable = se * (normal.inv_cdf(1 - alpha) + normal.inv_cdf(POWER))
+    # Two-sided at alpha, like the intervals whose excluding zero tells candidate and control apart.
+    detectable = se * (normal.inv_cdf(1 - alpha / 2) + normal.inv_cdf(POWER))
     drawdown = float(max_drawdown(sides[1]) - max_drawdown(sides[0]))
     drawdowns = max_drawdown(sides[1][indices]) - max_drawdown(sides[0][indices])
     drawdown_interval = [float(value) for value in np.quantile(drawdowns, [alpha / 2, 1 - alpha / 2])]

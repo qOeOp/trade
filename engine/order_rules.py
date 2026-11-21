@@ -17,15 +17,17 @@ contract at once (user, 2026-11-11).
    when they cover the side (engine.audit).
 4. No modifications, order lists, emulated triggers, execution algorithms, contingent or linked orders, quote
    quantities or order parameters, and only the venue's own client.
-5. A GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order (GTD_TYPES: the types Nautilus's Binance USD-M
-   client sends GTD; it denies any other, so Live could not send one), expires on a whole second (Binance keeps an
-   expiry to the second and the client denies a fraction of one) and expires at least GTD_MINIMUM_NS after the
-   strategy submits it, by the strategy's clock (Binance's limit). GTD_MINIMUM_NS is the floor the three paths
-   share, not what Live needs: Live sends an entry only with GTD_MINIMUM_NS plus 5 seconds left at its own send
-   time (engine.live_connection.SEND_MARGIN_NS: the entry first waits for its account check, and the client denies
-   an expiry not strictly later than 600 seconds past its clock), so an entry of 600 to 605 seconds passes here and
-   is refused in Live (LIVE_ORDER_UNSUPPORTED). An entry bound for Live expires more than 605 seconds ahead, by
-   as long as it is to survive that wait.
+5. An order is one Nautilus's Binance USD-M client sends (LIVE_TYPES, LIVE_TIME_IN_FORCE, a trailing offset in basis
+   points; a post-only order is not GTD), with the default trigger (a MARK_PRICE, LAST_PRICE or other trigger is
+   matched on the bar's price in replay and Paper and on another price at Binance). A GTD order is a LIMIT,
+   STOP_LIMIT or LIMIT_IF_TOUCHED order (GTD_TYPES), expires on a whole second (Binance keeps an expiry to the
+   second and the client denies a fraction of one) and expires at least GTD_LEAD_NS after the strategy submits it,
+   by the strategy's clock: Binance's GTD_MINIMUM_NS, which the client requires strictly at its own send time, plus
+   SEND_MARGIN_NS, which Live leaves for an entry's account check (engine.live_connection.require_send_time). The
+   client's denials are in crates/adapters/binance/src/futures/execution.rs (validate_order,
+   determine_futures_order_lifetime), http/client.rs (order_type_to_binance_futures) and common/enums.rs
+   (BinanceTimeInForce) of the pinned version. Decided under the user's delegation (2026-11-21;
+   docs/plans/order-rules-live-shapes-20261121.zh.md).
 6. A strategy cancels and closes only its own orders and positions.
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
@@ -40,7 +42,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Callable
 
-from nautilus_trader.model import ClientId, Currency, OrderType, Price, TimeInForce, Venue
+from nautilus_trader.model import (
+    ClientId, Currency, OrderType, Price, TimeInForce, TrailingOffsetType, TriggerType, Venue,
+)
 from nautilus_trader.trading import Strategy
 
 from engine.protection import STOP_TYPES, orders_of
@@ -48,10 +52,16 @@ from engine.protection import STOP_TYPES, orders_of
 CODE = "ORDER_RULE"
 ENTRY_EQUITY_MULTIPLE = 3  # user, 2026-11-09 (multiple) and 2026-11-10 (of equity, not a fixed USDT cap)
 ENTRY_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_MARKET})  # user, 2026-11-10 ("Also allow stop entries")
-GTD_MINIMUM_NS = 600_000_000_000
-# What the pinned Nautilus sends GTD on Binance USD-M (crates/adapters/binance/src/futures/execution.rs,
-# determine_futures_order_lifetime); another type is OrderDenied before it reaches the venue.
+GTD_MINIMUM_NS = 600_000_000_000  # Binance's: an expiry strictly later than this after the client's send time
+SEND_MARGIN_NS = 5_000_000_000  # Live sends a GTD entry only with GTD_MINIMUM_NS plus this left
+GTD_LEAD_NS = GTD_MINIMUM_NS + SEND_MARGIN_NS
+# What the pinned Nautilus sends to Binance USD-M (rule 5); another is OrderDenied before it reaches the venue.
+LIVE_TYPES = frozenset({OrderType.MARKET, OrderType.LIMIT, OrderType.STOP_MARKET, OrderType.STOP_LIMIT,
+                        OrderType.MARKET_IF_TOUCHED, OrderType.LIMIT_IF_TOUCHED, OrderType.TRAILING_STOP_MARKET})
+LIVE_TIME_IN_FORCE = frozenset({TimeInForce.GTC, TimeInForce.IOC, TimeInForce.FOK, TimeInForce.GTD})
 GTD_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_LIMIT, OrderType.LIMIT_IF_TOUCHED})
+TRIGGERS = frozenset({None, TriggerType.NO_TRIGGER, TriggerType.DEFAULT})
+TRAILING_OFFSETS = frozenset({None, TrailingOffsetType.NO_TRAILING_OFFSET, TrailingOffsetType.BASIS_POINTS})
 VENUE = "BINANCE"
 WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engine.run)
 CONTRACTS: dict[str, Any] = {}  # strategy ID -> its instance's own InstrumentId (engine.history.Warming._warming_setup)
@@ -92,16 +102,26 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
         return "an order carries its own strategy's identity"
     if CONTRACTS.get(str(order.strategy_id)) != order.instrument_id:
         return "an order is on its strategy instance's own contract"
+    if order.order_type not in LIVE_TYPES:
+        return f"Live cannot send a {order.order_type.name} order"
+    if order.time_in_force not in LIVE_TIME_IN_FORCE:
+        return f"Live cannot send a {order.time_in_force.name} order"
+    if getattr(order, "trailing_offset_type", None) not in TRAILING_OFFSETS:
+        return "a trailing offset is in basis points: Live cannot send another"
+    if getattr(order, "trigger_type", None) not in TRIGGERS:
+        return "an order triggers on the default price: replay and Paper match any other on the bar's price"
     clock = Strategy.clock.__get__(source, type(source))
     if order.time_in_force == TimeInForce.GTD:
         if order.order_type not in GTD_TYPES:
             return ("a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD "
                     f"{order.order_type.name} order")
+        if order.is_post_only:  # only the GTD_TYPES have the attribute
+            return "a GTD order is not post-only: Live cannot send one"
         # expire_time: nanoseconds on every order type (expire_time_ns exists on LimitOrder alone); never absent on GTD
         if order.expire_time % 1_000_000_000:
             return "a GTD order expires on a whole second: Live cannot send a fraction of one"
-        if order.expire_time - clock.timestamp_ns() < GTD_MINIMUM_NS:
-            return "a GTD order expires at least 600 seconds after it is sent"
+        if order.expire_time - clock.timestamp_ns() < GTD_LEAD_NS:
+            return "a GTD order expires at least 605 seconds after it is submitted"
     cache = native_cache(source)
     if order.is_reduce_only:
         position = cache.position(position_id) if position_id is not None else None
@@ -212,6 +232,9 @@ class OrderRules:
         if (position is None or not position.is_open or position.strategy_id != _strategy_id(self)
                 or reduce_only is False or quote_quantity or params or client_id not in (None, ClientId(VENUE))):
             return self._order_rule("a strategy closes only its own open position, by a base-quantity reduction")
+        if time_in_force not in (None, TimeInForce.GTC, TimeInForce.IOC, TimeInForce.FOK):
+            # Native close_position sends its MARKET order past submit_order (rule 5); a GTD one panics natively.
+            return self._order_rule(f"Live cannot send a {time_in_force.name} MARKET order")
         return super().close_position(position, client_id, tags, time_in_force, True, False)  # type: ignore[misc]
 
     def close_all_positions(self, *args, **kwargs):

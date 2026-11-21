@@ -7,6 +7,9 @@ export type LiveWriteReply = { request_id: string; action: string; run_id?: stri
 type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
+/** Whether a Paper run of the candidate's source on chosen contracts reconciles with its replay, as the serving control
+ *  last compared (live/control.py paper_view, GET /candidates/<id>/<rev>/paper/<SYM,SYM>). Preparation asks it again. */
+export type LivePaperReadDto = { state: "checking" | "reconciled" | "unreconciled"; paper_id: number | null; reasons: string[]; source_sha256: string };
 /** A candidate's replay evidence on chosen contracts at the research head, as the serving control reads it ahead of
  *  preparation (live/control.py Evidence, GET /candidates/<id>/<rev>/evidence/<SYM,SYM>). Preparation checks it again. */
 export type LiveEvidenceReadDto = {
