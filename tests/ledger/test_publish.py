@@ -28,7 +28,7 @@ from unittest.mock import patch
 import pymysql
 
 from cli import main as cli
-from ledger import db, publish, strategies
+from ledger import db, publish, server, strategies
 from ledger import service as ledger_service
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -58,7 +58,7 @@ class PublishTests(unittest.TestCase):
         home = Path(tempfile.mkdtemp(prefix="cl-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, home, True)
         environment = {**os.environ, "DOLT_ROOT_PATH": str(home)}
-        db.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
+        server.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         subprocess.run([BINARY, "clone", self.url, str(home / "c")], env=environment, check=True, capture_output=True)
         return home / "c", environment
 
@@ -163,7 +163,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(found["head"], self.head(), "the remote already holds the head")
         self.assertEqual(self.remote_head(), self.head())
 
-        holder = publish._admin(self.profile)
+        holder = server.admin(self.profile)
         self.addCleanup(holder.close)
         with holder.cursor() as cursor:
             cursor.execute("SELECT GET_LOCK(%s, 0)", (f"{self.profile.database}/publish",))
@@ -321,9 +321,9 @@ class PublishTests(unittest.TestCase):
                 raise pymysql.err.OperationalError(1105, "connection refused")
         self.assertNotIn("must be able to write", self.code_and_message(publish._push, Offline(), self.profile, self.url, "main")[1])
         root = Path(self.profile.service_root)
-        db.stop_service(root)
+        server.stop_service(root)
         time.sleep(0.01)
-        db.start_service(root)
+        server.start_service(root)
         self.assertFalse(publish._key_after_start(self.profile), "a restarted service has the key")
         self.assertEqual(failed()[0], "PUBLISH_FAILED")
         self.assertNotIn("ledger service stop", failed()[1])

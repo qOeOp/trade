@@ -26,6 +26,13 @@ one is [Rolling back](deploy/remote/README.md#rolling-back).
 
 ## Unreleased
 
+- Ledger: the Dolt service (its directory, process, config.yaml, readiness wait and administrator connection) is
+  `ledger/server.py`, split out of `ledger/db.py`, which keeps profiles, databases, connections and writes. One
+  administrator connection serves backup, publish and sync: when the service does not accept it,
+  `ledger export --kind backup` now refuses with `LEDGER_UNAVAILABLE` or `LEDGER_PERMISSION` (was `DOLT_BACKUP`), as
+  publish and sync do. A service `ledger service run` starts that accepts but does not answer its first connection is
+  `LEDGER_START` at once instead of being retried.
+
 - IDE Line-close history: a hatched cell (part of a year) keeps its hatching when its colour or the too-short grey
   changes; it set the `background` shorthand beside `backgroundImage`, which React warned about and which could drop
   the hatching on rerender.

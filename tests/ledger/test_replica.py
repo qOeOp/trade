@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from ledger import db, paper, publish, replica, service, strategies
+from ledger import db, paper, publish, replica, server, service, strategies
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 from tests.helpers import refused
@@ -34,16 +34,16 @@ class ReplicaTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         with patch.object(service, "LISTEN", "127.0.0.1"):
-            self.server, self.mirror = replica.start(
-                self.root / "s", self.root / "data", self.root / "backup", self.origin, db._free_port(),
+            self.process, self.mirror = replica.start(
+                self.root / "s", self.root / "data", self.root / "backup", self.origin, server.free_port(),
                 self.root / "readers", self.root / "controllers", BINARY, subprocess_log := tempfile.TemporaryFile())
         self.addCleanup(subprocess_log.close)
-        self.addCleanup(service._stop, self.server)
+        self.addCleanup(server.stop, self.process)
         self.execution = db.load_profile("paper")
 
     def test_public_bootstrap_has_no_research_writer_and_no_old_execution_records(self):
         self.assertIsNone(self.mirror.kind)
-        config = db._known_service(self.root / "s")
+        config = server.known_service(self.root / "s")
         self.assertEqual(set(config["databases"]["research"]), {"reader"})
         with self.assertRaises(Refusal):
             db.connect(self.mirror, "writer")
@@ -93,14 +93,14 @@ class ReplicaTests(unittest.TestCase):
 
     def test_failed_fetch_preserves_visible_research_and_execution(self):
         before = replica.status(self.mirror)["ledger_commit"]
-        original = db.cursor_rows
+        original = server.cursor_rows
 
         def offline(cursor, statement, arguments=()):
             if statement == "CALL DOLT_FETCH('origin')":
                 raise pymysql.OperationalError(2013, "isolated disconnected origin")
             return original(cursor, statement, arguments)
 
-        with patch("ledger.db.cursor_rows", side_effect=offline):
+        with patch("ledger.server.cursor_rows", side_effect=offline):
             with self.assertRaises(Refusal) as caught:
                 replica.sync(self.mirror)
         self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
@@ -120,7 +120,7 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
 
     def test_non_fast_forward_does_not_reset_the_local_research_head(self):
-        raw = db._admin(db._known_service(self.root / "s"), database="research")
+        raw = server.connect_root(server.known_service(self.root / "s"), database="research")
         try:
             with raw.cursor() as cursor:
                 cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'isolated local divergence')")
@@ -164,7 +164,7 @@ class ReplicaTests(unittest.TestCase):
     def test_lost_fast_forward_reply_is_confirmed_without_reset_or_duplicate_work(self):
         strategies.publish_candidate(self.research, source("lost-reply"), "reply", "Fixture", "remote change")
         publish.publish(self.research)
-        original = db.cursor_rows
+        original = server.cursor_rows
 
         def lost_reply(cursor, statement, arguments=()):
             result = original(cursor, statement, arguments)
@@ -172,7 +172,7 @@ class ReplicaTests(unittest.TestCase):
                 raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
             return result
 
-        with patch("ledger.db.cursor_rows", side_effect=lost_reply):
+        with patch("ledger.server.cursor_rows", side_effect=lost_reply):
             result = replica.sync(self.mirror)
         self.assertTrue(result["changed"])
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], result["ledger_commit"])

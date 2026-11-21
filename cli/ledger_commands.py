@@ -16,7 +16,7 @@ import tempfile
 import pymysql
 
 from cli.common import _at, _ledger_option
-from ledger import admin, db, witness
+from ledger import admin, db, server, witness
 from ledger import publish as publication
 from shared import paths, profiles
 from shared.errors import Refusal
@@ -45,7 +45,7 @@ def ledger_init(name: str, kind: profiles.Kind, service_root: Path, backup_root:
         commit = conn.resolved_commit
     if [tuple(row) for row in head] != [(0, "schema")]:
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
-    accounts = (db.service_config(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
+    accounts = (server.service_config(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
             "kind": profile.kind, "holds": profile.holds, "service_root": str(profile.service_root),
             "accounts": {role: accounts.get(role, {}).get("user") for role in db.ROLES},
@@ -55,35 +55,35 @@ def ledger_init(name: str, kind: profiles.Kind, service_root: Path, backup_root:
 
 def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     """ledger service start | stop | status."""
-    config = db.service_config(profile.service_root)
+    config = server.service_config(profile.service_root)
     if action == "stop":
         if config is None:
             return {"action": action, "running": False}
-        return {"action": action, "running": db.stop_service(profile.service_root)["running"]}
+        return {"action": action, "running": server.stop_service(profile.service_root)["running"]}
     if action == "start" and (config is None or profile.database not in config.get("databases", {})):
         raise refuse("LEDGER_NOT_INITIALIZED", f"{profile.service_root} holds no initialized ledger {profile.database}",
                      missing=(profile.database,))
     if action == "start":
         assert config is not None  # refused above
-        started = db.start_service(profile.service_root)
+        started = server.start_service(profile.service_root)
         try:
             with db.read_as_of(profile) as conn:
                 commit = conn.resolved_commit
         except Refusal as exc:
-            if not db.managed(config):
-                db.stop_service(profile.service_root)
+            if not server.managed(config):
+                server.stop_service(profile.service_root)
             raise refuse("SERVICE_START_FAILED", f"the service started but the ledger is not readable ({exc.code})",
                          missing=(profile.database,)) from exc
-        return {"action": action, "running": True, "pid": started.get("pid"), "address": db.address(config),
+        return {"action": action, "running": True, "pid": started.get("pid"), "address": server.address(config),
                 "branch": db.BRANCH, "ledger_commit": commit}
-    address = db.address(config) if config is not None else None
+    address = server.address(config) if config is not None else None
     try:
         with db.read_as_of(profile) as conn:
             commit = conn.resolved_commit
         published = publication.state(profile)
     except Refusal:
         return {"action": action, "running": False, "address": address}
-    return {"action": action, "running": True, "pid": db.server_pid(profile.service_root),
+    return {"action": action, "running": True, "pid": server.server_pid(profile.service_root),
             "address": address, "branch": db.BRANCH, "ledger_commit": commit, **published}
 
 
@@ -104,7 +104,7 @@ def ledger_temp(root: str | None) -> dict:
         created = ledger_init(name, "temporary", root_path / "s")
     except BaseException:
         if (root_path / "s" / "service.json").exists():
-            db.stop_service(root_path / "s")
+            server.stop_service(root_path / "s")
         log = root_path / "s" / "server.log"
         if log.is_file():  # the log a failed start pointed to goes with the root: its end goes to stderr first
             tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-LOG_TAIL:]
@@ -312,7 +312,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates (counts)",
         "PATH_EXISTS (--output exists); BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID (target in the service "
         "directory, the checkout or a Git work tree, or not an export of this ledger); "
-        "BACKUP_DIVERGED; DOLT_BACKUP; EXPORT_MISMATCH"),
+        "BACKUP_DIVERGED; DOLT_BACKUP; LEDGER_UNAVAILABLE, LEDGER_PERMISSION (the service administrator cannot "
+        "connect, backup); EXPORT_MISMATCH"),
     ("ledger", "publish"): (
         "the administrator connection from service.json (the service must be running); origin, branches",
         "with --remote: origin (DoltHub only for the active ledger, file:// for any); the research branch to "
