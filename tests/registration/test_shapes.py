@@ -37,6 +37,11 @@ class CatalogueTests(unittest.TestCase):
         linked = {duty for item in duties.measure_catalogue()["slices"] for duty in item["duties"]}
         self.assertEqual(linked, strategies.DUTIES)
 
+    def test_the_counting_measures_are_catalogue_measures(self):
+        """A renamed count would silently drop out of the counting-only prediction check."""
+        every = frozenset().union(*duties.slice_measures().values())
+        self.assertLessEqual(duties.counting_measures(), every)
+
     def test_the_changed_duties_are_the_header_lines_that_differ(self):
         """Only the module docstring's duty lines count, as written in any language; a removed line is a change."""
         parent = ('"""Root.\n\nE1 风险与数量：采用 | 权益的 2% | 实现者\nF3 Stop: adopted | 2 ATR | source\n'

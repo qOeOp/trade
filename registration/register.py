@@ -236,6 +236,23 @@ def _check_prediction(body: Mapping, root: bool) -> None:
     if unpredicted:
         raise refuse("PREDICTION_INVALID", "changed duties without a prediction: " + ", ".join(unpredicted),
                      missing=tuple(unpredicted))
+    _check_counting(body["prediction"]["mechanism"], changed, every)
+
+
+def _check_counting(mechanism: list, changed: set[str], every: frozenset[str]) -> None:
+    """A changed duty whose named measures are all counts: a threshold change moves them mechanically."""
+    counts = duties.counting_measures()
+    named: dict[str, set[str]] = {}
+    for item in mechanism:
+        if item["duty"] in changed and item["measure"] is not None:
+            named.setdefault(item["duty"], set()).add(item["measure"])
+    counting_only = sorted(duty for duty, measures in named.items() if measures <= counts)
+    if counting_only:
+        raise refuse("PREDICTION_INVALID", "changed duties predicted only on counting measures ("
+                     + ", ".join(sorted(counts)) + "), which a threshold change moves mechanically: "
+                     + ", ".join(counting_only), missing=tuple(counting_only),
+                     expected="for each such duty, also a catalogue measure of quality, return, drawdown or exit "
+                              "structure: " + ", ".join(sorted(every - counts)))
 
 
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:

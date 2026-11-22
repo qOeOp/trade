@@ -170,6 +170,30 @@ class RegisterTests(unittest.TestCase):
                                                      "duty": "G3", "reason": "no slice measures queue position"}]
         self.assertFalse(self.world.register(without_slice)["replayed"])
 
+    def test_a_changed_duty_needs_a_prediction_beyond_counting_measures(self):
+        """A threshold change moves cycles, turnover and entry orders mechanically, so a duty predicted only on
+        them cannot be refuted (doctor 20261122-23)."""
+        def item(slice_id, measure):
+            return {"slice": slice_id, "measure": measure, "direction": "up", "duty": "G3", "reason": "r"}
+
+        counting_only = [
+            [item("trade_structure", "cycles")],
+            [item("fee_stress", "daily_turnover"), item("entry_orders", "entry_orders")],
+            [item("trade_structure", "cycles"), item(None, None)],
+            [item(None, "cycles")],
+        ]
+        for mechanism in counting_only:
+            body = self.derived()
+            body["prediction"]["mechanism"] = mechanism
+            with self.subTest(mechanism=mechanism), self.body_first():
+                exc = refused(self.world.register, body)
+                self.assertEqual(exc.code, "PREDICTION_INVALID")
+                self.assertIn("G3", exc.missing)
+                self.assertIn("expectancy", exc.expected)
+        body = self.derived()
+        body["prediction"]["mechanism"] = [item("trade_structure", "cycles"), item("trade_structure", "expectancy")]
+        self.assertFalse(self.world.register(body)["replayed"])
+
     def test_changed_duties_are_the_duty_lines_each_grid_header_changes(self):
         def grid(label: str, *changed: tuple[str, ...]) -> tuple[list[str], dict[str, int]]:
             published = [self.world.publish(f"{label} {index}", changed=item) for index, item in enumerate(changed)]
