@@ -2,27 +2,37 @@ import type { TimeZone } from "../../lib/time";
 // Owns the candle chart's data, view and presentation without re-rendering React on pan/zoom.
 // candleView picks periods, candleNotes owns tooltips, candleStretches owns span labels.
 // Display-zone changes update only formatters and labels; data and viewport remain untouched.
+// Over the candles it draws the run's trading (drawTrading): the span picked in a table marked (spanMark.ts), the trades
+// as boxes and arrows (tradeMarks.ts), the events along the foot (candleNotes.ts), the orders and the position as levels
+// with their dashed lines (chartLevels.ts), and the value axis's prices and room above the highs.
 import type { IPriceLine, UTCTimestamp } from "lightweight-charts";
 import { candleOpen, candles as gather, extend, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
+import type { Fill, Held, PriceLine, Restart } from "../../model/paper";
 import { atom } from "../../state/atom";
 import type { Down } from "./downLook";
 import { AxisTicks } from "./axisTicks";
 import type { Lead } from "./backtestCandles";
 import { candleAt, candleDowns, onScale, slotsFor } from "./candleDown";
 import { CandleNotes } from "./candleNotes";
-import { candleSeries } from "./candleSeries";
+import { candleSeries, type CandleSeries } from "./candleSeries";
 import { CandleStretches, type CandleSpan } from "./candleStretches";
-import { drawTrading, pickedMark, type Parts, type Trading } from "./candleTrading";
+import { chartLevels, lastLevel, orderLines } from "./chartLevels";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import { fence, firstPeriod, fitAll, periodFor, pin, pinned, PINNED_LEAST, PINNED_WIDTH, recall, remember, reshow, respaced, settledPeriod, showFrom, showSpan, wholePeriod, widest, dayFloor } from "./candleView";
 import { Levels } from "./levels";
+import { slotEdge, SpanMark } from "./spanMark";
 import { showStretch } from "./stretchKeys";
+import { arrows, tradeBoxes } from "./tradeBoxes";
 import { TradeMarks } from "./tradeMarks";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 import type { VolumeBar } from "./volumeBars";
 
 const at = (t: number) => t as UTCTimestamp;
+/** `boxes`: whether the fills are netted into position boxes (Paper, backtest); Live draws its fills alone. `picked`: the span (s) picked in a table. */
+type Trading = { fills: readonly Fill[]; boxes: boolean; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[];
+  picked?: { from: number; to: number } | null };
+type Parts = CandleSeries & { marks: TradeMarks; levels: Levels; ticks: AxisTicks; picked: SpanMark };
 
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */
@@ -47,7 +57,7 @@ export class CandleController {
   mount(element: HTMLElement, key: string): void {
     Object.assign(this, { host: element, key }); this.pin.set(pinned(key));
     const { chart, candles, volume } = candleSeries(element, () => { const { orders, held } = this.trading; return [...orders.map((o) => o.price), ...(held ? [held.average] : [])]; });
-    const levels = new Levels(), marks = new TradeMarks(() => levels.chips()), picked = pickedMark(() => this.times);
+    const levels = new Levels(), marks = new TradeMarks(() => levels.chips()), picked = new SpanMark(slotEdge(() => this.times));
     candles.attachPrimitive(picked); candles.attachPrimitive(marks); candles.attachPrimitive(levels); candles.attachPrimitive(this.stretches.captions);
     const notes = this.notes.attach(candles, levels);
     chart.subscribeClick((param) => {
@@ -206,8 +216,17 @@ export class CandleController {
   }
 
   private drawTrading(): void {
-    const p = this.parts, minutes = this.period.get();
-    if (p && minutes) drawTrading(p, this.notes, this.trading, { minutes, data: this.data, bars: this.bars, downs: this.downs, dark: this.dark, lines: this.lines });
+    const p = this.parts, minutes = this.period.get(); if (!p || !minutes) return;
+    const { data, bars, trading } = this, { fills, orders, held, places, size, events, live } = trading, c = seriesColors(this.dark), last = data.at(-1) ?? null, mark = last?.close ?? null;
+    const boxes = trading.boxes ? tradeBoxes(fills, minutes, held, mark, last?.time ?? null, bars, trading.restarts) : [];
+    p.picked.set(trading.picked ?? null, c.picked);
+    p.marks.set(boxes, arrows(fills, minutes, data), c.marks);
+    this.notes.set({ events, fills, boxes, minutes, times: data.map((k) => k.time), downs: this.downs, places, size, live, lastBar: bars.length ? Number(bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
+    const levels = chartLevels({ orders, held, mark, places, size, c });
+    orderLines(p.candles, this.lines, levels);
+    p.levels.set(levels, { island: c.island, font: c.font }, lastLevel(last, places, c, this.dark));
+    p.ticks.writePrices();
+    p.ticks.hold(`↑ ${priceFormat(Math.max(0, places)).formatter((last?.high ?? 0) * 1.1)}`);
   }
 
   /** The candle under the pointer, else the last; over a blank, the offline stretch it is in. */
