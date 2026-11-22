@@ -136,7 +136,7 @@ function readRegion(lines) {
 }
 
 /** Builds { zh, en } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
-export async function buildRdIndex(entries, docsRoot, titles = {}) {
+export async function buildRdIndex(entries, docsRoot) {
   const index = { zh: {}, en: {} };
   const pending = { zh: [], en: [] };
   const refs = [];
@@ -155,8 +155,8 @@ export async function buildRdIndex(entries, docsRoot, titles = {}) {
         const at = `${file}:${region.line}`;
         const seen = index[locale][scheme.id];
         if (seen) { problems.push(`Duplicate index id ${scheme.id}: ${seen.at} and ${at}`); continue; }
-        // A bare <a id> takes its title from a bold line right after it, else from the chapter map.
-        const title = region.title !== undefined ? unnumbered(region.title) : bold ?? titles[scheme.id] ?? scheme.id;
+        // A bare <a id> takes its title from a bold line right after it, else its id.
+        const title = region.title !== undefined ? unnumbered(region.title) : bold ?? scheme.id;
         const entry = { kind: scheme.kind, title, slug, anchor: region.anchor };
         if (scheme.chapter) entry.where = region.section;
         else if (region.owner) entry.owner = region.owner;
