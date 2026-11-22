@@ -3,8 +3,8 @@ import { defineI18n } from 'fumadocs-core/i18n';
 import { i18nProvider } from 'fumadocs-ui/i18n';
 
 export const i18n = defineI18n({
-  languages: ['en', 'zh'],
-  defaultLanguage: 'en',
+  languages: ['zh'],
+  defaultLanguage: 'zh',
   hideLocale: 'never',
   parser: 'dot',
   fallbackLanguage: null,

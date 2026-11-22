@@ -23,4 +23,4 @@ export const FN_PAD = 10;
 export const FN_HEAD = 32;
 export const FN_W = CAP_W + 2 * COMP_PAD + 2 * FN_PAD;
 
-export const outsideLabel = { zh: '对外关联', en: 'links outside' };
+export const outsideLabel = { zh: '对外关联' };

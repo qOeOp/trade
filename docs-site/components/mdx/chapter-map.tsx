@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react';
 import { ResearchMap } from '@/components/research-map';
 import type { Locale } from '@/lib/i18n';
 
-const COPY = {
+const COPY: Record<Locale, { open: string; close: string; hint: string }> = {
   zh: { open: '放大查看', close: '关闭', hint: '拖动平移，滚轮或双指缩放，点节点跳到对应的节' },
-  en: { open: 'Open full screen', close: 'Close', hint: 'Drag to pan, scroll or pinch to zoom, click a node to jump to its section' },
 };
 
 /** A chapter's sections and components: static in the page, full screen with pan and zoom on demand. */

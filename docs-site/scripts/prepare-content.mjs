@@ -12,19 +12,15 @@ const description = { en: 'The research chain: candidates, registered hypotheses
 
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
-for (const [slug, source, englishTitle, chineseTitle] of entries) {
-  for (const [locale, suffix, title] of [['en', '', englishTitle], ['zh', '.zh', chineseTitle]]) {
-    // Chapters are authored as MDX (components for capabilities, references and tables); plain Markdown still works.
-    const { markdown } = await chapterSource(join(repositoryRoot, 'docs'), source, locale);
-    const heading = markdown.match(/^# (.+)\r?\n/);
-    const content = markdown.replace(/^# .+\r?\n/, '');
-    // Page description: the half-sentence after the colon in the chapter heading, else the site description.
-    const subtitle = heading ? heading[1].split(/[：:]\s*/).slice(1).join(': ').trim() : '';
-    await writeFile(join(outputRoot, `${slug}${suffix}.mdx`), `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(subtitle || description[locale])}\n---\n\n${content}`);
-  }
+for (const [slug, source, , chineseTitle] of entries) {
+  const { markdown } = await chapterSource(join(repositoryRoot, 'docs'), source, 'zh');
+  const heading = markdown.match(/^# (.+)\r?\n/);
+  const content = markdown.replace(/^# .+\r?\n/, '');
+  // Page description: the half-sentence after the colon in the chapter heading, else the site description.
+  const subtitle = heading ? heading[1].split(/[：:]\s*/).slice(1).join(': ').trim() : '';
+  await writeFile(join(outputRoot, `${slug}.zh.mdx`), `---\ntitle: ${JSON.stringify(chineseTitle)}\ndescription: ${JSON.stringify(subtitle || description.zh)}\n---\n\n${content}`);
 }
-// The sidebar is docsTree (lib/source.ts); meta.json only names the root.
-await writeFile(join(outputRoot, 'meta.json'), JSON.stringify({ title: 'Research Chain' }));
+// The sidebar is docsTree (lib/source.ts); meta.zh.json only names the root.
 await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: '研发长链' }));
 // Definition index for <Ref> hover previews, built from the chapter sources; a dangling ref or a duplicate id fails here.
 const map = JSON.parse(await readFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), 'utf8'));
@@ -82,4 +78,4 @@ for (const [name, range] of [['Regular', '100 449'], ['Medium', '450 900']]) {
 }
 if (!harmonyFaces.length) throw new Error('No HarmonyOS Sans SC slices found');
 await writeFile(join(siteRoot, 'lib', 'generated', 'harmonyos-sans-sc.css'), `${harmonyFaces.join('\n')}\n`);
-console.log(`Prepared ${entries.length} bilingual chapters and ${Object.keys(index.zh).length} index entries.`);
+console.log(`Prepared ${entries.length} chapters and ${Object.keys(index.zh).length} index entries.`);

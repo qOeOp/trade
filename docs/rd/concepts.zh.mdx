@@ -30,7 +30,7 @@
 
 **策略文件**（strategy file）　一个候选的单文件源码：唯一入口类，全部规则和参数写在源码里，回放时不能从外部传参。　[C 策略文件](/zh/docs/strategy-file/)
 
-**职责与文件头**（duties and file header）　文件开头按模板逐项写明 27 项策略职责（如止损、仓位）的立场，供审查核对与代码一致。　[C 策略文件](/zh/docs/strategy-file/)
+**职责与文件头**（duties and file header）　文件开头按模板逐项写明 27 项策略职责（`A1..I1`，如止损、仓位）的立场；发布时代码硬校验 27 行格式与四项硬契约（`DUTY_HEADER_INVALID`），登记时代码核对父子文件头差异与声明的 `changed_duties` 一致（`DUTY_HEADER_MISMATCH`）。　[C 策略文件](/zh/docs/strategy-file/)
 
 **计划**（plan）　策略下单时用标签划出的一笔完整交易，从入场到平仓；计划胜率按它计数。　[C 策略文件](/zh/docs/strategy-file/)
 
@@ -38,7 +38,7 @@
 
 **原生预检**（native precheck）　登记前用真实引擎和运行环境把候选短跑一次，确认工程上能跑；它不算经济证据。　[C 策略文件](/zh/docs/strategy-file/)
 
-**独立源码审查**（independent source review）　由没参与编写的 Agent 读源码和预检原件，按接口、因果、活动、就绪四项写结论入账。　[C 策略文件](/zh/docs/strategy-file/)
+**独立源码审查**（independent source review）　由没参与编写的 Agent 读源码、父子 unified diff（`diff -u`）和预检原件，按接口、因果、活动、就绪四项写结论入账。　[C 策略文件](/zh/docs/strategy-file/)
 
 **市场日**（market day）　交易所公开数据（1 分钟 K 线、资金费、合约条款）截至的那一天；登记钉住它，回放只读这一天及以前的行。　[W 回放环境](/zh/docs/replay-environment/)
 
@@ -89,6 +89,8 @@
 **判断记录**（judgment）　Agent 逐条追加的解释、优先级、推荐与搜索暴露，只引用证据，不抄数字。　[E 入口](/zh/docs/entry/)
 
 **研究状态**（research state）　读取时把当前判断和账本事实（候选、计数、未复盘试验）拼成的视图，本身不另存。　[E 入口](/zh/docs/entry/)
+
+**关线历史回测**（closing history falsification test）　路线关闭前由 `line history` 在开发窗口之前的完整否决年（每 4 个季度一段）、开发期对照、保留期（8 个季度）和前向段上一次性回放本线全部有经济证据资格的候选；任一否决年与保留期都达标才判 `meets_targets`，作为证伪与样本外准入前置关。　[数据库：研究史与关线历史回测](/zh/docs/design-ledger/#research-history-views)
 
 **样本外验证**（out-of-sample validation）　用户认可候选后发起，在登记之后才开始的新窗口上只回放一次并照实报告；它不属于研发循环。　[X 样本外验证：用户发起的一次性检验](/zh/docs/validation/)
 

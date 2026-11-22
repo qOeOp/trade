@@ -1,62 +1,98 @@
 # 四、平台架构
 
-代码负责执行与强制检查，数据库保存事实与关联，Skill 指导 Agent 开展研究。函数和 Skill 不另写一份，直接读各包和 `.agents/skills/`。
+代码负责执行与强制检查，数据库保存事实与关联，工作规程指导 Agent 开展研究。函数和工作规程不另写一份，直接读各包和 `.agents/skills/`。
 
 <ArchitectureOverview />
 
 ## 部署拓扑 [#platform-deployment]
 
-`deploy/compose.yaml` 是基础部署，工作站与服务器相同：五个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。[远程主机](#remote)在它上面叠加 `deploy/remote/`。
+`deploy/compose.yaml` 是基础部署，工作站与服务器相同：五个常驻服务跑在同一个 Docker 引擎上，读写权限与容器隔离边界如下。[远程主机](#remote)在它上面叠加 `deploy/remote/`（含只读市场概览服务与配对的实盘控制进程）。
 
-<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api 代理]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 账本公开副本)]\n  MI[market-import] -->|写| M[(市场目录 宿主目录)]\n  IDE -->|市场命令 只读| M\n  P -->|市场命令 只读| M\n  C -->|市场命令 只读| M\n  C -->|市场写命令 docker compose exec| MI"} />
+<Mermaid chart={`flowchart TB
+  subgraph Host["宿主与浏览器"]
+    direction LR
+    U["浏览器<br/>127.0.0.1:8765"]
+    CLI["宿主命令行<br/>python -m cli.main"]
+    LIVE["实盘控制进程（宿主配对）<br/>live serve · 私有凭据与记录"]
+  end
+
+  subgraph Compose["容器服务网络（deploy/compose.yaml）"]
+    direction TB
+    IDE["ide 服务 (8765)<br/>研究图页面 · Agent 只读聊天<br/>代理 /api/paper · /api/live · /api/overview"]
+    PAPER["paper 守护进程 (8767)<br/>调用模拟盘命令动词"]
+    LEDGER["ledger 服务 (Dolt SQL 13330)<br/>承载公开 research 库与私有 paper 库"]
+    MI["market-import 服务<br/>市场目录唯一写者（文件锁）"]
+    DAPI["docker-api 受限代理<br/>仅放行标准运行容器规格"]
+  end
+
+  subgraph Storage["持久化存储与隔离运行容器"]
+    direction LR
+    MKT[("市场目录 (TRADE_DATA/market)<br/>按月 Parquet · 无副本可重算")]
+    DH[("DoltHub 公开账本副本<br/>仅同步 research 库")]
+    ENG["宿主 Docker 引擎<br/>回放容器（禁网）· 模拟盘与实盘运行容器"]
+  end
+
+  U --> IDE
+  IDE -->|"/api/paper 同源令牌"| PAPER
+  IDE -.->|"/api/live 代理"| LIVE
+  IDE -->|"只读账号"| LEDGER
+  PAPER -->|"写 paper 库 / 读 research 库"| LEDGER
+  CLI -->|"写 research 库 (13330)"| LEDGER
+  LEDGER <-->|"引导与发布"| DH
+  CLI -->|"容器内执行市场写命令"| MI
+  MI -->|"写入 Parquet"| MKT
+  IDE & PAPER & CLI -->|"只读"| MKT
+  PAPER --> DAPI
+  LIVE -.-> ENG
+  DAPI --> ENG`} />
 
 | 服务 | 镜像 | 谁能访问 | 读 | 写 |
 |---|---|---|---|---|
-| ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | ledger 服务，只用 reader 账号（ledger 写进卷 trade-ledger-readers 的只读服务文件）；市场目录，只读挂载 | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
-| ledger | ghcr.io/qoeop/trade-service | 宿主命令行、paper 与 ide（只读），127.0.0.1:13330 | 研究账本的 Dolt 服务（`ledger service run`），也承载独立的 `paper` 库 | 研究账本唯一的写入服务；首次启动从 DoltHub 公开副本 bootstrap、发布回去，只有它拿到 DoltHub 密钥 |
-| market-import | ghcr.io/qoeop/trade-service | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（data.binance.vision、fapi.binance.com）；市场目录 | 市场目录唯一的写者 |
-| paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | Paper 库里的 paper 运行与封存文件、运行日志；研究账本里候选的源码和最近一次研究回放（读者账号）；市场目录，只读挂载 | 经命令行 `paper start/resume/stop/seal/delete` 写独立的 Paper 库（ledger/paper.sql：复制来的源码、<code>paper_run</code> 声明行、封存与文件；不公开，不进研究账本）；经 docker-api 起停运行容器 |
-| docker-api | Go 代理（deploy/docker-api/） | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用，容器也只放行 runtime/container.py 生成的那种；容器服务通往宿主 Docker 引擎的唯一通路 |
+| `ide` | `ghcr.io/qoeop/trade-ide` | 浏览器，`127.0.0.1:8765`；只服务配置的 `Host`，拒绝跨站，不发 CORS 头 | `ledger` 服务，只用只读账号（写进卷 `trade-ledger-readers` 的只读服务文件）；市场目录，只读挂载 | 不写任何库；`/api/agent/`、`/api/paper/`、`/api/live/` 与 `/api/overview/` 只按白名单转发 |
+| `ledger` | `ghcr.io/qoeop/trade-service` | 宿主命令行、`paper` 与 `ide`（只读），`127.0.0.1:13330` | 研究账本的 Dolt 服务（`ledger service run`），也承载独立的 `paper` 库 | 研究账本唯一的写入服务；首次启动从 DoltHub 公开副本引导、发布回去，只有它拿到 DoltHub 密钥 |
+| `market-import` | `ghcr.io/qoeop/trade-service` | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（`data.binance.vision`、`fapi.binance.com`）；市场目录 | 市场目录唯一的写者 |
+| `paper` | `ghcr.io/qoeop/trade-service` | 只有 `ide` 经项目网络可达（`8767`） | `paper` 库里的模拟盘运行与封存文件、运行日志；研究账本里候选的源码和最近一次研究回放（只读账号）；市场目录，只读挂载 | 经命令行 `paper start/resume/stop/seal/delete` 写独立的 `paper` 库（`ledger/paper.sql`：复制来的源码、`paper_run` 声明行、封存与文件；不公开，不进研究账本）；经 `docker-api` 起停运行容器 |
+| `docker-api` | Go 代理（`deploy/docker-api/`） | 只在内部网络，只有 `paper` 可达 | — | 只放行 `paper` 用到的 Docker 调用，容器也只放行 `runtime/container.py` 生成的规格；容器服务通往宿主 Docker 引擎的唯一通路 |
 
-**Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、resume 从已核验的原生检查点续跑同一个未封存的运行、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；在 Paper 库里以 `paper_delete:<id>` 提交完成）、list、compare（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
+**模拟盘（Paper）**　模拟盘面板的每个动作都是命令行 `paper` 的一个动词：`start` 声明一次模拟盘运行并起容器、`resume` 从已核验的原生检查点续跑同一个未封存的运行、`stop` 停止并封存、`seal` 封存自行结束的运行、`delete` 删除已封存的运行（用户自己的动作，Agent 不代删；在 `paper` 库里以 `paper_delete:<id>` 提交完成）、`list`、`compare`（后台在归档上重放对比，不写账本）、`serve`。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
 
-**市场**　市场数据不经 ledger 服务：它是宿主目录 `${TRADE_DATA}/market` 里的市场目录，由 market-import 写入（`market.write_file`、`market.place`）；paper 与 ide 只读挂载，宿主命令行直接读这个目录，都经市场命令（`market.read_table`）读取。市场目录只有这一份，丢了从交易所归档重算。导入锁是 fcntl 锁，只在共用一个内核的进程间互斥：所有写者都在这个 compose 项目的容器里，共用 Docker 虚拟机的内核；宿主上的市场写命令经 `docker compose exec`（或 `run`）在 market-import 服务里跑，宿主命令行不直接写市场目录。
+**市场**　市场数据不经 `ledger` 服务：它是宿主目录 `${TRADE_DATA}/market` 里的市场目录，由 `market-import` 写入（`market.write_file`、`market.place`）；`paper` 与 `ide` 只读挂载，宿主命令行直接读这个目录，都经市场命令（`market.read_table`）读取。市场目录只有这一份，丢了从交易所归档重算。导入锁是 `fcntl` 文件锁，只在共用一个内核的进程间互斥：所有写者都在这个容器编排项目的容器里，共用 Docker 虚拟机的内核；宿主上的市场写命令经 `docker compose exec`（或 `run`）在 `market-import` 服务里跑，宿主命令行不直接写市场目录。
 
-**Agent**　聊天服务（`ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、research runs、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [交易 IDE](/zh/docs/design-code-ide/)。部署步骤与环境变量见 [ide/README.md](https://github.com/qOeOp/trade/blob/main/ide/README.md)。
+**Agent**　聊天服务（`ide/agent`，Node，随 `ide` 容器运行）只能调用产品的只读命令：`research state`、`research status`、`research runs`、`candidate list`、`candidate show`、`replay report`、`ledger sql`、`market coverage`；它不能写账本，也不能起停运行。研究图接口（`/api/view`、`/api/events`）只读，实时刷新与固定提交的区别见 [交易 IDE](/zh/docs/design-code-ide/)。部署步骤与环境变量见 [ide/README.md](https://github.com/qOeOp/trade/blob/main/ide/README.md)。
 
 ## 如何查阅
 
-从研究流程页的引用进入具体定义，或按下列职责直接定位。数据库总览保留全库关系图；每个职责页给出关联记录与写入方。Code 的账本页描述读写行为，Database 描述存储事实；视频技能指导采集与阅读，视频校验器独立重算证据绑定。
+从研究流程页的引用进入具体定义，或按下列职责直接定位。数据库总览保留全库关系图；每个职责页给出关联记录与写入方。「代码」部分描述读写与界面行为，「数据库」部分描述存储事实；视频规程指导采集与阅读，视频校验器独立重算证据绑定。
 
 <a id="deployment" />
 
 ## 部署
 
-Compose 运行五个服务：`ide`、`ledger`、`market-import`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `trade-runtime` 镜像分开：回放用回放镜像，Paper 和 Live 用执行镜像（`exec-` 标签）。只有 Paper daemon 经受限 API 代理访问 Docker。
+容器编排运行五个服务：`ide`、`ledger`、`market-import`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `trade-runtime` 镜像分开：回放用回放镜像，模拟盘和实盘用执行镜像（`exec-` 标签）。只有模拟盘守护进程经受限代理访问 Docker。
 
 <a id="ide" />
 
 ## IDE
 
-IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场命令读只读挂载的市场目录，自己不留副本。本地 Chat 运行只读命令，对话保存在自己的 volume。Paper 面板将请求与数据流代理给 daemon；daemon 经 CLI 写入独立的 `paper` 库，从不写研究账本。
+IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场命令读只读挂载的市场目录，自己不留副本。本地聊天服务运行只读命令，对话保存在独立的数据卷。模拟盘面板将请求与数据流代理给守护进程；守护进程经命令行写入独立的 `paper` 库，从不写研究账本。
 
 <a id="paper" />
 
-## Paper 执行
+## 模拟盘执行
 
-每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 不是研究 trial。本机与[远程主机](#remote)都把 PaperRun 与封存文件保存在同一 Dolt 服务上独立的 `paper` 库（ledger/paper.sql，不公开），研究账本里没有 Paper 记录。
+每次模拟盘运行从同一摘要镜像启动运行容器与出口代理两个容器，放在内部网络中。只有出口代理连接 Binance 公共行情；订单与成交交给 Nautilus 沙盒。模拟盘运行不是研究试验。本机与[远程主机](#remote)都把模拟盘运行与封存文件保存在同一 Dolt 服务上独立的 `paper` 库（`ledger/paper.sql`，不公开），研究账本里没有模拟盘记录。
 
 <a id="remote" />
 
 ## 远程主机与发布
 
-`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布；镜像每 60 秒自动执行一次。主机只跟随版本标签自动发布，main 的构建只进 `main-ready`，发版由用户决定；发布不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
+`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。`ledger mirror` 从公开副本引导只读研究库并新建空的 `paper` 库，不持有 DoltHub 发布密钥，拒绝接管已有的研究写入服务；`ledger sync` 只拉取并校验公开副本的不可变提交后快进，从不发布；镜像每 60 秒自动执行一次。主机只跟随版本标签自动发布，`main` 的构建只进 `main-ready`，发版由用户决定；发布不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
 
 <a id="live" />
 
-## Live 执行
+## 实盘执行
 
-真实下单只从 Live 页经配对的控制进程（`live` 包）启动，每次发布都在每台主机为 Web 配对一个；记录只留在私有目录，不进研究账本、`paper` 库或 DoltHub。研究从不使用它。行为与边界以 [live/README.md](https://github.com/qOeOp/trade/blob/main/live/README.md#live-execution) 为准。
+真实下单只从实盘页经配对的控制进程（`live` 包）启动，每次发布都在每台主机为页面服务配对一个；记录只留在私有目录，不进研究账本、`paper` 库或 DoltHub。研究从不使用它。行为与边界以 [live/README.md](https://github.com/qOeOp/trade/blob/main/live/README.md#live-execution) 为准。
 
 <a id="data" />
 

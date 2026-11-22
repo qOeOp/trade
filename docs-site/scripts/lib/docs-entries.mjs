@@ -13,7 +13,7 @@ export const groups = [
   ['iterate', 'II. One iteration', '二、一轮迭代'],
   ['close', 'III. Wrap-up and foundation', '三、收尾与底座'],
   ['design', 'IV. Platform architecture', '四、平台架构'],
-  ['code', '4.1 Code', '4.1 Code｜代码', 'design'],
-  ['database', '4.2 Database', '4.2 Database｜数据库', 'design'],
+  ['code', '4.1 Code', '4.1 代码', 'design'],
+  ['database', '4.2 Database', '4.2 数据库', 'design'],
   ['appendices', 'Appendices', '附录'],
 ];

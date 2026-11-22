@@ -93,10 +93,9 @@ try {
     .sort();
   if (routes.length === 0) throw new Error('No exported routes found in docs-site/out');
 
-  const locales = ['en', 'zh'];
+  const locales = ['zh'];
   const expectedRoutes = new Set([
     `${basePath}/`,
-    `${basePath}/en/`,
     `${basePath}/zh/`,
     `${basePath}/api/search`,
     ...locales.flatMap((locale) => entries.map(([slug]) => docsRoute(locale, slug))),

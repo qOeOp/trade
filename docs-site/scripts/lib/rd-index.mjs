@@ -135,14 +135,14 @@ function readRegion(lines) {
   return { body, first, bold: bold && plainHeading(bold) };
 }
 
-/** Builds { zh, en } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
+/** Builds { zh } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
 export async function buildRdIndex(entries, docsRoot, titles) {
-  const index = { zh: {}, en: {} };
-  const pending = { zh: [], en: [] };
+  const index = { zh: {} };
+  const pending = { zh: [] };
   const refs = [];
   const problems = [];
   for (const [slug, source] of entries) {
-    for (const locale of ['en', 'zh']) {
+    for (const locale of ['zh']) {
       const { file, markdown } = await chapterSource(docsRoot, source, locale);
       for (const [, id] of markdown.matchAll(/<Ref\s+id="([^"]+)"/g)) refs.push({ id, locale, file });
       for (const region of regions(markdown)) {
@@ -166,11 +166,11 @@ export async function buildRdIndex(entries, docsRoot, titles) {
     }
   }
   // The label a <Ref> shows: sections and capabilities read as their numbered section, tables as their title.
-  for (const entry of [...Object.values(index.zh), ...Object.values(index.en)]) {
+  for (const entry of Object.values(index.zh)) {
     entry.label = entry.where ? entry.where.split('：')[0] : entry.title;
   }
   // Bodies are reduced after every entry exists, so a self-closing ref shows its label.
-  for (const locale of ['zh', 'en']) {
+  for (const locale of ['zh']) {
     const label = (id) => (index[locale][id] ?? index.zh[id])?.label ?? id;
     for (const [id, raw] of pending[locale]) {
       const entry = index[locale][id];

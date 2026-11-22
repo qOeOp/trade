@@ -21,7 +21,6 @@ const data = index as Record<Locale, Record<string, Entry>>;
 
 const KIND_LABEL: Record<Locale, Record<Entry['kind'], string>> = {
   zh: { capability: '能力', table: '表', node: '节' },
-  en: { capability: 'capability', table: 'table', node: 'section' },
 };
 
 /** Backtick-quoted identifiers in preview text render as inline code. */

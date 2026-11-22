@@ -5,10 +5,10 @@ const origin = 'https://qoeop.github.io';
 export const siteMetadata: Metadata = {
   metadataBase: new URL(origin),
   title: {
-    default: 'Trade Research Documentation',
-    template: '%s | Trade Research',
+    default: '研发长链',
+    template: '%s | 研发长链',
   },
-  description: 'Documentation for the Trade Research research and trading platform.',
+  description: '研发长链：候选谱系、预先登记的假设、配对比较证据与代码强制的信任边界。',
   icons: {
     icon: [
       { url: '/trade/icon.svg', media: '(prefers-color-scheme: light)' },

@@ -1,24 +1,24 @@
-# Database｜数据库
+# 数据库
 
-研究账本是一个 Dolt 数据库，当前模式为第 2 代。每一代都从空账本开始，不迁移旧数据：1.0 之前，模式一变就开新账本（AGENTS.md）；同一代内口径变了，读数层（`run_reading`）由重封按新代码重算。
+研究账本是一个 Dolt 数据库，当前模式为第 2 代。每一代都从空账本开始，不迁移旧数据：1.0 之前，模式一变就开新账本（`AGENTS.md`）；同一代内口径变了，读数层（`run_reading`）由重封按新代码重算。
 
 本页按记录职责说明每样东西为什么存、守哪些不变式；各表的列以模式文件为准，这里不逐列复述。
 
 ## 存什么，怎么存
 
-账本和市场目录只存回放给不回来的东西（AGENTS.md）：决定与声明（登记、判断、源码审查、研究线、样本外登记）；不会重现的观察（失败日志、来源原件、时间戳令牌、市场数据）；复现其余一切所需的最小身份（完整策略源码，每个独立策略一个 UTF-8 文件；运行时镜像摘要；市场日；配置与输入身份）；以及封存时算出的读数（审计与资格判定、指标、报告度量、周期、日收益）和原生报告的指纹。原生报告和其他回放产出都是缓存：重新生成到 `/tmp`，用语义报告比对去核对指纹。能从已存数据推出的值一律不存，读时现算。
+账本和市场目录只存回放给不回来的东西（`AGENTS.md`）：决定与声明（登记、判断、源码审查、研究线、样本外登记）；不会重现的观察（失败日志、来源原件、时间戳令牌、市场数据）；复现其余一切所需的最小身份（完整策略源码，每个独立策略一个 UTF-8 文件；运行时镜像摘要；市场日；配置与输入身份）；以及封存时算出的读数（审计与资格判定、指标、报告度量、周期、日收益）和原生报告的指纹。原生报告和其他回放产出都是缓存：重新生成到 `/tmp`，用语义报告比对去核对指纹。能从已存数据推出的值一律不存，读时现算。
 
 表分三层：
 
-- **承诺**：除 `run_reading` 外的业务表。只追加，写账号只有 SELECT 和 INSERT；`ledger review` 报告任何被改或被删的行（ROW_CHANGED）。
+- **承诺**：除 `run_reading` 外的业务表。只追加，写账号只有 SELECT 和 INSERT；`ledger review` 报告任何被改或被删的行（`ROW_CHANGED`）。
 - **读数**：`run_reading`。每个通过运行一份当前读数，只有产品的封存命令能写，重封时凭指纹替换，旧值留在 Dolt 历史和公开副本。
 - **写入协调**：`ledger_head` 单行，写账号可以 UPDATE。
 
-每次写入恰好一个事务、一个 Dolt 提交、一行 `ledger_head`；同一操作 ID（`op_id`）重试返回原记录。证明先后的时间由服务器 BEFORE INSERT 触发器写 UTC，不用调用方的值，也不用可以伪造的提交日期；内容哈希是库内生成列，调用方不能把字节配上别的哈希。Paper 运行存在独立的 Paper 库，市场数据是市场目录里的 Parquet 文件，都不在研究账本里，三者之间没有外键。
+每次写入恰好一个事务、一个 Dolt 提交、一行 `ledger_head`；同一操作 ID（`op_id`）重试返回原记录。证明先后的时间由服务器 BEFORE INSERT 触发器写 UTC，不用调用方的值，也不用可以伪造的提交日期；内容哈希是库内生成列，调用方不能把字节配上别的哈希。模拟盘运行存在独立的 `paper` 库，市场数据是市场目录里的 Parquet 文件，都不在研究账本里，三者之间没有外键。
 
 ### 约束放在哪里
 
-CHECK、ENUM、主键和唯一键对写账号成立，绕不过去。外键不一样：写账号能在会话里关掉外键检查，所以外键挡的是产品代码的错误，`ledger review` 事后对新提交逐个外键查对不上的行（CONSTRAINT_VIOLATED）。
+CHECK、ENUM、主键和唯一键对写账号成立，绕不过去。外键不一样：写账号能在会话里关掉外键检查，所以外键挡的是产品代码的错误，`ledger review` 事后对新提交逐个外键查对不上的行（`CONSTRAINT_VIOLATED`）。
 
 <Mermaid chart={"erDiagram\n  candidate ||--o{ candidate : parent\n  candidate ||--o{ research_line : start\n  research_line ||--o{ line_close : closes\n  research_line ||--o{ line_target : targets\n  line_target ||--o{ line_target : supersedes\n  research_line ||--o{ research_registration : registers\n  research_registration ||--o{ research_registration : retry_of\n  comparison_design ||--o{ research_registration : design\n  comparison_design ||--o{ validation_registration : design\n  research_registration ||--o{ registration_grid_point : grid\n  candidate ||--o{ registration_grid_point : source\n  source_review ||--o{ registration_grid_point : review\n  trial ||--o{ source_review : precheck\n  candidate ||--o{ trial : source\n  research_line ||--o{ trial : line\n  research_registration ||--o{ trial : identity\n  registration_grid_point ||--o| trial : consumes\n  validation_registration ||--o| trial : binds\n  candidate ||--o{ validation_registration : source\n  validation_registration ||--o{ validation_registration : retry_of\n  validation_registration ||--o| witness : stamped\n  trial ||--o{ trial_instrument : instruments\n  trial ||--o| trial_capture : capture\n  trial_capture ||--o{ trial_file : files\n  trial ||--o{ evidence_bundle : bundles\n  evidence_bundle ||--o{ evidence : paths\n  evidence_content ||--o{ evidence : content\n  trial ||--o| run : seals\n  run ||--o| run_reading : reading\n  run ||--o{ run_return : returns\n  run ||--o{ run_cycle : cycles\n  research_line ||--o{ judgment : judgments\n  judgment ||--o{ judgment : supersedes\n  judgment ||--o{ judgment_subject : subjects\n"} />
 
@@ -223,12 +223,12 @@ Dolt 为每张表自动维护的系统表：`dolt_diff_<table>` 给出两次提�
 
 | 段 | 窗口 | 用途 |
 |---|---|---|
-| veto（否决） | 从开发期起点往前每 4 个季度为一年，各一次（以首月 `YYYY-MM` 标记；最早一年在市场首日截断） | 看候选在更早的年份是否成立 |
-| control（对照） | 开发期本身再跑一次 | 必须复现原来的研究运行，否则这一行不判定 |
-| holdout（保留期） | 开发期之后的两年，一次 | 线开着时从未用过的数据 |
-| forward（前向） | 保留期之后到市场最新完整日 | 只展示 |
+| 否决段（`veto`） | 从开发期起点往前每 4 个季度为一年，各一次（以首月 `YYYY-MM` 标记；最早一年在市场首日截断） | 看候选在更早的年份是否成立 |
+| 对照段（`control`） | 开发期本身再跑一次 | 必须复现原来的研究运行，否则这一行不判定 |
+| 保留期（`holdout`） | 开发期之后的两年，一次 | 线开着时从未用过的数据 |
+| 前向段（`forward`） | 保留期之后到市场最新完整日 | 只展示 |
 
-每段写一个用途为 `history` 的试验和它的运行；已有通过运行的段跳过，所以重跑就是续跑。最近一次运行无效的段，每次 `line history` 在跑完没有运行的段之后再回放一次：新试验取代无效的那次，旧试验留在账本里，`research history` 只读每段最近一次有运行的试验，被取代的列在该格的 `superseded`。回放是确定的，策略自己造成的失败会再失败一次，所以每次调用每段最多重跑一次。无效的段也算有运行，不挡 `line close`。重跑看的是第一次已看过的数据，统计计数把它当复现，不重复计。能参加的源码在第一次历史试验时固定。
+每段写一个用途为 `history` 的试验和它的运行（独立候选与分段可经 `--jobs` 并行回放，试验写入与运行封存仍在账本上串行提交）；已有通过运行的段跳过，所以重跑就是续跑。最近一次运行无效的段，每次 `line history` 在跑完没有运行的段之后再回放一次：新试验取代无效的那次，旧试验留在账本里，`research history` 只读每段最近一次有运行的试验，被取代的列在该格的 `superseded`。回放是确定的，策略自己造成的失败会再失败一次，所以每次调用每段最多重跑一次。无效的段也算有运行，不挡 `line close`。重跑看的是第一次已看过的数据，统计计数把它当复现，不重复计。能参加的源码在第一次历史试验时固定。
 
 经济证据用的是 `research status` 的同一个读时判定（<Ref id="G.4">7.4</Ref>）：源码审查失败、或运行没有真实成交的源码不是候选，不回放、不占一行，也不计入 `participants`；`line history` 与 `research history` 都在 `without_economic_evidence` 里列出它和原因，不给读数。
 
