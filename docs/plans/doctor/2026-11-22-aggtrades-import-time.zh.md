@@ -40,7 +40,7 @@
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261120-10 | `market` 的 `aggTrades` 解析与 `quotes` 推导逐行在 Python 里循环，导入耗时未计量 | 上表：解析与缩放占暖缓存 `import-trades` 的约 90%；`derive` 约占 `import-quotes` 的 40% | fix（aggTrades 解析向量化，字节一致；quotes 不改） | minutes | in PR [#3406](https://github.com/qOeOp/trade/pull/3406) |
+| 20261120-10 | `market` 的 `aggTrades` 解析与 `quotes` 推导逐行在 Python 里循环，导入耗时未计量 | 上表：解析与缩放占暖缓存 `import-trades` 的约 90%；`derive` 约占 `import-quotes` 的 40% | fix（aggTrades 解析向量化，字节一致；quotes 不改） | minutes | fixed a97fde8cf [#3406](https://github.com/qOeOp/trade/pull/3406) |
 
 ## Decisions
 
