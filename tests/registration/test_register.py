@@ -50,6 +50,13 @@ class RegisterTests(unittest.TestCase):
         body.update(overrides)
         return body
 
+    @staticmethod
+    def body_first():
+        """A refusal of the body alone comes before the market export and the image probe (0.5.0 release run: they
+        took over 30 s first)."""
+        return patch("registration.register.registration_inputs.market_inputs",
+                     side_effect=AssertionError("exported before the body was checked"))
+
     def code(self, body, **kwargs) -> str:
         seq = self.world.seq()
         exc = refused(self.world.register, body, **kwargs)
@@ -143,11 +150,15 @@ class RegisterTests(unittest.TestCase):
             [{"slice": None, "measure": None, "direction": "down", "duty": "G3", "reason": " "}],
             [{"slice": None, "measure": "made_up", "direction": "down", "duty": "G3", "reason": "no slice"}],
         ]
-        for mechanism in predictions:
+        expected = [None, "a measure of capital_scaled: down_month_notional, ", "null or a catalogue slice: ", None,
+                    "null or a catalogue measure: account, added_net, "]
+        for mechanism, start in zip(predictions, expected, strict=True):
             body = self.derived()
             body["prediction"]["mechanism"] = mechanism
-            with self.subTest(mechanism=mechanism):
-                self.assertEqual(self.code(body), "PREDICTION_INVALID")
+            with self.subTest(mechanism=mechanism), self.body_first():
+                exc = refused(self.world.register, body)
+                self.assertEqual(exc.code, "PREDICTION_INVALID")
+                self.assertTrue(exc.expected.startswith(start) if start else exc.expected is None, exc.expected)
         two = self.derived(changed_duties=["G3", "E1"])
         self.assertEqual(self.code(two), "PREDICTION_INVALID")
         root = self.world.body(["rsi@1"], {"rsi@1": self.root_review})
@@ -171,7 +182,7 @@ class RegisterTests(unittest.TestCase):
             "one grid candidate changes another line": (grid("uneven grid", ("G3",), ("F2", "G3")), ["G3"]),
         }
         for label, ((refs, reviews), changed) in cases.items():
-            with self.subTest(label=label):
+            with self.subTest(label=label), self.body_first():
                 body = self.world.body(refs, reviews, duties=changed)
                 self.assertEqual(self.code(body), "DUTY_HEADER_MISMATCH")
         refs, reviews = grid("matching header", ("F3", "G3"), ("F3", "G3"))
