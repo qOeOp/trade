@@ -48,11 +48,13 @@ export function UnresolvedNotice({ run }: { run: LiveRun }) {
   );
 }
 
-/** A held position's protection: its stop and how far it is from the mark, or that it has none. */
-export function StopLine({ trigger, mark, ended, missing = null }: { trigger: number | null | undefined; mark: number | null; ended: boolean; missing?: HeldGap | null }) {
+/** A held position's protection: each stop's trigger (nearest first) and how far the nearest is from the mark, or
+ *  that it has none. */
+export function StopLine({ triggers, mark, ended, missing = null }: { triggers: readonly number[]; mark: number | null; ended: boolean; missing?: HeldGap | null }) {
   if (missing) return <p className="text-small font-medium text-fail-fg">{heldGapLine(missing)}</p>;
-  const gap = trigger == null ? null : away(trigger, mark);
-  return <p className={`text-small ${trigger != null ? "text-fg-faint" : "text-fail-fg"}`}>{trigger != null ? `Stop ${fixed(trigger)}${gap !== null ? ` · ${(gap * 100).toFixed(1)}% away` : ""}` : "No protective stop"}{ended && " · left open at Binance"}</p>;
+  const gap = triggers.length ? away(triggers[0]!, mark) : null, several = triggers.length > 1;
+  const text = `${several ? `${triggers.length} stops` : "Stop"} ${triggers.map((t) => fixed(t)).join(" / ")}${gap !== null ? ` · ${several ? "nearest " : ""}${(gap * 100).toFixed(1)}% away` : ""}`;
+  return <p className={`text-small ${triggers.length ? "text-fg-faint" : "text-fail-fg"}`}>{triggers.length ? text : "No protective stop"}{ended && " · left open at Binance"}</p>;
 }
 
 /** A Live run on the Runs tab: its state, the account now, the last fill, the loss threshold used, and what it holds
@@ -72,7 +74,7 @@ export function LiveCard({ run, now }: { run: LiveRun; now: number }) {
       {held.map((h) => (
         <div key={h.key} className="space-y-0.5 border-t border-line px-3 py-2">
           <HeldLine held={h} />
-          <StopLine trigger={h.stop} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
+          <StopLine triggers={h.stops} mark={h.mark} ended={ended} missing={heldGap(run.heldAlert, h.symbol, h.long)} />
         </div>
       ))}
     </PhoneCard>

@@ -51,7 +51,7 @@ export function LivePage({ id }: { id: string }) {
         <PhoneHeading title={held.length === 1 ? "Position" : "Positions"} aside={heldAside(held, true)} />
         {held.length > 0 && <PhoneTable head={["Contract", "Side", "Qty", held.length > 1 ? "Entry / Mark ≈" : "Entry", "P&L ≈"]} rows={held.flatMap((h) => [
           [<Contract symbol={h.symbol} />, <Side long={h.long} />, fixed(h.qty), <EntryMark held={h} several={held.length > 1} />, <span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>],
-          [<StopLine trigger={h.stop} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
+          [<StopLine triggers={h.stops} mark={h.mark} ended={!run.running} missing={heldGap(run.heldAlert, h.symbol, h.long)} />]])} />}
         <PhoneHeading title="Open orders" aside={entries.length || "None"} />
         {entries.length > 0 && <PhoneTable head={["Type", "Side", "Qty", "Price"]} rows={entries.map((o) => [
           <span className="font-normal">{o.type}</span>, <Side long={o.buy} word={o.buy === null ? undefined : o.buy ? "Buy" : "Sell"} />, fixed(o.qty) ?? MISSING, fixed(o.trigger ?? o.price) ?? MISSING])} />}

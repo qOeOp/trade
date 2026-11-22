@@ -55,3 +55,10 @@ test("Open orders keeps the entry orders beside the stop", async () => {
   assert.match(orders, /76,000/);
   assert.doesNotMatch(orders, /stop market|75,880/);
 });
+
+test("a position with two working stops shows both, not one", async () => {
+  const second = row("OrderAccepted", T + 3000, { client_order_id: "S-2", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "77000.0", quantity: "0.001" });
+  const html = await page(run([second, STOP]));
+  assert.match(html, /2 stops 75,880 \/ 77,000 · nearest 1\.2% away/);
+  assert.doesNotMatch(openOrders(html), /stop market/);
+});

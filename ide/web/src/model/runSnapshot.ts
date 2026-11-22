@@ -11,8 +11,8 @@ import { heldOnInterruption, HELD_ON_RESTART, unprotected, UNPROTECTED } from ".
 import type { LiveRun } from "./liveTrading";
 import type { Coin } from "./market";
 
-/** A held position; `stop` is the trigger of the working order protecting it (null: none, or not known). */
-export type Held = { key: string; symbol: string; long: boolean; qty: number; entry: number | null; mark: number | null; pnl: number | null; stop: number | null };
+/** A held position; `stops` are the triggers of the working orders protecting it, nearest the mark first (none, or not known: empty). */
+export type Held = { key: string; symbol: string; long: boolean; qty: number; entry: number | null; mark: number | null; pnl: number | null; stops: number[] };
 export type Working = { key: string; symbol: string; buy: boolean | null; qty: number | null; type: string; trigger: number | null; price: number | null; reduceOnly: boolean };
 export type Fill = { ms: number; symbol: string; buy: boolean | null; qty: number | null; px: number | null };
 /** A Live run's money: the equity it armed with, now, the result; its highest equity, how far below it equity is now
@@ -41,7 +41,7 @@ export function liveHeld(run: LiveRun): Held[] {
   return latest(run.positions ?? [], (r) => r.position_id).flatMap((r) => {
     const signed = num(r.signed_qty) ?? 0;
     if (r.event_type === "PositionClosed" || r.side === "FLAT" || signed === 0) return [];
-    return [{ key: r.position_id!, symbol: symbolOf(r.instrument_id), long: signed > 0, qty: Math.abs(signed), entry: num(r.avg_px_open), mark: null, pnl: null, stop: null }];
+    return [{ key: r.position_id!, symbol: symbolOf(r.instrument_id), long: signed > 0, qty: Math.abs(signed), entry: num(r.avg_px_open), mark: null, pnl: null, stops: [] }];
   });
 }
 
@@ -56,8 +56,11 @@ export function marked(held: readonly Held[], coins: readonly Coin[] | undefined
 
 /** Whether a working order protects a held position: a trigger on the other side of its contract. */
 export const protects = (o: Working, held: readonly Held[]) => o.trigger !== null && held.some((h) => h.symbol === o.symbol && o.buy === !h.long);
-/** The working order protecting a held position. */
-export const stopFor = (h: Held, working: readonly Working[]) => working.find((o) => protects(o, [h])) ?? null;
+/** The triggers of every working order protecting a held position, nearest its mark (else its entry) first. */
+const stopsFor = (h: Held, working: readonly Working[]) => {
+  const from = h.mark ?? h.entry ?? 0;
+  return working.filter((o) => protects(o, [h])).map((o) => o.trigger!).sort((a, b) => Math.abs(a - from) - Math.abs(b - from));
+};
 
 /** How far a stop's trigger is from the mark, as a share of the mark. */
 export const away = (trigger: number | null, mark: number | null) => (trigger === null || mark === null || !mark ? null : Math.abs(trigger - mark) / mark);
@@ -77,7 +80,7 @@ export type LiveSnapshot = { held: Held[]; working: Working[]; stops: Working[];
   money: Money | null; status: LiveStatus; observed: number | null };
 export function liveSnapshot(run: LiveRun, coins?: readonly Coin[]): LiveSnapshot {
   const working = liveWorking(run), open = liveHeld(run), stops = working.filter((o) => protects(o, open));
-  const held = marked(open, coins).map((h) => ({ ...h, stop: stopFor(h, stops)?.trigger ?? null }));
+  const held = marked(open, coins).map((h) => ({ ...h, stops: stopsFor(h, stops) }));
   return { held, working, stops, entries: working.filter((o) => !stops.includes(o)), fill: lastFill(run),
     fills: (run.orders ?? []).filter((o) => o.event_type === "OrderFilled").length, money: liveMoney(run), status: liveStatus(run), observed: liveObserved(run) };
 }
@@ -130,7 +133,7 @@ export function paperHeld(run: PaperRun): Held[] {
   return (run.readings?.held?.positions ?? []).flatMap((p) => {
     const signed = amount(p.signed_qty) ?? 0;
     return signed === 0 ? [] : [{ key: p.position_id, symbol: symbolOf(p.instrument_id), long: signed > 0, qty: Math.abs(signed),
-                                  entry: amount(p.avg_px_open), mark: amount(p.mark), pnl: amount(p.unrealized_pnl), stop: null }];
+                                  entry: amount(p.avg_px_open), mark: amount(p.mark), pnl: amount(p.unrealized_pnl), stops: [] }];
   });
 }
 

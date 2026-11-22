@@ -78,11 +78,13 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
       <thead><tr>{heads}</tr></thead>
       <tbody>
         {open.map((o) => {
-          const stop = o.orders.find((w) => w.kind === "stop"), target = o.orders.find((w) => w.kind === "target"), p = of(o.symbol);
+          // Every working stop and target, nearest first: a position can hold more than one of each.
+          const p = of(o.symbol), prices = (kind: string) => o.orders.filter((w) => w.kind === kind).map((w) => fixed(w.price, p.price)).join(" / ");
+          const stop = prices("stop"), target = prices("target");
           return <Row key={o.id} open span={{ id: `open:${o.id}`, from: o.since || end, to: end }} cells={[
             contract(o.symbol, true), side(o.long), [fixed(o.quantity, p.size), DETAIL], fixed(o.average, p.price) ?? MISSING,
             [<><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
-            [<>{stop && <><Faint>stop </Faint>{fixed(stop.price, p.price)}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{fixed(target.price, p.price)}</>}
+            [<>{stop && <><Faint>stop </Faint>{stop}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{target}</>}
               {!stop && !target && <span className="text-misses-fg">no protection</span>}</>, `text-left ${DETAIL}`],
             o.since ? duration(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], ["holding", "text-fg-muted"],
           ]} />;

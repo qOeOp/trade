@@ -28,10 +28,12 @@ export function holdings(lines: readonly JournalLine[], positions: readonly Open
   const open: Open[] = [];
   if (!sealed) {
     for (const p of positions ?? []) {
-      const qty = amount(p.signed_qty) ?? 0, symbol = symbolOf(p.instrument_id);
-      open.push({ id: p.position_id, symbol, long: qty >= 0, quantity: Math.abs(qty), average: amount(p.avg_px_open), mark: amount(p.mark),
+      const qty = amount(p.signed_qty) ?? 0, symbol = symbolOf(p.instrument_id), mark = amount(p.mark), average = amount(p.avg_px_open);
+      // Nearest the mark (else the entry) first, so the first stop and target listed are the ones that act next.
+      const from = mark ?? average ?? 0, far = (w: Working) => Math.abs((w.price ?? from) - from);
+      open.push({ id: p.position_id, symbol, long: qty >= 0, quantity: Math.abs(qty), average, mark,
                   pnl: amount(p.unrealized_pnl), fees: amount(p.realized_pnl), since: openedAt(lines, p.position_id),
-                  orders: orders.filter((o) => symbolOf(o.instrument_id) === symbol && o.reduce_only).map(working).sort((a, b) => (b.price ?? 0) - (a.price ?? 0)) });
+                  orders: orders.filter((o) => symbolOf(o.instrument_id) === symbol && o.reduce_only).map(working).sort((a, b) => far(a) - far(b)) });
     }
   }
   const held = new Set(open.map((p) => p.symbol));
