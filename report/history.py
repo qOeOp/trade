@@ -15,11 +15,12 @@ run; the earlier trials are named in the cell's `superseded`.
 A verdict needs every reading it is defined on (20261114-12, user 2026-11-15): a whole veto year whose run is
 invalid or missing, or lacks one of the two readings, a part veto year without a passed run (20261120-01, user
 2026-11-21: an audit failure in it is not left out), a control without a run, or a holdout without a countable
-reading leaves the combined verdict undecided (None), and the summary's `missing` names each. A control that does
-not reproduce the research run voids the row: it has no summary. A whole year not replayed yet has no trial to read
-here and cannot be told from one the market does not cover; `line history` replays a participant's veto years
-before its control, and without a control run nothing is decided. A validation registration takes only a candidate
-whose verdict is decided and true (require_unfalsified, 20261120-05, user 2026-11-21).
+reading leaves the combined verdict undecided (None), and the summary's `missing` names each. A veto year the test
+plans (ledger.lines.history_plan on the market's days, market_days: a segment with something left to trade) but
+has not replayed yet is missing too (Gemini audit 2026-11-22: `line history --limit` or a failure leaves planned
+segments without a trial, and the years present alone decided); a segment with nothing to trade is no reading. A
+control that does not reproduce the research run voids the row: it has no summary. A validation registration takes
+only a candidate whose verdict is decided and true (require_unfalsified, 20261120-05, user 2026-11-21).
 
 A line's participants (ledger.lines.history_participants) are its sources with a passed research run. The test
 replays and judges those whose run carries economic evidence now, the judgment `research status` reads
@@ -40,21 +41,29 @@ holdout also carries its deflated Sharpe with those prior trials added to the pa
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time, timedelta
 import math
 import statistics
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from ledger import db, execution, lines
 from ledger import targets as line_targets
-from registration import availability, precheck, reproduction
+from registration import availability, precheck, reproduction, seams as registration_seams
 from report import candidates as report_candidates, measures, status
 from shared.refusals import refuse
 
 
 SHORT_DAYS = 90  # about three months
 MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_win_rate")
+
+
+def market_days(market) -> tuple[date, date]:
+    """(the market's first day, the day after its latest complete day) at its newest day: the days
+    ledger.lines.history_plan plans a closing history test on (`line close` requires its segments)."""
+    source = registration_seams.current.market(market)
+    first_day, latest = source.days(source.resolve_day(None))
+    return first_day, latest + timedelta(days=1)
 
 
 def _kind(row: dict, dev_start: datetime, dev_end: datetime, held: datetime) -> str:
@@ -137,12 +146,13 @@ def _read(measures: dict | None) -> bool:
     return measures is not None and None not in (measures["annual_return"], measures["mark_max_drawdown"])
 
 
-def _veto(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
-    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): whole
-    years without a passed run or without one of the two readings, and part years without a passed run (an audit
-    failure such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a
-    year. `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with
-    readings, so a trial left without a run does not hide its rerun."""
+def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tuple[dict, list[str]]:
+    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): the
+    `planned` years (history_plan's veto segments with something to trade) without a history trial, whole years
+    without a passed run or without one of the two readings, and part years without a passed run (an audit failure
+    such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a year.
+    `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with readings, so a
+    trial left without a run does not hide its rerun."""
     years: dict[str, dict | None] = {}
     part: dict[str, bool] = {}
     for cell in cells:
@@ -153,8 +163,10 @@ def _veto(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
     read = [measures for measures in years.values() if measures is not None]
     annual = [measures["annual_return"] for measures in read if measures["annual_return"] is not None]
     drawdown = [measures["mark_max_drawdown"] for measures in read if measures["mark_max_drawdown"] is not None]
+    replayed = {cell["label"] for cell in cells if cell["kind"] == "veto"}
     missing = sorted([*(f"veto {year}" for year, measures in years.items() if not _read(measures)),
-                      *(f"veto {year}" for year, passed in part.items() if not passed)])
+                      *(f"veto {year}" for year, passed in part.items() if not passed),
+                      *(f"veto {year}" for year in set(planned) - replayed)])
     found = {"whole_years": len(years), "profitable_years": sum(value > 0 for value in annual),
              "median_annual_return": statistics.median(annual) if annual else None,
              "worst_annual_return": min(annual) if annual else None,
@@ -180,12 +192,13 @@ def _holdout(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
     return found, [] if _read(measures) else ["holdout"]
 
 
-def _summary(cells: list[dict], targets: dict | None, control: bool) -> dict:
-    """The veto and holdout verdicts and the combined one. `missing` names what the combined verdict lacks, in
-    the order veto years, `control` (no control run: `control` False), `holdout`, and `targets` for a line without
-    any; with anything missing it is undecided (meets_targets and judged_on None). Otherwise `judged_on` names what
-    it read: both, or the holdout alone when the test has no whole veto year."""
-    (veto, years), (holdout, held) = _veto(cells, targets), _holdout(cells, targets)
+def _summary(cells: list[dict], targets: dict | None, control: bool, planned: Iterable[str]) -> dict:
+    """The veto and holdout verdicts and the combined one (`planned`: the veto years the test plans, _veto).
+    `missing` names what the combined verdict lacks, in the order veto years, `control` (no control run: `control`
+    False), `holdout`, and `targets` for a line without any; with anything missing it is undecided (meets_targets
+    and judged_on None). Otherwise `judged_on` names what it read: both, or the holdout alone when the test has no
+    whole veto year."""
+    (veto, years), (holdout, held) = _veto(cells, targets, planned), _holdout(cells, targets)
     missing = [*years, *([] if control else ["control"]), *held, *(["targets"] if targets is None else [])]
     if missing:
         meets, judged = None, None
@@ -256,11 +269,12 @@ def qualified(conn: db.LedgerConnection, line_id: int) -> list[dict]:
 
 
 def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict] | None, checker: Mapping,
-                 records: list) -> dict:
+                 records: list, days: tuple[date, date]) -> dict:
     """One line's closing history test: its candidates (candidates) with their history cells and summaries,
     ordered by development-period Sharpe, and the participants without economic evidence; the line's targets in
     force, its research trial count and the earlier searches of its holdout among `counted`
-    (status.counted_trials' counted trials; None: not read, `holdout_prior_trials` None)."""
+    (status.counted_trials' counted trials; None: not read, `holdout_prior_trials` None). `days` (market_days) are
+    the market days the test is planned on."""
     record = lines.read_line(conn, line)
     dev_start, dev_end = lines.dev_window(record)
     held = datetime.combine(lines.holdout_end(dev_end.date()), time())
@@ -269,6 +283,10 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     rows: list[dict] = []
     returns: dict[int, list[float]] = {}
     kept, without = candidates(conn, record["line_id"], checker, records)
+    planned: dict[str, list[str]] = {}
+    for item in lines.history_plan(conn, record["line_id"], *days, kept):
+        if item["kind"] == "veto" and item["window"] is not None:
+            planned.setdefault(item["source_sha256"], []).append(item["label"])
     for participant in kept:
         own = _latest([row for row in found if row["source_sha256"] == participant["source_sha256"]],
                       lambda row: _kind(row, dev_start, dev_end, held))
@@ -283,7 +301,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
         rows.append({"source_sha256": participant["source_sha256"], "candidate": participant["candidate"],
                      "run": participant["trial_id"],
                      "development": development, "cells": cells, "control_reproduces": reproduces,
-                     "summary": _summary(cells, targets, reproduces is True) if reproduces is not False else None})
+                     "summary": None if reproduces is False else _summary(
+                         cells, targets, reproduces is True, planned.get(participant["source_sha256"], ()))})
     rows.sort(key=lambda row: (row["development"]["measures"]["sharpe_365"] is None,
                                -(row["development"]["measures"]["sharpe_365"] or 0), row["run"]))
     prior = None if counted is None else _prior_trials(
@@ -328,28 +347,32 @@ def verdict(source_sha256: str, tested: list[dict]) -> dict:
     return passed
 
 
-def require_unfalsified(conn: db.LedgerConnection, source_sha256: str) -> dict:
-    """verdict() over every line with a history trial of this source, read on `conn`: a validation registration
-    takes only a candidate that its line's closing history test decided and did not falsify
-    (20261120-05, user 2026-11-21)."""
-    checker, records = availability.check_identity(), precheck.review_records(conn)
-    tested = [line_history(conn, line_id, None, checker, records) for (line_id,) in conn.rows(
+def require_unfalsified(conn: db.LedgerConnection, source_sha256: str, market) -> dict:
+    """verdict() over every line with a history trial of this source, read on `conn` with the test planned on
+    `market`'s days (market_days, read only when such a line exists): a validation registration takes only a
+    candidate that its line's closing history test decided and did not falsify (20261120-05, user 2026-11-21)."""
+    named = [line_id for (line_id,) in conn.rows(
         "SELECT DISTINCT line_id FROM trial WHERE purpose = 'history' AND source_sha256 = %s ORDER BY line_id",
         (source_sha256,))]
+    tested = []
+    if named:
+        checker, records, days = availability.check_identity(), precheck.review_records(conn), market_days(market)
+        tested = [line_history(conn, line_id, None, checker, records, days) for line_id in named]
     return verdict(source_sha256, tested)
 
 
-def research_history(ledger, at: str | None = None, line: str | None = None) -> dict:
-    """`research history`: the closing history test of `line`, or of every line with history trials."""
+def research_history(ledger, market, at: str | None = None, line: str | None = None) -> dict:
+    """`research history`: the closing history test of `line`, or of every line with history trials, planned on
+    `market`'s days (market_days, read only when there is a line to read)."""
     with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
         counted = status.counted_trials(conn)["counted"]
         checker, records = availability.check_identity(), precheck.review_records(conn)
-        if line is not None:
-            found = [line_history(conn, line, counted, checker, records)]
-        else:
-            named = [name for (name,) in conn.rows(
-                "SELECT DISTINCT l.name FROM research_line l JOIN trial t ON t.line_id = l.line_id "
-                "WHERE t.purpose = 'history' ORDER BY l.name")]
-            found = [line_history(conn, name, counted, checker, records) for name in named]
+        named: list[str] = [line] if line is not None else [name for (name,) in conn.rows(
+            "SELECT DISTINCT l.name FROM research_line l JOIN trial t ON t.line_id = l.line_id "
+            "WHERE t.purpose = 'history' ORDER BY l.name")]
+        found = []
+        if named:
+            days = market_days(market)
+            found = [line_history(conn, name, counted, checker, records, days) for name in named]
     return {"ledger_commit": commit, "short_days": SHORT_DAYS, "lines": found}

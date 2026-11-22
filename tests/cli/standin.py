@@ -36,7 +36,7 @@ def main() -> int:
     checkout = Path(os.environ["CLI_STANDIN_CHECKOUT"])
     entry.WORK_ROOT = tempfile.gettempdir()
     decided = (patch.object(history, "require_unfalsified",
-                            lambda conn, source_sha256: {"line": "stand-in", "judged_on": "holdout"})
+                            lambda conn, source_sha256, market: {"line": "stand-in", "judged_on": "holdout"})
                if json.loads(os.environ.get("CLI_STANDIN_SCENARIO") or "{}").get("history_decided") else nullcontext())
     with registration_seams.use(resolve_runtime=lambda reference: {**IDENTITY, "build_revision": world.BUILD_REVISION},
                                 inspect_runtime=world.inspect,

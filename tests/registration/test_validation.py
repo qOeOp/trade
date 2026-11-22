@@ -44,7 +44,7 @@ def checkout(root: Path) -> tuple[Path, Path]:
     return remote, clone
 
 
-def decided(conn, source_sha256) -> dict:
+def decided(conn, source_sha256, market) -> dict:
     """A stand-in for report.history.require_unfalsified: these fixtures' candidate has no closing history test."""
     return {"line": "rsi-root", "judged_on": "holdout"}
 

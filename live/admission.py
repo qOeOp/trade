@@ -3,6 +3,8 @@ or Paper run must share with the execution image to back a run."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ledger import db
 from live import state
 from runtime import image
@@ -22,14 +24,16 @@ def replay_code(image_ref: str, runner_args: list[str]) -> dict | None:
     return {name: found[name] for name in REPLAY_CODE}
 
 
-def unfalsified(research: db.LedgerProfile, research_at: str, source_sha256: str) -> None:
+def unfalsified(research: db.LedgerProfile, research_at: str, source_sha256: str, market_root: Path) -> None:
     """Live runs only a candidate its line's closing history test decided meets the targets, read at research_at
-    (report.history.require_unfalsified, the check validation registration makes; 20261120-06, user 2026-11-21):
-    LIVE_CANDIDATE_FALSIFIED for one it judged not meeting them, LIVE_HISTORY_UNDECIDED for one it has not decided."""
+    with the test planned on the market directory `market_root` (report.history.require_unfalsified, the check
+    validation registration makes; 20261120-06, user 2026-11-21): LIVE_CANDIDATE_FALSIFIED for one it judged not
+    meeting them, LIVE_HISTORY_UNDECIDED for one it has not decided."""
     from report import history
+    market = {"name": "live", "holds": "market", "root": str(market_root)}
     with db.read_as_of(research, research_at) as reader:
         try:
-            history.require_unfalsified(reader, source_sha256)
+            history.require_unfalsified(reader, source_sha256, market)
         except Refusal as exc:
             if exc.code in ("CANDIDATE_FALSIFIED", "HISTORY_UNDECIDED"):
                 raise state.fail(f"LIVE_{exc.code}", exc.message) from None

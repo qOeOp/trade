@@ -86,8 +86,11 @@ class VerdictTests(unittest.TestCase):
         """A whole veto year whose run is invalid, or whose trial has no run (status None): no measures."""
         return {"kind": "veto", "label": label, "whole_year": True, "short": False, "status": status}
 
-    def summary(self, *cells, targets=TARGETS, control=True):
-        return report_history._summary(list(cells), targets, control)
+    @staticmethod
+    def summary(*cells, targets=TARGETS, control=True, planned=None):
+        """The summary of `cells`, the test planning the veto years among them unless `planned` says which."""
+        planned = {cell["label"] for cell in cells if cell["kind"] == "veto"} if planned is None else planned
+        return report_history._summary(list(cells), targets, control, planned)
 
     @staticmethod
     def verdict(found):
@@ -145,6 +148,18 @@ class VerdictTests(unittest.TestCase):
         found = self.summary(self.unread("2020", status=None), self.cell("veto", 0.5, 0.1), self.HOLDOUT)
         self.assertEqual((found["veto"]["whole_years"], *self.verdict(found)), (1, True, "veto and holdout", []))
 
+    def test_a_planned_veto_year_not_replayed_yet_leaves_the_verdict_undecided(self):
+        """Gemini audit 2026-11-22: `line history --limit` or a failure leaves planned segments without a history
+        trial, and the years present alone decided: the holdout alone with none, the one year replayed of three."""
+        planned = ["2019", "2020", "2021"]
+        none = self.summary(self.HOLDOUT, planned=planned)
+        self.assertEqual((none["veto"]["whole_years"], none["holdout"]["meets_targets"], *self.verdict(none)),
+                         (0, True, None, None, ["veto 2019", "veto 2020", "veto 2021"]), "not the holdout alone")
+        one = self.summary(self.cell("veto", 0.5, 0.1), self.HOLDOUT, planned=planned)
+        self.assertEqual((one["veto"]["whole_years"], *self.verdict(one)), (1, None, None, ["veto 2019", "veto 2021"]))
+        self.assertEqual(self.verdict(self.summary(self.HOLDOUT, planned=[])), (True, "holdout", []),
+                         "a test that plans no veto year is judged on the holdout alone")
+
     def test_without_a_control_run_nothing_is_decided(self):
         found = self.summary(self.cell("veto", 0.5, 0.1), self.HOLDOUT, control=False)
         self.assertEqual((found["veto"]["meets_targets"], found["holdout"]["meets_targets"], *self.verdict(found)),
@@ -173,8 +188,8 @@ class UnfalsifiedTests(unittest.TestCase):
     def line(name, *rows):
         return {"line": name, "rows": list(rows)}
 
-    def row(self, *cells, control=True, reproduces=True, source=SOURCE):
-        summary = report_history._summary(list(cells), VerdictTests.TARGETS, control) if reproduces else None
+    def row(self, *cells, control=True, reproduces=True, source=SOURCE, planned=None):
+        summary = VerdictTests.summary(*cells, control=control, planned=planned) if reproduces else None
         return {"source_sha256": source, "candidate": "rsi@1", "run": 7, "summary": summary}
 
     def refused(self, *tested):
@@ -200,6 +215,9 @@ class UnfalsifiedTests(unittest.TestCase):
                          ("HISTORY_UNDECIDED", ["one: economic evidence"]), "a source the test no longer judges")
         self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.unread("2020"), VerdictTests.HOLDOUT))),
                          ("HISTORY_UNDECIDED", ["one: veto 2020"]))
+        self.assertEqual(self.refused(self.line("one", self.row(VerdictTests.HOLDOUT, planned=["2020", "2021"]))),
+                         ("HISTORY_UNDECIDED", ["one: veto 2020", "one: veto 2021"]),
+                         "a passed control and holdout with the planned veto years not replayed yet")
 
 
 class DiscountTests(unittest.TestCase):
@@ -317,7 +335,7 @@ class HistoryRunTests(unittest.TestCase):
         unfalsified = report_history.require_unfalsified
 
         def undecided():
-            caught = refused(unfalsified, world.conn, source["source_sha256"])
+            caught = refused(unfalsified, world.conn, source["source_sha256"], world.market)
             self.assertEqual(caught.code, "HISTORY_UNDECIDED")
             return list(caught.missing)
         self.assertEqual(undecided(), ["line history"], "20261120-05: no history trial of it yet")
@@ -334,7 +352,7 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(history.run_history(world.profile, world.market, MARKET_DAY, line)["ran"], [],
                          "a rerun resumes: nothing is left")
 
-        read = report_history.research_history(world.profile, line=line)["lines"][0]
+        read = report_history.research_history(world.profile, world.market, line=line)["lines"][0]
         self.assertEqual(read["participants"], 1)
         (row,) = read["rows"]
         self.assertEqual(row["run"], passed["trial_id"])
@@ -373,7 +391,7 @@ class HistoryRunTests(unittest.TestCase):
 
         backups = tempdir(self.addCleanup, prefix="backups-", dir="/tmp")
         profile = replace(world.profile, backup_root=backups / "export")
-        with patch.object(research_commands, "_market_days", return_value=days):
+        with patch.object(report_history, "market_days", return_value=days):
             closed = research_commands.line_close(profile, line, b"summary", {})
         self.assertFalse(closed["replayed"])
         self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
@@ -417,7 +435,7 @@ class HistoryRunTests(unittest.TestCase):
                   registration=world.register(body, line=other)["registration_id"])
 
         def prior(line):
-            return report_history.research_history(world.profile, line=line)["lines"][0]["holdout_prior_trials"]
+            return report_history.research_history(world.profile, world.market, line=line)["lines"][0]["holdout_prior_trials"]
 
         history.run_history(world.profile, world.market, MARKET_DAY, mine)
         self.assertEqual((prior(mine)["trials"], prior(mine)["by_line"]), (0, []),
@@ -428,7 +446,7 @@ class HistoryRunTests(unittest.TestCase):
         history.run_history(world.profile, world.market, MARKET_DAY, other)
         self.assertEqual(prior(mine)["by_line"], [{"line": other, "purpose": "history", "trials": 1}])
         self.assertEqual(prior(other)["trials"], 1, "unchanged by its own closing")
-        by_line = report_history.research_history(world.profile)["lines"]
+        by_line = report_history.research_history(world.profile, world.market)["lines"]
         self.assertEqual([item["holdout_prior_trials"]["trials"] for item in by_line], [1, 1])
 
     def test_a_control_that_does_not_reproduce_the_run_voids_its_row(self):
@@ -438,7 +456,7 @@ class HistoryRunTests(unittest.TestCase):
         entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
         world.fingerprint = {"fills": {"rows": 3, "sha256": "1" * 64, "by_utc_day": {}}}
         history.run_history(world.profile, world.market, MARKET_DAY, line)
-        (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
         self.assertIs(row["control_reproduces"], False)
         self.assertIsNone(row["summary"])
 
@@ -454,7 +472,7 @@ class HistoryRunTests(unittest.TestCase):
         segments = lines.history_segments
 
         def summary():
-            (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+            (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
             return row["control_reproduces"], row["summary"]
 
         def replay(count, **scenario):
@@ -496,13 +514,52 @@ class HistoryRunTests(unittest.TestCase):
         reproduces, found = summary()
         self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
                          (True, "veto and holdout", []), "the rerun supersedes the invalid year")
-        (row,) = report_history.research_history(world.profile, line=line)["lines"][0]["rows"]
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
         (year,) = [cell for cell in row["cells"] if cell["label"] == "2024"]
         self.assertEqual((year["status"], year["superseded"], len(row["cells"])),
                          ("passed", [first, again["ran"][0]["history_trial_id"]], 5),
                          "one cell per segment: 2023, 2024, 2025, the holdout and the control")
         found = status.research_status(world.profile)["excluded_trials"]["reproductions"]
         self.assertEqual(len(found), 2, "a rerun looks at what its first trial did: counted once")
+
+    def test_veto_years_not_replayed_yet_leave_the_verdict_undecided(self):
+        """Gemini audit 2026-11-22: with a passed control and holdout and no veto year replayed, the holdout alone
+        decided and a validation or Live run took the candidate; with one year of three, that year alone."""
+        world = self.world
+        line = world.line["line"]
+        world.market = YearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)})
+        lines.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
+        registration, (ref,) = registered_grid(world, ["kept"])
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s", (passed["trial_id"],))
+        segments = lines.history_segments
+        world.scenario = {"returns": [0.001]}  # about 44% a year with no drawdown
+
+        def replay(*kinds):
+            with patch.object(lines, "history_segments", lambda *args: [
+                    item for item in segments(*args) if item["kind"] in kinds]):
+                return [item["segment"] for item in
+                        history.run_history(world.profile, world.market, MARKET_DAY, line)["ran"]]
+
+        def verdict():
+            (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+            caught = refused(report_history.require_unfalsified, world.conn, source["source_sha256"], world.market)
+            return (row["summary"]["holdout"]["meets_targets"], row["summary"]["meets_targets"],
+                    row["summary"]["missing"], caught.code, list(caught.missing))
+
+        with patch.object(replay_world, "inspect_stand_in", windowed):
+            self.assertEqual(replay("control", "holdout"), ["development", "holdout"])
+            self.assertEqual(verdict(), (True, None, ["veto 2023", "veto 2024", "veto 2025"], "HISTORY_UNDECIDED",
+                                         [f"{line}: veto 2023", f"{line}: veto 2024", f"{line}: veto 2025"]))
+            with patch.object(lines, "history_segments", lambda *args: [
+                    item for item in segments(*args) if item["label"] == "2024"]):
+                self.assertEqual([item["segment"] for item in history.run_history(
+                    world.profile, world.market, MARKET_DAY, line)["ran"]], ["2024"])
+            self.assertEqual(verdict(), (True, None, ["veto 2023", "veto 2025"], "HISTORY_UNDECIDED",
+                                         [f"{line}: veto 2023", f"{line}: veto 2025"]))
+            history.run_history(world.profile, world.market, MARKET_DAY, line)
+        self.assertEqual(report_history.require_unfalsified(world.conn, source["source_sha256"], world.market),
+                         {"line": line, "judged_on": "veto and holdout"}, "every planned year replayed")
 
     def test_a_source_without_economic_evidence_is_no_candidate(self):
         """20261114-13: the test's candidates are the participants whose research run carries economic evidence, as
@@ -523,7 +580,7 @@ class HistoryRunTests(unittest.TestCase):
                 trial_id, "failed", causal={"status": "failed", "note": "found after the run was sealed"}), "reviewer-z")
 
         def read():
-            found = report_history.research_history(world.profile, line=line)["lines"][0]
+            found = report_history.research_history(world.profile, world.market, line=line)["lines"][0]
             return ([row["candidate"] for row in found["rows"]], found["participants"], found["discount"]["trials"],
                     [(item["candidate"], item["run"], item["reasons"][0].split(":")[0])
                      for item in found["without_economic_evidence"]])
@@ -544,7 +601,7 @@ class HistoryRunTests(unittest.TestCase):
         days = (date(2025, 11, 1), date(2026, 4, 1))
         caught = refused(lines.close_line, world.profile, line, b"summary", days)
         self.assertEqual(caught.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
-        with patch.object(research_commands, "_market_days", return_value=days):
+        with patch.object(report_history, "market_days", return_value=days):
             closed = research_commands.line_close(world.profile, line, b"summary", {})
         self.assertFalse(closed["replayed"], "`line close` requires the candidates' segments only")
 

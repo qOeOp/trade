@@ -507,7 +507,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
         describe = _describe(symbols)
         inspection = image.inspect_runtime(identity, describe)
         image.require_main_build(identity, inspection)
-        admission.unfalsified(research, research_at, found["source_sha256"])
+        admission.unfalsified(research, research_at, found["source_sha256"], market_root)
         # Recorded, possibly none: a run without it may still check the account (and read the wallet a replay must
         # start near), but never starts (launch_locked, engine.live_venue.require_evidence).
         evidence = _evidence(research, research_at, found["source_sha256"], symbols, inspection, describe, leverage)

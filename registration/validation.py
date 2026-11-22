@@ -132,15 +132,15 @@ def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mappi
 def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: datetime, window_end: datetime,
                         universe_rule: str, market: str | None, design: Mapping, retry_of: int | None,
                         op_id: str | None, *, market_profile,
-                        unfalsified: Callable[[db.LedgerConnection, str], object],
+                        unfalsified: Callable[[db.LedgerConnection, str, dict], object],
                         tsa_url: str | None = None) -> dict:
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
     `market` is the market day reference (None: the market's default head), resolved through the
     market `market_profile`. `unfalsified` (report.history.require_unfalsified, a layer above) refuses a candidate
-    that its line's closing history test falsified or has not decided (20261120-05, user 2026-11-21): a validation
-    spends its window once, on a candidate that survived its history."""
+    that its line's closing history test, planned on `market_profile`'s days, falsified or has not decided
+    (20261120-05, user 2026-11-21): a validation spends its window once, on a candidate that survived its history."""
     try:
         register.validate_design(design)
     except Refusal as exc:
@@ -159,7 +159,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
-        unfalsified(conn, row["source_sha256"])
+        unfalsified(conn, row["source_sha256"], market_profile)
         market_day = seams.current.market(market_profile).resolve_day(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)
