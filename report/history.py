@@ -8,8 +8,10 @@ targets is judged on the veto years and on the holdout apart, and it meets them 
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
-year (cut by the market's first day plus warm-up) and a segment shorter than SHORT_DAYS are
-shown but read in no summary. A segment `line history` replayed again after an invalid run has one cell, its latest
+year (cut by the market's first day plus warm-up), a segment shorter than SHORT_DAYS and a cut holdout are
+shown but read in no summary: a holdout is cut (`cut`) when it ends before the planned holdout's end or, sooner, the
+day after the market's latest complete day (market_days; 20261122-20, user 2026-11-22: a `line history` run on an
+earlier market day replayed part of the holdout and that part alone decided). A segment `line history` replayed again after an invalid run has one cell, its latest
 run; the earlier trials are named in the cell's `superseded`.
 
 A verdict needs every reading it is defined on (20261114-12, user 2026-11-15): a whole veto year whose run is
@@ -102,11 +104,14 @@ def _latest(rows: list[dict], kind) -> list[dict]:
     return sorted(chosen, key=lambda row: row["trial_id"])
 
 
-def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None) -> dict:
-    """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial."""
+def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None,
+          holdout_until: datetime | None = None) -> dict:
+    """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial. A holdout
+    is `cut` when it ends before `holdout_until` (the planned holdout's end, or the market's end when sooner)."""
     cell = {"trial_id": row["trial_id"], "kind": kind, "label": _veto_year(row) if kind == "veto" else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
             "status": row["status"], "whole_year": kind == "veto" and _whole_year(row),
-            "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
+            "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS,
+            "cut": kind == "holdout" and holdout_until is not None and row["trade_end"] < holdout_until}
     if row["status"] == "passed":
         facts = measures.run_facts(conn, row["trial_id"])
         derived = measures.derive_measures(facts, wanted=MEASURES)
@@ -122,8 +127,8 @@ def _discount(rows: list[dict], returns: dict[int, list[float]], prior: int | No
     (`deflated_sharpe_with_prior_trials`) at the participant count plus the `prior` trials that already looked at the
     holdout (None when not read), both with the sample variance of the participants' per-day holdout Sharpe ratios;
     the line's `discount` says the counts and the variance."""
-    holdout = {row["run"]: next((cell["trial_id"] for cell in row["cells"] if cell["kind"] == "holdout"
-                                 and not cell["short"] and cell["trial_id"] in returns), None) for row in rows}
+    holdout = {row["run"]: next((cell["trial_id"] for cell in row["cells"] if _countable(cell)
+                                 and cell["trial_id"] in returns), None) for row in rows}
     daily = [sharpe / math.sqrt(365) for trial in holdout.values() if trial is not None
              for sharpe in [measures.sharpe_365(returns[trial])] if sharpe is not None]
     variance = statistics.variance(daily) if len(daily) > 1 else None
@@ -183,11 +188,15 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
     return found, missing
 
 
+def _countable(cell: dict) -> bool:
+    """A holdout cell a summary reads: SHORT_DAYS or more and not cut (_cell)."""
+    return cell["kind"] == "holdout" and not cell["short"] and not cell.get("cut", False)
+
+
 def _holdout(cells: list[dict], targets: dict | None) -> tuple[dict, list[str]]:
     """The holdout's readings and verdict, and `holdout` when the verdict lacks them: no passed holdout run of
-    SHORT_DAYS or more, or one without one of the two readings."""
-    measures = next((cell["measures"] for cell in cells if cell["kind"] == "holdout" and not cell["short"]
-                     and "measures" in cell), None)
+    SHORT_DAYS or more that is not cut (_countable), or one without one of the two readings."""
+    measures = next((cell["measures"] for cell in cells if _countable(cell) and "measures" in cell), None)
     found = {"annual_return": measures["annual_return"] if measures else None,
              "mark_max_drawdown": measures["mark_max_drawdown"] if measures else None}
     found["meets_targets"] = (_passes(measures, targets)
@@ -281,6 +290,7 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     record = lines.read_line(conn, line)
     dev_start, dev_end = lines.dev_window(record)
     held = datetime.combine(lines.holdout_end(dev_end.date()), time())
+    holdout_until = min(held, datetime.combine(days[1], time()))
     targets = line_targets.targets_for(conn, record["line_id"])
     found = lines.history_trials(conn, record["line_id"])
     rows: list[dict] = []
@@ -293,8 +303,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     for participant in kept:
         own = _latest([row for row in found if row["source_sha256"] == participant["source_sha256"]],
                       lambda row: _kind(row, dev_start, dev_end, held))
-        cells = [{**_cell(conn, row, _kind(row, dev_start, dev_end, held), returns), "superseded": row["superseded"]}
-                 for row in own]
+        cells = [{**_cell(conn, row, _kind(row, dev_start, dev_end, held), returns, holdout_until),
+                  "superseded": row["superseded"]} for row in own]
         control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
         researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
                               (participant["trial_id"],))

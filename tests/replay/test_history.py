@@ -569,6 +569,41 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(report_history.require_unfalsified(world.conn, source["source_sha256"], world.market),
                          {"line": line, "judged_on": "veto and holdout"}, "every planned year replayed")
 
+    def test_a_holdout_cut_by_an_earlier_market_day_decides_nothing(self):
+        """20261122-20 (user 2026-11-22, 「授权」): `line history --market-day` at a day whose market ends inside the
+        holdout replays a cut holdout of 90 days or more; it passed `require_unfalsified` (validation, Live) while the
+        holdout planned on the market's newest day had no run and `line close` refused. A day before the line's own
+        market day is refused, and a holdout ending before min(planned end, market end) reads as missing."""
+        world = self.world
+        line = world.line["line"]
+        early, newest = "2026-02-15", "2026-08-01"
+
+        class Growing(YearsMarket):
+            def days(self, market_day):  # the market at MARKET_DAY ends four months into the holdout
+                latest = {early: date(2026, 2, 14), MARKET_DAY: date(2026, 5, 31)}.get(market_day, date(2026, 7, 31))
+                return date(2023, 12, 1), latest
+
+        world.market = Growing({day: months_rows(YEARS_MONTHS) for day in (early, MARKET_DAY, newest)})
+        lines.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
+        registration, (ref,) = registered_grid(world, ["kept"])
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s", (passed["trial_id"],))["source_sha256"]
+        world.scenario = {"returns": [0.001]}  # about 44% a year with no drawdown
+        self.assertEqual(refused(history.run_history, world.profile, world.market, early, line).code,
+                         "HISTORY_MARKET_DAY_EARLY", "a market day before the line's own")
+        with patch.object(replay_world, "inspect_stand_in", windowed):
+            cut = history.run_history(world.profile, world.market, MARKET_DAY, line)
+            self.assertIn("holdout", [item["segment"] for item in cut["ran"]])
+            (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+            holdout = next(cell for cell in row["cells"] if cell["kind"] == "holdout")
+            self.assertEqual((holdout["trade_end"], holdout["short"]), ("2026-06-01T00:00:00", False))
+            self.assertEqual((row["summary"]["meets_targets"], row["summary"]["missing"]), (None, ["holdout"]))
+            caught = refused(report_history.require_unfalsified, world.conn, source, world.market)
+            self.assertEqual((caught.code, list(caught.missing)), ("HISTORY_UNDECIDED", [f"{line}: holdout"]))
+            history.run_history(world.profile, world.market, newest, line)  # the holdout to the market's end
+        self.assertEqual(report_history.require_unfalsified(world.conn, source, world.market),
+                         {"line": line, "judged_on": "veto and holdout"})
+
     def test_a_source_without_economic_evidence_is_no_candidate(self):
         """20261114-13: the test's candidates are the participants whose research run carries economic evidence, as
         `research status` judges it. Before, a source whose review had failed was replayed, shown with its

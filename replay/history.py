@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from datetime import timedelta
+from datetime import date, timedelta
 import re
 import subprocess
 import threading
@@ -35,6 +35,7 @@ from replay import entry, reproduce, seams
 from report import history as report_history, measures
 from runtime import container
 from shared import clock
+from shared.refusals import refuse
 
 
 # Docker's own memory beside its containers' (the engine, the VM kernel on Docker Desktop), kept free of replays.
@@ -141,7 +142,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     latest history run is invalid, at most `limit` runs in all, several at once as `memory` (default
     `engine_memory`) has room (`width`); returns what ran in that order (`replaces`: the invalid history trial a rerun supersedes, else None), the
     segments left without a run (`left`) and with an invalid run not replayed this time (`invalid_left`), and the
-    participants left out for want of economic evidence. A segment that raises lets those running finish and starts
+    participants left out for want of economic evidence. A market day `at` before the line's own is refused
+    (HISTORY_MARKET_DAY_EARLY, 20261122-20, user 2026-11-22): its market can end inside the holdout. A segment that raises lets those running finish and starts
     no other; the first such error in that order is raised."""
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
@@ -149,6 +151,10 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     after_last = latest + timedelta(days=1)
     with db.connect(ledger, "reader") as conn:
         record = lines.open_line(conn, line)
+        if date.fromisoformat(market_day) < date.fromisoformat(str(record["market_day"])):
+            raise refuse("HISTORY_MARKET_DAY_EARLY", f"market day {market_day} is before {record['name']}'s own, "
+                                                     f"{record['market_day']}: its market can end inside the holdout",
+                         expected=f"{record['market_day']} or later")
         candidates, without = report_history.candidates(conn, record["line_id"])
         plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates)
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}

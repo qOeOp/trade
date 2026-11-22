@@ -107,6 +107,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "LINE_CONFLICT": ("Name the direction more precisely with another `--slug`, then select again.",),
     "LINE_SLUG_INVALID": ("Name the line's direction in that form.",),
     "LINE_AMBIGUOUS": ("Name the line with --line (one of `research state` open_lines).",),
+    "HISTORY_MARKET_DAY_EARLY": ("Run `line history` at the line's own market day or later; without --market-day "
+                                 "it runs at the market's newest day.",),
     "HISTORY_INCOMPLETE": ("Run `line history` for the line (it resumes where it stopped), then close again.",),
     "LINE_CLOSED": ("Read its summary (`line list`, or line_close with `ledger sql`); leave it as it is.",),
     "LINE_SUMMARY_INVALID": ("Shorten the summary to the line's directions, results, failures and lessons, then "
