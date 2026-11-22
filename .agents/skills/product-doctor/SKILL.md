@@ -77,7 +77,8 @@ research session that its transcript cannot show ([attach.md](references/attach.
    verified finding, authority recommendation or open evidence gap, and a record file only for an
    audit or a diagnosis of several rows. Update existing rows rather than recording each symptom
    anew. A finding the user pointed out first takes source `user` with the lenses.md workstream
-   that should have caught it, by its name there.
+   that should have caught it, by its name there; one verified from a `from-bot` issue takes
+   `user-bot` the same way, with the issue number.
 
 ## Convergence
 
