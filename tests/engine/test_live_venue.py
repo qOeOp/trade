@@ -390,12 +390,17 @@ class ReadOnlyVenueTest(unittest.TestCase):
             credentials = read_credentials(path)
             self.assertNotIn("hidden", repr(credentials))
             path.chmod(0o644)
-            with self.assertRaises(Refusal):
-                read_credentials(path)
+            self.assertEqual(refused(read_credentials, path, error=Refusal).code, "LIVE_CREDENTIAL_FILE")
             alias = Path(directory) / "alias"
             alias.symlink_to(path)
-            with self.assertRaises(Refusal):
-                read_credentials(alias)
+            path.chmod(0o600)
+            self.assertEqual(refused(read_credentials, alias, error=Refusal).code, "LIVE_CREDENTIAL_FILE")
+            for body in ({"api_key": "k"}, {"api_key": "k", "api_secret": "s", "extra": "x"},
+                         {"api_key": " k", "api_secret": "s"}, {"api_key": "", "api_secret": "s"}, ["k", "s"]):
+                with self.subTest(body=body):
+                    path.write_text(json.dumps(body))
+                    self.assertEqual(refused(read_credentials, path, error=Refusal).code, "LIVE_CREDENTIAL_FILE")
+            self.assertEqual(refused(read_credentials, Path(directory) / "missing.json", error=Refusal).code, "LIVE_CREDENTIAL_FILE")
 
     def test_get_allowlist_rejects_order_and_configuration_mutations(self):
         client = BinanceReadOnly(Credentials("hidden-key", "hidden-secret"))

@@ -546,6 +546,19 @@ class LiveTests(unittest.TestCase):
         now = live.time.time_ns()
         return [{"sent_ns": now, "server_ms": now // 1_000_000, "received_ns": now}]
 
+    def test_another_credential_or_nautilus_version_is_refused_before_any_venue_read_or_write(self):
+        cases = {"LIVE_ACCOUNT_BINDING": ({**self.manifest, "credential_binding": "b" * 64}, "2.0.0rc7"),
+                 "LIVE_RUNTIME_VERSION": (self.manifest, "2.0.0rc8")}
+        for code, (manifest, version) in cases.items():
+            with self.subTest(code):
+                self.manifest = manifest
+                args = self.runner_args("run")
+                with mock.patch.object(live.importlib.metadata, "version", return_value=version), \
+                        mock.patch.object(live.BinanceReadOnly, "snapshot") as snapshot:
+                    self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, code)
+                snapshot.assert_not_called()
+                self.assertFalse((self.output / "runner.lock").exists())
+
     def test_a_clock_outside_the_limits_stops_preflight_and_run_but_is_not_read_on_reconcile(self):
         bad = self.good_clock()
         bad[0]["server_ms"] += 3000
