@@ -1,0 +1,145 @@
+name: release
+
+# Releases one version (CHANGELOG.md, To release a version). Starting it with a version is the owner's release decision;
+# everything after is automatic: the bump pull request (pyproject.toml, uv.lock, the changelog section) merges once its
+# checks pass, and the GitHub release, which creates the version tag, goes on the commit carrying that version once
+# main-ready admits it. release-ready then admits the version to deploy-ready.
+#
+# The bump pull request is opened, and set to merge, with the RELEASE_TOKEN secret, a token of the owner (a
+# fine-grained token for this repository with Contents and Pull requests read and write): GitHub starts no workflow
+# for a pull request opened or merged with the workflow's own token, so neither the pull request's required checks
+# nor the merge commit's main build would ever run. The release itself uses the workflow's token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release, X.Y.Z, above the newest released version
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - .github/scripts/release.cjs
+      - .github/scripts/release.test.cjs
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('release-pr-{0}', github.event.pull_request.number) || 'release' }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: node --test .github/scripts/release.test.cjs
+
+  release:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write  # the GitHub release and its tag
+      actions: write  # dispatching release-ready
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0  # the commit this run started on, which release.cjs compares with
+          fetch-tags: true
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - run: uv python install 3.14
+      - name: Check the version and prepare the bump
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+          HAS_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != true ]; then
+            echo "::error::The RELEASE_TOKEN secret is missing (see the head of .github/workflows/release.yml)"; exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::$VERSION is not X.Y.Z"; exit 1
+          fi
+          above() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+          released="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1)"
+          if [ -n "$released" ] && ! above "$VERSION" "$released"; then
+            echo "::error::$VERSION is not above the newest released version $released"; exit 1
+          fi
+          current="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if above "$current" "$VERSION"; then
+            echo "::error::pyproject.toml already carries $current, above $VERSION"; exit 1
+          fi
+          if [ "$current" != "$VERSION" ]; then
+            sed -i -E "0,/^version = \"[^\"]*\"$/s//version = \"$VERSION\"/" pyproject.toml
+            uv lock
+            python3 .github/scripts/changelog-release.py "$VERSION"
+          elif compgen -G 'changelog.d/*.md' > /dev/null; then
+            # Raised earlier and not released yet: the pending entries join its section.
+            python3 .github/scripts/changelog-release.py "$VERSION"
+          fi
+          python3 .github/scripts/changelog-release.py --notes "$VERSION" > /dev/null
+          echo "changed=$(git diff --quiet && echo false || echo true)" >> "$GITHUB_OUTPUT"
+      - name: Open the bump pull request and wait for it to merge
+        id: merge
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANGED: ${{ steps.bump.outputs.changed }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ "$CHANGED" != true ]; then
+            echo "merged=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          branch="release/v$VERSION"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add -u  # pyproject.toml, uv.lock, CHANGELOG.md and the deleted changelog.d entries
+          git commit -qm "chore(release): v$VERSION"
+          gh auth setup-git
+          git push origin "$branch"
+          body="$(printf '%s\n' '## Summary' '' \
+            "Releases $VERSION, started from the release workflow (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID): pyproject.toml and uv.lock carry $VERSION and the pending changelog.d entries are in its CHANGELOG.md section. The workflow creates the release once main-ready admits this commit." \
+            '' '## Validation' '' 'The required checks of this pull request.')"
+          url="$(gh pr create --base main --head "$branch" --title "chore(release): v$VERSION" --body "$body")"
+          gh pr merge "$url" --auto --squash
+          for _ in $(seq 180); do
+            state="$(gh pr view "$url" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")')"
+            case "$state" in
+              MERGED\ *) echo "merged=${state#MERGED }" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              CLOSED\ *) echo "::error::$url was closed without merging"; exit 1 ;;
+            esac
+            sleep 60
+          done
+          echo "::error::$url did not merge within three hours"; exit 1
+      - name: Write the release notes from the merged changelog
+        env:
+          VERSION: ${{ inputs.version }}
+          MERGED: ${{ steps.merge.outputs.merged }}
+        run: |
+          git fetch -q origin main
+          git show "$MERGED:CHANGELOG.md" > CHANGELOG.md
+          python3 .github/scripts/changelog-release.py --notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          VERSION: ${{ inputs.version }}
+          MERGED: ${{ steps.merge.outputs.merged }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const release = require('./.github/scripts/release.cjs');
+            await release({ github, context, core, version: process.env.VERSION, merged: process.env.MERGED,
+              notes: fs.readFileSync(`${process.env.RUNNER_TEMP}/notes.md`, 'utf8') });
