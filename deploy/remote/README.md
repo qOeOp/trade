@@ -76,12 +76,14 @@ says the version waits and why, one Telegram notice says the same, and the next 
 pending at the start of a tick (an interrupted release) still marks its version. A pending transaction is recovered before
 any new selection. Paper keeps its own recovery journal beside the Web's (one `failed/` marker covers the
 version), with starts kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
-the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
-Live controller) and the newest failed one stay, older stopped ones are removed, and so are IDE and service images no container
+the journal for the operator. After a settled tick the two newest good containers of each kind (Web, Agent, Paper controller,
+Live controller: the routed version and the previous one) and the newest failed one stay, older stopped ones are removed, and so are IDE and service images no container
 uses (and old docker-api images), since they can be pulled again by digest. A Live controller also stays while its Web
 remains, and its `live/<revision>/` directory goes with it. A runtime image goes when no container uses it, neither a
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
-again pulls it by digest. Running containers, the active routes, runs, ledger records and market inputs are never pruned.
+again pulls it by digest. A failed version older than the routed one can no longer be chosen: its stopped containers
+go, and its `failed/` marker goes once none of them remains; `paper-failed/`, which no version writes, goes too.
+Running containers, the active routes, runs, ledger records and market inputs are never pruned.
 A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
 admitted version ([Release control code](#release-control-code)).
@@ -433,8 +435,8 @@ What a rollback does not undo: ledger records and the market directory only grow
 keep the runtime image and controller they started with. The compose services follow the reverted
 version like any other ([Compose services](#compose-services)). 0.x keeps no compatibility between versions, so a revision
 may not read what a later one wrote; a revert that needs the ledger rewound is a destructive write for the user to decide.
-A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
-containers stay on the host for inspection.
+A target that failed stays in `/var/lib/trade-release/failed/` until a later version is routed, and the two newest
+good Web, Agent and controller containers stay on the host for inspection.
 
 ### Returning to the previous version by hand
 
@@ -693,7 +695,9 @@ to the admitted version, whose control then recovers a pending transaction; with
 it refuses one. On a new host
 the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
 
-A version that changes the launcher, the unit or the timer needs them reinstalled. [Pause releases](#pausing-releases). Once `deploy-ready` admits that version, update `/opt/trade-app`
+A version that changes the launcher, the unit or the timer needs them reinstalled: the release service cannot write
+`/opt` or `/etc`, so once that version is routed a Telegram notice names each installed file that differs from the
+version's own copy ([Notices](#notices)). [Pause releases](#pausing-releases). Once `deploy-ready` admits that version, update `/opt/trade-app`
 to its tag (`git fetch --tags && git checkout vX.Y.Z`) and run `sudo sh deploy/remote/install-release.sh control`
 from it. It refuses while the timer or a tick runs; otherwise it installs them and the bootstrap copy, reloads
 systemd and starts the timer.

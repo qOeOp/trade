@@ -114,7 +114,8 @@ def settled(release, cleaned: list[str]) -> dict[str, str]:
     """The routed version against its admitted record on a tick that released nothing (doctor 20261122-33): its Web,
     Agent, Paper controller and Live control by revision label and image digest, the routes, and every running
     compose service by its version's definition (`follows`). One fact per version, so its notice is sent once: "vX.Y.Z
-    live" with what stays for a return by hand, what this tick cleaned and the failed markers, or what differs."""
+    live" with what stays for a return by hand, what this tick cleaned and the failed markers, or what differs; and
+    one when the launcher or units installed outside the release's reach differ from the version's (`installed`)."""
     host, github = release.host, release.github
     active = host.disk_route()
     sha = revision(active)
@@ -158,14 +159,19 @@ def settled(release, cleaned: list[str]) -> dict[str, str]:
     version = about.get("version") if about.get("status") == 200 else None
     label = f"v{version}" if isinstance(version, str) and VERSION.fullmatch(version) else sha[:12]
     wrong = [f"{what} {how}" for what, how in differs.items() if how is not None]
+    installed = host.installed(target["service"], sha)
+    facts = {f"settled:{sha}:installed": (
+        f"The installed {', '.join(installed)} differ from {label}'s own copies; the release service cannot write "
+        "/opt or /etc. Reinstall them from that version's checkout (sudo sh deploy/remote/install-release.sh control, "
+        "deploy/remote/README.md Release control code).")} if installed else {}
     if wrong:
-        return {f"settled:{sha}:diverged": (
+        return facts | {f"settled:{sha}:diverged": (
             f"{label} is routed, but {len(wrong)} of {len(differs)} services do not match its admitted record: "
             f"{'; '.join(wrong)}. The release moves the compose services on settled ticks while Paper and Live are "
             "idle; see journalctl -u trade-release.service.")}
     kept = sorted(revision(name)[:12] for name in host.managed(WEB) if name != active)
     failed = sorted(path.name[:12] for path in release.failed.iterdir()) if release.failed.is_dir() else []
-    return {f"settled:{sha}": (
+    return facts | {f"settled:{sha}": (
         f"{label} live: {len(differs)}/{len(differs)} services on {sha[:12]} ({', '.join(differs)}). "
         f"Kept for a return by hand: {', '.join(kept) or 'none'}. Cleaned this tick: {', '.join(map(brief, cleaned)) or 'none'}. "
         f"Failed markers: {', '.join(failed) or 'none'}.")}
