@@ -1,14 +1,14 @@
 """The closing history test read back (`report.history`).
 
 Every number comes from the sealed history runs (`line history`) and is derived on read; nothing is
-stored. A row is a participant of a line's test, a cell one of its history runs: a veto segment (a calendar year
-before the development period), the period again (the control, which must reproduce the research run), the
+stored. A row is a participant of a line's test, a cell one of its history runs: a veto segment (a year of four
+quarters counted back from the development period's start, ledger.lines.history_segments), the period again (the control, which must reproduce the research run), the
 two-year holdout after it, or the forward segment after the holdout. Whether a candidate meets the user's two
 targets is judged on the veto years and on the holdout apart, and it meets them when both pass
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
-year (cut by the market's first day plus warm-up, or by the period's start) and a segment shorter than SHORT_DAYS are
+year (cut by the market's first day plus warm-up) and a segment shorter than SHORT_DAYS are
 shown but read in no summary. A segment `line history` replayed again after an invalid run has one cell, its latest
 run; the earlier trials are named in the cell's `superseded`.
 
@@ -77,10 +77,14 @@ def _kind(row: dict, dev_start: datetime, dev_end: datetime, held: datetime) -> 
     return "veto"
 
 
+def _veto_year(row: dict) -> str:
+    """A veto segment's year, the label of ledger.lines.history_segments: the month a year before its end."""
+    return f"{lines.veto_year_start(row['trade_end'].date()):%Y-%m}"
+
+
 def _whole_year(row: dict) -> bool:
-    start = row["trade_start"]
-    return (start == datetime(start.year, 1, 1)
-            and row["trade_end"] == datetime(start.year + 1, 1, 1))
+    """A veto segment that trades its whole year (not cut by the market's first day plus warm-up)."""
+    return row["trade_start"] == datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
 
 
 def _latest(rows: list[dict], kind) -> list[dict]:
@@ -90,7 +94,7 @@ def _latest(rows: list[dict], kind) -> list[dict]:
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
         found = kind(row)
-        groups.setdefault((found, row["trade_start"].year if found == "veto" else None), []).append(row)
+        groups.setdefault((found, _veto_year(row) if found == "veto" else None), []).append(row)
     chosen = []
     for group in groups.values():
         pick = ([row for row in group if row["status"] is not None] or group)[-1]
@@ -100,8 +104,7 @@ def _latest(rows: list[dict], kind) -> list[dict]:
 
 def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None) -> dict:
     """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial."""
-    cell = {"trial_id": row["trial_id"], "kind": kind, "label": str(row["trade_start"].year) if kind == "veto"
-            else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
+    cell = {"trial_id": row["trial_id"], "kind": kind, "label": _veto_year(row) if kind == "veto" else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
             "status": row["status"], "whole_year": kind == "veto" and _whole_year(row),
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
     if row["status"] == "passed":

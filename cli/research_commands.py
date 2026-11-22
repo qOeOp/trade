@@ -646,8 +646,8 @@ COMMANDS = [
         "the open line, its passed research runs with their economic evidence and its history trials (writer, "
         "head); the market at --market-day "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
-        "one history trial and its run per segment left (each calendar year before the development period as a "
-        "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
+        "one history trial and its run per segment left (each year of four quarters counted back from the "
+        "development period's start as a veto segment, labelled YYYY-MM by its first month, the period again as the control, the two-year holdout after it as one segment, the forward "
         "segment after the holdout), candidates by development-period Sharpe; segments replay several at once, as "
         "many as Docker's memory (its total less what its containers hold) has room for at a stage's 16 GiB limit; "
         "a segment with a passed history run is skipped, so a rerun resumes; after the segments without a run, "
@@ -664,8 +664,8 @@ COMMANDS = [
          option("--line", required=True, help="an open research line"), MARKET_DAY,
          option("--limit", type=_count, help="run at most this many segments"),
          epilog="Every candidate, a source with a passed research run on the line whose latest such run carries "
-                "economic evidence (the judgment `research status` reads), replays that run over each calendar year "
-                "before the development period (veto), the period again (a control that must reproduce the run), the "
+                "economic evidence (the judgment `research status` reads), replays that run over each year before the "
+                "development period, counted back from its start (veto), the period again (a control that must reproduce the run), the "
                 "two-year holdout after it in one run and the forward segment after the holdout: same source, image "
                 "and configuration, another window. The sources that can take part are fixed by the line's first "
                 "history trial; one without economic evidence is left out and named. Rerun to resume; each call also "
