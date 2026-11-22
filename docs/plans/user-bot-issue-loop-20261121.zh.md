@@ -26,7 +26,7 @@
 ## 闭环
 
 1. **bot 使用产品，开 issue。** bot 和用户看得到同样的东西：web IDE、ledger 和 market 数据、源码、研究会话（含子 agent）的每行聊天记录。每个 issue 写明：做了什么、看到什么（页面或命令、时间、版本或提交号、截图；来自研究会话的写会话 id 和调用时间）、预期是什么、对研究决策有什么影响。开之前先查已有 issue 和 [doctor 索引](doctor/index.zh.md)，避免重复。每天有上限（建议 5 个）。
-2. **分诊核实。** 本机定时任务每天跑一次（用户 2026-11-22「定时任务到时候建的一天一次吧」；此前 2026-11-21 定的是「Claude每四小时抓一次吧」）：只读用户账号开的、带 `from-bot` 标签的 issue。bot 用的是用户本人的账号，作者分不出 bot 和用户，靠标签区分。Bot finding 表单会给任何开表单的人自动打上这个标签，所以标签只区分 bot 和用户，不区分用户和外人：作者是用户账号这一条照样要查。每条都当成待核实的缺陷说法，走 product-doctor 的聚焦诊断（步骤 3–5），在当前 `origin/main` 上复现。这和 [Gemini 发现复核](doctor/2026-11-21-gemini-findings-recheck.zh.md) 是同一种做法。
+2. **分诊核实。** 本机定时任务每天跑一次（用户 2026-11-22「定时任务到时候建的一天一次吧」；此前 2026-11-21 定的是「Claude每四小时抓一次吧」）：只读用户账号开的、带 `from-bot` 标签的 issue。bot 用的是用户本人的账号，作者分不出 bot 和用户，靠标签区分。bot 用 `gh issue create --label from-bot --body-file …` 开 issue，自己打标签；公开仓库里只有有 triage 或写权限的账号能打标签（今天只有用户本人的账号），所以这个标签说明了来源。没有带这个标签的公开 issue 表单：表单里的标签会给任何使用者打上，外人的 issue 也会被标成 bot。作者是用户账号这一条照样要查，作为第二道防线。其他人（真人开发者或外部 agent）开的 issue 是普通 issue，分诊不把它们当 bot 发现处理，何时处理由用户决定。每条都当成待核实的缺陷说法，走 product-doctor 的聚焦诊断（步骤 3–5），在当前 `origin/main` 上复现。这和 [Gemini 发现复核](doctor/2026-11-21-gemini-findings-recheck.zh.md) 是同一种做法。
    - 核实成立：在 doctor 索引加一行（来源写 `user-bot`），在 issue 下评论证据和处理动作。
    - 已被修复、重复或不成立：在 issue 下评论证明后关闭。
    - 证据不足：评论需要补什么，打上 `needs-evidence`，issue 保持开着。
@@ -44,10 +44,10 @@
 
 ## 需要的改动
 
-- `.github/ISSUE_TEMPLATE/` 下加一个 bot 用的模板，字段就是闭环第 1 步的那几项。
+- bot 的 issue 正文模板，字段就是闭环第 1 步的那几项，外加开 issue 的 agent 和模型。它写在 bot 的使用说明里，不做成公开的 issue 表单（理由见闭环第 2 步）。
 - 一份给 bot 的使用说明，作为 bot 的系统提示：怎么用产品、怎么写 issue、上限多少、什么不碰。bot 本身带着源码，这份说明就放在仓库里（建议 `docs/plans/` 下，不放进 `.agents/skills/`，因为它不是 Claude 加载的技能）。
 - 分诊的本机定时任务，每天一次。三条运行规则：上一轮没跑完，这一轮直接跳过，不并行；没有新的 `from-bot` issue、也没有待跟进的修复 PR 时，读完列表就结束，不起子 agent；Mac 需要保持唤醒，睡眠期间错过的轮次不补跑，下一轮会一并处理。它的提示只有一句：用 product-doctor 处理 bot 的新 issue。规则留在技能里，不另写一套。如果实际跑下来技能需要加段落，按 `.agents/README.md` 单独提 PR 并附评测。
-- product-doctor 的来源词加 `user-bot`（来源词定义在 doctor 索引表头、规则在 SKILL.md 第 6 步，`references/record.md` 不列来源词，所以加在这两处）（bot 开的 issue 经核实成立的发现），和 `user` 分开，以便单独统计 bot 的核实率；bot 表单另记开 issue 的 agent 和模型，以便按 agent 统计。这是技能改动，单独一个 PR，按 `.agents/README.md` 检查已有评测用例。
+- product-doctor 的来源词加 `user-bot`（来源词定义在 doctor 索引表头、规则在 SKILL.md 第 6 步，`references/record.md` 不列来源词，所以加在这两处）（bot 开的 issue 经核实成立的发现），和 `user` 分开，以便单独统计 bot 的核实率；正文模板另记开 issue 的 agent 和模型，以便按 agent 统计。这是技能改动，单独一个 PR，按 `.agents/README.md` 检查已有评测用例。
 - 不需要新的产品命令。
 
 ## 怎么衡量
@@ -68,6 +68,6 @@
 2026-11-22：
 
 - 搁置解除：「之后你和Gemini沟通就通过issue吧」。Claude 在 issue 下评论作答，bot 读评论，不在评论里争论，有分歧带新证据开新 issue。
-- 用户 bot 是角色，不是某个模型：「用户 bot 闭环 不是bot换成gemini 而是任何agent都可以作为用户来提issue」。bot 表单记下开 issue 的 agent 和模型。
+- 用户 bot 是角色，不是某个模型：「用户 bot 闭环 不是bot换成gemini 而是任何agent都可以作为用户来提issue」。issue 正文记下开 issue 的 agent 和模型。
 - 分诊每天一次：「定时任务到时候建的一天一次吧」；定时任务在模板和使用说明合入后再建。
-- 社区文件与 issue 表单见 [#3445](https://github.com/qOeOp/trade/pull/3445)；bot 的使用说明是 [user-bot-instructions.zh.md](user-bot-instructions.zh.md)。
+- 不设公开的 bot 表单（用户 2026-11-22 问「别的真人开发来提issue也是被标记bot嘛」）：表单会给任何使用者打上 `from-bot`。bot 用命令行自己打标签，只有用户账号打得上；他人的 issue 是普通 issue。正文模板和使用说明在 [user-bot-instructions.zh.md](user-bot-instructions.zh.md)；给人用的 issue 表单见 [#3445](https://github.com/qOeOp/trade/pull/3445)。
