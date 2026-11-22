@@ -1,0 +1,2 @@
+- `replay report` gives `basket`: the equal-weight basket's daily returns on the run's days, read from the market the report already reads for `beta_basket`/`alpha_basket` (never stored).
+- IDE: the Runs page's backtest equity chart draws that basket, compounded from the starting balance, as a line with a `basket` toggle and its return in the readout.

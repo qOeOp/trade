@@ -129,16 +129,17 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
               "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel"),
               "plans": plans(sealed),
               "headline": None, "slices": None, "closed_by_year": None, "closed_by_instrument": None,
-              "dev_years": None, "dev_quarters": None, "drawdown": None,
+              "dev_years": None, "dev_quarters": None, "basket": None, "drawdown": None,
               "capital": None, "cost_basis": None}
     if run["status"] == "passed" and value["economic_evidence_available"]:
-        derived = measures.derive_measures(facts, catalogue, measures.market_for(facts))
+        market = measures.market_for(facts)
+        derived = measures.derive_measures(facts, catalogue, market)
         targets = line_targets.targets_for(conn, trial.get("line_id"))
         output.update(headline={name: derived[name] for name in measures.HEADLINE},
                       slices=slices_of(derived, catalogue), closed_by_year=splits.closed_by_year(facts["cycles"]),
                       closed_by_instrument=splits.closed_by_instrument(facts["cycles"]),
                       dev_years=splits.dev_years(facts, targets["annual_return"] if targets else None),
-                      dev_quarters=splits.dev_quarters(facts),
+                      dev_quarters=splits.dev_quarters(facts), basket=measures.basket_path(facts["returns"], market),
                       drawdown=(sealed or {}).get("drawdown"), capital=(sealed or {}).get("capital"),
                       cost_basis=cost_basis(facts))
     output["limitations"] = dedupe((sealed or {}).get("limitations"), value.get("limitations"))

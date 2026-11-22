@@ -459,6 +459,14 @@ def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[st
     return dict(found), None
 
 
+def basket_path(returns: list[tuple], market: Mapping | None) -> dict:
+    """The equal-weight basket's daily returns on the run's days (`aligned_market`), for a chart beside the
+    run's own: read from the market now, never stored; returns None with the reason when a day lacks it."""
+    values, reason = aligned_market(returns, market, "basket")
+    return {"days": [metrics.utc_day(ts) for ts, _, _ in returns], "returns": values, "null_reason": reason,
+            "definition_note": BASKET_NOTE}
+
+
 def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]:
     equity, found = float(starting), []
     for _, value, _ in returns:

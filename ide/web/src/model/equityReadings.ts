@@ -7,8 +7,8 @@
 import { amount, type JournalLine } from "../lib/paperApi";
 import type { Fill } from "./paper";
 
-/** `positions`: a backtest day's, the cycles it held. */
-export type Reading = { balance: number | null; before: number | null; margin: number | null; exposure: number | null; hold: number | null; positions?: number };
+/** `positions`: a backtest day's, the cycles it held; `basket`: a backtest day's equal-weight basket, in the starting balance. */
+export type Reading = { balance: number | null; before: number | null; margin: number | null; exposure: number | null; hold: number | null; positions?: number; basket?: number | null };
 /** Each contract's daily closes by symbol, oldest first: each day's start (s) and its close. */
 export type DailyCloses = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const MINUTE_NS = 60e9;
