@@ -153,9 +153,9 @@ changed image is recreated on the image it ran before, and the tick fails (a Tel
 A definition cannot be put back (the previous version's may be gone), so a service the move changed only by its
 definition stays on it. A service put back is newer than the routed Web: a later tick moves it again under the same
 conditions once it is an hour old, as long as it was created within two hours of the routed Web, so a version makes
-at most three moves an hour apart. Every tick compares docker-api with the digest the routed version pins and
-`ledger` and `market-import` with its service digest, and after the last move a Telegram drift notice names each
-service left on another image; it stays until the next version (no state is kept: the containers' creation times
+at most three moves an hour apart. Every tick compares each running compose service with what the routed version's
+definition creates, and after the last move a Telegram drift notice names each service left on another image or
+definition; it stays until the next version (no state is kept: the containers' creation times
 are the count). To move one by hand, name the active version's images (`python3 -m deploy.images --revision
 <revision> --env /etc/trade/remote.env`) and run `compose up -d --no-deps <service>` (`--profile
 local-research-import` for market import) with the compose files under `/var/lib/trade-release/control/current/deploy/`
@@ -228,8 +228,12 @@ version that waits for the host's ledger generation ([above](#a-version-that-nee
 that does not answer, or whose Market overview, Agent or Paper controller health fails through the router; a
 `ledger` or `market-import` container that is unhealthy, whose last exit was out of memory, or that restarted (sent
 at 1, 2, 4, ... restarts); a Paper run that stopped and could not resume; and a research ledger whose publish has
-failed for 30 minutes or whose origin history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
-cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file under `LIVE_ROOT`;
+failed for 30 minutes or whose origin history changed elsewhere (read through the routed Web). On each tick that
+releases nothing it also compares the host with the routed version's admitted record: its Web, Agent, Paper
+controller and Live control by revision label, image digest and route, and each running compose service by that
+version's definition. One notice per version says `vX.Y.Z live: N/N services on <revision>` with the Web revisions
+kept for a return by hand, what that tick cleaned and the `failed/` markers, or names each part that differs. Each
+is sent once while it lasts and again only after it cleared; `/var/lib/trade-release/notices.json` records what was sent. It reads the token file under `LIVE_ROOT`;
 without a saved token nothing is sent.
 
 ## Installing a host
