@@ -664,7 +664,8 @@ COMMANDS = [
         "with an invalid run not replayed this time: --limit), participants (the "
         "candidates), without_economic_evidence [{source_sha256, candidate, run, reasons}] (the participants left "
         "out), segments_without_trading",
-        "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
+        "LINE_UNKNOWN, LINE_ENDED; MARKET_DAY_UNRESOLVED; HISTORY_MARKET_DAY_EARLY (--market-day before the line's "
+        "own market day); REPRODUCTION_CONFIG_DIFFERS (the image gives a run "
         "another effective configuration); the replay refusals of a sealed run (the first in segment order; the "
         "segments already running still seal, and no other starts)"), LEDGER, MARKET,
          option("--line", required=True, help="an open research line"), MARKET_DAY,
