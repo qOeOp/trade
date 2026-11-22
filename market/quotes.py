@@ -173,8 +173,7 @@ def quote_month(job: dict) -> dict:
     else:
         found = aggtrades.eve(Path(job["cache"]), symbol, start, job["earlier"], aggtrades.State())
         if found is not None:
-            derive(pa.Table.from_batches([aggtrades.record_batch(rows) for rows in found], files.AGG_TRADE.schema),
-                   tick, state, f"{symbol} {eve}")
+            derive(pa.Table.from_batches(list(found), files.AGG_TRADE.schema), tick, state, f"{symbol} {eve}")
         read_eve = found is not None
     readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                 "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
