@@ -35,6 +35,6 @@
 
 ## Decisions
 
-待用户决定（涉及收紧拒绝/准入检查，按 `AGENTS.md` 需用户明确授权）：
-1. `20261122-20`：是否授权收紧 `line history` 与 `report/history.py`——拒绝早于研究线 `market_day` 的 `--market-day`，且未跑满完整可用留出期（`trade_end < min(holdout_end, after_last)`）的留出段不再通过 `require_unfalsified`（验证登记与 Live 准入）？
-2. `20261122-23`：是否授权收紧 `registration/register.py`——拒绝把纯机械计数度量（`cycles`、`daily_turnover`、`entry_orders`）作为某职责的唯一 `prediction.mechanism`？
+用户 2026-11-22 明确授权（「授权」）：
+1. `20261122-20`：同意收紧 `line history` 与 `report/history.py`——拒绝早于研究线 `market_day` 的 `--market-day`，且未跑满完整可用留出期（`trade_end < min(holdout_end, after_last)`）的留出段不再通过 `require_unfalsified`（验证登记与 Live 准入）。
+2. `20261122-23`：同意收紧 `registration/register.py`——拒绝把纯机械计数度量（`cycles`、`daily_turnover`、`entry_orders`）作为某职责的唯一 `prediction.mechanism`。
