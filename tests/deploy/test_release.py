@@ -22,7 +22,7 @@ from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
 from deploy.release_host import (AGENT, DEFINITION, DOCKER_API, DOCKER_API_REF, KEPT_RELEASES, LEDGER, MARKET_IMPORT, WEB, Config,
-                                 PROBE, DockerHost, ReaderFailure, Registry,
+                                 PROBE, DockerHost, HostCondition, ReaderFailure, Registry,
                                  moment, revision, route_config, route_name)
 from tests.deploy.test_paper_release import Host as PaperStandIn
 
@@ -149,7 +149,7 @@ class Host:
         return []
 
     def create(self, name, image, agent=False, live_socket=None):
-        if name in self.containers:
+        if self.containers.get(name):  # DockerHost.discard_failed removes only a stopped one of this revision
             raise RuntimeError("retained identity is not reusable")
         self.calls.append(("create", name))
         self.containers[name] = False
@@ -414,10 +414,13 @@ class JointReleaseTests(unittest.TestCase):
             with self.subTest(refusal=refuse.__name__):
                 self.setUp()
                 refuse()
-                with self.assertRaises(RuntimeError) as raised:
+                if refuse in summaries:  # a host condition: the version waits (doctors 20261116-05, 20261122-31)
                     self.release.apply(TARGET)
-                if refuse in summaries:  # what the tick's notice says (doctor 20261116-05)
-                    self.assertEqual(failure_summary(raised.exception), summaries[refuse])
+                    [text] = self.release.waits.values()
+                    self.assertIn(summaries[refuse], text)
+                else:
+                    with self.assertRaises(RuntimeError):
+                        self.release.apply(TARGET)
                 self.settled(A)
                 self.assertNotIn(WEB + B, self.host.containers)
                 self.assertNotIn(PAPER + B, self.controller.running)
@@ -471,6 +474,75 @@ class GenerationTests(unittest.TestCase):
                 release.tick(self.host, notices)
         self.assertEqual(sent, ["waits"], "sent once while it lasts")
         self.assertEqual(notices.found["wait"], {})
+
+
+class HostConditionTests(unittest.TestCase):
+    """Doctor 20261122-31: a protected container that restarted, or a Live run started during a release, rolled the
+    version back and wrote failed/<revision>, so a host event blocked that version for good."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = Host(Path(temporary.name))
+        self.github = Mock()
+        self.github.agent_changed.return_value = True
+        self.live = IdleLive(self.host)
+        self.release = Release(self.host, self.github, live=self.live, paper=paper_release(self.host))
+
+    def rolled_back(self):
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
+        self.assertEqual(self.host.agent(), AGENT + D)
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.paper().transaction.exists())
+
+    def test_a_protected_container_that_restarts_during_the_release_waits_and_marks_nothing(self):
+        def restarted(name=WEB + B):
+            if name == WEB + B:  # not the previous Web's warm-up in the rollback
+                raise HostCondition("protected container changed during release: trade-ide-ledger-1")
+
+        for phase in ("on_warm", "on_observe"):
+            with self.subTest(phase=phase):
+                self.setUp()
+                setattr(self.host, phase, restarted)
+                self.release.apply(TARGET)
+                self.rolled_back()
+                self.assertFalse(self.release.failed.exists(), "a host event is no verdict on the version")
+                self.assertEqual(list(self.release.waits), [f"wait:host:{B}:protected container changed"])
+                setattr(self.host, phase, None)
+                self.release.apply(TARGET)  # the next tick tries again
+                self.assertEqual(self.host.disk, WEB + B)
+
+    def test_a_live_run_started_during_the_release_waits_and_marks_nothing(self):
+        calls = []
+        barrier = self.live.barrier
+
+        @contextmanager
+        def busy_at_commit(name, service=None, *, idle=False, wait_for_lock=False):
+            calls.append(wait_for_lock)
+            if idle and wait_for_lock and name == WEB + B:  # the final account admission
+                raise LiveBusy("Live is active or unresolved; keep the current Web/control pair")
+            with barrier(name, service, idle=idle, wait_for_lock=wait_for_lock) as held:
+                yield held
+
+        self.live.barrier = busy_at_commit
+        self.release.apply(TARGET)
+        self.rolled_back()
+        self.assertFalse(self.release.failed.exists())
+        self.assertEqual(list(self.release.waits), [f"wait:host:{B}:Live account admission unavailable"])
+
+    def test_a_product_failure_still_marks_the_version_failed(self):
+        self.host.fail = "observe"
+        with self.assertRaises(RuntimeError):
+            self.release.apply(TARGET)
+        self.rolled_back()
+        self.assertTrue((self.release.failed / B).exists())
+        self.assertEqual(self.release.waits, {})
+
+    def test_a_journal_found_at_the_start_of_a_tick_still_marks_the_version_failed(self):
+        with patch.object(Release, "clear", side_effect=Crash()), self.assertRaises(Crash):
+            self.release.apply(TARGET)
+        self.release.recover()
+        self.assertTrue((self.release.failed / B).exists(), "an interrupted release is not known to be the host's")
 
 
 class InstallTests(unittest.TestCase):

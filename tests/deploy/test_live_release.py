@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.live_configuration import CONTROL
-from deploy.live_host import LIVE, LiveBusy, LiveHost
+from deploy.live_host import LIVE, LiveHost
 from deploy.release import Release
 from deploy.release_host import AGENT, FRONTEND, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET, paper_release
@@ -189,8 +189,9 @@ class PairedReleaseTests(unittest.TestCase):
     def test_low_memory_refuses_before_the_journal_and_marks_nothing_failed(self):
         self.host.memory_available = lambda: False
         before = dict(self.host.containers)
-        with self.assertRaisesRegex(RuntimeError, "memory headroom"):
-            self.release.apply(PAIR)
+        self.release.apply(PAIR)  # a host condition: the version waits (doctor 20261122-31)
+        self.assertEqual(list(self.release.waits), [f"wait:host:{B}:host memory below the 2 GiB a candidate Web "
+                                                    "needs; the release waits"])
         self.assertEqual((self.host.disk, self.host.live, self.host.containers), (WEB + A, WEB + A, before))
         self.assertFalse(self.release.transaction.exists())
         self.release.recover()
@@ -201,12 +202,13 @@ class PairedReleaseTests(unittest.TestCase):
 
     def test_late_independent_cli_or_unknown_state_rolls_back_without_requiring_idle(self):
         self.host.on_observe = lambda: setattr(self.host, "idle", "busy")
-        with self.assertRaises(LiveBusy):
-            self.release.apply(PAIR)
+        self.release.apply(PAIR)  # rolled back; a Live run is the host's, not a verdict on B (doctor 20261122-31)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertTrue(self.host.containers[LIVE + A])
         self.assertFalse(self.host.containers[LIVE + B])
         self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists())
+        self.assertEqual(list(self.release.waits), [f"wait:host:{B}:Live account admission unavailable"])
 
     def test_failure_and_crash_restore_both_sides_and_never_stop_current_control(self):
         self.host.fail = "crash"

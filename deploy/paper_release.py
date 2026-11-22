@@ -12,7 +12,8 @@ Otherwise it rolls back to the previous controller, before the Web rolls back, a
 
 import os
 from .paper_host import PAPER, PaperHost
-from .release_host import SERVICE_REF, RUNTIME_REF, WEB, durable_json, read_journal, revision, sync_directory
+from .release_host import (SERVICE_REF, RUNTIME_REF, WEB, HostCondition, durable_json, read_journal, revision,
+                           sync_directory)
 
 
 class PaperRelease:
@@ -94,7 +95,7 @@ class PaperRelease:
         if self.host.live_route() != previous:
             raise RuntimeError("Paper disk/live routes disagree")
         if not self.host.memory_available():
-            raise RuntimeError("insufficient memory for a standby Paper controller")
+            raise HostCondition("insufficient memory for a standby Paper controller")
         self.host.pull(target["service"], SERVICE_REF, sha)
         runtime_source = self.host.pull(target["runtime"], RUNTIME_REF)
         self.source.require_runtime(runtime_source, sha)

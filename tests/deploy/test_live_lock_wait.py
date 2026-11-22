@@ -292,7 +292,7 @@ class LiveLockWaitTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, reason):
             self.release.apply(PAIR)
         self.assertEqual(changed, [True])
-        recover.assert_called_once_with()
+        recover.assert_called_once_with(failed=True)
         persist.assert_not_called()
         self.assertEqual(route.read_bytes(), original)
         self.assertEqual(self.host.disk_route(), WEB + A)
@@ -404,8 +404,8 @@ class LiveLockWaitTests(unittest.TestCase):
         self.live.health = self.live.warm = Mock(side_effect=assert_health_unlocked)
         self.release.apply(PAIR)
         self.host.on_observe = lambda: setattr(self.host, "idle", "busy")
-        with self.assertRaises(LiveBusy):
-            self.release.apply({**PAIR, "revision": C})
+        self.release.apply({**PAIR, "revision": C})  # rolled back, waits (doctor 20261122-31)
+        self.assertEqual(list(self.release.waits), [f"wait:host:{C}:Live account admission unavailable"])
         self.live.health.assert_called()
         self.host.health.assert_called()
 
