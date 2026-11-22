@@ -66,7 +66,8 @@ function tested(b: Backtest, selected: boolean, closes: DailyCloses | null): Seg
   return {
     label: `${selected ? "" : "Backtest · "}trial ${b.trial}`, run: null, selected, path: b.days.map((d) => [d.time, d.equity]), starting: b.starting!,
     t0: b.window[0] / 1000, lead: DAY_S, invalid: false, restarts: [], idle: () => 0, days: () => b.days.map((d) => ({ from: d.time, ret: d.ret })),
-    readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: hold?.get(d.time) ?? null, positions: d.held }])),
+    readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: hold?.get(d.time) ?? null, positions: d.held,
+                                                     basket: d.basket === null ? null : b.starting! * d.basket }])),
   };
 }
 
@@ -117,7 +118,7 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
     if (g.selected) line.days = g.days();
     if (!readings) continue;
     for (const [t, r] of g.readings()) {
-      line.readings.set(t, g.selected ? { ...r, balance: scaled(r.balance, scale), before: scaled(r.before, scale), hold: scaled(r.hold, scale) }
+      line.readings.set(t, g.selected ? { ...r, balance: scaled(r.balance, scale), before: scaled(r.before, scale), hold: scaled(r.hold, scale), basket: scaled(r.basket ?? null, scale) }
         : { balance: null, before: null, margin: null, exposure: r.exposure, hold: null });
     }
   }

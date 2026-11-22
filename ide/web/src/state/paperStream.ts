@@ -35,6 +35,8 @@ export const tradesTab = atom<"trades" | "orders" | "events" | "logs" | "excepti
 /** Whether the equity chart draws its buy and hold over a backtest and over a paper run, kept for the viewer. */
 export const holdShown = persistedAtom<{ backtest: boolean; paper: boolean }>("rg-equity-hold@1", { backtest: true, paper: false },
   (v): v is { backtest: boolean; paper: boolean } => typeof (v as { backtest?: unknown })?.backtest === "boolean" && typeof (v as { paper?: unknown }).paper === "boolean");
+/** Whether the equity chart draws a backtest's equal-weight basket, kept for the viewer. */
+export const basketShown = persistedAtom<boolean>("rg-equity-basket@1", true, (v): v is boolean => typeof v === "boolean");
 /** The month (YYYY-MM) the calendar shows, or null for the run's latest. */
 export const calendarMonth = atom<string | null>(null);
 /** The event categories the Events list shows. */

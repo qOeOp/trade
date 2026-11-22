@@ -109,7 +109,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
         {reading ? <ChartSkeleton note={reading} />
           : equity ? (
-          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} years={years} warmup={warmup}
+          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} years={years} warmup={warmup} basketNote={testing ? drawn?.basketNote ?? null : null}
                        aside={(note || (!testing && run && s)) && <>{note && <span title={note}>{note}</span>}{!testing && run && s && <Observation run={run} s={s} part="facts" />}</>} />
         ) : (
           <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} lead={lead} note={note} stretches={parts}

@@ -4,8 +4,8 @@
 // the open profit and loss, the stretch between the balance (equity less the open profit) and the line
 // wherever they part, in the profit colour where equity is above the balance and the loss colour where
 // below, over the band; on request, beneath them all, an equal-weight buy and hold of the run's contracts as a
-// fine line over an area that fades from it to nothing at the plot's foot. All of it inside the plot
-// (equityZones.ts).
+// fine line over an area that fades from it to nothing at the plot's foot, and a backtest's equal-weight basket
+// (the market's, as the report reads it) as a fine line alone. All of it inside the plot (equityZones.ts).
 import type { AutoscaleInfo, IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, LogicalRange,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { Reading } from "../../model/equityReadings";
@@ -28,30 +28,33 @@ export class EquityFills implements ISeriesPrimitive<Time> {
   private balances: (number | null)[] = [];
   private befores: (number | null)[] = [];
   private holds: (number | null)[] = [];
+  private baskets: (number | null)[] = [];
   private look: FillsLook | null = null;
   private hold: HoldLook | null = null;
+  private basket: string | null = null;
 
   /** `plot`: where they are drawn (equityZones.ts). */
   constructor(private readonly plot: () => Plot) {}
 
-  /** The points, their readings, the colours and, when it is drawn, the buy and hold's. */
-  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook, hold: HoldLook | null): void {
+  /** The points, their readings, the colours and, when they are drawn, the buy and hold's and the basket's line. */
+  set(points: readonly EquityPoint[], readings: ReadonlyMap<number, Reading>, look: FillsLook, hold: HoldLook | null, basket: string | null): void {
     const at = (p: EquityPoint) => readings.get(p.minute ?? p.time);
-    Object.assign(this, { points, look, hold, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null),
-                          holds: hold === null ? [] : points.map((p) => at(p)?.hold ?? null) });
+    Object.assign(this, { points, look, hold, basket, balances: points.map((p) => at(p)?.balance ?? null), befores: points.map((p) => at(p)?.before ?? null),
+                          holds: hold === null ? [] : points.map((p) => at(p)?.hold ?? null),
+                          baskets: basket === null ? [] : points.map((p) => at(p)?.basket ?? null) });
     this.series?.applyOptions({});
     this.redraw?.();
   }
 
   /** Equity's range in view (`range`, over `view`, widened for equity before costs by at most its own span) and
-   *  the buy and hold's bounds in view. */
+   *  the bounds in view of the buy and hold and the basket together (one mapping keeps them comparable). */
   private bounds(range: NonNullable<Range>, from: number, to: number) {
     const span = Math.max(range.maxValue - range.minValue, 1);
     let hiEq = range.maxValue, loEq = range.minValue, hiHold = -Infinity, loHold = Infinity;
     for (let i = Math.max(0, Math.floor(from)); i <= Math.min(this.points.length - 1, Math.ceil(to)); i++) {
-      const b = this.befores[i], h = this.holds[i];
+      const b = this.befores[i];
       if (b != null) { hiEq = Math.max(hiEq, Math.min(b, range.maxValue + span)); loEq = Math.min(loEq, Math.max(b, range.minValue - span)); }
-      if (h != null) { hiHold = Math.max(hiHold, h); loHold = Math.min(loHold, h); }
+      for (const h of [this.holds[i], this.baskets[i]]) if (h != null) { hiHold = Math.max(hiHold, h); loHold = Math.min(loHold, h); }
     }
     const eqSpan = Math.max(hiEq - loEq, 1), band = eqSpan * HOLD_BAND;
     const topRoom = hiHold > hiEq ? Math.min(hiHold - hiEq, band) : 0;
@@ -59,7 +62,7 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     return { loEq, hiEq, loHold, hiHold, topRoom, botRoom };
   }
 
-  /** Equity's range in view widened for costs and, while the buy and hold runs past it, by at most `HOLD_BAND`
+  /** Equity's range in view widened for costs and, while the buy and hold or the basket runs past it, by at most `HOLD_BAND`
    *  of equity's span each way for the coarser outer bands that hold its peaks and troughs. */
   reach(range: Range, view: LogicalRange | null): Range {
     if (!view || !range) return range;
@@ -85,29 +88,39 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     return { look, X, Y, from: Math.max(0, Math.floor(range.from) - 1), to: Math.min(points.length - 1, Math.ceil(range.to) + 1) };
   }
 
-  /** The buy and hold's area: 1:1 with the value axis across equity's own range (so crossings and which is ahead
-   *  stay true), and scaled into the coarser `HOLD_BAND` bands above `hiEq` and below `loEq` where it runs
-   *  further, so its peaks and troughs stay whole without flattening the equity line. */
+  /** The buy and hold's area and the basket's line: 1:1 with the value axis across equity's own range (so
+   *  crossings and which is ahead stay true), and scaled into the coarser `HOLD_BAND` bands above `hiEq` and
+   *  below `loEq` where they run further, so their peaks and troughs stay whole without flattening the equity line. */
   private holding(s: Scope): void {
     const at = this.placing(s), { context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr } = s;
-    if (!at || !this.hold) return;
-    const { X, Y, from, to } = at, plot = this.plot(), hold = perColumn(from, to, X, (i) => this.holds[i]!, (i) => this.holds[i] != null);
-    if (hold.length < 2) return;
+    if (!at || (!this.hold && !this.basket)) return;
+    const { X, Y, from, to } = at, plot = this.plot(), width = Math.max(1, Math.floor(hr));
     let lo = Infinity, hi = -Infinity;
     for (let i = from; i <= to; i++) { const p = this.points[i]; if (p && !p.down) { lo = Math.min(lo, p.value); hi = Math.max(hi, p.value); } }
     const { loEq, hiEq, loHold, hiHold, topRoom, botRoom } = this.bounds({ minValue: lo, maxValue: hi }, from, to);
-    const mapHold = (v: number) => (v > hiEq && hiHold > hiEq ? hiEq + ((v - hiEq) / (hiHold - hiEq)) * topRoom
+    const mapped = (v: number) => (v > hiEq && hiHold > hiEq ? hiEq + ((v - hiEq) / (hiHold - hiEq)) * topRoom
       : v < loEq && loHold < loEq ? loEq - ((loEq - v) / (loEq - loHold)) * botRoom : v);
-    const top = Math.round(plot.top * vr), foot = Math.round(plot.bottom * vr), ys = hold.map((i) => Y(mapHold(this.holds[i]!)));
-    const line = new Path2D();
-    hold.forEach((i, k) => line[k ? "lineTo" : "moveTo"](X(i), ys[k]!));
-    const area = new Path2D(line);
-    area.lineTo(X(hold.at(-1)!), foot); area.lineTo(X(hold[0]!), foot); area.closePath();
-    const g = c.createLinearGradient(0, Math.max(top, ys.reduce((min, y) => (y < min ? y : min), foot - 1)), 0, foot);
-    g.addColorStop(0, this.hold.area); g.addColorStop(1, `${this.hold.area.slice(0, 7)}00`);
-    c.fillStyle = g; c.fill(area);
-    Object.assign(c, { strokeStyle: this.hold.line, lineWidth: Math.max(1, Math.floor(hr)), lineJoin: "round" });
-    c.stroke(line);
+    const path = (values: readonly (number | null)[]) => {
+      const shown = perColumn(from, to, X, (i) => values[i]!, (i) => values[i] != null), ys = shown.map((i) => Y(mapped(values[i]!))), line = new Path2D();
+      shown.forEach((i, k) => line[k ? "lineTo" : "moveTo"](X(i), ys[k]!));
+      return { shown, ys, line };
+    };
+    if (this.hold) {
+      const { shown, ys, line } = path(this.holds);
+      if (shown.length > 1) {
+        const top = Math.round(plot.top * vr), foot = Math.round(plot.bottom * vr), area = new Path2D(line);
+        area.lineTo(X(shown.at(-1)!), foot); area.lineTo(X(shown[0]!), foot); area.closePath();
+        const g = c.createLinearGradient(0, Math.max(top, ys.reduce((min, y) => (y < min ? y : min), foot - 1)), 0, foot);
+        g.addColorStop(0, this.hold.area); g.addColorStop(1, `${this.hold.area.slice(0, 7)}00`);
+        c.fillStyle = g; c.fill(area);
+        Object.assign(c, { strokeStyle: this.hold.line, lineWidth: width, lineJoin: "round" });
+        c.stroke(line);
+      }
+    }
+    if (this.basket) {
+      const { shown, line } = path(this.baskets);
+      if (shown.length > 1) { Object.assign(c, { strokeStyle: this.basket, lineWidth: width, lineJoin: "round" }); c.stroke(line); }
+    }
   }
 
   /** Over the points in view: the costs' band and its rim, then the open profit's band, filled flat twice: clipped above the balance, then below it. The

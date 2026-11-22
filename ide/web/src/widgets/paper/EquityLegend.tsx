@@ -40,12 +40,12 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
  *  the shown stretch its worst below the peak, with how it was measured (`basis`) where that differs; over a
  *  stretch a chain of runs was offline, when it stopped, when it started again and why; over a stretch's
  *  name (`named`), that stretch in words. The buy and hold names a toggle for that line (`hold`, null with
- *  no contract's closes). One line on a wide page, so the pointer never moves the chart below: a value that
+ *  no contract's closes), and so does a backtest's basket (`basket`, null without its returns; `basketNote` what it is). One line on a wide page, so the pointer never moves the chart below: a value that
  *  does not fit is left out whole, the least needed first (each its `data-rank`, useOmitByRank), never cut;
  *  on a phone's width the row wraps instead. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
-export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, worst, step, many, ret, basis, aside }: {
+export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, basket = null, onBasket = () => {}, basketNote = null, starting, replayed, worst, step, many, ret, basis, aside }: {
   name: string | null; point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
-  hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
+  hold: boolean | null; onHold: () => void; basket?: boolean | null; onBasket?: () => void; basketNote?: string | null; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
   basis: string | null; aside: ReactNode;
 }) {
   const zone = useTimeZone(), row = useOmitByRank();
@@ -65,6 +65,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
               : <span data-rank={1} className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span data-rank={1} className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
             {hold !== null && <span data-rank={1} className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={`${hold ? "Hide" : "Show"} buy and hold: the run's contracts bought in equal shares at its start, never rebalanced, price only (no fees or funding)`} className="mr-1 px-0.5">hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
+            {basket != null && <span data-rank={1} className="inline-flex items-center"><TextButton size="inline" active={basket} onClick={onBasket} aria-label="Basket line" title={`${basket ? "Hide" : "Show"} basket: the market's equal-weight daily returns over the run's days, compounded, price only (no fees or funding).${basketNote ? ` ${basketNote}` : ""}`} className="mr-1 px-0.5">basket</TextButton>{reading?.basket != null && <span className={pnlClass(reading.basket - base)}>{signedPct(reading.basket / base - 1)}</span>}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay" rank={2}>{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
             {reading?.balance != null && <Value name="open" rank={3}><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
             {reading?.positions != null && <Value name="held" rank={7}>{reading.positions}</Value>}
