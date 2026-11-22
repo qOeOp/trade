@@ -1,7 +1,8 @@
 import { Provider } from '@/components/provider';
 import { baseOptions } from '@/lib/layout.shared';
 import { siteMetadata } from '@/lib/metadata';
-import { HomeLayout } from 'fumadocs-ui/layouts/home';
+import { docsTree } from '@/lib/source';
+import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import type { ReactNode } from 'react';
 import '../global.css';
 
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <Provider locale="en">
-          <HomeLayout {...baseOptions('en')}>{children}</HomeLayout>
+          <DocsLayout tree={docsTree('en')} {...baseOptions('en')}>
+            {children}
+          </DocsLayout>
         </Provider>
       </body>
     </html>

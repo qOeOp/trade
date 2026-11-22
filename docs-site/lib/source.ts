@@ -30,7 +30,7 @@ export function docsTree(locale: Locale): PageTree.Root {
     .filter((entry) => entry[4] === group)
     .map(([slug]) => {
       const page = source.getPage(slug === 'index' ? [] : [slug], locale)!;
-      return { type: 'page', name: page.data.title, url: page.url };
+      return { type: 'page', name: page.data.title, description: page.data.description, url: page.url };
     });
   const children: PageTree.Node[] = pages('');
   for (const [id, en, zh, parent] of groups) {
