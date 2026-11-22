@@ -154,6 +154,11 @@ class ReportTests(unittest.TestCase):
                           "by_period", "by_regime", "trade_structure", "entry_orders", "drawdown"], "trade pairs are comparison only")
         exposure = next(item for item in report["slices"] if item["id"] == "market_exposure")["measures"]
         self.assertIsNotNone(exposure["beta_basket"]["value"])
+        stand_in = dict(zip(DAYS, market_returns(None, None, None, None, None)["basket"], strict=True))
+        basket = report["basket"]
+        self.assertTrue(basket["days"])
+        self.assertEqual(basket["returns"], [stand_in[day] for day in basket["days"]], "the basket beta reads, on the run's days")
+        self.assertIsNone(basket["null_reason"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
         self.assertIsNone(report["dev_years"], "a 31-day window has no development years")
         self.assertIsNone(report["dev_quarters"], "a 31-day window has no development quarters")

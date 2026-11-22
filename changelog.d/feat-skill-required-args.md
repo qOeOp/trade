@@ -1,0 +1,1 @@
+- `skill-names` rule 1 also refuses a skill command-line call that passes values but omits a required option of its verb (code spans, and fenced `python -m cli.main` lines with their continuations).

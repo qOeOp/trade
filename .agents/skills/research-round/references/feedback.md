@@ -38,7 +38,9 @@ comparison can detect: at or above the comparison's detectable difference (in `m
 units; two-sided alpha, like the intervals, and it scales with
 position size as the effect does, so enlarging both sides does not make an effect detectable), or
 a grid whose points spread the change far enough to reach it. Moving one constant inside a range
-whose neighbours already read alike tests nothing new. Repeated metrics, labels and registrations
+whose neighbours already read alike tests nothing new. Before adding a rule, weigh removing one an
+earlier version added whose effect no comparison separated on its own: deleting it is one change
+like any other. Repeated metrics, labels and registrations
 on the same development data are not independent evidence.
 
 ## Change approach
@@ -55,7 +57,7 @@ never one an earlier `Change of approach.` judgment chose unless you name it and
 duties no version of the line has changed (`duties` in `research graph --line LINE --without-comparisons
 --without-counts`) and the recommended header's `default` duties: at least one approach changes one of them, or say
 in one line why none can act on the bottleneck. Each
-changes a part of the strategy the counted runs left alone, aims above their detectable annual
+removes an unseparated rule (above) or changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
 undistinguished does not mean no better) and keeps the control's contracts and inputs
 (hypothesis.md); say in one line that an approach needing more belongs to another line, never as

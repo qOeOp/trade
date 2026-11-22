@@ -269,13 +269,13 @@ CREATE TABLE source_review (
   -- the trial's purpose type: a foreign key pairs equal column types
   purpose ENUM('explore', 'precheck', 'research', 'validation', 'history') AS ('precheck') STORED NOT NULL,
   verdict ENUM('passed', 'failed') NOT NULL,
-  api_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  api_status ENUM('passed', 'failed', 'unresolved') NOT NULL,
   api_note TEXT NOT NULL,
-  causal_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  causal_status ENUM('passed', 'failed', 'unresolved') NOT NULL,
   causal_note TEXT NOT NULL,
-  activity_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  activity_status ENUM('passed', 'failed', 'unresolved') NOT NULL,
   activity_note TEXT NOT NULL,
-  readiness_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  readiness_status ENUM('passed', 'failed', 'unresolved') NOT NULL,
   readiness_note TEXT NOT NULL,
   reviewer VARCHAR(100) NOT NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
@@ -285,10 +285,8 @@ CREATE TABLE source_review (
   INDEX source_review_by_source (source_sha256),
   UNIQUE KEY source_review_source (review_id, source_sha256),
   FOREIGN KEY (trial_id, source_sha256, purpose) REFERENCES trial (trial_id, source_sha256, purpose),
-  CHECK ((verdict = 'passed') = (api_status IN ('passed', 'no_opportunity')
-                                 AND causal_status IN ('passed', 'no_opportunity')
-                                 AND activity_status IN ('passed', 'no_opportunity')
-                                 AND readiness_status IN ('passed', 'no_opportunity')))
+  CHECK ((verdict = 'passed') = (api_status = 'passed' AND causal_status = 'passed'
+                                 AND activity_status = 'passed' AND readiness_status = 'passed'))
 );
 
 -- The candidates a research registration commits to run, each on a passed review of the same source.

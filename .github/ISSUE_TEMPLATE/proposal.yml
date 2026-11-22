@@ -1,0 +1,29 @@
+name: Proposal
+description: A change to what the product does, removes or checks.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        AGENTS.md decides what product code is warranted and what needs the owner's authority. A proposal that
+        relaxes or tightens a check, adds a stored field or changes a research target is the owner's call.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What goes wrong or costs too much today, with evidence (a command, a session, a measurement).
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+      description: What changes, and what it removes or replaces.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Without new code
+      description: Whether an Agent with existing commands and skills, or Nautilus itself, could do it instead.
+    validations:
+      required: false

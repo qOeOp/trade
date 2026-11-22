@@ -5,7 +5,9 @@ native case on the replay's own venue (engine.run.add_venue) so that an upgrade 
   than a quarter fills in quarters, a market order's remainder fills one tick worse, and a bar whose quarter rounds to
   nothing fills nothing (engine/README.md, fills).
 - A reduce-only order is resized to what is left of its position and cancelled when the position closes
-  (`sync_reduce_only_orders`); Binance does neither, which the strategy-authoring rules tell sources.
+  (`sync_reduce_only_orders`); Binance does neither, which the strategy-authoring rules tell sources. An order still
+  submitted is not resized: a stop sent on the first of two fills at one timestamp keeps that fill's quantity until
+  the source replaces it (the strategy-authoring rule: check again on the stop's OrderAccepted).
 - `time_bars_build_delay` delays an aggregated bar's `ts_event` by the delay, not only its delivery (Paper and Live
   build their aggregations with history.BUILD_DELAY_US).
 - The risk engine denies an entry whose initial margin exceeds the free balance (order_rules' three-times-equity cap
@@ -53,7 +55,8 @@ class Script(Strategy):
         return self.cache.positions_open()[0]
 
 
-def replay(act=lambda source, count: None, *, volume="40.000", bars=6, instrument=INSTRUMENT, build_delay=0):
+def replay(act=lambda source, count: None, *, volume="40.000", bars=6, instrument=INSTRUMENT, build_delay=0,
+           script=Script):
     """(fills as (side, quantity, price), orders as (type, status, quantity), the source) of a replay of `bars` flat
     one-minute bars of `volume`."""
     account = ACCOUNT_CONTRACT
@@ -66,7 +69,7 @@ def replay(act=lambda source, count: None, *, volume="40.000", bars=6, instrumen
     try:
         add_venue(engine, fees())
         engine.add_instrument(instrument)
-        source = Script(act)
+        source = script(act)
         engine.add_strategy(source)
         prices = [Price.from_str(value) for value in FLAT]
         engine.add_data([Bar(BAR_TYPE, *prices, Quantity.from_str(volume), START + index * BAR_NS,
@@ -127,6 +130,49 @@ class ReduceOnlyTests(unittest.TestCase):
         _, orders, source = replay(act)
         self.assertEqual(source.after_partial, "0.300")
         self.assertEqual(orders[1], ("STOP_MARKET", "CANCELED", "0.300"))
+
+
+class StopOnFirstFill(Script):
+    """Submits a reduce-only stop for the position on the entry's first fill; with `replace`, on the stop's
+    OrderAccepted it cancels a stop smaller than the position and submits one for it on OrderCanceled."""
+
+    replace = False
+
+    def __init__(self, act):
+        super().__init__(act)
+        self.stop = None
+
+    def submit_stop(self):
+        position = self.open_position()
+        self.stop = self.order_factory.stop_market(INSTRUMENT_ID, OrderSide.SELL, position.quantity,
+                                                   Price.from_str("90.00"), reduce_only=True)
+        self.submit_order(self.stop, position_id=position.id)
+
+    def on_order_filled(self, event):
+        if self.stop is None and event.order_side == OrderSide.BUY:
+            self.submit_stop()
+
+    def on_order_accepted(self, event):
+        stop = self.stop and self.cache.order(self.stop.client_order_id)
+        if self.replace and stop and event.client_order_id == stop.client_order_id \
+                and stop.quantity < self.open_position().quantity:
+            self.cancel_order(stop.client_order_id)
+
+    def on_order_canceled(self, event):
+        if self.stop is not None and event.client_order_id == self.stop.client_order_id:
+            self.submit_stop()
+
+
+class BurstStopTests(unittest.TestCase):
+    def test_a_stop_sent_on_the_first_of_two_fills_at_one_stamp_keeps_its_quantity_until_replaced(self):
+        entry = on_second_bar(lambda factory: factory.limit(INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("15.000"),
+                                                            Price.from_str("100.50")))
+        for replace, held in ((False, "10.000"), (True, "15.000")):
+            with self.subTest(replace=replace):
+                script = type("Probe", (StopOnFirstFill,), {"replace": replace})
+                fills, orders, _ = replay(entry, script=script)
+                self.assertEqual(fills, [("BUY", "10.000", "100.00"), ("BUY", "5.000", "100.50")])
+                self.assertEqual(orders[-1], ("STOP_MARKET", "ACCEPTED", held))
 
 
 class AggregationTests(unittest.TestCase):

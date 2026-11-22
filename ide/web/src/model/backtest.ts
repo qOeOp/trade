@@ -6,6 +6,8 @@
 // Details shows, as a paper run's (account.ts), with what the report measures taken from its slices (what
 // moved the account, win rate, average win and loss, expectancy). A cycle still open at the window's end
 // is held until that end, as the report reads it. Without a recorded starting balance there is no equity.
+// Beside them, the equal-weight basket the report reads from the market for the run's days (never stored),
+// compounded a day at a time, for the equity chart's basket line.
 import { amount, symbolOf } from "../lib/paperApi";
 import { DAY_MS, utcInstant } from "../lib/time";
 import type { TrialReport } from "../lib/trialApi";
@@ -42,8 +44,9 @@ export type PeriodBreakdown = {
   /** The window's annual return without its best whole development year. */
   exBestYearAnnual: number | null;
 };
-/** A day: its start (s), return, closing equity, gross exposure (share of equity) and cycles held. */
-type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number };
+/** A day: its start (s), return, closing equity, gross exposure (share of equity), cycles held and the
+ *  equal-weight basket's growth of 1 from the window's start to its close (null without the basket). */
+type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number; basket: number | null };
 export type Backtest = {
   trial: number; starting: number | null; days: Day[]; cycles: Cycle[];
   /** The sealed deepest drawdown: its depth, peak and trough (s). */
@@ -55,6 +58,8 @@ export type Backtest = {
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
   exposures: MarketExposure[];
   periods: PeriodBreakdown | null;
+  /** What the basket is, or why the report gives none (null without either). */
+  basketNote: string | null;
 };
 
 /** The report's times: UTC, written without a zone. */
@@ -76,13 +81,16 @@ export function backtest(r: TrialReport): Backtest {
   }).sort((a, b) => b.closed - a.closed);
   const starting = amount(r.cost_basis?.account?.starting_balance_usdt ?? null), rows = r.tables?.daily_returns ?? [];
   const days: Day[] = [];
+  // The basket's return on each UTC date the report gives one for, compounded over the run's days.
+  const basketOn = new Map((r.basket?.returns ?? []).map((v, k) => [r.basket!.days[k], v] as const));
   if (starting !== null && rows.every((d) => d.native_return !== null)) {
-    let equity = starting;
+    let equity = starting, grown: number | null = basketOn.size ? 1 : null;
     for (const d of rows) {
       equity *= 1 + d.native_return!;
-      const from = d.ts_event_ns / 1e6, gross = amount(d.mean_gross_notional);
+      const from = d.ts_event_ns / 1e6, gross = amount(d.mean_gross_notional), b = basketOn.get(new Date(from).toISOString().slice(0, 10));
+      grown = grown === null || b === undefined ? null : grown * (1 + b);
       days.push({ time: from / 1000, ret: d.native_return!, equity, exposure: gross === null || !equity ? null : gross / equity,
-                  held: cycles.filter((c) => c.opened < from + DAY_MS && c.closed >= from).length });
+                  held: cycles.filter((c) => c.opened < from + DAY_MS && c.closed >= from).length, basket: grown });
     }
   }
   const dd = r.drawdown, depth = value(dd?.["mark_max_drawdown"]), peak = dd?.["peak_utc"]?.value, trough = dd?.["trough_utc"]?.value;
@@ -96,6 +104,7 @@ export function backtest(r: TrialReport): Backtest {
                                  avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },
     exposures: marketExposures(r),
     periods: periodsOf(r),
+    basketNote: r.basket?.null_reason ?? r.basket?.definition_note ?? null,
   };
 }
 

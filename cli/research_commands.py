@@ -165,13 +165,19 @@ class {entry_class}(Strategy):
 
 
 
+def _header_block(template: str) -> str:
+    """The docstring in strategy-header.md's text block, quotes included: the header a new source fills in."""
+    block = template.split("```text\n", 1)[1].split("\n```", 1)[0].strip()
+    assert block.startswith('"""') and block.endswith('"""')  # the packaged template's shape
+    return block
+
+
 def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
     """candidate new: a strategy scaffold in a new temporary directory; writes no ledger."""
     directory = _new_temporary(output)
     if not entry_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
-    header = TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8")
-    header = '"""' + header.replace('"""', "'''").strip() + '\n"""'
+    header = _header_block(TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8"))
     directory.mkdir(mode=0o700, parents=True)
     (directory / "strategy.py").write_text(STRATEGY_STUB.format(header=header, entry_class=entry_class),
                                            encoding="utf-8")
@@ -646,8 +652,8 @@ COMMANDS = [
         "the open line, its passed research runs with their economic evidence and its history trials (writer, "
         "head); the market at --market-day "
         "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
-        "one history trial and its run per segment left (each calendar year before the development period as a "
-        "veto segment, the period again as the control, the two-year holdout after it as one segment, the forward "
+        "one history trial and its run per segment left (each year of four quarters counted back from the "
+        "development period's start as a veto segment, labelled YYYY-MM by its first month, the period again as the control, the two-year holdout after it as one segment, the forward "
         "segment after the holdout), candidates by development-period Sharpe; segments replay several at once, as "
         "many as Docker's memory (its total less what its containers hold) has room for at a stage's 16 GiB limit; "
         "a segment with a passed history run is skipped, so a rerun resumes; after the segments without a run, "
@@ -664,8 +670,8 @@ COMMANDS = [
          option("--line", required=True, help="an open research line"), MARKET_DAY,
          option("--limit", type=_count, help="run at most this many segments"),
          epilog="Every candidate, a source with a passed research run on the line whose latest such run carries "
-                "economic evidence (the judgment `research status` reads), replays that run over each calendar year "
-                "before the development period (veto), the period again (a control that must reproduce the run), the "
+                "economic evidence (the judgment `research status` reads), replays that run over each year before the "
+                "development period, counted back from its start (veto), the period again (a control that must reproduce the run), the "
                 "two-year holdout after it in one run and the forward segment after the holdout: same source, image "
                 "and configuration, another window. The sources that can take part are fixed by the line's first "
                 "history trial; one without economic evidence is left out and named. Rerun to resume; each call also "
@@ -778,7 +784,7 @@ COMMANDS = [
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, MARKET_DAY_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
-        "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
+        "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (the steps the gates call for: `line select`, --line, or each gate's repair; empty without a gate); line.ledger_commit is the commit "
         "read, not the "
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); UNKNOWN_REF (--at); LEDGER_UNAVAILABLE, LEDGER_PERMISSION, "
@@ -910,8 +916,8 @@ COMMANDS = [
         "one source_review row (the verdict, items and reviewer); the same content again is a replay",
         "review_id, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed",
         "PRECHECK_NOT_FOUND (the trial is no precheck of this source on this image); REVIEW_INVALID (unknown or "
-        "missing items; each needs {status: passed|failed|unresolved|no_opportunity, note}; passed only when no "
-        "item failed or is unresolved); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
+        "missing items; each needs {status: passed|failed|unresolved, note}; passed only when every "
+        "item passed); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
         "PRECHECK_CAPTURE_MISSING"), LEDGER, CANDIDATE,
          option("--runtime", required=True, help=RUNTIME_HELP + "; the precheck's image"),
          option("--trial-id", required=True, type=int, help="the precheck trial reviewed"),

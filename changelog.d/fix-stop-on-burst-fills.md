@@ -1,0 +1,1 @@
+- research-round tells a source to check its stop again on the stop's `OrderAccepted` and on each later fill, and replace one smaller than the position: a stop sent on the first part of an entry that fills in parts at one timestamp is accepted after the last part and is not resized (`UNPROTECTED_POSITION`).

@@ -28,9 +28,8 @@ from registration import reproduction
 
 
 ITEMS = ("api", "causal", "activity", "readiness")
-ITEM_STATUSES = ("passed", "failed", "unresolved", "no_opportunity")
+ITEM_STATUSES = ("passed", "failed", "unresolved")
 VERDICTS = ("passed", "failed")
-PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
 # Trial columns a precheck shares with the identity it is exempted against, and those it must share to be cited.
 EXEMPT_COLUMNS = ("market_day", "universe_rule", "lifecycle_bundle", "comparable_config_sha256")
@@ -164,7 +163,7 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
                                                  "configuration: " + ", ".join(differs), missing=tuple(differs))
     if record["verdict"] != "passed":
         raise refuse("SOURCE_PRECHECK_FAILED", f"source review {review_id} did not pass: "
-                     + ", ".join(item for item in ITEMS if record[item]["status"] not in PASSING),
+                     + ", ".join(item for item in ITEMS if record[item]["status"] != "passed"),
                      missing=(str(review_id),))
     failed = [str(item["review_id"]) for item in review_records(conn, source_sha256)
               if item["trial_id"] == trial["trial_id"] and item["verdict"] == "failed"]
@@ -191,8 +190,8 @@ def _check_body(body) -> None:
         if (not isinstance(value, Mapping) or set(value) != {"status", "note"} or value["status"] not in ITEM_STATUSES
                 or not isinstance(value["note"], str) or not value["note"].strip() or len(value["note"]) > NOTE_LIMIT):
             raise invalid(f"{item} must be {{status, note}} with a status of {ITEM_STATUSES} and a nonempty note", item)
-    if (body["verdict"] == "passed") != all(body[item]["status"] in PASSING for item in ITEMS):
-        raise invalid("the verdict is passed exactly when every item is passed or no_opportunity", "verdict")
+    if (body["verdict"] == "passed") != all(body[item]["status"] == "passed" for item in ITEMS):
+        raise invalid("the verdict is passed exactly when every item is passed", "verdict")
 
 
 def record_review(ledger: db.LedgerProfile, body: Mapping, reviewer: str) -> dict:

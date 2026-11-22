@@ -57,11 +57,11 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const contracts = useMemo(() => [...new Set(drawn?.cycles.map((c) => c.symbol))].sort(), [drawn]);
   const holdCloses = useBacktestCloses(testing && equity ? contracts : [], drawn, market);
   const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing, holdCloses), [stretches, targets.annual, equity, drawn, testing, holdCloses]);
-  // The shown backtest's years from its days, with its buy and hold's and its cycles' P&L by contract, in place of the names'
+  // The shown backtest's years from its days, with its buy and hold's, its basket's and its cycles' P&L by contract, in place of the names'
   // line, free while it is the one stretch; a paper run's minutes have none to score.
   const years = useMemo(() => { const own = line.placed.find((p) => p.selected), days = own?.tested && line.placed.length === 1 ? line.minutes.slice(own.first, own.last + 1) : [];
     const shares = sharesOf(drawn?.cycles ?? [], holdCloses);
-    return own && days.length ? yearsOf(days, own.starting * own.scale, (t) => line.readings.get(t)?.hold ?? null).map((y) => ({ ...y, shares: shares.get(y.year) ?? [] })) : []; }, [line, drawn, holdCloses]);
+    return own && days.length ? yearsOf(days, own.starting * own.scale, (t) => line.readings.get(t)?.hold ?? null, (t) => line.readings.get(t)?.basket ?? null).map((y) => ({ ...y, shares: shares.get(y.year) ?? [] })) : []; }, [line, drawn, holdCloses]);
   const remembers = `${testing ? "backtest" : "paper"}:${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);
@@ -109,7 +109,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
         {reading ? <ChartSkeleton note={reading} />
           : equity ? (
-          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} years={years} warmup={warmup}
+          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} years={years} warmup={warmup} basketNote={testing ? drawn?.basketNote ?? null : null}
                        aside={(note || (!testing && run && s)) && <>{note && <span title={note}>{note}</span>}{!testing && run && s && <Observation run={run} s={s} part="facts" />}</>} />
         ) : (
           <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} lead={lead} note={note} stretches={parts}

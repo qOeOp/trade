@@ -750,6 +750,9 @@ def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | N
                         for later, source in explores)]
 
 
+MARKET_STEP = "Import the market up to the line's market day with `market import` (`market coverage` prints its newest day)."
+
+
 def _unresolved_market(record: Mapping) -> list[dict]:
     """A gate when the active market does not hold the line's pinned market day: the line's next
     registration is refused MARKET_DAY_UNRESOLVED and its runs cannot be replayed until the market reaches
@@ -807,7 +810,8 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
     (with MARKET_DAY_UNRESOLVED when the active market does not hold the line's market day). The
     line is the one named `line`, else the only open line; with no open line `line` is null with
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
-    and the next step names one with --line.
+    and the next step names one with --line. `next_actions` are the steps the gates call for (each refusal's repair
+    from the catalogue), empty without a gate.
 
     By default interpretations and search exposures are those after the current recommendation, with the
     count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
@@ -864,9 +868,12 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
         try:
             register.require_line_records(pinned, line_id)
             gates: list[dict] = []
+            steps: list[str] = []
         except Refusal as exc:
-            gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
-        gates += _unresolved_market(record)
+            gates, steps = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}], list(exc.next_actions)
+        market = _unresolved_market(record)
+        gates += market
+        steps += [MARKET_STEP] if market else []
         behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
         registered = dict(pinned.rows("SELECT trial_id, research_registration_id FROM trial WHERE line_id = %s "
                                       "AND research_registration_id IS NOT NULL", (line_id,)))
@@ -878,4 +885,4 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "current_image": current_image, "runs_behind_image": behind,
             "judgment_history": original, "earlier": earlier,
-            "facts": _facts(profile, commit) if full else None}
+            "facts": _facts(profile, commit) if full else None, "next_actions": steps}

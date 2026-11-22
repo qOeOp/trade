@@ -1,9 +1,17 @@
 # Diagnosis record
 
-Write each record in Chinese, as `docs/plans/doctor/<yyyy-mm-dd>-<topic>.zh.md`. Never edit a
-record once it is written. Later state belongs in the index. Once no row of a record is `open`,
-`in PR` or `recurred`, the user may have it deleted; index links to it become permalinks at its last
-commit.
+Every finding is a row of `docs/plans/doctor/index.zh.md`; its header defines the columns, ids,
+status words and how rows close, and status lives only there. Observations with one cause and
+remedy are one row; a fixed row whose cause shows again is `recurred` under its own id. A single
+finding with one root cause and one remedy is that row alone: its finding cell names the proof
+(file:line chain, probe sizes and readings, reproduction), its action cell the remedy and who
+decided it when, and the fix PR carries the full reproduction. A rejected or `none` row says why in
+one clause.
+
+Write a record file only for an audit or a diagnosis of several rows, or when a row's proof does
+not fit its cell: in Chinese, as `docs/plans/doctor/<yyyy-mm-dd>-<topic>.zh.md`. Never edit it once
+written; later state belongs in the index. Once none of its rows is open, the user may have it
+deleted; index links to it become permalinks at its last commit.
 
 ```markdown
 # <date> <topic>
@@ -13,12 +21,12 @@ commit.
 | Sessions | host, transcript file name, start and end time |
 | Audit session | host, model, session id, worktree and any PR this session itself wrote; unknown where the host does not show it |
 | Checkout / ledger | commit; ledger commits from … to … |
-| Coverage | assigned workstreams, examined paths and explicit gaps |
+| Coverage | each item of the full-audit list (lenses.md, Assignment) with its workstream, other examined paths and explicit gaps |
 | Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
-| Net change | mechanisms, branches, rules and skill words the proposals add and remove; refusal codes (`shared/refusals.py` catalogue keys) and words of `.agents/skills/**/*.md` against the previous record, counted the same way; why any growth was unavoidable |
+| Net change | mechanisms, branches, rules and skill words the proposals add and remove; why any growth was unavoidable |
 
 ## Findings
-| id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
+| id | Finding | Probe (current product) | Session or norm; consumer and decision | Action | Cost |
 
 ## Removal list
 | Mechanism | Risk it guards | Covered by | Sessions show | Proposal |
@@ -26,28 +34,3 @@ commit.
 ## Decisions
 User decisions on authority items, with the date.
 ```
-
-`docs/plans/doctor/index.zh.md` holds an open table (id, finding, action, source, cost class,
-status, first and last record), a closed table (id, finding, source, cost class, status) and a
-deliberate table (shape kept on purpose, reason, date, decision link).
-
-- Source: `doctor`, `user` or `attach` (an attach session's fix, attach.md); for `user` (the
-  user pointed it out before a diagnosis did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.
-- Cost class, measured: `none`, `minutes`, `hours` (hours of session time or a blocked research
-  line), `wrong output`; `unknown` where nothing was measured.
-- Status: one state word plus the link to the record that set it (`in PR` links the PR); the
-  history lives in the records. `open`, `in PR`, `fixed <commit>` (the change merged, no more),
-  `verified` (a later research session reached the path and the failure did not recur, the
-  linked record naming that session and call; or the fix added a test or CI check that fails
-  without it, the cell naming that test), `recurred`, `unobserved` (no later session reached the
-  path, which is not verification), `rejected`. The next diagnosis of a research session reports
-  the rows whose state changes; a row moves to the closed table at `verified` or `rejected`. A
-  full audit also reruns the proof of every `fixed` and `unobserved` row on its checkout: a proof
-  that still shows is `recurred`; one that no longer shows moves the row to the closed table as
-  `fixed`, linked to that audit's record.
-
-A finding id is the date plus a number, `<yyyymmdd>-<number>`. Group observations with the same
-cause and remedy into one finding and reuse its id across records. The evidence cell locates the
-output, consumer and supported or unsupported interpretation without copying a call log, and says
-when the user found the problem first and which workstream missed it. Keep measured costs separate
-from estimates.

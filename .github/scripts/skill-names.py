@@ -1,10 +1,12 @@
 """Refuse skill text and package docs that name product things which do not exist
 (docs/plans/skill-continuous-audit.zh.md).
 
-Rule 1, on the checked-out tree: a command-line call written in a skill resolves in `cli.main`'s parser, and a
+Rule 1, on the checked-out tree: a command-line call written in a skill (a code span, or a fenced line starting
+`python -m cli.main`) resolves in `cli.main`'s parser and, when it passes a value, passes every required option; a
 relative link or references/, templates/ or assets/ path in a skill names a file.
 Rule 2, with --base: no name that skill or eval text cites stops occurring in the repository's other files
-between the base commit and HEAD (a rename or removal that leaves the skills behind).
+between the base commit and HEAD (a rename or removal that leaves the skills behind); names of the external host
+transcript format (`EXTERNAL`) are not followed.
 Rule 3, on the checked-out tree: in the package READMEs and docs/operator, a command-line call resolves as in rule 1,
 a repository path exists and an identifier names something the repository's code holds (0.5.0 re-judge A-81;
 docs/rd, the design site, is a specification and is not checked).
@@ -59,8 +61,13 @@ def spans(text: str) -> Iterator[tuple[int, str]]:
 
 # Rule 1
 
-def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
-    """Nouns to verbs to options, the runner verbs, and the runner options a call may pass after `--`."""
+Required = dict[str, list[set[str]]]
+
+
+def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str], Required]:
+    """Nouns to verbs to options, the runner verbs, the runner options a call may pass after `--`, and per
+    `noun verb` the options it requires: each set is one requirement, met by any of its options (a required
+    mutually exclusive group is one set)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # this checkout's product, whatever the cwd
     from cli import main as cli
     from engine import config
@@ -75,19 +82,27 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
     def options(parser: argparse.ArgumentParser) -> set[str]:
         return {option for action in parser._actions for option in action.option_strings}
 
-    tree, runners = {}, set()
+    tree: dict[str, dict[str, set[str]]] = {}
+    runners: set[str] = set()
+    required: Required = {}
     for noun, noun_parser in children(cli.build_parser()).items():
         tree[noun] = {}
         for verb, verb_parser in children(noun_parser).items():
             tree[noun][verb] = options(verb_parser)
+            grouped = {id(action) for group in verb_parser._mutually_exclusive_groups for action in group._group_actions}
+            required[f"{noun} {verb}"] = [set(action.option_strings) for action in verb_parser._actions
+                                          if action.required and action.option_strings and id(action) not in grouped] + [
+                {option for action in group._group_actions for option in action.option_strings}
+                for group in verb_parser._mutually_exclusive_groups if group.required]
             if verb_parser.get_default("takes_runner"):
                 runners.add(f"{noun} {verb}")
     runner_options = (options(config.build_parser()) | set(runner.ENTRY_OPTIONS) | set(runner.ENTRY_FLAGS)) - set(
         runner.RESERVED_RUNNER_OPTIONS)
-    return tree, runners, runner_options
+    return tree, runners, runner_options, required
 
 
-def check_call(span: str, tree: dict[str, dict[str, set[str]]], runners: set[str], runner_options: set[str]) -> str | None:
+def check_call(span: str, tree: dict[str, dict[str, set[str]]], runners: set[str], runner_options: set[str],
+               required: Required | None = None) -> str | None:
     """Why a command-line call does not resolve, None when it does or when the span is not a call."""
     prefixed = PREFIX.match(span)
     words = span[prefixed.end():].split() if prefixed else span.split()
@@ -115,7 +130,16 @@ def check_call(span: str, tree: dict[str, dict[str, set[str]]], runners: set[str
         if f"{noun} {words[1]}" not in runners:
             return f"`{noun} {words[1]}` takes no runner arguments"
         bad += [word for word in runner if word.startswith("--") and word.split("=")[0] not in runner_options]
-    return f"`{noun} {words[1]}` has no {', '.join(bad)}" if bad else None
+    if bad:
+        return f"`{noun} {words[1]}` has no {', '.join(bad)}"
+    given = {word.split("=")[0] for word in own}
+    # a call passes a value; a span naming one option of a command (`replay run --output`) is not a call
+    valued = any("=" in word or not word.startswith("-") for word in own)
+    if required and (prefixed or valued) and not given & {"-h", "--help"}:
+        missing = [" or ".join(sorted(need)) for need in required.get(f"{noun} {words[1]}", []) if not need & given]
+        if missing:
+            return f"`{noun} {words[1]}` requires {', '.join(missing)}"
+    return None
 
 
 def check_path(target: str, source: Path) -> str | None:
@@ -129,13 +153,31 @@ def check_path(target: str, source: Path) -> str | None:
     return "no such file"
 
 
+def fenced_calls(text: str) -> Iterator[tuple[int, str]]:
+    """(line, call) of each `python -m cli.main` call inside fenced blocks, its backslash-continued lines joined."""
+    for match in re.finditer(r"```.*?```", text, flags=re.S):
+        first = text.count("\n", 0, match.start()) + 1
+        rows = match.group(0).split("\n")[1:-1]
+        for offset, row in enumerate(rows):
+            if PREFIX.match(row.strip()):
+                call, end = row, offset
+                while call.rstrip().endswith("\\") and end + 1 < len(rows):
+                    end += 1
+                    call = call.rstrip()[:-1] + " " + rows[end]
+                yield first + 1 + offset, " ".join(call.rstrip().rstrip("\\").split())
+
+
 def rule_one(files: Iterable[Path]) -> list[str]:
-    tree, runners, runner_options = command_tree()
+    tree, runners, runner_options, required = command_tree()
     findings = []
     for source in files:
         text = source.read_text(encoding="utf-8")
+        for line, call in fenced_calls(text):
+            reason = check_call(call, tree, runners, runner_options, required)
+            if reason:
+                findings.append(f"{source}:{line}: {call}: {reason}")
         for line, span in spans(text):
-            reason = check_call(span, tree, runners, runner_options)
+            reason = check_call(span, tree, runners, runner_options, required)
             if reason is None and " " not in span and SKILL_PATH.fullmatch(span):
                 reason = check_path(span, source)
             if reason:
@@ -149,6 +191,12 @@ def rule_one(files: Iterable[Path]) -> list[str]:
 
 
 # Rule 2
+
+# Names rule 2 does not follow, each because it is an external host transcript format field, not a product
+# identifier: Codex rollouts and Claude Code sessions, which product-doctor's hosts.md and its evals cite exactly
+# because agents query them. No repository file needs to hold them.
+EXTERNAL = {"custom_tool_call", "function_call", "parent_thread_id", "session_meta", "tool_use"}
+
 
 def followed(span: str) -> str | None:
     """The name rule 2 follows in a span: an identifier (`tables()` counts as `tables`) or a long option."""
@@ -195,7 +243,7 @@ def rule_two(base: str, head: str) -> list[str]:
         text = git("show", f"{head}:{path}")
         for line, span in spans(text):
             name = followed(span)
-            if name:
+            if name and name not in EXTERNAL:
                 cited.setdefault(name, []).append(f"{path}:{line}")
     before, after = words_at(base), words_at(head)
     return [f"{place}: {name}: no longer in the repository outside skill text (present at {base[:12]})"
@@ -280,7 +328,7 @@ def alternatives(span: str) -> list[str]:
 
 
 def rule_three(files: Iterable[Path]) -> list[str]:
-    tree, runners, runner_options = command_tree()
+    tree, runners, runner_options, _ = command_tree()
     repository = Repository()
     findings = []
     for doc in files:

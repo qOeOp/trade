@@ -39,6 +39,9 @@ export type TrialReport = {
   /** The report's single-run slices, each with its measures by name. */
   slices: { id: string; measures: Record<string, Measure | null> }[] | null;
   tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
+  /** The equal-weight basket's daily returns on the run's days (UTC dates), read from its market as the report is read:
+   *  none with the reason when a day lacks it; what the basket is in `definition_note`. */
+  basket?: { days: string[]; returns: number[] | null; null_reason: string | null; definition_note: string | null } | null;
 };
 /** The report; the product's refusal; or no report served here. */
 export async function fetchTrial(trialId: number, at: string): Promise<{ kind: "report"; report: TrialReport } | Unread> {

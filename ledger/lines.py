@@ -235,8 +235,8 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
-    only on the activity of a precheck that did not trade is not counted once a later precheck traded and passed
-    (`review_activity.resolved`).
+    only on activity (unresolved, or failed on a precheck that did not trade) is not counted once a later precheck
+    traded and passed (`review_activity.resolved`).
     """
     if targets is not None:
         line_targets.check(*targets)
@@ -316,18 +316,27 @@ def line_trials(conn: db.LedgerConnection, line: str | int, since_commit: str | 
 
 # The closing history test
 
+def veto_year_start(end: date) -> date:
+    """The first day of the veto year ending at `end` (exclusive), a quarter start: the same day a year earlier. A
+    veto year is cut from the development period's start, not the calendar: the user's 2026-11-21 reserve of four
+    quarters before a longer period is one whole year, which a calendar cut gave only when the period started in
+    January (0.5.0 release run, 2026-11-22: market from 2020-01, period 2021-10, no whole veto year)."""
+    return date(end.year - 1, end.month, end.day)
+
+
 def history_segments(dev_start: date, dev_end: date, first_day: date, after_last: date) -> list[dict]:
     """The trade segments of a line's closing history test (line-close-history-test-20261110.zh.md 3.4): the veto
-    segments, each calendar year before the development period from the market's `first_day` and cut at the
-    period's start; the period itself again, as the control; the holdout, the HOLDOUT_QUARTERS quarters after the
+    segments, each year (four quarters) counted back from the development period's start, the earliest cut at the
+    market's `first_day` and each labelled by its first month (YYYY-MM); the period itself again, as the control; the holdout, the HOLDOUT_QUARTERS quarters after the
     period as one segment; and the forward segment from the holdout's end to `after_last` (the day after the
     market's latest complete day). The holdout and forward segment are cut at `after_last` and left out when
     empty. Each is {kind (veto | control | holdout | forward), label, start, end}, end exclusive."""
-    segments = []
-    for year in range(first_day.year, dev_start.year + 1):
-        start, end = max(date(year, 1, 1), first_day), min(date(year + 1, 1, 1), dev_start)
-        if start < end:
-            segments.append({"kind": "veto", "label": str(year), "start": start, "end": end})
+    segments: list[dict] = []
+    end = dev_start
+    while first_day < end:
+        start = veto_year_start(end)
+        segments.insert(0, {"kind": "veto", "label": f"{start:%Y-%m}", "start": max(start, first_day), "end": end})
+        end = start
     segments.append({"kind": "control", "label": "development", "start": dev_start, "end": dev_end})
     held = holdout_end(dev_end)
     if dev_end < after_last:

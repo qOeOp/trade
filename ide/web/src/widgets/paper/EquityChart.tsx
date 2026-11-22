@@ -3,7 +3,7 @@ import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CrosshairMode, LineStyle, type UTCTimestamp } from "lightweight-charts";
 import { useAtom } from "../../state/atom";
-import { holdShown, pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
+import { basketShown, holdShown, pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import type { Down } from "./downLook";
@@ -30,15 +30,15 @@ const at = (t: number) => t as UTCTimestamp, views = new Map<string, { step: num
  *  return target); behind them the shown backtest's years along the top, each its return and its P&L by contract (equityYears, equityShares), which way the run held a position under them, the drawdown an entry at each moment would take hanging
  *  under it and, of the shown stretch, each day's return from the bottom and the stretches no position was held (equityLayers), any stretch
  *  a chain of runs was offline over all of them; on the line the drawdown limit's floor and the shown stretch's deepest drawdowns (equityNotes) and an arrow at each of its closes (equityCloses), whose click
- *  picks the trade; the span of a trade picked in a table marked (spanMark) and glided to; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for a backtest or a paper run, offered when the shown stretch has one), and the exposure (equityExtras); a compared run's replay dotted.
+ *  picks the trade; the span of a trade picked in a table marked (spanMark) and glided to; the balance, the costs' band, a buy and hold as a fading area (shown as the viewer last chose for a backtest or a paper run, offered when the shown stretch has one), a backtest's equal-weight basket as a line (`basketNote` says what it is), and the exposure (equityExtras); a compared run's replay dotted.
  *  Each stretch is named at its start (stretchCaptions), a click on the name shows it and fits the view to it.
  *  The line is drawn at the finest step that keeps the points in view at least a pixel and a half apart
  *  (equityResolution, counting the points, as the time between stretches takes no room), changed once a
  *  pan or zoom settles with the moment under the pointer kept in place (viewAnchor). It first shows the
  *  shown stretch with the end of the one before it (firstView), or the view these stretches last had. Wheel
  *  or drag the time axis to zoom, drag to pan, double-click for all of it; the keys are stretchKeys'. The readout row gives the layers' values under the pointer, `aside` at its right end. */
-export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], years = [], warmup = null, aside = null }: {
-  line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null;
+export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], years = [], warmup = null, aside = null, basketNote = null }: {
+  line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null; basketNote?: string | null;
   limit?: number | null; closes?: readonly Close[]; held?: readonly Leaning[]; years?: readonly Year[]; warmup?: number | null; aside?: ReactNode;
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
@@ -53,6 +53,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const shown = placed.findIndex((p) => p.selected), own = placed[shown], starting = placed[0]?.starting ?? START;
   const many = !!own && own.to - own.from >= FEW, holds = useAtom(holdShown), kind = own?.tested ? "backtest" : "paper", hold = holds[kind];
   const holdable = useMemo(() => [...readings.values()].some((r) => r.hold != null), [readings]);
+  const basket = useAtom(basketShown), basketable = useMemo(() => [...readings.values()].some((r) => r.basket != null), [readings]);
   // The backtest's as sealed, at bar closes; a paper stretch's from its minutes.
   const worstShown = useMemo(() => (own?.tested ? sealed : own ? minutes.slice(own.first, own.last + 1).reduce((w, p) => Math.max(w, 1 - p.value / p.peak), 0) : worst), [minutes, own, worst, sealed]);
   const flat = Math.round(minutes.at(-1)?.value ?? NaN) === Math.round(starting);
@@ -157,14 +158,14 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.rows.set(points, { years, annual, hold: hold && holdable }, c.layers);
+    api.current?.rows.set(points, { years, annual, shown: { hold: hold && holdable, basket: basket && basketable } }, c.layers);
     api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, placed.length > 1);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
     // A lone stretch is named at the legend's head instead, so it takes no line of its own.
     api.current?.captions.set(placed.length > 1 ? placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })) : [], c.captions);
-    extras.set({ points, readings, hold, look: c.extras });
-  }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, theme, restarts, placed, drops]);
+    extras.set({ points, readings, hold, basket, look: c.extras });
+  }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, basket, basketable, theme, restarts, placed, drops]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]); usePickedSpan(api, () => now.current.points.map((p) => p.time), theme === "dark", points.length > 0);
   useEffect(() => {
@@ -188,6 +189,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       {/* On a phone's width under the chart, so the chart opens the page and a finger on it leaves its readout in view. */}
       <div className="@max-md/page:order-last"><EquityLegend name={placed.length === 1 ? placed[0]!.label : null} point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={holdable ? hold : null} onHold={() => holdShown.set({ ...holds, [kind]: !hold })}
+                    basket={basketable ? basket : null} onBasket={() => basketShown.set(!basket)} basketNote={basketNote}
                     starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.tested ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />{api.current && <ChartTip tip={api.current.tip} />}

@@ -1,0 +1,1 @@
+- The audit's `DATA_ENDS_WITHOUT_TERMINATION` finding says a contract with no bar in the input window holds none, instead of "its last bar closes at no bar".

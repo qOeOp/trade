@@ -1,8 +1,8 @@
 """A line's closing history test (`replay.history`).
 
 Before a line closes, every candidate of its test (report.history.candidates: the sources with a passed research
-run on it whose run carries economic evidence) is replayed over each segment of ledger.lines.history_segments: the veto segments (the calendar years before the
-development period), the period again as the control, the two-year holdout after it as one segment, and the
+run on it whose run carries economic evidence) is replayed over each segment of ledger.lines.history_segments: the veto segments (the years of four quarters before the
+development period, counted back from its start), the period again as the control, the two-year holdout after it as one segment, and the
 forward segment after the holdout. Each segment replays the
 candidate's latest passed research run by its identity (source, image, configuration, instrument rule),
 only over another window, on one market day, from zero position and the same starting balance; it is a

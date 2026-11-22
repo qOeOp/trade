@@ -50,12 +50,20 @@ class SegmentTests(unittest.TestCase):
     def test_segments_are_the_veto_years_the_period_the_holdout_and_the_forward_part(self):
         found = lines.history_segments(date(2021, 10, 1), date(2024, 10, 1), date(2019, 9, 1), date(2026, 11, 11))
         self.assertEqual([(item["kind"], item["label"], item["start"], item["end"]) for item in found], [
-            ("veto", "2019", date(2019, 9, 1), date(2020, 1, 1)),
-            ("veto", "2020", date(2020, 1, 1), date(2021, 1, 1)),
-            ("veto", "2021", date(2021, 1, 1), date(2021, 10, 1)),
+            ("veto", "2018-10", date(2019, 9, 1), date(2019, 10, 1)),
+            ("veto", "2019-10", date(2019, 10, 1), date(2020, 10, 1)),
+            ("veto", "2020-10", date(2020, 10, 1), date(2021, 10, 1)),
             ("control", "development", date(2021, 10, 1), date(2024, 10, 1)),
             ("holdout", "holdout", date(2024, 10, 1), date(2026, 10, 1)),
             ("forward", "forward", date(2026, 10, 1), date(2026, 11, 11))])
+
+    def test_the_veto_reserve_before_a_three_year_period_is_a_whole_year(self):
+        """0.5.0 release run, 2026-11-22: a market from 2020-01 and the period 2021-10 to 2024-10. Cut by the calendar,
+        the veto years were 2020 (trading from February after the warm-up) and 2021 to September, neither whole, so
+        the veto years never decided and the holdout alone did."""
+        found = lines.history_segments(date(2021, 10, 1), date(2024, 10, 1), date(2020, 1, 1), date(2026, 10, 31))
+        self.assertEqual([(item["label"], item["start"], item["end"]) for item in found if item["kind"] == "veto"],
+                         [("2019-10", date(2020, 1, 1), date(2020, 10, 1)), ("2020-10", date(2020, 10, 1), date(2021, 10, 1))])
 
     def test_a_period_at_the_market_start_and_end_has_only_the_control(self):
         found = lines.history_segments(date(2026, 1, 1), date(2026, 4, 1), date(2026, 1, 1), date(2026, 4, 1))
@@ -481,9 +489,9 @@ class HistoryRunTests(unittest.TestCase):
                     history.run_history(world.profile, world.market, MARKET_DAY, line, limit=count)["ran"]]
 
         with patch.object(replay_world, "inspect_stand_in", windowed):
-            self.assertEqual(replay(1), [("2023", "passed")])
-            self.assertEqual(replay(1, audit_passed=False, audit_exit=1), [("2024", "invalid")])
-            self.assertEqual(replay(1), [("2025", "passed")])
+            self.assertEqual(replay(1), [("2023-01", "passed")])
+            self.assertEqual(replay(1, audit_passed=False, audit_exit=1), [("2024-01", "invalid")])
+            self.assertEqual(replay(1), [("2025-01", "passed")])
             # the state the run order never leaves, a holdout run before the control's: the reading must not lean on it
             with patch.object(lines, "history_segments", lambda *args: [
                     item for item in segments(*args) if item["kind"] != "control"]):
@@ -493,14 +501,14 @@ class HistoryRunTests(unittest.TestCase):
             self.assertEqual((found["veto"]["whole_years"], found["veto"]["meets_targets"], found["holdout"]["meets_targets"]),
                              (2, None, True), "2024 and 2025; 2023 starts in December")
             self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
-                             (None, None, ["veto 2024", "control"]))
+                             (None, None, ["veto 2024-01", "control"]))
             self.assertIsNone(found["holdout"]["deflated_sharpe"], "one participant leaves no variance")
             self.assertEqual(replay(1), [("development", "passed")], "a segment without a run before a rerun")
             reproduces, found = summary()
             self.assertTrue(reproduces)
             self.assertEqual((found["veto"]["median_annual_return"] > 0.2, found["holdout"]["meets_targets"]),
                              (True, True), "the year read and the holdout both reach the targets")
-            self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024"]))
+            self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]), (None, None, ["veto 2024-01"]))
 
             # 20261120-03: an invalid segment is replayed again, once per call; one failing again stays invalid
             (first,), = world.conn.rows("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
@@ -508,14 +516,14 @@ class HistoryRunTests(unittest.TestCase):
             world.scenario = {"returns": [0.001], "audit_passed": False, "audit_exit": 1}
             again = history.run_history(world.profile, world.market, MARKET_DAY, line)
             self.assertEqual([(item["segment"], item["status"], item["replaces"]) for item in again["ran"]],
-                             [("2024", "invalid", first)])
+                             [("2024-01", "invalid", first)])
             self.assertEqual((again["left"], again["invalid_left"]), (0, 0))
-            self.assertEqual(replay(None), [("2024", "passed")], "the next call replays it again")
+            self.assertEqual(replay(None), [("2024-01", "passed")], "the next call replays it again")
         reproduces, found = summary()
         self.assertEqual((found["meets_targets"], found["judged_on"], found["missing"]),
                          (True, "veto and holdout", []), "the rerun supersedes the invalid year")
         (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
-        (year,) = [cell for cell in row["cells"] if cell["label"] == "2024"]
+        (year,) = [cell for cell in row["cells"] if cell["label"] == "2024-01"]
         self.assertEqual((year["status"], year["superseded"], len(row["cells"])),
                          ("passed", [first, again["ran"][0]["history_trial_id"]], 5),
                          "one cell per segment: 2023, 2024, 2025, the holdout and the control")
@@ -549,14 +557,14 @@ class HistoryRunTests(unittest.TestCase):
 
         with patch.object(replay_world, "inspect_stand_in", windowed):
             self.assertEqual(replay("control", "holdout"), ["development", "holdout"])
-            self.assertEqual(verdict(), (True, None, ["veto 2023", "veto 2024", "veto 2025"], "HISTORY_UNDECIDED",
-                                         [f"{line}: veto 2023", f"{line}: veto 2024", f"{line}: veto 2025"]))
+            self.assertEqual(verdict(), (True, None, ["veto 2023-01", "veto 2024-01", "veto 2025-01"], "HISTORY_UNDECIDED",
+                                         [f"{line}: veto 2023-01", f"{line}: veto 2024-01", f"{line}: veto 2025-01"]))
             with patch.object(lines, "history_segments", lambda *args: [
-                    item for item in segments(*args) if item["label"] == "2024"]):
+                    item for item in segments(*args) if item["label"] == "2024-01"]):
                 self.assertEqual([item["segment"] for item in history.run_history(
-                    world.profile, world.market, MARKET_DAY, line)["ran"]], ["2024"])
-            self.assertEqual(verdict(), (True, None, ["veto 2023", "veto 2025"], "HISTORY_UNDECIDED",
-                                         [f"{line}: veto 2023", f"{line}: veto 2025"]))
+                    world.profile, world.market, MARKET_DAY, line)["ran"]], ["2024-01"])
+            self.assertEqual(verdict(), (True, None, ["veto 2023-01", "veto 2025-01"], "HISTORY_UNDECIDED",
+                                         [f"{line}: veto 2023-01", f"{line}: veto 2025-01"]))
             history.run_history(world.profile, world.market, MARKET_DAY, line)
         self.assertEqual(report_history.require_unfalsified(world.conn, source["source_sha256"], world.market),
                          {"line": line, "judged_on": "veto and holdout"}, "every planned year replayed")

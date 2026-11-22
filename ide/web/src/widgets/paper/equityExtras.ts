@@ -1,6 +1,7 @@
 // What the Equity chart shows beside equity and its layers (equityReadings.ts): what fees and funding
 // took as a raised band over the line and the open profit and loss as a filled block between the balance
-// and the line, and on request an equal-weight buy and hold of the run's contracts as an area (equityFills.ts),
+// and the line, and on request an equal-weight buy and hold of the run's contracts as an area and a backtest's
+// equal-weight basket as a line (equityFills.ts),
 // both in the value axis's fit as far as `reach` lets them; and the gross exposure as an indicator in a band of
 // its own along the
 // pane's foot (below the day bars), a faint indigo step area on a scale of its own from none to all of
@@ -12,8 +13,8 @@ import { EquityFills, type FillsLook, type HoldLook } from "./equityFills";
 import type { EquityPoint } from "./equityLayers";
 import type { Plot } from "./equityZones";
 
-type ExtrasLook = { fills: FillsLook; hold: HoldLook; exposure: string; exposureFill: string };
-type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; look: ExtrasLook };
+type ExtrasLook = { fills: FillsLook; hold: HoldLook; basket: string; exposure: string; exposureFill: string };
+type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; basket: boolean; look: ExtrasLook };
 const BAND = 30;  // px: the exposure's band at full scale
 const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
 
@@ -60,11 +61,11 @@ export class EquityExtras {
     }
     this.exposures = points.map((p) => readings.get(p.minute ?? p.time)?.exposure ?? null);
     this.maxExposure = this.exposures.reduce<number>((m, v) => (v !== null && v > m ? v : m), 1);
-    this.fills.set(points, readings, look.fills, shown.hold ? look.hold : null);
+    this.fills.set(points, readings, look.fills, shown.hold ? look.hold : null, shown.basket ? look.basket : null);
     s.exposure.setData(data((r) => r.exposure));
   }
 
-  /** Equity's range in view widened to take in the costs' band and the buy and hold's outer bands (equityFills). */
+  /** Equity's range in view widened to take in the costs' band and the buy and hold's and basket's outer bands (equityFills). */
   reach(range: AutoscaleInfo["priceRange"], view: LogicalRange | null): AutoscaleInfo["priceRange"] { return this.fills.reach(range, view); }
 
   /** How much of the foot the visible exposure actually takes (px), for the day bars and plot to sit above. */

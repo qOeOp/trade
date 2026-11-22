@@ -43,6 +43,15 @@ test("the buy and hold's return each year runs from its own close the year befor
   assert.deepEqual(yearsOf(points, 100).map((y) => y.hold), [null, null]);
 });
 
+test("the basket's return each year runs from its own close the year before, beside the buy and hold's", () => {
+  const points = daily(day(2022, 12, 30), day(2023, 1, 2), () => 100);
+  const basket = new Map([[day(2022, 12, 31), 95], [day(2023, 1, 2), 104.5]]);
+  const years = yearsOf(points, 100, null, (t) => basket.get(t) ?? null);
+  assert.deepEqual(years.map((y) => near(y.basket)), [-0.05, 0.1]);
+  assert.deepEqual(years.map((y) => y.hold), [null, null], "the basket is not the buy and hold");
+  assert.deepEqual(yearsOf(points, 100).map((y) => y.basket), [null, null], "none without the report's basket");
+});
+
 test("a year's lines name the year and the buy and hold, months or no months, beside their figures, the return coloured by its target", () => {
   const look = { label: "L", quiet: "Q", meets: "M", misses: "X" }, flat = (ls) => ls.map(({ name, figure }) => [...name, ...figure]);
   const [part] = yearsOf(daily(day(2021, 10, 1), day(2021, 12, 31), () => 90.7), 100);
@@ -50,7 +59,12 @@ test("a year's lines name the year and the buy and hold, months or no months, be
   const [whole] = yearsOf(daily(day(2023, 1, 1), day(2023, 12, 31), () => 125), 100, () => 34);
   assert.equal(linesOf(whole, 0.2, look)[0].figure[1], "M", "+25% meets 20%");
   assert.equal(linesOf(whole, null, look)[0].figure[1], "L", "without a target the figure stays plain");
-  assert.deepEqual(flat(linesOf(whole, 0.2, look, true)), [["2023", "L", "+25.0%", "M"], ["hold", "Q", "\u221266.0%", "Q"]]);
+  assert.deepEqual(flat(linesOf(whole, 0.2, look, { hold: true, basket: false })), [["2023", "L", "+25.0%", "M"], ["hold", "Q", "\u221266.0%", "Q"]]);
+  const [both] = yearsOf(daily(day(2023, 1, 1), day(2023, 12, 31), () => 125), 100, () => 34, () => 112);
+  assert.deepEqual(flat(linesOf(both, 0.2, look, { hold: true, basket: true })),
+    [["2023", "L", "+25.0%", "M"], ["hold", "Q", "\u221266.0%", "Q"], ["basket", "Q", "+12.0%", "Q"]], "the basket's line under the buy and hold's");
+  assert.deepEqual(flat(linesOf(both, 0.2, look, { hold: false, basket: true })).map((l) => l[0]), ["2023", "basket"], "each benchmark's line only while it is shown");
+  assert.deepEqual(flat(linesOf(whole, 0.2, look, { hold: false, basket: true })).map((l) => l[0]), ["2023"], "no basket line for a year without its returns");
 });
 
 test("a year's two bars are each contract's P&L of the cycles it held that year, its gains and its losses, largest first", () => {

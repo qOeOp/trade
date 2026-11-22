@@ -1,1 +1,0 @@
-../../skill-fired.md

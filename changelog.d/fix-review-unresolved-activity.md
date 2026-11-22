@@ -1,0 +1,2 @@
+- Breaking: `source review` no longer accepts the item status `no_opportunity` (research-round already forbade it, and code counted it as passed); an item is `passed`, `failed` or `unresolved`, and the verdict is `passed` only when all four passed.
+- A failed source review whose only open item is activity `unresolved` (an order path the change adds never ran, even when the precheck traded) stops withdrawing the source's economic evidence once a later precheck of the same source traded and has a passed review, as an activity failure of a precheck without fills already did.

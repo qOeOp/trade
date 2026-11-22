@@ -19,7 +19,7 @@ from decimal import Decimal
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import coverage, export, files, instrument, series, universe
+from market import coverage, files, history, instrument, series, universe
 from market.sources import DAY as DAY_MS, MINUTE
 from shared import clock
 from shared.refusals import refuse
@@ -120,7 +120,7 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
     market_day = files.resolve_day(market, at)
     instrument.terms(market, market_day, symbol)
     if timeframe == "1d":
-        bars = export.daily_bars(market, market_day, symbol, start_ms, None, stop)
+        bars = history.daily_bars(market, market_day, symbol, start_ms, None, stop)
     else:
         bars = coverage.read_bars(market, market_day, symbol, price_type, start_ms, stop)
     rows = [[opened, opened + step - 1, *(_scaled(value, series.PRICE_SCALE) for value in prices),
