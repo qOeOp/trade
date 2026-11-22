@@ -16,6 +16,13 @@ its checks pass. It then waits until `main-ready` admits the commit carrying tha
 release `vX.Y.Z` on it, with the version's section as notes, which creates the tag. The bump pull request needs the
 `RELEASE_TOKEN` secret ([`release.yml`](.github/workflows/release.yml) says why and which token).
 
+A version whose ledger schema generation (`SCHEMA_VERSION` or `PAPER_SCHEMA_VERSION` in `ledger/db.py`) differs from
+the newest release's starts a new data generation: each deployment archives its ledger and starts a new one when it
+reaches that version ([`deploy/README.md`](deploy/README.md#updating), [`deploy/remote/README.md`](deploy/remote/README.md#a-version-that-starts-a-new-data-generation)).
+Its number says so: the workflow refuses it unless it raises the minor version before 1.0 (0.5.1 to 0.6.0, not 0.5.2)
+and the major version from 1.0 (`.github/scripts/release-generation.py`). Starting the workflow for such a version is
+also the owner's authority for that new ledger.
+
 A commit that changes only documentation builds no image and is never admitted, so its tag never reaches the host:
 when the version was raised earlier and the bump changes only this file, the workflow releases the newest commit at
 or before it that built the product images, which carries the same product.

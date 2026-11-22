@@ -444,21 +444,63 @@ class GenerationTests(unittest.TestCase):
         self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
         self.controller = self.release.paper().host
 
-    def test_a_version_that_does_not_read_the_host_ledger_waits_before_its_journal(self):
+    def test_a_version_that_does_not_read_the_host_ledger_cuts_over_before_its_journal(self):
+        """The cutover (deploy/generation.py, tests/deploy/test_generation.py) runs instead of the release; the
+        release follows on a later tick, once the version reads the host's ledger."""
         self.controller.unread = {"research": "2"}
-        self.release.apply(TARGET)
+        with patch.object(release.Generation, "cut") as cut:
+            self.release.apply(TARGET)
+        cut.assert_called_once_with(TARGET, A)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(WEB + B, self.host.containers)
         self.assertNotIn(PAPER + B, self.controller.running)
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists(), "a host condition, not a failed version")
-        [(key, text)] = self.release.waits.items()
-        self.assertEqual(key, f"wait:generation:{B}:research")
-        self.assertIn("the research database (its code reads generation 2)", text)
-        self.assertIn("A version that needs a new ledger generation", text)
-        self.controller.unread = {}  # the owner moved the host to the new generation
+        self.controller.unread = {}  # the host holds the new generation
+        with patch.object(release.Generation, "cut") as cut:
+            self.release.apply(TARGET)
+        cut.assert_not_called()
+        self.assertEqual(self.host.disk, WEB + B)
+
+    def test_after_a_cutover_a_rollback_does_not_wait_for_the_previous_version_to_read_the_ledger(self):
+        """The previous version cannot read a new generation's ledger: once a cutover is done, a failed release still
+        rolls back (and marks the version) instead of keeping its journal for the operator."""
+        def cannot_read(name):
+            if name == WEB + A:
+                raise RuntimeError("SCHEMA_MISMATCH")
+
+        self.host.on_warm = cannot_read
+        self.host.fail = "observe"
+        with self.assertRaisesRegex(RuntimeError, "SCHEMA_MISMATCH"):
+            self.release.apply(TARGET)  # control: without a cutover the rollback checks the previous Web
+        self.assertTrue(self.release.transaction.exists())
+        self.setUp()
+        self.host.on_warm = cannot_read
+        self.host.fail = "observe"
+        (self.host.state / "generation.json").write_text(json.dumps(
+            {"revision": B, "service": TARGET["service"], "archive": "20261123T000000Z-" + B[:12], "phase": "done",
+             "market": "running"}))
+        with self.assertRaisesRegex(RuntimeError, "failed after switch"):
+            self.release.apply(TARGET)
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
+        self.assertFalse(self.release.transaction.exists())
+        self.assertTrue((self.release.failed / B).exists())
+        self.assertTrue((self.host.state / "generation.json").exists(), "kept until a version commits on it")
+        self.release.failed.joinpath(B).unlink()
+        self.host.fail = self.host.on_warm = None
         self.release.apply(TARGET)
         self.assertEqual(self.host.disk, WEB + B)
+        self.assertFalse((self.host.state / "generation.json").exists())
+
+    def test_a_tick_finishes_an_interrupted_cutover_before_it_recovers_anything(self):
+        self.host.state.joinpath("control").mkdir()
+        with patch.object(release, "running", return_value=B), \
+                patch.object(Release, "handoff", return_value=False), \
+                patch.object(release.Generation, "resume", return_value=True) as resume, \
+                patch.object(Release, "recover") as recover:
+            self.assertFalse(self.release.tick())
+        resume.assert_called_once_with(B)
+        recover.assert_not_called()
 
     def test_the_tick_sends_the_wait_once_and_clears_it_when_the_version_releases(self):
         sent = []

@@ -16,6 +16,7 @@ import sys
 import traceback
 
 from .control import HANDOFF, hand_off, running
+from .generation import Generation
 from .live_host import LIVE, AccountLockBusy, AccountLockWaitExpired, LiveBusy, LiveHost
 from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
@@ -111,6 +112,11 @@ def failure_summary(error: Exception) -> str:
             "insufficient candidate memory headroom; keep current release":
                 "host memory below the 2 GiB a candidate Web needs; the release waits",
             JOURNAL_FORMAT: "pending journal not in this control's format",
+            # deploy/generation.py: the cutover's journal stays and the next tick goes on from its step.
+            "the new data generation's ledger is not the version's schema generation":
+                "the new data generation's ledger does not hold the version's schema generation",
+            "a data generation cutover is pending for another version; left for the operator":
+                "data generation cutover pending for another version",
             "a pending release transaction waits for an admitted control": "pending journal waits for a control",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
@@ -147,6 +153,7 @@ class Release:
         self.failed = self.state / "failed"
         self.live = live or LiveHost(host, github)
         self._paper = paper
+        self._generation: Generation | None = None
         self.waits: dict[str, str] = {}  # why the admitted version waits this tick, as notice facts (deploy/notices.py)
         self.cleaned: list[str] = []  # what this tick's prune removed
         self.settled: dict[str, str] | None = None  # the routed version against its record, once a tick checked it
@@ -194,8 +201,10 @@ class Release:
         """Paper first: it rolls forward only when the Web commit already happened, else it rolls back while the
         Web journal is still open, and the Web rolls back after it. `failed` False (a host condition stopped the
         release, `waits`) leaves the version unmarked; a journal found at the start of a tick (an interrupted
-        release) marks it."""
+        release) marks it. After a data generation cutover the previous version may not read the host's ledger, so
+        the rollback does not wait for it to answer healthy (Generation.done)."""
         try:
+            self.paper().lenient = self.generation().done()
             self.paper().recover()
             self._recover(failed)
         except Exception as error:
@@ -223,10 +232,13 @@ class Release:
             self.host.start(before)
         self.host.start(previous)
         protected = self.host.protected()
-        self.host.warm(previous, protected)
+        lenient = self.generation().done()  # the previous version cannot read a new generation's ledger
+        if not lenient:
+            self.host.warm(previous, protected)
         self.known_routes(transaction)
         self.host.switch(previous)
-        self.host.health(previous, self.host.lines(previous), routed=True)
+        if not lenient:
+            self.host.health(previous, self.host.lines(previous), routed=True)
         self.host.auth_denied()
         self.known_routes(transaction)
         if self.host.live_route() != previous:
@@ -306,7 +318,7 @@ class Release:
             return
         # Read before the journal (a failure here journals nothing), and before a wait, whose step uses the files.
         self.host.definition(target["service"], sha)
-        if self.generations(target):
+        if self.generation().due(target, owner):  # a new data generation first; the release follows next tick
             return
         self.github.ensure(target)
         agent_before = agent if change_agent else None
@@ -383,6 +395,7 @@ class Release:
             self.wait(sha, error)
             return
         try:
+            self.generation().finish()  # a version reading the new generation is routed: rollbacks check again
             self.retire_webs(candidate)  # the previous Web held its memory until the next release
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("previous", error)  # the next release's admission stops it
@@ -396,31 +409,15 @@ class Release:
             f"Version {sha[:12]} waits for the host: {summary}. Nothing is marked failed and the next tick tries "
             "again; journalctl -u trade-release.service says more.")
 
-    def generations(self, target: dict) -> bool:
-        """Whether the version waits for the host's ledger service to hold the schema generations its code reads: its
-        own `ledger service check` refuses a database with SCHEMA_MISMATCH (PaperHost.generations). Before the
-        journal, so a ledger generation the owner has not moved the host to yet changes nothing and marks nothing
-        failed; every tick asks again (doctor 20261122-30)."""
-        sha = target["revision"]
-        found = self.paper().host.generations(target["service"])
-        if not found:
-            return False
-        named = " and ".join(f"the {database} database" + (f" (its code reads generation {generation})"
-                                                           if generation else "")
-                             for database, generation in sorted(found.items()))
-        print(f"Version {sha} does not read the schema generation of {named} on the host; the release waits",
-              flush=True)
-        self.waits[f"wait:generation:{sha}:{','.join(sorted(found))}"] = (
-            f"Version {sha[:12]} waits before its release: the host's ledger service holds another schema generation "
-            f"of {named} than its code reads (SCHEMA_MISMATCH). Nothing was changed or marked failed, and every tick "
-            "checks again. Moving the host to that generation is the owner's step: deploy/remote/README.md, A version "
-            "that needs a new ledger generation.")
-        return True
-
     def follow(self, active: str) -> None:
         """Recreate the long-lived compose services whose definition the committed version changed (deploy/services.py),
         on a settled tick, while no Paper operation is in progress and Live is idle."""
         Follow(self, report_failure).run(active)
+
+    def generation(self) -> Generation:
+        if self._generation is None:
+            self._generation = Generation(self)
+        return self._generation
 
     def paper(self) -> PaperRelease:
         if self._paper is None:
@@ -542,6 +539,8 @@ class Release:
             print("No admitted version to hand release control to", flush=True)
             return False
         self.host.prepare()
+        if self.generation().resume(control):  # its ledger may be down: before any recovery reads it
+            return False
         pending = self.transaction.exists() or (self.state / "paper-transaction.json").exists()
         self.recover()
         if pending:

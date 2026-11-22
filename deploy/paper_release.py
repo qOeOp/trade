@@ -22,6 +22,9 @@ class PaperRelease:
         self.transaction = host.state / "paper-transaction.json"
         self.failed = host.state / "failed"  # one marker per version, shared with the Web release
         self.web_transaction = host.state / "transaction.json"
+        # After a data generation cutover the previous controller may not read the new Paper database, so a rollback
+        # does not wait for it to answer healthy (deploy/generation.py Generation.done).
+        self.lenient = False
 
     def clear(self):
         self.transaction.unlink()
@@ -69,12 +72,14 @@ class PaperRelease:
                 self.host.stop(candidate)
                 held()
                 self.host.start(previous)
-                self.host.warm(previous, self.host.protected())
+                if not self.lenient:
+                    self.host.warm(previous, self.host.protected())
                 held()
                 self.host.pending(candidate, previous)
                 self.host.persist_route(previous, "starts")
                 self.host.switch(previous, "starts")
-            self.host.health(previous)
+            if not self.lenient:
+                self.host.health(previous)
         self.host.pending(candidate, previous)
         if self.host.live_route() != previous or self.host.disk_route() != previous:
             raise RuntimeError("Paper rollback route changed during final checks")
