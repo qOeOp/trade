@@ -79,7 +79,9 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   source that has already run, whichever line ran it, so a line beside an open one starts from
   another source); and `market coverage` at the market day to pin (`line select`'s default, the market
   head, unless the user names one) has every month the period needs (bars, quotes for a line that executes on them,
-  metrics for a source that reads them). Say in one line what an option that fails lacks; months
+  metrics for a source that reads them). State the development period each option gets (`line select`)
+  and, when it is shorter than three years, the contract whose late coverage shortens it. Say in one
+  line what an option that fails lacks; months
   the archive holds you import once its line is chosen (readiness.md), never an option to wait on.
   A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
