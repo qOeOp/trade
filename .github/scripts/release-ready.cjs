@@ -254,6 +254,17 @@ async function staging(job, subjectSha) {
   }
 }
 
+// The commit to tag in place of a documentation-only one: the newest main-ready admitted at or before it.
+async function admittedBefore(github, repo, sha) {
+  const commits = await github.rest.repos.listCommits({ ...repo, sha: STAGING, per_page: 100 });
+  for (const commit of commits.data) {
+    const file = await github.rest.repos.getContent({ ...repo, path: 'release.json', ref: commit.sha });
+    const record = JSON.parse(Buffer.from(file.data.content, 'base64').toString('utf8'));
+    if (record.image && SHA.test(record.revision) && await compare(github, repo, record.revision, sha)) return record.revision;
+  }
+  return `the newest commit ${STAGING} admitted before it (the revision in its release.json)`;
+}
+
 // deploy-ready: only the newest version's commit. A callback about a commit that is neither that commit nor one of
 // its ancestors (a newer untagged main build above all) never reaches this channel.
 async function production(job, trigger) {
@@ -271,8 +282,14 @@ async function production(job, trigger) {
     }
     const record = await assess(job, tag.sha, previousRecord, true);
     if (!record) {
-      core.warning(`${tag.name} (${tag.sha}) built no product image; ${PRODUCTION} unchanged`);
-      return;
+      // quality runs on every main push: without it the commit's push runs have not started yet.
+      if (!(await pushRuns(github, repo, tag.sha)).some((run) => run.name === 'quality')) {
+        core.warning(`${tag.name} (${tag.sha}) has no push runs yet; ${PRODUCTION} unchanged`);
+        return;
+      }
+      throw Error(`${tag.name} (${tag.sha}) built no product image, so ${PRODUCTION} can never admit it. `
+        + `Release ${tag.name} on ${await admittedBefore(github, repo, tag.sha)} instead, which carries the same product `
+        + '(CHANGELOG.md, A commit that changes only documentation)');
     }
     if (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record)) return;
     if (await append(github, repo, PRODUCTION, previous, record)) {
