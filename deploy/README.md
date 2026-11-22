@@ -84,8 +84,8 @@ and reload:
   midway leaves files too. When you are sure no ledger lived there (a published one stays on DoltHub), run
   `docker compose -f deploy/compose.yaml down`, empty `$D/dolt` and `$D/ledgers`, run `docker volume rm
   trade-ide_trade-dolt-data`, and make the directories again.
-- `DOLTHUB_CREDENTIALS`: the key directory holds something other than a key, or cannot be written. Empty it, or
-  make it as `TRADE_UID`.
+
+The other first-start refusals are in [Troubleshooting](../docs/operator/troubleshooting.md#first-start).
 
 ### What the market range costs
 
