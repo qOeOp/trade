@@ -1,0 +1,1 @@
+- The research-round registration templates name the value of each `prechecks` entry `REVIEW-ID`, the `review_id` of the grid candidate's passed source review, instead of a number that read like a trial ID.

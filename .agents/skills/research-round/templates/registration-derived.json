@@ -37,5 +37,5 @@
   },
   "grid": ["CHILD-ID@1"],
   "conditions": "Universe, window and costs the conclusion applies to.",
-  "prechecks": {"CHILD-ID@1": 0}
+  "prechecks": {"CHILD-ID@1": "REVIEW-ID"}
 }
