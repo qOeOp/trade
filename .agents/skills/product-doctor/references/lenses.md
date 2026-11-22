@@ -10,7 +10,19 @@
 
 ## Assignment
 
-Report coverage and anything unexamined.
+A full audit exercises, not only reads, each of these on the current product, and reports
+coverage and anything unexamined:
+- the research flow end to end on a temporary ledger and market, for one contract and for a
+  pool, kept small (short windows): `line select` through `line close`, then Paper and
+  `paper compare`, then Live's research-side admission refusals against that ledger, without a
+  credential or a run;
+- every admission gate and eligibility check with partial and missing states (a run or segment
+  never started, failed or cut short), not only the passing and failing ones;
+- the cost of each long path (replay, import, reports, ledger reads) at two or more input sizes;
+- fault paths through the existing fault fixtures (live loopback, fake Docker);
+- each IDE page in a real browser on its own `ide/ide.py serve` over a temporary ledger, never the
+  user's running IDE: with no records and with records, offline (no `--paper`) and after a reload;
+- one state read through every consumer (ledger, report, CLI, IDE), which must agree.
 
 ## Behavior and decision evidence
 
@@ -29,8 +41,9 @@ switch rule can separate the compared effects on the window it runs on.
 
 Trace session ledger commits to their commands and changed rows. Check wrong, missing or duplicated
 facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
-records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
-physical database growth, backup identity and query scaling.
+records and corrections, and whether normal reads preserve their meaning. Before calling a fact
+missing from the ledger, check that no record carries it and that a reader could not derive it.
+Compare blob sizes with physical database growth, backup identity and query scaling.
 
 Measure phase and replay time, tokens, discovery reads, repeated calls and polling, temporary
 scripts and oversized outputs. Attribute unnecessary work to a demonstrated cause; a help call or
@@ -47,7 +60,10 @@ unsearched is a coverage gap.
 
 For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
 without value; fired usefully; silent but uniquely protective; silent with no distinct value.
-Explain every missed risk or removal proposal.
+Explain every missed risk or removal proposal. A stated reason (doc, comment, design page) is a
+claim to test, not an exemption: check whether a candidate that should be refused (wrong, partial
+or adversarial) passes the gate. That test is also how a shape the index keeps on purpose is
+rechecked (Structure).
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
@@ -67,10 +83,8 @@ alone does not verify a consumer.
   check that a researcher finds target attainment, line state and decisions waiting on them, and
   reaches the views and actions the research skills hand to them, against a published usability
   norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
-  Count a task's steps where that decides a finding. A whole-product review reads `ide/` and opens
-  each page on its own `ide/ide.py serve` over a temporary ledger (`ledger temp`), never the user's
-  running IDE: with no records and with records, offline (no `--paper`) and after a reload; the
-  source alone does not show what a page draws.
+  Count a task's steps where that decides a finding; the source alone does not show what a page
+  draws (Assignment).
 - Residue: start from what main removed or renamed since the last full audit's checkout (`git log`),
   then search code, tests, skills, evals, blueprints, READMEs, `deploy/`, `docs-site/` and `ide/`,
   dot paths and ignored files included, for what it left: code nothing consumes (always-empty or
@@ -91,7 +105,8 @@ For each branch, exception and rule of the touched mechanism, and each touched c
 test, ask:
 1. What concrete risk does it guard? Do its branches follow from that risk or list past cases? For
    a test, would its failure mean the product is broken?
-2. What other check covers that risk?
+2. What other check covers that risk? Similar code is a duplicate only when both copies guard the
+   same risk for the same consumer; the same check on each side of a trust boundary is two checks.
 3. What did evidence matching its responsibility show: protection, ceremony or an unreached path?
 
 Match evidence to the responsibility: native probes, reports, ledger audits and isolated tests for
