@@ -1,1 +1,0 @@
-- IDE phone (re-judge G-38): the phone Live page lists a protective stop once, on its position, as the desktop does: `Open orders` leaves it out.

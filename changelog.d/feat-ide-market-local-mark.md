@@ -1,1 +1,0 @@
-- Market page: coins whose bars the local market directory holds (so a replay can run on them here) carry a small database mark on their heatmap tile and in a new Local column of the Coins window, its tooltip giving the days held; a sector tile counts its held coins. The IDE server reads it with `market coverage` once a UTC day (`/api/market/local`); nothing is stored.

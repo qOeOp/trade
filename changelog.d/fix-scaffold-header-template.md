@@ -1,1 +1,0 @@
-- `candidate new` writes the fillable header (the source line and one line per duty) as the strategy's module docstring, instead of the whole strategy-header.md with a nested docstring; the instructions stay in strategy-header.md beside it.

@@ -1,1 +1,0 @@
-- The research-round review reads each development year's sealed MARK drawdown (`dev_years[].mark_max_drawdown`) against the drawdown target beside that year's return, never recomputed.

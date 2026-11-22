@@ -1,2 +1,0 @@
-- `research status` (comparison table) and `research runs` show each run's basket alpha (with its standard error) and beta; `research runs --by` orders by either. Both commands now read the market's daily returns over each run's window.
-- The single-run report's `alpha_basket` and `beta_basket` carry `pnl_sum`: the daily PnL sum in USDT split into a beta part (each day's market part times the equity before it) and the rest, which add up to the daily PnL sum.

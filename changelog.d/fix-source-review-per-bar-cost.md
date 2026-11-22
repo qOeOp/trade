@@ -1,1 +1,0 @@
-- research-round: the source review's api item fails a container that grows without bound or work per input that grows with the history, the bounded-state rule `strategy-authoring.md` already gives authors.

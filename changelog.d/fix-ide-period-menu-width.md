@@ -1,1 +1,0 @@
-- IDE: the candle period menu and other inline menus are as wide as their items, not a fixed 224 px.

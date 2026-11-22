@@ -1,1 +1,0 @@
-- Live: the serving control's Paper reconciliation answers a candidate asked while a check is running in that same check run, instead of waiting for the next request.

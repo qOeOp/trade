@@ -1,1 +1,0 @@
-- The source hygiene test caps each module in `OVERSIZED` at its line count of 2026-11-21; a listed module that grows past its cap fails, and caps only go down.
