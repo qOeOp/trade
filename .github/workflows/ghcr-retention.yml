@@ -1,0 +1,54 @@
+name: ghcr-retention
+
+# Deletes pull request image versions of trade-ide, trade-service and trade-docker-api older than 30 days
+# (.github/scripts/ghcr-retention.py says which versions qualify). Scheduled runs only list what they would delete
+# until a later change passes --delete to them; a dispatch deletes only when asked to. trade-runtime is never touched:
+# ledger trials and Live manifests name its digests.
+# A scheduled run's check lands on main's newest commit, and release-ready admits a commit only when every check of
+# it passed, so the job never fails: a version it could not delete is an error annotation on a green run.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ghcr-retention.yml
+      - .github/scripts/ghcr-retention.py
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete the listed versions instead of only listing them
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ghcr-retention-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write  # deleting a version; listing needs only read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0  # every commit of main (origin/main), so a sha- tag naming one is kept
+          persist-credentials: false
+      - name: List or delete pull request image versions
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Only main's own script deletes; a pull request run lists with the pull request's script.
+          DELETE: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.delete }}
+        run: |
+          if [ "$DELETE" = true ]; then
+            python3 .github/scripts/ghcr-retention.py --delete
+          else
+            python3 .github/scripts/ghcr-retention.py
+          fi
