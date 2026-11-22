@@ -332,6 +332,12 @@ class OrderRuleTests(unittest.TestCase):
         self.assertEqual((breaches, len(orders)), ([], 2))
         breaches, orders = replay(second("1090.910"))
         self.assertEqual((codes(breaches), len(orders)), (["ORDER_RULE"], 1))
+        # Sent in one callback, the first entry is counted all the same.
+        for quantity, expected in (("1090.909", ([], 2)), ("1090.910", (["ORDER_RULE"], 1))):
+            breaches, orders = replay({2: lambda s, quantity=quantity: (
+                s.submit_order(s.limit(quantity="2000.000", price="90.00")),
+                s.submit_order(s.limit(OrderSide.SELL, quantity, price="110.00")))})
+            self.assertEqual((codes(breaches), len(orders)), expected)
 
     def test_the_stops_of_one_position_hold_at_most_its_quantity(self):
         def steps(second):
