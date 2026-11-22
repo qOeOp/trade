@@ -44,7 +44,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
     <div className="space-y-0.5">
       <p className="font-semibold">{KIND[cell.kind]}{column.kind === "year" ? ` ${column.label}` : ""} · trial {cell.trial_id}</p>
       <p>{day(cell.trade_start)} to {day(cell.trade_end)} UTC{cell.short ? ` · under ${shortDays} days, counted in no summary` : ""}</p>
-      {cell.kind === "veto" && !cell.whole_year && !cell.short && <p>Part of the year: the rest is before the market or in the development period</p>}
+      {cell.kind === "veto" && !cell.whole_year && !cell.short && <p>Part of the year: the rest is before the market</p>}
       {m ? <>
         <p>Annual return {pct(m.annual_return)} · max drawdown {pct(m.mark_max_drawdown)} · Sharpe {ratio(m.sharpe_365)}</p>
         <p>{m.cycles == null ? "Trades unknown" : plural(m.cycles, "trade")} · win rate {pct(m.plan_win_rate)}</p>
@@ -160,9 +160,9 @@ function LineRows({ line, first, cols, metric, order, onOrder, all, only, shortD
 }
 
 /** The line-close history heatmap (docs/plans/line-close-history-test-20261110.zh.md 4): every closed or closing line's
- *  participants against shared calendar-year columns, the development period, the holdout and the forward part,
- *  each cell a separate replay from flat; the verdicts and the participant-deflated Sharpe as `research history`
- *  gives them. A falsification test, not out-of-sample validation. */
+ *  participants against shared veto-year columns (YYYY-MM: four quarters counted back from a period's start), the
+ *  development period, the holdout and the forward part, each cell a separate replay from flat; the verdicts and the
+ *  participant-deflated Sharpe as `research history` gives them. A falsification test, not out-of-sample validation. */
 export function HistoryPage() {
   const { history, reading, error } = useHistory();
   const [metric, setMetric] = useState<Metric>("annual_return"), [order, setOrder] = useState<Order>("development"), [all, setAll] = useState(false);
