@@ -73,7 +73,7 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
   // names above it, the depths over the arrows; the stretches' names over all.
-  const view = () => chart.timeScale().getVisibleLogicalRange(), foot = () => extras.foot(view()), head = (): number => headOf(layers.captionsShown(), rows.shown());
+  const view = () => chart.timeScale().getVisibleLogicalRange(), foot = () => extras.foot(view()), head = (): number => headOf(layers.captionsShown(), rows.lines());
   const plot = (): Plot => { const h = chart.paneSize(0).height, v = view(), f = extras.foot(v); return plotOf(h, f, layers.barsHigh(v, h, f), layers.dotsHigh(v, h), head()); };
   const rows = new EquityRows(), layers = new EquityLayers(plot, foot, head), notes = new EquityNotes(plot), closes = new EquityCloses(plot);
   // The rule before a stretch half a point before its first: the two stretches' points abut.

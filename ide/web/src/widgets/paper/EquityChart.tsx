@@ -158,14 +158,14 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
 
   useEffect(() => {
     const c = seriesColors(theme === "dark");
-    api.current?.rows.set(points, { years, annual, hold: hold && holdable }, c.layers);
+    api.current?.rows.set(points, { years, annual, shown: { hold: hold && holdable, basket: basket && basketable } }, c.layers);
     api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, placed.length > 1);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
     // A lone stretch is named at the legend's head instead, so it takes no line of its own.
     api.current?.captions.set(placed.length > 1 ? placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })) : [], c.captions);
     extras.set({ points, readings, hold, basket, look: c.extras });
-  }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, basket, theme, restarts, placed, drops]);
+  }, [points, minutes, days, day, starting, worst, held, years, annual, limit, closes, readings, hold, holdable, basket, basketable, theme, restarts, placed, drops]);
 
   const replayed = useMemo(() => new Map((replay ?? []).map(([ns, value]) => [Math.floor(ns / 1e9), value])), [replay]); usePickedSpan(api, () => now.current.points.map((p) => p.time), theme === "dark", points.length > 0);
   useEffect(() => {

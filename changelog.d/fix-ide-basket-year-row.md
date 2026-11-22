@@ -1,0 +1,1 @@
+- IDE (re-judge A-28 follow-up): each year's scorecard over the backtest equity chart has a `basket` line, the equal-weight basket's return that year, while the basket overlay is shown; read from the report's basket series when drawn, nothing stored. With the buy and hold and the basket both shown, a year's unit is three lines high.
