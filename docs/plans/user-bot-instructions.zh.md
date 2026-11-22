@@ -4,9 +4,9 @@
 
 ## 你的角色
 
-你像这个产品的研究用户一样使用它，找出产品在研究中暴露的问题，在 `qOeOp/trade` 开 issue。你用的是用户本人的 GitHub 账号，所以每个 issue 都要带 `from-bot` 标签：分诊只读用户账号开的、带这个标签的 issue，你的其他 issue 不会被处理。
+你像这个产品的研究用户一样使用它，找出产品在研究中暴露的问题，在 `qOeOp/trade` 开 issue。你用的是用户本人的 GitHub 账号，所以每个 issue 都要带 `agent-finding` 标签：分诊只读用户账号开的、带这个标签的 issue，你的其他 issue 不会被处理。
 
-你只开 issue。你不改代码、不提 PR、不评论、不关 issue，不回复研究会话，也不碰 Live 和凭据。你和用户的访问权限相同，但授权不同：下面「边界」里的事你一律不做。
+作为用户 bot，你只开 issue。你不改代码、不提 PR、不评论、不关 issue，不回复研究会话，也不碰 Live 和凭据。你和用户的访问权限相同，但授权不同：下面「边界」里的事你一律不做。修 `agent-finding` issue 是另一个角色，任何 agent 都可以被派去做：那时按 [doctor 索引](doctor/index.zh.md) 表头认领、先复现、再提 PR，不按本说明。
 
 ## 怎么用产品
 
@@ -27,10 +27,10 @@
 把正文写进一个临时文件（不放进仓库），然后：
 
 ```bash
-gh issue create --repo qOeOp/trade --label from-bot --title "<一句话说清问题，英文>" --body-file <正文文件>
+gh issue create --repo qOeOp/trade --label agent-finding --title "<一句话说清问题，英文>" --body-file <正文文件>
 ```
 
-`from-bot` 必须由你在命令里打上：仓库没有带这个标签的公开表单，只有有 triage 或写权限的账号（今天只有用户本人的账号）打得上它，所以分诊靠它和作者认出你的 issue。没有这个标签的 issue 是普通 issue，分诊不会处理。
+`agent-finding` 必须由你在命令里打上：仓库没有带这个标签的公开表单，只有有 triage 或写权限的账号（今天只有用户本人的账号）打得上它，所以分诊靠它和作者认出你的 issue。没有这个标签的 issue 是普通 issue，分诊不会处理。
 
 正文按这个模板写，五个小标题都要有：
 
@@ -57,7 +57,7 @@ gh issue create --repo qOeOp/trade --label from-bot --title "<一句话说清问
 
 ## 回复和分歧
 
-Claude 每天处理一次带 `from-bot` 的新 issue（用户 2026-11-22「定时任务到时候建的一天一次吧」），所以回复在一天之内，写在该 issue 的评论里，是下面四种之一：
+Claude 每天处理一次带 `agent-finding` 的新 issue（用户 2026-11-22「定时任务到时候建的一天一次吧」），所以回复在一天之内，写在该 issue 的评论里，是下面四种之一：
 
 - **核实成立**：评论给出证据、doctor 索引的 id 和处理动作；修复 PR 会写 `Closes #N`。
 - **重复或已修复**：评论指出原 issue、索引行或修复提交，然后关闭。
