@@ -33,6 +33,11 @@ lines here. A pull request that changes behavior or an interface adds one file n
 (`fix/paper-order-list` writes `changelog.d/fix-paper-order-list.md`) holding its list entries; a breaking entry
 starts with `- Breaking`.
 
+## 0.5.1 (2026-11-22)
+
+- `ledger service check` reads a Paper database at its own schema instead of refusing it as `LEDGER_KIND`, so a
+  release's schema pre-check no longer fails every tick on the host's Paper database.
+
 ## 0.5.0 (2026-11-22)
 
 - Breaking (replay refusal, delegated decision, doctor 20261121-26): an unreadable universe file is refused as
