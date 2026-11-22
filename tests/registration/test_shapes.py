@@ -7,7 +7,7 @@ import copy
 from datetime import datetime
 import unittest
 
-from ledger import trials
+from ledger import strategies, trials
 from shared.errors import Refusal
 from registration import comparability, duties, register
 from tests.registration.world import DESIGN, config
@@ -35,7 +35,7 @@ class DesignTests(unittest.TestCase):
 class CatalogueTests(unittest.TestCase):
     def test_every_duty_has_a_slice_that_measures_it(self):
         linked = {duty for item in duties.measure_catalogue()["slices"] for duty in item["duties"]}
-        self.assertEqual(linked, duties.DUTIES)
+        self.assertEqual(linked, strategies.DUTIES)
 
     def test_the_changed_duties_are_the_header_lines_that_differ(self):
         """Only the module docstring's duty lines count, as written in any language; a removed line is a change."""

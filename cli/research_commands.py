@@ -508,7 +508,8 @@ COMMANDS = [
         "and parent again is a replay returning the stored record",
         "candidate, source_sha256, parent, ledger_commit, replayed",
         "SOURCE_EXISTS (these bytes are already a candidate); SOURCE_SYNTAX, SOURCE_SIZE; ENTRY_CLASS_NOT_UNIQUE "
-        "(not exactly one top-level class of that name); LINEAGE_INCOMPLETE (--parent and --difference go "
+        "(not exactly one top-level class of that name); DUTY_HEADER_INVALID (the header lacks one of the 27 duty "
+        "lines or a valid stance); LINEAGE_INCOMPLETE (--parent and --difference go "
         "together); UNKNOWN_CANDIDATE, BAD_REF (parent); OP_ID_CONFLICT"), LEDGER,
          option("--file", required=True, help="the UTF-8 strategy source file"),
          option("--strategy-id", required=True, help="strategy ID; a new one starts at revision 1"),
