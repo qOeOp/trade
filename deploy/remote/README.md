@@ -483,6 +483,66 @@ mirror and market import](#ledger-mirror-and-market-import) with `--revision OLD
 `NEW`'s control, which ran the recovery and hands over to the next admitted version; the fix still ships as a new
 version, as above, and `GitSource.choose` releases it over `OLD`.
 
+## Starting a new data generation
+
+A breaking 0.x version that drops the old ledger ([`CHANGELOG.md`](../../CHANGELOG.md), "what the upgrade drops")
+starts a new ledger generation, and a full market directory starts the same way. Each step changes the active ledger
+or market, so each is the user's call (AGENTS.md); the user also ends any Live run first. The version's own code makes
+and mirrors the new ledger (no version reads another's schema), so the host's data moves while releases are paused,
+after the version is admitted and before the timer releases it:
+
+1. [Pause releases](#pausing-releases). Stop every Paper run on the Paper page; `docker ps --filter
+   label=trade.paper.role=runner` must list nothing, since their containers bind mount run directories moved below.
+2. The user tags the version (`CHANGELOG.md`). Wait until `deploy-ready` admits it (Installing a host, step 6).
+3. On the workstation that writes the ledger, start the new generation: create an empty DoltHub repository, then
+   archive and clear the old ledger as for `BOOTSTRAP_REFUSED` ([First start](../README.md#first-start)): stop the
+   services, move the contents of `$D/dolt`, `$D/ledgers` and `$D/dolt-backups` into an archive directory, keep a copy of
+   the volume `trade-ide_trade-dolt-data` and remove it. Set `TRADE_RESEARCH_ORIGIN` in `deploy/.env` to the new
+   repository and run `deploy/update.sh`: the ledger's first start makes the new ledger and publishes it. Put
+   `market.json` back into `$D/ledgers` after that start (the start refuses while that directory holds any profile).
+4. On this host, with `D=/srv/trade` (`TRADE_DATA`) and `A=/srv/trade-archive/<generation>` (same file system, so
+   each move is a rename), stop the two services and archive what they leave. A running Paper controller and
+   docker-api bind mount `$D/dolt/paper`, and the Web, Paper controller and Live control bind mount `$D/market`, so
+   their contents move and the directories stay:
+
+   ```sh
+   compose stop ledger market-import && compose rm -f ledger
+   install -d -m 700 "$A/dolt" "$A/dolt-paper" "$A/ledgers" "$A/dolt-backups" "$A/market"
+   tar -C "$(docker volume inspect -f '{{.Mountpoint}}' trade-ide_trade-dolt-data)" -czf "$A/trade-dolt-data.tgz" .
+   docker volume rm trade-ide_trade-dolt-data
+   find "$D/dolt" -mindepth 1 -maxdepth 1 ! -name paper -exec mv -t "$A/dolt" {} +
+   for d in dolt/paper:dolt-paper ledgers:ledgers dolt-backups:dolt-backups market:market; do
+     find "$D/${d%%:*}" -mindepth 1 -maxdepth 1 -exec mv -t "$A/${d#*:}" {} +
+   done
+   ```
+
+   `compose` is the active control's function at the end of [Installing a host](#installing-a-host). The archive
+   cache in the `trade-ide_trade-market-import` volume stays and is read again.
+5. In `/etc/trade/remote.env`, set `TRADE_RESEARCH_ORIGIN` to the new repository and `TRADE_MARKET_ARGS` to the full
+   eligible set, with no `--bar-symbols` ([What the market range costs](../README.md#what-the-market-range-costs):
+   about 26 GB and 10 to 15 hours from empty; check `df -h /srv` and that Binance answers). Name the version's
+   images (`python3 -m deploy.images --env /etc/trade/remote.env`) and start both services from the version's own
+   definition, which the release has not copied out yet: the checkout `/opt/trade-app` at its tag, with the files
+   the release uses (`COMPOSE`, `deploy/release_host.py`):
+
+   ```sh
+   cd /opt/trade-app && git fetch --tags && git checkout vX.Y.Z
+   tagged() {
+     docker compose --env-file /etc/trade/remote.env -f deploy/compose.yaml -f deploy/remote/compose.yaml \
+       -f deploy/remote/cd.compose.yaml -f deploy/remote/paper-cd.compose.yaml "$@"
+   }
+   tagged up -d --no-deps --wait ledger
+   tagged --profile local-research-import up -d --no-deps market-import
+   ```
+
+   The mirror bootstraps from the new repository into the empty directories. A release later leaves both alone,
+   since they already run the version's service image.
+6. Check: `compose exec ledger python -m cli.main ledger service check --ledger research` gives the same
+   `ledger_commit` as the workstation's; `compose ps` shows ledger healthy and market-import running; `compose logs
+   market-import` shows its first round. Then `sudo systemctl start trade-release.timer`: the next tick releases the
+   version (`journalctl -u trade-release.service`), and the IDE's About names its commit. The Paper page lists no run,
+   and a Paper start refuses a window until the import covers it.
+
 ## Live on this host
 
 How a Live run starts is in [`live/README.md`](../../live/README.md#live-execution). The base Paper
