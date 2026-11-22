@@ -22,3 +22,11 @@
 
 - 新版已有、可替换自有实现的：`write_funding_rate_updates`（替换 `market/export.py` 手写的资金费 Parquet）；Binance 适配器的 `instrument_refresh_interval_secs`（运行中刷新合约条款）。
 - rc9 移除了 Python `RedisCacheDatabase`，Redis 缓存改为 `LiveNode.builder(...).with_cache_database_factory(RedisCacheConfig(...))`；Sandbox 用 `add_simulated_exec_client`，并须显式给 `fee_model`。
+
+## 2026-11-22 03:54 UTC：全部被关闭
+
+上面 9 个连同此前开着的 #5695，在 03:54:25–35 UTC 被首席维护者一并以 NOT_PLANNED 关闭，没有留言。原因是违反了 Nautilus `CONTRIBUTING.md` 的“同一贡献者同时最多开一个 issue、一个 PR”；其 `AI_POLICY.md` 另要求每一次公开操作都由人授权、不在多个 issue 下散发评论、署名不点名 AI 工具。此后的做法：
+
+- 一次只开一个；前一个关闭后才提下一个；每个都先给用户看草稿、得到同意再发；不批量重开或评论。
+- 重提顺序由用户定，先提 #5730 的内容（用户 2026-11-22「先提 #5730」），在 2.0.0rc9 上重跑过。
+- 表里的 issue 号是关闭时的号，重提后改成新号。
