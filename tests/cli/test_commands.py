@@ -18,11 +18,11 @@ import unittest
 
 import numpy as np
 
-from ledger import db
+from ledger import db, strategies
 from shared import profiles
 from shared.refusals import CATALOGUE
 from tests.market.directory import directory, seed
-from tests.ledger.dolt import BINARY, SKIP
+from tests.ledger.dolt import BINARY, SKIP, duty_line
 from tests.registration.world import clean_checkout
 from tests.helpers import tempdir
 
@@ -41,7 +41,8 @@ DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 5, "resamples":
 OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, change control",
             "loss": "lower priority", "zero_activity": "check the volume cap", "invalid": "fix and retry"}
 STOP = "F3 Dynamic protective / profit boundaries: adopted | stop at 2% | implementer"
-SOURCE = (f'"""A command line fixture strategy.\n\n{STOP}\n"""\nfrom nautilus_trader.trading import Strategy\n\n\n'
+HEADER = "".join(STOP + "\n" if duty == "F3" else duty_line(duty).decode() for duty in sorted(strategies.DUTIES))
+SOURCE = (f'"""A command line fixture strategy.\n\n{HEADER}"""\nfrom nautilus_trader.trading import Strategy\n\n\n'
           'class Fixture(Strategy):\n    pass\n')
 CHILD_RETURNS = [0.004, -0.001, 0.002, 0.003, -0.002, 0.001]
 

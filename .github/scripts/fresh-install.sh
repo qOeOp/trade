@@ -98,6 +98,10 @@ done_
 window=(--symbols BTCUSDT --start 2023-01-02T00:00:00Z --trade-start 2023-01-03T00:00:00Z --end 2023-01-06T00:00:00Z)
 step "A research line, as research-start opens one: the candidate template published, prechecked, reviewed"
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
+# The header's duty lines as an author fills them in; publication refuses the unfilled template (DUTY_HEADER_INVALID).
+sed 's/<stance> | <reason> | <source label>/default | the empty template has no rule | implementer/' \
+  "$work/candidate/strategy.py" > "$work/strategy.py"
+mv "$work/strategy.py" "$work/candidate/strategy.py"
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
   --description "the fresh install's candidate template" >/dev/null
 cli replay precheck --market-day "$market_day" --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \

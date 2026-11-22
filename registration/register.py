@@ -195,7 +195,7 @@ def _candidate(conn: db.LedgerConnection, ref: str, field: str) -> dict:
 
 def _check_duties(body: Mapping, root: bool) -> None:
     changed = body["changed_duties"]
-    unknown = [duty for duty in changed if duty not in duties.DUTIES]
+    unknown = [duty for duty in changed if duty not in strategies.DUTIES]
     if unknown:
         raise refuse("DUTY_UNKNOWN", "changed_duties names unknown duties: " + ", ".join(unknown), missing=tuple(unknown),
                      expected="duty IDs A1 to I2")
@@ -210,7 +210,7 @@ def _check_prediction(body: Mapping, root: bool) -> None:
     catalogue = duties.slice_measures()
     every = frozenset().union(*catalogue.values())
     changed = set(body["changed_duties"])
-    allowed = duties.DUTIES if root else changed  # a root changes no duty, predicts any
+    allowed = strategies.DUTIES if root else changed  # a root changes no duty, predicts any
     predicted = set()
     for index, item in enumerate(body["prediction"]["mechanism"]):
         where = f"prediction.mechanism[{index}]"

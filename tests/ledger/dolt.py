@@ -20,7 +20,7 @@ import pymysql
 
 from engine.config import RUNTIME_CONTRACT
 from ledger import db, server
-from registration.duties import DUTIES
+from ledger.strategies import DUTIES
 from shared.errors import Refusal
 
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from ledger import db, strategies
 from tests.ledger.dolt import BINARY, SKIP, SOURCE, Service, source
+from cli.research_commands import HEADER_TEMPLATE, TEMPLATES
 from tests.helpers import refused
 
 
@@ -30,6 +31,29 @@ class SourceCheckTests(unittest.TestCase):
         self.assertEqual(self.code(SOURCE, "Missing"), "ENTRY_CLASS_NOT_UNIQUE")
         self.assertEqual(self.code(b"class A:\n  pass\nclass A:\n  pass\n", "A"), "ENTRY_CLASS_NOT_UNIQUE")
         self.assertEqual(self.code(b"def f():\n  class A:\n    pass\n", "A"), "ENTRY_CLASS_NOT_UNIQUE")
+
+
+class DutyHeaderTests(unittest.TestCase):
+    def code(self, data) -> str:
+        return refused(strategies.check_header, data).code
+
+    def test_a_header_of_the_27_duty_lines_passes(self):
+        strategies.check_header(source("x"))
+        written = source("x").replace(b"E2 fixture duty: default", b"E2 Portfolio exposure: not applicable")
+        strategies.check_header(written.replace(b"A1 fixture duty: default", b"  A1 Investable: adopted"))
+
+    def test_a_missing_line_or_stance_is_refused(self):
+        self.assertEqual(self.code(SOURCE), "DUTY_HEADER_INVALID")
+        self.assertEqual(self.code(source("x").replace(b"I2 fixture duty", b"Z2 fixture duty")), "DUTY_HEADER_INVALID")
+        self.assertEqual(self.code(source("x").replace(b"G1 fixture duty: default", b"G1 fixture duty: maybe")),
+                         "DUTY_HEADER_INVALID")
+        self.assertEqual(self.code(source("x").replace(b"H2 fixture duty: default", b"H2 fixture duty: not applicable")),
+                         "DUTY_HEADER_INVALID")
+
+    def test_the_unfilled_header_template_is_refused(self):
+        text = TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8")
+        header = text.split("```text\n", 1)[1].split("```", 1)[0]
+        self.assertEqual(self.code((header + SOURCE.decode()).encode()), "DUTY_HEADER_INVALID")
 
 
 class FakeConnection:
@@ -92,6 +116,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.code(source("x"), parent="taken", difference="why"), "BAD_REF")
         self.assertEqual(self.code(source("x"), parent="taken@9", difference="why"), "UNKNOWN_CANDIDATE")
         self.assertEqual(self.code(b"", "x"), "SOURCE_SIZE")
+        self.assertEqual(self.code(SOURCE, "x"), "DUTY_HEADER_INVALID")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM candidate WHERE strategy_id = 'x'"),
                          [(0,)])
 

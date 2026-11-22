@@ -2,8 +2,9 @@
 
 A candidate is the exact bytes of one single-file strategy; its identity is the ledger-derived
 content hash, `strategy_id@revision` is only its reference name, and a parent with a difference
-is its lineage edge. Publishing parses the source without executing it and never reads any
-run's results: a losing or insignificant candidate may be a parent like any other.
+is its lineage edge. Publishing parses the source without executing it, checks its file header's 27 duty lines
+(`check_header`) and never reads any run's results: a losing or insignificant candidate may be a parent like any
+other.
 """
 
 from __future__ import annotations
@@ -19,6 +20,13 @@ from shared.refusals import refuse
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 MAX_SOURCE_BYTES = 8 * 1024 * 1024  # uncalibrated example value
 NOTE_LIMIT = 2000
+
+# The duty IDs; their titles are the duty directory's (research-round references/duty-directory.md).
+DUTIES = frozenset(("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "D1", "D2", "E1", "E2", "E3", "E4", "F1", "F2", "F3",
+                    "F4", "F5", "G1", "G2", "G3", "H1", "H2", "H3", "I1", "I2"))
+HARD_CONTRACTS = frozenset(("E1", "E4", "F5", "H2"))  # never `not applicable`
+STANCES = ("adopted", "default", "not applicable")
+_HEADER_LINE = re.compile(r"\s*([A-I][1-5])\s")
 
 
 def check_source(source: bytes, entry_class: str) -> None:
@@ -37,6 +45,34 @@ def check_source(source: bytes, entry_class: str) -> None:
     if found != 1:
         raise refuse("ENTRY_CLASS_NOT_UNIQUE", f"{found} top-level classes are named {entry_class}",
                      expected="exactly one")
+
+
+def header_lines(source: bytes) -> dict[str, str]:
+    """A strategy file's duty lines by duty ID, as written: the first line of its module docstring that starts
+    with each ID."""
+    found: dict[str, str] = {}
+    for line in (ast.get_docstring(ast.parse(source), clean=False) or "").splitlines():
+        match = _HEADER_LINE.match(line)
+        if match and match[1] in DUTIES:
+            found.setdefault(match[1], line)
+    return found
+
+
+def check_header(source: bytes) -> None:
+    """The file header holds a line for each of the 27 duties, `ID title: stance | reason | source label` (the
+    template `candidate new` writes), its stance one of STANCES and a hard contract's never `not applicable`."""
+    lines = header_lines(source)
+    missing = sorted(DUTIES - lines.keys())
+    if missing:
+        raise refuse("DUTY_HEADER_INVALID", "the file header has no duty line for " + ", ".join(missing),
+                     missing=tuple(missing))
+    stances = {duty: line.partition("|")[0].rpartition(":")[2].strip() for duty, line in lines.items()}
+    invalid = sorted(duty for duty, stance in stances.items()
+                     if stance not in STANCES or (duty in HARD_CONTRACTS and stance == "not applicable"))
+    if invalid:
+        raise refuse("DUTY_HEADER_INVALID", "these duty lines have no valid stance (" + ", ".join(STANCES)
+                     + "; E1, E4, F5 and H2 never not applicable): " + ", ".join(invalid),
+                     expected="ID title: stance | reason | source label")
 
 
 def parse_ref(ref) -> tuple[str, int]:
@@ -97,6 +133,7 @@ def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str
     if not isinstance(strategy_id, str) or not ID.fullmatch(strategy_id):
         raise refuse("INVALID_ID", f"invalid strategy ID {strategy_id!r}", expected="[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
     check_source(source, entry_class)
+    check_header(source)
     _note(description, "description")
     if difference is not None:
         _note(difference, "difference")

@@ -15,7 +15,7 @@ from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.helpers import refused
 
 # A source that declares Paper recovery as the runner checks it (engine.paper_session.declares_recovery).
-RECOVERING = b"""from nautilus_trader.trading import Strategy
+RECOVERING = source("recovering").split(b"from nautilus_trader")[0] + b"""from nautilus_trader.trading import Strategy
 
 
 class Fixture(Strategy):

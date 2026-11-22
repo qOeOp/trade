@@ -82,6 +82,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "ENTRY_CLASS_INVALID": ("Pass the name of the strategy's top-level class.",),
     "SOURCE_SYNTAX": ("Fix the syntax or encoding in the working copy, then publish again.",),
     "ENTRY_CLASS_NOT_UNIQUE": ("Define the entry class once at module top level.",),
+    "DUTY_HEADER_INVALID": ("Write the module docstring's 27 duty lines from the header template `candidate new` "
+                            "writes (strategy-header.md): `ID title: stance | reason | source label`, the stance "
+                            "adopted, default or not applicable, E1, E4, F5 and H2 never not applicable.",),
     "INVALID_ID": ("Choose a strategy ID within the allowed characters and length.",),
     "NOTE_INVALID": ("Write a nonempty note of at most 2000 characters.",),
     "LINEAGE_INCOMPLETE": ("Give both --parent and --difference, or neither for a root.",),
