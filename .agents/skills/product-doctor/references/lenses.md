@@ -81,8 +81,8 @@ falsified, short of its targets or invalid, ask whether the mechanism failed or 
 artifact (segment boundaries, a whole-period rule dropping partial periods, a template or scaffold
 defect, a risk budget far from the target it missed, one data defect). For a claimed confirmation,
 ask whether a plainer mechanical cause gives the same numbers (fewer trades, a few removed losers,
-one instrument or quarter). A false verdict path is a product or skill finding; the doctor still
-picks no candidate and changes no target.
+one instrument or quarter). A false verdict path either way is a finding, and changing the gate
+behind it an authority item; the doctor picks no candidate and changes no target.
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
