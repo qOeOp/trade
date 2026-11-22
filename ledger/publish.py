@@ -2,7 +2,10 @@
 
 The research ledger is public: it is pushed to its DoltHub repository by the service administrator,
 in the compose ledger service's rounds (`ledger/service.py`) or by `ledger publish`; commands that change it only
-commit locally. A publish pushes the branch without force and then
+commit locally. The repository keeps one branch per version line (shared/version.py; docs/plans/version-line-
+branches-20261123.zh.md): the local branch `main` is pushed as the remote branch LINE, and only that branch is ever
+fetched (an explicit refspec, never the remote's default `refs/heads/*`, which would copy every other line's data).
+A publish pushes the branch without force and then
 fetches to check that the remote's head contains the local one read before the push: it is that head,
 or descends from it when another writer on the same service committed between the head read and the
 push (the push names the branch, so it carried both commits). Publishes of one database are serialized
@@ -34,27 +37,44 @@ from ledger import db, server
 from shared.errors import Refusal
 from shared.files import atomic_write
 from shared.refusals import refuse
+from shared.version import line, product_version
 
 
 PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
 HOST = "https://doltremoteapi.dolthub.com/"
 REPOSITORY = r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"  # owner/repository
 DOLTHUB = re.compile(re.escape(HOST) + REPOSITORY)  # the one DoltHub remote form: publish and the mirror accept it
-GENERATION = re.compile(r"-g[0-9]+\Z")  # the generation suffix research_origin adds to a repository name
+LINE = line(product_version())  # the remote branch this code's ledger is published as
+# What a fetch of LINE answers when origin does not hold it: no branch at all, or no branch LINE (Dolt 2.7.2).
+UNPUBLISHED = ("no branches found", "invalid ref spec")
 
 
-def research_origin(base: str) -> str:
-    """The DoltHub repository of this code's ledger generation: `base` (TRADE_RESEARCH_ORIGIN) without a trailing
-    `-g<N>`, then `-g<SCHEMA_VERSION>`. A version of another schema generation reads another repository, so a
-    deployment names its repository once and each generation finds its own
-    (docs/plans/data-generation-in-release-20261123.zh.md). Anything but a DoltHub address (file:// in isolated
-    checks) is kept as it is."""
-    if not DOLTHUB.fullmatch(base):
-        return base
-    return f"{GENERATION.sub('', base)}-g{db.SCHEMA_VERSION}"
+def where(profile: db.LedgerProfile) -> dict:
+    """Where the database publishes, read with its reader account and no schema check (a deployment asks this of a
+    ledger another version made): its origin's URL (None without one), the lines its origin's tracking branches name
+    (a published or fetched ledger has exactly one: its line; one made before lines has `main`) and its local head."""
+    config = server.service_config(profile.service_root) or {}
+    accounts = config.get("databases", {}).get(profile.database, {})
+    if "reader" not in accounts:
+        raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no reader account for {profile.database}")
+    raw = server.patient_connection(config, user=accounts["reader"]["user"], password=accounts["reader"]["password"],
+                                    database=f"{profile.database}/{db.BRANCH}", autocommit=True, connect_timeout=5,
+                                    read_timeout=60, write_timeout=60)
+    try:
+        with raw.cursor() as cursor:
+            url = server.cursor_rows(cursor, "SELECT url FROM dolt_remotes WHERE name = %s", (server.REMOTE,))
+            tracked = server.cursor_rows(cursor, "SELECT name FROM dolt_remote_branches")
+            (head,), = server.cursor_rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
+    finally:
+        raw.close()
+    prefix = f"remotes/{server.REMOTE}/"
+    return {"remote": url[0][0] if url else None, "head": head,
+            "lines": sorted(name.removeprefix(prefix) for (name,) in tracked if name.startswith(prefix))}
 
 
-BRANCHES = f"refs/heads/*:refs/remotes/{server.REMOTE}/*"  # the default fetch spec, named so a missing branch fails
+TRACKING = f"remotes/{server.REMOTE}/{LINE}"  # origin's LINE as last fetched
+BRANCHES = f"refs/heads/{LINE}:refs/{TRACKING}"  # the one branch ever fetched; named, so a missing branch fails
+PUSHED = f"{db.BRANCH}:{LINE}"  # the local branch, pushed as the line's
 
 
 def state(profile: db.LedgerProfile) -> dict:
@@ -68,7 +88,7 @@ def state(profile: db.LedgerProfile) -> dict:
         if not found:
             return {"remote": None, "unpublished": False, "behind_seconds": None, "diverged": False}
         local = conn.rows("SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
-        remote = conn.rows("SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{server.REMOTE}/{db.BRANCH}",))
+        remote = conn.rows("SELECT hash FROM dolt_remote_branches WHERE name = %s", (TRACKING,))
         behind, diverged = None, False
         if list(local) != list(remote) and remote:
             diverged = not _reader_ancestor(conn, remote[0][0], local[0][0])
@@ -211,20 +231,19 @@ def unpublished(profile: db.LedgerProfile) -> bool:
 
 
 def _remote_head(cursor) -> str | None:
-    found = server.cursor_rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
-                               (f"remotes/{server.REMOTE}/{db.BRANCH}",))
+    found = server.cursor_rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s", (TRACKING,))
     return found[0][0] if found else None
 
 
 def _fetch(cursor, url: str) -> str | None:
-    """Fetch origin's branches; the remote's head of the branch. A remote without branches (named explicitly,
+    """Fetch origin's LINE; the remote's head of it. A remote without branches or without LINE (named explicitly,
     the branch spec fails rather than keeping the last tracking head) has no head."""
     try:
         cursor.execute("CALL DOLT_FETCH(%s, %s)", (server.REMOTE, BRANCHES))
         cursor.fetchall()
         return _remote_head(cursor)
     except pymysql.MySQLError as exc:
-        if "no branches found" in str(exc.args[1] if len(exc.args) > 1 else exc):
+        if any(text in str(exc.args[1] if len(exc.args) > 1 else exc) for text in UNPUBLISHED):
             return None
         raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push", missing=(url,)) from exc
 
@@ -272,7 +291,7 @@ def publish(profile: db.LedgerProfile) -> dict:
             if published != head:
                 rejected = None
                 try:
-                    timed("push", _push, cursor, profile, url, db.BRANCH)
+                    timed("push", _push, cursor, profile, url, PUSHED)
                 except Refusal as exc:
                     if exc.code != "PUBLISH_REJECTED":
                         raise
@@ -281,10 +300,10 @@ def publish(profile: db.LedgerProfile) -> dict:
                 if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
-                    raise refuse("PUBLISH_FAILED", f"the head of {db.BRANCH} at {url} is {published or 'missing'}, "
+                    raise refuse("PUBLISH_FAILED", f"the head of {LINE} at {url} is {published or 'missing'}, "
                                  f"which does not contain {head}", missing=(url,))
     finally:
         conn.close()  # also releases the publish lock
-    return {"database": profile.database, "remote": url, "branch": db.BRANCH, "head": published,
+    return {"database": profile.database, "remote": url, "branch": LINE, "head": published,
             "previous_head": before,
             "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}

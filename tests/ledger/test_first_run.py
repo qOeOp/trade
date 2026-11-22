@@ -19,7 +19,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, first_run, publish, server, service
-from shared import paths, profiles
+from shared import paths, profiles, version
 from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP
 from tests.helpers import refused, tempdir
@@ -29,19 +29,20 @@ class RepositoryTests(unittest.TestCase):
     def test_a_name_or_either_address_names_one_remote(self):
         for text in ("o-1/r_2", " o-1/r_2 ", "o-1/r_2/", "https://doltremoteapi.dolthub.com/o-1/r_2",
                      "https://www.dolthub.com/repositories/o-1/r_2", "dolthub.com/repositories/o-1/r_2/data/main"):
-            self.assertEqual(first_run.origin_of(text),
-                             f"https://doltremoteapi.dolthub.com/o-1/r_2-g{db.SCHEMA_VERSION}", text)
+            self.assertEqual(first_run.origin_of(text), "https://doltremoteapi.dolthub.com/o-1/r_2", text)
         self.assertTrue(publish.DOLTHUB.fullmatch(first_run.origin_of("o/r")))
 
-    def test_each_schema_generation_has_its_own_repository(self):
-        # The deployment names a base once; this version's ledger reads <base>-g<SCHEMA_VERSION>, whatever generation
-        # suffix the base already carried. A file remote (isolated checks) is kept.
-        own = f"https://doltremoteapi.dolthub.com/o/research-g{db.SCHEMA_VERSION}"
-        for base in ("https://doltremoteapi.dolthub.com/o/research", "https://doltremoteapi.dolthub.com/o/research-g1",
-                     own):
-            self.assertEqual(publish.research_origin(base), own, base)
-        self.assertEqual(publish.research_origin("file:///tmp/o/r-g1"), "file:///tmp/o/r-g1")
-        self.assertEqual(first_run.origin_of(f"o/research-g{db.SCHEMA_VERSION + 1}"), own)
+    def test_the_ledger_is_this_version_s_line_of_the_one_repository(self):
+        self.assertEqual(publish.LINE, version.line(version.product_version()))
+        self.assertEqual((publish.PUSHED, publish.BRANCHES), (f"main:{publish.LINE}",
+                                                              f"refs/heads/{publish.LINE}:refs/remotes/origin/"
+                                                              f"{publish.LINE}"))
+        for number, line in (("0.5.2", "v0.5"), ("0.5.3", "v0.5"), ("0.6.0", "v0.6"), ("0.10.1", "v0.10"),
+                             ("1.0.0", "v1"), ("1.4.2", "v1"), ("2.0.0", "v2")):
+            self.assertEqual(version.line(number), line, number)
+        for number in ("0.5", "v0.5.2", "0.5.2-rc1", ""):
+            with self.subTest(number=number), self.assertRaises(ValueError):
+                version.line(number)
 
     def test_anything_else_is_refused(self):
         for text in ("", "name", "o/r/more", "https://example.com/o/r", "file:///tmp/o/r", "o/r;drop",

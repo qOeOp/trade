@@ -27,7 +27,7 @@ from shared.refusals import refuse
 
 HISTORY = 10
 SYNC_EVERY = 60  # seconds between the mirror's own syncs from its origin; the page's Sync DoltHub starts one at once
-ORIGIN_MAIN = f"{server.REMOTE}/{db.BRANCH}"
+ORIGIN_LINE = f"{server.REMOTE}/{publish.LINE}"  # origin's branch of this version's line, as fetched
 
 
 def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers: Path,
@@ -116,8 +116,8 @@ def sync(profile: db.LedgerProfile) -> dict:
                 if server.cursor_rows(cursor, "SELECT table_name FROM dolt_status"):
                     raise refuse("DIRTY_WORKING_SET", "the replica has local changes; they are retained")
                 before = _head(cursor)
-                server.cursor_rows(cursor, f"CALL DOLT_FETCH('{server.REMOTE}')")
-                target = _head(cursor, ORIGIN_MAIN)
+                server.cursor_rows(cursor, "CALL DOLT_FETCH(%s, %s)", (server.REMOTE, publish.BRANCHES))
+                target = _head(cursor, ORIGIN_LINE)
                 # A revision database reads fetched commits without changing the visible head.
                 cursor.execute(f"USE `{profile.database}/{target}`")
                 if server.cursor_rows(cursor, "SELECT version FROM ledger_schema WHERE singleton = 1") != [
@@ -125,7 +125,7 @@ def sync(profile: db.LedgerProfile) -> dict:
                     raise refuse("REPLICA_INVALID", "the published schema is not readable by this product")
                 cursor.execute(f"USE `{profile.database}/{db.BRANCH}`")
                 validated = True
-                server.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_MAIN}')")
+                server.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_LINE}')")
                 head = _head(cursor)
                 return {"database": profile.database, "origin": origin, "previous_commit": before,
                         "ledger_commit": head, "changed": head != before}

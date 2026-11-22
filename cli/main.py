@@ -21,16 +21,15 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import sys
 import textwrap
-import tomllib
 
 from cli import (ledger_commands, live_commands, market_commands, paper_commands, replay_commands,
                  research_commands)
 from cli.common import RUNNER_EPILOG, Parser, _print, refusal_json
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
+from shared.version import product_version
 
 
 # Each group declares its nouns (with their help) and commands (cli.common.Command), in --help order.
@@ -44,11 +43,6 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
     return "\n".join(textwrap.fill(text, 100, initial_indent=f"{label:<9}", subsequent_indent=" " * 9)
                      for label, text in (("reads", reads), ("writes", writes), ("returns", returns),
                                          ("refuses", refuses)))
-
-
-def product_version() -> str:
-    """The product version: pyproject.toml's, the one source a release tag, CHANGELOG.md and the IDE's About name."""
-    return tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
 
 
 def build_parser() -> Parser:

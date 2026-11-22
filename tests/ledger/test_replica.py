@@ -91,12 +91,40 @@ class ReplicaTests(unittest.TestCase):
         with db.connect(self.execution, "reader") as conn:
             self.assertEqual(paper.read_source(conn, copied["source_sha256"])["source"], source("child"))
 
+    def test_a_sync_fetches_its_line_only(self):
+        conn = server.connect_root(server.service_config(self.research.service_root), database=self.research.database)
+        with conn.cursor() as cursor:
+            cursor.execute("CALL DOLT_BRANCH('other-line')")
+            cursor.execute("CALL DOLT_CHECKOUT('other-line')")
+            cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'only on another line')")
+            cursor.execute("SELECT DOLT_HASHOF('other-line')")
+            (other,), = cursor.fetchall()
+            cursor.execute("CALL DOLT_PUSH('origin', 'other-line:v0.0')")
+        conn.close()
+        strategies.publish_candidate(self.research, source("line"), "line", "Fixture", "on the line")
+        publish.publish(self.research)
+        self.assertTrue(replica.sync(self.mirror)["changed"])
+        mirror = server.admin(self.mirror)
+        try:
+            with mirror.cursor() as cursor:
+                cursor.execute(f"USE `{self.mirror.database}`")
+                cursor.execute("SELECT name FROM dolt_remote_branches")
+                self.assertEqual([name for (name,) in cursor.fetchall()], [publish.TRACKING])
+                cursor.execute("SELECT name FROM dolt_branches")
+                self.assertEqual([name for (name,) in cursor.fetchall()], ["main"])
+                with self.assertRaises(pymysql.MySQLError, msg="another line's commits are never fetched"):
+                    cursor.execute("CALL DOLT_BRANCH('probe', %s)", (other,))
+        finally:
+            mirror.close()
+        self.assertEqual(publish.where(self.mirror), {  # what the release host reads, with the reader alone
+            "remote": self.origin, "lines": [publish.LINE], "head": replica.status(self.mirror)["ledger_commit"]})
+
     def test_failed_fetch_preserves_visible_research_and_execution(self):
         before = replica.status(self.mirror)["ledger_commit"]
         original = server.cursor_rows
 
         def offline(cursor, statement, arguments=()):
-            if statement == "CALL DOLT_FETCH('origin')":
+            if statement == "CALL DOLT_FETCH(%s, %s)":
                 raise pymysql.OperationalError(2013, "isolated disconnected origin")
             return original(cursor, statement, arguments)
 
@@ -167,7 +195,7 @@ class ReplicaTests(unittest.TestCase):
 
         def lost_reply(cursor, statement, arguments=()):
             result = original(cursor, statement, arguments)
-            if statement == "CALL DOLT_MERGE('--ff-only', 'origin/main')":
+            if statement == f"CALL DOLT_MERGE('--ff-only', '{replica.ORIGIN_LINE}')":
                 raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
             return result
 

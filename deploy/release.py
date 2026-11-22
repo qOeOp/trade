@@ -117,6 +117,10 @@ def failure_summary(error: Exception) -> str:
                 "the new data generation's ledger does not hold the version's schema generation",
             "a data generation cutover is pending for another version; left for the operator":
                 "data generation cutover pending for another version",
+            "a data generation cutover is pending for another line; left for the operator":
+                "data generation cutover pending for another line",
+            "the moved mirror does not follow the research repository":
+                "the moved mirror does not follow the research repository",
             "a pending release transaction waits for an admitted control": "pending journal waits for a control",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
