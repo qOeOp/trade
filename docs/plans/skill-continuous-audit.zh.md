@@ -64,6 +64,7 @@
 - **报错条件**：某个反引号片段在第一父提交时存活、在 merge commit 时不再存活，而 merge commit 里的 skill 或评测文字仍在引用它。
 - **已知的漏报**：一个旧名字只要还留在测试、升级路径或拒绝消息里，就算存活；同名字段只在一张表里改名，也看不出来。这些留给 doctor。
 - **已知的误报**：PR 删掉了某个外部名字在代码里的最后一处（比如去掉 `engine/live.py` 里对 `submit_order_list` 的守卫），或者删掉了最后一条提到它的注释，而 skill 仍正当地引用它。这种情况应该很少见，而且多半本来就该回头看一眼 skill。真遇到再加最小的豁免方式，现在不预设。
+- **2026-11-22 第一次遇到，加了豁免**：删除 `skill_heat.py` 时，它是 `session_meta`、`parent_thread_id`、`tool_use`、`custom_tool_call`、`function_call` 在非 Markdown 文件里的最后一处，而 product-doctor 的 `hosts.md` 与评测 `codex-subagents-found` 仍正当地引用它们。它们是外部宿主会话格式（Codex rollout、Claude Code 会话）的字段，不是产品标识符；Agent 要按原名查询，反引号保留。`skill-names.py` 用具名集合 `EXTERNAL` 写明这五个名字与理由，规则 2 不再跟踪它们；没列入的名字照旧报错（`tests/test_skill_names.py` 有用例）。这是改审计检查，由 Claude 依用户 2026-11-21 的委托「需要我定的部份最后也是一样由你决定按推荐做」决定。
 
 ### 放在哪里
 

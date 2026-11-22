@@ -105,6 +105,15 @@ class RepositoryTests(unittest.TestCase):
                          [[".agents/evals/x/case/prompt.md:1", "closing_order_tags"],
                           [".agents/skills/x/SKILL.md:1", "closing_order_tags"]])
 
+    def test_only_listed_external_transcript_fields_outlive_their_last_code_occurrence(self):
+        external = sorted(names.EXTERNAL)[0]
+        base = self.commit({"tools/reader.py": f"FIELDS = ('{external}', 'unlisted_field')\n",
+                            ".agents/skills/x/SKILL.md": f"Find `{external}` and `unlisted_field` in each line.\n"})
+        self.commit({"tools/reader.py": None})
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual([line.split(": ")[1] for line in result.stdout.splitlines()], ["unlisted_field"])
+
     def test_a_rename_that_updates_the_skill_or_moves_the_name_passes(self):
         base = self.commit({"report/analysis.py": "TAGS = 'closing_order_tags'\n",
                             ".agents/skills/x/SKILL.md": "Read `closing_order_tags`.\n"})

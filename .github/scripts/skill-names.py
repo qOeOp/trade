@@ -5,7 +5,8 @@ Rule 1, on the checked-out tree: a command-line call written in a skill (a code 
 `python -m cli.main`) resolves in `cli.main`'s parser and, when it passes a value, passes every required option; a
 relative link or references/, templates/ or assets/ path in a skill names a file.
 Rule 2, with --base: no name that skill or eval text cites stops occurring in the repository's other files
-between the base commit and HEAD (a rename or removal that leaves the skills behind).
+between the base commit and HEAD (a rename or removal that leaves the skills behind); names of the external host
+transcript format (`EXTERNAL`) are not followed.
 Rule 3, on the checked-out tree: in the package READMEs and docs/operator, a command-line call resolves as in rule 1,
 a repository path exists and an identifier names something the repository's code holds (0.5.0 re-judge A-81;
 docs/rd, the design site, is a specification and is not checked).
@@ -191,6 +192,12 @@ def rule_one(files: Iterable[Path]) -> list[str]:
 
 # Rule 2
 
+# Names rule 2 does not follow, each because it is an external host transcript format field, not a product
+# identifier: Codex rollouts and Claude Code sessions, which product-doctor's hosts.md and its evals cite exactly
+# because agents query them. No repository file needs to hold them.
+EXTERNAL = {"custom_tool_call", "function_call", "parent_thread_id", "session_meta", "tool_use"}
+
+
 def followed(span: str) -> str | None:
     """The name rule 2 follows in a span: an identifier (`tables()` counts as `tables`) or a long option."""
     name = span.removesuffix("()")
@@ -236,7 +243,7 @@ def rule_two(base: str, head: str) -> list[str]:
         text = git("show", f"{head}:{path}")
         for line, span in spans(text):
             name = followed(span)
-            if name:
+            if name and name not in EXTERNAL:
                 cited.setdefault(name, []).append(f"{path}:{line}")
     before, after = words_at(base), words_at(head)
     return [f"{place}: {name}: no longer in the repository outside skill text (present at {base[:12]})"
