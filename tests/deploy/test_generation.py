@@ -81,6 +81,12 @@ class Host:
         self.config = Config(state=state, data=data, research_origin=BASE)
         self.composed: list[tuple] = []
         self.compose_fail = False
+        self.pulled: set[str] = set()  # images present; compose runs with --pull never
+
+    def pull(self, reference, pattern, sha=None):
+        self.docker.seconds += 600
+        self.pulled.add(reference)
+        return sha
 
     def exists(self, name):
         return name in self.docker.containers
@@ -95,6 +101,8 @@ class Host:
         if self.compose_fail:
             self.compose_fail = False
             raise RuntimeError("compose crashed")
+        if "never" in args and env.get("TRADE_SERVICE_IMAGE") not in self.pulled:
+            raise RuntimeError("No such image")  # pruned since the handover read the definition
         self.composed.append(args)
         self.docker.seconds += timeout
         self.docker.containers.add({"ledger": LEDGER, "market-import": MARKET_IMPORT}[args[-1]])
