@@ -119,3 +119,18 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line.split(": ")[1] for line in result.stdout.splitlines()],
                          ["templates/gone.md", "references/gone.md"])
+
+    def test_package_docs_name_only_paths_and_names_the_repository_holds(self):
+        live = ("Run `report/measures.py`'s `report.measures.basket_path` (`basket_path`) into `summary.json`; GET "
+                "`fapi/v1/fundingRate` on `linux/arm64`.\n")
+        self.commit({"report/measures.py": "def basket_path():\n    pass\n", "paper/README.md": live,
+                     "docs/operator/guide.md": live, "docs/rd/page.md": "`report.measures.gone_name`\n"})
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.commit({"paper/README.md": "Run `report/gone.py`, `report.measures.gone_name` and `stale_name`.\n"})
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([line.split(": ")[1:] for line in result.stdout.splitlines()],
+                         [["report/gone.py", "no such path"],
+                          ["report.measures.gone_name", "report/measures.py has no gone_name"],
+                          ["stale_name", "no such name"]])

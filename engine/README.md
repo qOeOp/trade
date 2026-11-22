@@ -271,7 +271,7 @@ took 2.8 GiB for three months and 5.3 GiB for six, about 0.26 GiB per million ev
 `BacktestEngine` itself. Bars and MARK updates (and quotes and trades) come from the exported Catalogs through
 `ParquetDataCatalog.query`, one query per data type and UTC day, merged by `ts_init`. The runner passes the files
 that hold rows of that day (found from each file's row group statistics), but rc7's default
-`optimize_file_loading` turns the listed files into their parent directories, so the day's `start` and `end` limit
+`optimize_file_loading=True` turns the listed files into their parent directories, so the day's `start` and `end` limit
 the rows, not the file list; funding and lifecycle events are read whole. Events of one
 `ts_init` keep the node's order (contract by contract: MARK, quotes, trades, metrics, funding, bars, status,
 close; one millisecond's trades in aggregate trade ID order, after its quotes, so a market order a trade
