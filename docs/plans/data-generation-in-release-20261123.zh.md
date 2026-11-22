@@ -69,11 +69,13 @@ DoltHub API token 存到那个文件（之后每一代全自动），或每次�
 ### 共用部分（`deploy/generation.py`）
 
 - `version`：在版本服务镜像里（无网络、只读）跑它自己的代码，得到 origin 和两个代际，主机代码不重复这条规则。
-- `probe`：上面的公开 SQL API 读 `ledger_schema.version`：有数据（及版本）、空、不存在；不答就是 `OriginUnreadable`，
-  从不猜。
+- `probe`：上面的公开 SQL API 读 `ledger_schema.version`。只认明确的答复：一行版本是有数据；`no such repository` 是
+  不存在；`table not found: ledger_schema` 或 `branch not found`（2026-11-23 在公开库上读到的原文）是空库。其它任何
+  答复或不答都是 `OriginUnreadable`，从不猜（把未知答复当空库会跳过建库，账本首启就会 `BOOTSTRAP_FAILED`）。
 - `archive`/`prune`：在版本服务镜像里以 root（只加 `DAC_OVERRIDE`）、无网络运行（`python -m deploy.generation`），
   只挂 `$TRADE_DATA` 一个绑定挂载。归档目录是 `$TRADE_DATA/archive/<UTC 时间>-<版本前 12 位>/`，与数据同一个挂载、
-  同一个文件系统，只用 `os.rename`，移动前比对 `st_dev`，不同就停；卷先写 `.partial` 再改名成 tgz。每一步都可重入。
+  同一个文件系统，只用 `os.rename`，移动前比对 `st_dev`，不同就停。工作站的卷（写入账本本身）先写 `.partial` 再改名
+  成 tgz；服务器的卷只是旧一代 DoltHub 仓库的镜像，不打包，直接删。每一步都可重入。
   `prune` 只删本代码命名格式的其它归档，从不删日志里的那个，也不碰旧手工清单留下的 `/srv/trade-archive`。
 
 ### 工作站（`deploy/update.py` `Cutover`）
@@ -82,11 +84,12 @@ DoltHub API token 存到那个文件（之后每一代全自动），或每次�
 
 1. 账本容器存在但没在跑就拒绝（否则比较不了代际）。在跑时，用目标版本的服务镜像对 `research` 与 `paper` 各跑一次
    只读的 `ledger service check`（与服务器相同：Paper 的 profile 卷、项目网络、账本容器的 UID:GID）。`SCHEMA_MISMATCH`
-   即代际切换；其它失败报错。`--check` 只报告。
-2. 改动任何东西之前：在旧账本容器里 `ledger publish`（旧一代的公开副本完整，之后归档才可删）；env 没写
-   `TRADE_RESEARCH_ORIGIN` 时用旧账本发布到的仓库做基名，写入一次；由版本的代码推出新 origin 并探测；有别的代际的
-   账本就拒绝；不存在就用 token 建库，没有 token 拒绝。然后写日志 `$TRADE_DATA/deploy/generation.json`
-   （版本、归档名、步骤）。
+   即代际切换；其它失败报错。代际相同时，在账本容器里用它自己的 profile 读 `ledger service status` 的 `remote`
+   （与发布同一条路径，不读凭据），与版本代码推出的 origin 不同就拒绝：否则服务器会一直等那个仓库。`--check` 只报告。
+2. 改动任何东西之前（env 文件写新镜像也在这之后）：在旧账本容器里 `ledger publish`，失败就拒绝，不论哪个库换代
+   （旧一代的公开副本必须完整，之后本地归档才可删）；由版本的代码推出新 origin 并探测；有别的代际的账本就拒绝；
+   不存在就用 token 建库，没有 token 拒绝；env 没写 `TRADE_RESEARCH_ORIGIN` 时用旧账本发布到的仓库做基名，最后写入
+   一次。然后写日志 `$TRADE_DATA/deploy/generation.json`（版本、归档名、步骤）。
 3. `archiving`：停项目全部服务、删 ledger 容器、归档、删卷，记为 `archived`。
 4. `archived`：只起 ledger（`up --wait ledger`），它的首启从推出的 origin 建新账本并发布或克隆；之后把归档里的
    `market.json` 放回 `ledgers/`（首启拒绝有 profile 的目录，所以先起 ledger 再放），删其它归档、删日志，然后照常
@@ -103,13 +106,17 @@ DoltHub API token 存到那个文件（之后每一代全自动），或每次�
    确认经路由的 Web 列表里没有进行中的 Paper 操作、仍无 runner；在 Live 账户锁内确认 Live 空闲（忙就等，绝不停 Live）
    并在整个切换期间持锁；写日志（`/var/lib/trade-release/generation.json`：版本、服务镜像、归档名、步骤、
    market-import 是否在跑）。
-3. `archiving`：停 market-import 与 ledger、删 ledger 容器、归档、删卷，记为 `archived`。`archived`：按版本自己的
+3. 每个 tick 只走一步，使每个 tick 都远在 `trade-release.service` 的 `TimeoutStartSec`（75 分钟）之内（测试按单元
+   文件核对：每步命令的超时总和不超过一半）。`archiving`（本 tick）：停 market-import 与 ledger、删 ledger 容器、改名
+   归档（只改名，限 10 分钟）、删卷，记为 `archived`。`archived`（下一个 tick，冻结 Paper 写入）：按版本自己的
    compose 定义 `up --wait ledger`（不加 `--force-recreate`：续做时已起的首启只会被等待，不会被打断），market-import
-   原先在跑就再起；再跑一次检查，必须不再 `SCHEMA_MISMATCH`；删其它归档；记为 `done`；恢复 Paper 写入。发布在下一个
-   tick 进行（读到的受保护容器等事实都是新的），不在同一个 tick 接着发。发布单元只能写 `/var/lib/trade-release`，文件
-   操作都在容器里做。
-4. 中断：`Release.tick` 在交接之后、任何恢复（会解冻 Paper、会读账本容器）之前先按日志续做。
-5. 回滚：日志为 `done` 时，旧版本读不了新账本，所以失败的发布回滚到旧版本时不等它（Web 与 Paper 控制器）答健康，
+   原先在跑就再起；再跑一次检查，必须不再 `SCHEMA_MISMATCH`；记为 `started`。`started`（再下一个 tick）：删其它归档，
+   记为 `done`。发布在之后的 tick 进行（读到的受保护容器等事实都是新的）。发布单元只能写 `/var/lib/trade-release`，
+   文件操作都在容器里做。
+4. 中断与续做：`Release.tick` 在交接之后、任何恢复（会解冻 Paper、会读账本容器）之前先按日志走下一步。停服务的
+   `archiving` 步续做前取与第一次相同的保持：冻结 Paper、排空、无进行中的操作与 runner、在经路由 Web 的 Live 账户锁内
+   确认空闲；不满足就等（通知），不停任何东西。
+5. 回滚：日志为 `started` 或 `done` 时，旧版本读不了新账本，所以失败的发布回滚到旧版本时不等它（Web 与 Paper 控制器）答健康，
    仍然标记失败；日志留到某个版本的 Web 发布提交后删除。
 6. 交接：服务器跑的是 0.5.1 的控制；0.5.2 被接纳后，0.5.1 的 tick 先交接（`Release.tick` 先 `handoff`，它复制
    `deploy/*.py`，`generation.py` 只用标准库），第二个 tick 在 0.5.2 的控制下执行切换，0.5.1 的等待代码不参与。
@@ -130,11 +137,19 @@ Live 锁、先 `ensure`）；同 tick 接着发布用的是旧事实（改为下
 运行时的 HEAD（合并后的提交再查一次）；工作站：停着的账本要拒绝、任何情况先发布、先只起 ledger 再放回
 `market.json`、token 不打印。
 
+## 复审修正（2026-11-23，协调者独立评审）
+
+旧账本发布失败一律拒绝（不只 Paper 换代）；拒绝都在 env 文件写新镜像之前；探测只认明确答复；代际相同但发布地址
+与推出的不同就拒绝；服务器每个 tick 一步、改名归档限时、卷不打包（可从旧一代仓库重新克隆），使每个 tick 远在单元
+超时之内；续做停服务的一步前重新取 Paper 与 Live 的保持。每条都有测试，并逐条做过反例（去掉修正，测试失败）。
+
 ## 检查
 
 - `tests/deploy/test_generation.py`：等待的每个条件（不动任何东西、一条通知、Paper 写入不留冻结）、完整切换（归档内容、
-  卷 tgz、`dolt/paper` 留空、市场不动、只保留最新归档、手工目录不删）、两处中断后的续做、切换后仍不读的版本、日志格式、
-  API 的三种答复与不答。
+  卷不打包、`dolt/paper` 留空、市场不动、只保留最新归档、手工目录不删）、每个 tick 一步且在单元超时一半之内、中断后
+  逐步续做、续做归档前 Live 或 Paper 忙就等、切换后仍不读的版本、日志格式、API 的明确答复与其它答复。
+- `tests/deploy/test_update.py` 另有：任何发布失败都拒绝、未知的 DoltHub 答复不建库、代际相同而发布地址不同就拒绝、
+  `MainTests`（拒绝时 env 文件与定义目录都不变）。
 - `tests/deploy/test_update.py` `CutoverTests`：只认 `SCHEMA_MISMATCH`、完整切换与顺序、建库要 token 且不打印、改动前的
   各种拒绝、基名取自旧账本、续做。
 - `tests/deploy/test_release.py` `GenerationTests`：切换代替发布、宽松回滚（反例：不宽松时回滚保留日志），tick 先续做。

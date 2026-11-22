@@ -276,7 +276,30 @@ class Cutover:
                     raise RuntimeError(f"the version's ledger check of {database} failed: {result.stderr[-400:]}")
                 expected = refusal.get("expected")
                 found[database] = expected if isinstance(expected, str) else ""
+        if not found:
+            self.same_origin()
         return found
+
+    def same_origin(self) -> None:
+        """Refuse a ledger the version reads that publishes elsewhere than the version's repository for this
+        generation: the release host would wait for that repository forever. The running ledger answers from its
+        own profile (`ledger service status`), as its publish does."""
+        base = read_env(self.env).get("TRADE_RESEARCH_ORIGIN")
+        if not base:
+            return
+        result = self.docker.result("exec", LEDGER, "python", "-m", "cli.main", "ledger", "service", "status",
+                                    "--ledger", "research")
+        try:
+            stored = json.loads(result.stdout).get("remote") if result.returncode == 0 else None
+        except ValueError:
+            stored = None
+        if not isinstance(stored, str):
+            raise RuntimeError(f"the ledger did not say where it publishes: {result.stderr.strip()[-300:]}")
+        wanted = generation.version(self.docker, self.service, base)["origin"]
+        if stored != wanted:
+            raise RuntimeError(f"this ledger publishes to {stored}, but the version's repository for its generation is "
+                               f"{wanted} (TRADE_RESEARCH_ORIGIN {base}), where the release host waits for it; "
+                               "nothing was changed. Report it: moving a ledger's public copy is the user's decision")
 
     def publish(self) -> str | None:
         """Push what the old ledger holds to its own DoltHub repository; the repository, or None when it failed."""
@@ -303,15 +326,13 @@ class Cutover:
                   f"{self.data / generation.ARCHIVE} and start the new generation's ledger")
             return None
         published = self.publish()
-        if published is None and "research" not in found:
-            raise RuntimeError("only the Paper database changes generation, and the research ledger is cloned again "
-                               "from DoltHub, so what it has not published would be lost; nothing was changed")
+        if published is None:
+            # The old generation's public copy must hold all of it before its local copy is archived and, a
+            # generation later, removed.
+            raise RuntimeError("the old ledger's publish failed, so its public copy may lack what this ledger holds; "
+                               "fix the publish (the ledger's log, `ledger publish`) and update again; nothing was "
+                               "changed")
         base = values.get("TRADE_RESEARCH_ORIGIN") or published
-        if not base:
-            raise RuntimeError(f"{self.env} names no TRADE_RESEARCH_ORIGIN and the old ledger published nowhere; set it "
-                               "to the DoltHub repository the generations are named after; nothing was changed")
-        if not values.get("TRADE_RESEARCH_ORIGIN"):
-            write_env(self.env, {"TRADE_RESEARCH_ORIGIN": base})  # once: every generation is named after it
         wanted = generation.version(self.docker, self.service, base)
         state, held = generation.probe(wanted["origin"], self.opener)
         if state == "data" and held != str(wanted["research"]):
@@ -323,6 +344,8 @@ class Cutover:
         print(f"The new generation's ledger: {wanted['origin']}"
               + (" (cloned: it is already published)" if state == "data" else " (made and published here)"),
               flush=True)
+        if not values.get("TRADE_RESEARCH_ORIGIN"):
+            write_env(self.env, {"TRADE_RESEARCH_ORIGIN": base})  # once: every generation is named after it
         journal = {"revision": self.sha, "archive": generation.archive_name(self.sha), "phase": "archiving"}
         self.journal.parent.mkdir(parents=True, exist_ok=True)
         write_file(self.journal, json.dumps(journal) + "\n")
@@ -408,13 +431,14 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
     def ancestor(before: str, _after: str) -> bool:
         return ancestors.get(before, False)
 
+    # Everything a cutover checks comes before the first write: a refusal leaves the env file naming the old images.
+    journal = pending or (cutover.begin(found, check=False) if found else None)
     target = root / sha
     target.mkdir(parents=True, exist_ok=True)
     write_file(target / "compose.yaml", text)
     write_file(target / "images.env", "".join(f"{key}={value}\n" for key, value in values.items()))
     write_env(args.env, values)
     base = compose(args.env, target / "compose.yaml")
-    journal = pending or (cutover.begin(found, check=False) if found else None)
     if journal is not None:
         cutover.run(journal, base)
         running = services(docker)

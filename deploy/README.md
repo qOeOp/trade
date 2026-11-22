@@ -206,8 +206,8 @@ A version of another ledger schema generation ([`CHANGELOG.md`](../CHANGELOG.md)
 generation, and the update does it before `up -d`
 ([design](../docs/plans/data-generation-in-release-20261123.zh.md)). It tells one apart by the version's own `ledger
 service check`, run read-only against the running ledger (a stopped ledger is refused: start it first), which refuses
-this ledger with `SCHEMA_MISMATCH`. Then the update publishes what the old ledger holds to its own repository, and
-makes sure the new generation's repository exists: `<TRADE_RESEARCH_ORIGIN>-g<N>` on DoltHub, N the version's
+this ledger with `SCHEMA_MISMATCH`. Then the update publishes what the old ledger holds to its own repository (a
+failed publish stops it before anything changes: that copy is the old generation's record), and makes sure the new generation's repository exists: `<TRADE_RESEARCH_ORIGIN>-g<N>` on DoltHub, N the version's
 generation (`.env` keeps naming the base; when it names none, the old ledger's repository becomes the base, once). A
 repository that does not exist is created, empty and public, with a DoltHub API token kept in the file
 `TRADE_DOLTHUB_TOKEN_FILE` names (default `$TRADE_DATA/dolthub-token`), read only by that request and never printed;
@@ -218,7 +218,9 @@ the volume), and starts the ledger alone: its first start makes the new ledger a
 when another workstation published it first). It puts `market.json` back into `ledgers`, removes every older archive
 it made, and the update goes on as above. The market directory has no generation and stays.
 `$TRADE_DATA/deploy/generation.json` records the step: an interrupted cutover is finished by the next update, from that
-step. `--check` says whether the version starts a new generation and changes nothing. The release host waits for this
+step. `--check` says whether the version starts a new generation and changes nothing. An update refuses a ledger
+the version reads that publishes elsewhere than the version's repository for its generation. Every refusal comes
+before the env file names the new images. The release host waits for this
 publication before its own cutover ([remote/README.md](remote/README.md#a-version-that-starts-a-new-data-generation)).
 
 Every other compose command on the workstation uses the same definition, project and env file, so no service is

@@ -4,6 +4,7 @@ and Live faked; the archive itself runs on temporary directories. Never a real l
 from contextlib import contextmanager
 import io
 import json
+import re
 from pathlib import Path
 import tarfile
 import tempfile
@@ -16,7 +17,7 @@ from deploy import generation
 from deploy.generation import ARCHIVE, JOURNAL, MOUNTED, VOLUME, Generation, OriginUnreadable
 from deploy.live_host import LiveBusy
 from deploy.paper_host import PAPER
-from deploy.release_host import LEDGER, MARKET_IMPORT, Config
+from deploy.release_host import LEDGER, MARKET_IMPORT, WEB, Config
 
 A, B = "a" * 40, "b" * 40
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64
@@ -44,9 +45,11 @@ class Docker:
         self.containers = {LEDGER, MARKET_IMPORT}
         self.volumes = {VOLUME}
         self.fail: str | None = None
+        self.seconds = 0  # the longest each command may take, summed
 
     def __call__(self, *args, timeout=120, **_):
         self.calls.append(args)
+        self.seconds += timeout
         if self.fail and self.fail in args:
             self.fail = None
             raise RuntimeError(f"crash at {args[0]}")
@@ -93,11 +96,15 @@ class Host:
             self.compose_fail = False
             raise RuntimeError("compose crashed")
         self.composed.append(args)
+        self.docker.seconds += timeout
         self.docker.containers.add({"ledger": LEDGER, "market-import": MARKET_IMPORT}[args[-1]])
         return ""
 
     def probe(self, web, path, routed=False):
         return {"status": 200, "starting": 0, "runs": []}
+
+    def disk_route(self):
+        return WEB + A
 
 
 class Paper:
@@ -128,12 +135,14 @@ class Paper:
 class Live:
     def __init__(self):
         self.busy = False
+        self.inspected: list[str] = []
 
     def prepare(self, owner, target):
         pass
 
     @contextmanager
     def barrier(self, name, service=None, *, idle=False, wait_for_lock=False):
+        self.inspected.append(name)
         if self.busy:
             raise LiveBusy("a Live run holds the account")
         yield lambda: None
@@ -220,7 +229,16 @@ class GenerationTests(unittest.TestCase):
         manual.mkdir()
         self.assertTrue(self.due())
         journal = self.journal()
-        self.assertEqual(journal["phase"], "done")
+        self.assertEqual(journal["phase"], "archived", "the first tick only archives")
+        self.assertEqual(self.host.composed, [])
+        self.assertFalse(self.generation.done())
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "started")
+        self.assertTrue(older.exists(), "older archives go on the tick after the start")
+        self.assertTrue(self.generation.done())
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "done")
+        self.assertFalse(self.generation.resume(B), "a finished cutover is not resumed")
         archive = self.data / ARCHIVE / journal["archive"]
         self.assertEqual(sorted(path.name for path in (self.data / "dolt").iterdir()), ["paper"])
         self.assertEqual(list((self.data / "dolt/paper").iterdir()), [], "its mount point stays, emptied")
@@ -230,49 +248,85 @@ class GenerationTests(unittest.TestCase):
         self.assertTrue((archive / "ledgers/market.json").is_file())
         self.assertTrue((archive / "dolt-backups/research/b").is_file())
         self.assertTrue((self.data / "market/bar/2020-01.parquet").is_file(), "the market has no generation")
-        with tarfile.open(archive / generation.VOLUME_TGZ) as kept:
-            self.assertIn("./research/.dolt/noms", kept.getnames())
+        self.assertFalse((archive / generation.VOLUME_TGZ).exists(),
+                         "the host's volume mirrors the old generation's DoltHub repository: never copied")
         self.assertNotIn(VOLUME, self.docker.volumes)
+        self.assertNotIn(MOUNTED, [item for call in self.docker.calls for item in call])
         self.assertFalse(older.exists(), "only the newest archive stays")
         self.assertTrue(manual.exists())
         steps = [call[:2] for call in self.docker.calls if call[0] in ("stop", "rm")]
         self.assertEqual(steps, [("stop", "--time"), ("stop", "--time"), ("rm", LEDGER)])
         self.assertEqual([call[-1] for call in self.host.composed], ["ledger", "market-import"])
         self.assertNotIn("--force-recreate", self.host.composed[0])
-        self.assertEqual(self.paper.frozen, ["all", None], "Paper's writes wait for the cutover only")
+        self.assertEqual(self.paper.frozen, ["all", None, "all", None], "Paper's writes wait for the archive and "
+                         "the start only")
         self.assertTrue(self.generation.done())
+
+    def test_each_tick_of_a_cutover_fits_well_within_the_release_unit_s_start_timeout(self):
+        unit = (Path(__file__).parents[2] / "deploy/remote/trade-release.service").read_text()
+        minutes = int(re.search(r"^TimeoutStartSec=([0-9]+)min$", unit, re.M).group(1))
+        steps = [self.due, lambda: self.generation.resume(B), lambda: self.generation.resume(B)]
+        for step in steps:
+            self.docker.seconds = 0
+            step()
+            self.assertLessEqual(self.docker.seconds, minutes * 60 / 2,
+                                 "the rest of a tick (preparing, Live's inspection) needs the other half")
+        self.assertEqual(self.journal()["phase"], "done")
 
     def test_market_import_that_was_stopped_stays_stopped(self):
         self.docker.containers.discard(MARKET_IMPORT)
         self.assertTrue(self.due())
+        self.assertTrue(self.generation.resume(B))
         self.assertEqual([call[-1] for call in self.host.composed], ["ledger"])
 
-    def test_an_interrupted_cutover_is_finished_by_the_next_tick_from_its_step(self):
-        for crash in ("run", "compose"):
-            with self.subTest(crash=crash):
+    def test_an_interrupted_cutover_is_finished_by_the_next_ticks_from_its_step(self):
+        self.docker.fail = "--workdir"  # the archive container died
+        with self.assertRaises(RuntimeError):
+            self.due()
+        self.assertEqual(self.journal()["phase"], "archiving")
+        self.assertFalse(self.generation.done())
+        stops = len([call for call in self.docker.calls if call[0] == "stop"])
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "archived")
+        self.assertEqual(len([call for call in self.docker.calls if call[0] == "stop"]), stops + 1,
+                         "the stopped ledger is gone; market import is stopped again")
+        self.assertEqual(self.live.inspected, [WEB + B, WEB + A], "the resumed archive takes the same hold")
+        self.host.compose_fail = True
+        with self.assertRaises(RuntimeError):
+            self.generation.resume(B)
+        self.assertEqual(self.journal()["phase"], "archived")
+        self.assertTrue(self.generation.resume(B))
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "done")
+        self.assertEqual(len([call for call in self.docker.calls if call[0] == "stop"]), stops + 1,
+                         "an archived step is never redone")
+        self.assertEqual(list((self.data / "ledgers").iterdir()), [])
+
+    def test_a_resumed_archive_waits_while_live_or_paper_is_busy(self):
+        for reason in ("live", "paper"):
+            with self.subTest(reason=reason):
                 self.setUp()
-                if crash == "run":
-                    self.docker.fail = "--workdir"  # the archive container died
-                else:
-                    self.host.compose_fail = True
+                self.docker.fail = "--workdir"
                 with self.assertRaises(RuntimeError):
                     self.due()
-                self.assertEqual(self.journal()["phase"], "archiving" if crash == "run" else "archived")
-                self.assertFalse(self.generation.done())
-                stops = len([call for call in self.docker.calls if call[0] == "stop"])
+                self.docker.containers.update({LEDGER, MARKET_IMPORT})  # an operator started them again
+                calls = len(self.docker.calls)
+                if reason == "live":
+                    self.live.busy = True
+                else:
+                    self.docker.runners = ["trade-paper-7-runner"]
                 self.assertTrue(self.generation.resume(B))
-                self.assertEqual(self.journal()["phase"], "done")
-                self.assertEqual(len([call for call in self.docker.calls if call[0] == "stop"]),
-                                 stops if crash == "compose" else stops + 1,  # the ledger is already gone
-                                 "an archived step is never redone")
-                self.assertEqual(list((self.data / "ledgers").iterdir()), [])
-                self.assertFalse(self.generation.resume(B), "a finished cutover is not resumed")
+                self.assertEqual(self.journal()["phase"], "archiving")
+                self.assertFalse([call for call in self.docker.calls[calls:] if call[0] in ("stop", "rm", "run")])
+                self.assertIn(f"wait:generation:{B}:{reason}", self.release.waits)
+                self.assertEqual(self.paper.frozen[-1], None, "Paper's writes are never left paused")
 
     def test_a_ledger_the_version_still_does_not_read_fails_the_tick_and_keeps_the_journal(self):
         self.paper.generations = lambda service: {"research": "2"}
-        with patch.object(generation, "probe", return_value=self.published), \
-                self.assertRaisesRegex(RuntimeError, "not the version's schema generation"):
+        with patch.object(generation, "probe", return_value=self.published):
             self.generation.cut(TARGET, A)
+        with self.assertRaisesRegex(RuntimeError, "not the version's schema generation"):
+            self.generation.resume(B)
         self.assertEqual(self.journal()["phase"], "archived")
 
     def test_a_journal_of_another_shape_is_refused(self):
@@ -299,8 +353,17 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(generation.probe(ORIGIN, self.answer(ok)), ("data", "2"))
         missing = {"query_execution_status": "Error", "query_execution_message": "no such repository"}
         self.assertEqual(generation.probe(ORIGIN, self.answer(missing, 400)), ("absent", None))
-        empty = {"query_execution_status": "Error", "query_execution_message": "table not found: ledger_schema"}
-        self.assertEqual(generation.probe(ORIGIN, self.answer(empty, 400)), ("empty", None))
+        for message in generation.NO_LEDGER:
+            empty = {"query_execution_status": "Error", "query_execution_message": message}
+            self.assertEqual(generation.probe(ORIGIN, self.answer(empty)), ("empty", None))
+
+    def test_any_other_answer_is_unreadable_never_an_empty_repository(self):
+        for value in ({"query_execution_status": "Error", "query_execution_message": "query error: timeout"},
+                      {"query_execution_status": "Success", "rows": []},
+                      {"query_execution_status": "Success", "rows": [{"other": "2"}]},
+                      {"query_execution_status": "Running"}, {}):
+            with self.subTest(value=value), self.assertRaises(OriginUnreadable):
+                generation.probe(ORIGIN, self.answer(value))
 
     def test_no_answer_is_unreadable_never_a_guess(self):
         with self.assertRaises(OriginUnreadable):

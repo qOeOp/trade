@@ -9,9 +9,10 @@ What both deployments share lives here: the version's own origin and generation 
 repository holds its ledger (`probe`, through DoltHub's public SQL API, no credential), and the archive, run in a
 container of the version's service image (`archiver`, `pruner`; `python -m deploy.generation`), since the release
 service may not write the data directory itself. Archiving renames within `$TRADE_DATA` (one file system: `os.rename`
-only, never a copy) into `$TRADE_DATA/archive/<UTC time>-<revision>/`; the volume of Dolt's data is kept as a tgz. Only
-the newest archive stays: the others go once the new generation runs. The market directory has no generation and
-stays.
+only, never a copy) into `$TRADE_DATA/archive/<UTC time>-<revision>/`. A workstation keeps the volume of Dolt's data
+as a tgz (its writer ledger lives there); the release host removes its volume, a mirror of the old generation's DoltHub
+repository that a clone gives back. Only the newest archive stays: the others go once the new generation runs. The
+market directory has no generation and stays.
 
 `Generation` is the release host's part (deploy/release.py Release.apply); deploy/update.py is the workstation's.
 """
@@ -43,8 +44,13 @@ VOLUME_TGZ = "trade-dolt-data.tgz"
 MOVED = (("dolt", "dolt"), ("dolt/paper", "dolt-paper"), ("ledgers", "ledgers"), ("dolt-backups", "dolt-backups"))
 JOURNAL = "generation.json"
 # A cutover's steps: the data is being archived; it is archived and the ledger is being started; the new generation
-# runs (kept until a version's Web release commits, deploy/release.py).
-PHASES = ("archiving", "archived", "done")
+# runs and older archives are being removed; done (kept until a version's Web release commits, deploy/release.py).
+# The release host takes one step per tick, so a tick stays within trade-release.service's TimeoutStartSec.
+PHASES = ("archiving", "archived", "started", "done")
+# DoltHub's answers (2026-11-23, read from public repositories): a repository without the table or without a main
+# branch holds no ledger yet; any other error is not an answer about the ledger.
+NO_LEDGER = ("query error: table not found: ledger_schema", "query error: branch not found")
+ARCHIVE_SECONDS = 600  # the release host's archive only renames
 API = "https://www.dolthub.com/api/v1alpha1/"
 HOST = "https://doltremoteapi.dolthub.com/"
 # Run in the version's service image: the repository and generations of that version's code.
@@ -73,8 +79,9 @@ def version(docker, service: str, base: str) -> dict:
 
 def probe(origin: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
     """Whether DoltHub repository `origin` holds a research ledger on main: ("data", its schema version), ("empty",
-    None) when it exists without one, or ("absent", None). Public repositories answer without a credential;
-    OriginUnreadable when DoltHub does not answer."""
+    None) when it exists without one, or ("absent", None). Public repositories answer without a credential. Only
+    those explicit answers count: OriginUnreadable for any other (a wrong guess of "empty" would skip creating the
+    repository, and the ledger's first start would fail)."""
     query = urllib.parse.quote("SELECT version FROM ledger_schema WHERE singleton = 1")
     request = urllib.request.Request(f"{API}{origin.removeprefix(HOST)}/main?q={query}",
                                      headers={"User-Agent": "trade-deploy"})
@@ -92,12 +99,16 @@ def probe(origin: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
         raise OriginUnreadable(f"DoltHub did not answer ({type(error).__name__})") from None
     if not isinstance(value, dict):
         raise OriginUnreadable("DoltHub's answer is not an object")
-    if value.get("query_execution_status") == "Success":
-        rows = value.get("rows") or []
-        return ("data", str(rows[0].get("version"))) if rows else ("empty", None)
-    if value.get("query_execution_message") == "no such repository":
+    status, message, rows = (value.get("query_execution_status"), value.get("query_execution_message"),
+                             value.get("rows"))
+    if (status == "Success" and isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
+            and isinstance(rows[0].get("version"), (str, int))):
+        return "data", str(rows[0]["version"])
+    if status == "Error" and message == "no such repository":
         return "absent", None
-    return "empty", None  # it exists, with no ledger_schema on main: no data yet
+    if status == "Error" and message in NO_LEDGER:
+        return "empty", None
+    raise OriginUnreadable(f"DoltHub answered {str(status)[:40]}: {str(message)[:200]}")
 
 
 def archiver(data: Path, name: str, service: str, volume: bool) -> list[str]:
@@ -159,9 +170,9 @@ class Generation:
     """The release host's cutover (deploy/release.py Release.apply). It waits, with one notice, until the new
     generation's public copy holds that version's ledger (a workstation published it), no Paper runner runs, no
     Paper operation is in progress and Live is idle inside its account lock; then, with Paper's writes paused, it
-    stops the ledger and market import, archives, starts both from the version's own definition and checks that the
-    version reads the new ledger. Its journal (JOURNAL in the release state) lets the next tick finish an
-    interrupted cutover before anything else; the release itself follows on the next tick."""
+    stops the ledger and market import and archives. Each later tick takes the next step from its journal (JOURNAL
+    in the release state) before anything else: start both from the version's own definition and check that the
+    version reads the new ledger; then remove older archives. The release itself follows on the tick after."""
 
     def __init__(self, release):
         self.release, self.host = release, release.host
@@ -185,7 +196,7 @@ class Generation:
             value = self.read()
         except RuntimeError:
             return False
-        return value is not None and value["phase"] == "done"
+        return value is not None and value["phase"] in ("started", "done")
 
     def finish(self) -> None:
         """After a Web release committed on the new generation."""
@@ -238,33 +249,42 @@ class Generation:
                                         "publishes it.")
             return
         self.release.github.ensure(target)
+        self.release.live.prepare(owner, target)
+
+        def start(held_lock) -> None:
+            market = "running" if self.host.follower(MARKET_IMPORT) is not None else "stopped"
+            journal = self.write({"revision": sha, "service": service, "archive": archive_name(sha),
+                                  "phase": "archiving", "market": market})
+            print(f"Starting data generation {wanted['research']} from {wanted['origin']}; archiving into "
+                  f"{self.host.config.data / ARCHIVE / journal['archive']}", flush=True)
+            self.step(journal, held_lock)
+
+        self.hold(sha, WEB + owner, WEB + sha, service, start)
+
+    def hold(self, sha: str, owner: str, live: str, service: str | None, body) -> None:
+        """Run `body(held)` with Paper's writes paused, no Paper operation or runner left and Live idle inside its
+        account lock (`live` names the Web whose Live configuration inspects it); otherwise wait with a notice."""
         paper = self.release.paper().host
         controller = paper.disk_route()
-        self.release.live.prepare(owner, target)
         paper.switch(controller, "all")  # new Paper writes wait; normalize below, or recover() after a crash
         try:
             with paper.barrier(paper.inspect(controller)["image"]) as drained:
                 drained()  # a lifecycle operation that passed before the freeze has finished
             time.sleep(PAPER_LISTING_SECONDS)
-            if Follow(self.release, None).paper_quiet(WEB + owner) is None or self.runners():
+            if Follow(self.release, None).paper_quiet(owner) is None or self.runners():
                 self.wait(sha, "paper", "a Paper operation is in progress.")
                 return
-            with self.release.live.barrier(WEB + sha, service, idle=True) as held_lock:
+            with self.release.live.barrier(live, service, idle=True) as held_lock:
                 held_lock()
-                market = "running" if self.host.follower(MARKET_IMPORT) is not None else "stopped"
-                journal = self.write({"revision": sha, "service": service, "archive": archive_name(sha),
-                                      "phase": "archiving", "market": market})
-                print(f"Starting data generation {wanted['research']} from {wanted['origin']}; archiving into "
-                      f"{self.host.config.data / ARCHIVE / journal['archive']}", flush=True)
-                self.run(journal, held_lock)
+                body(held_lock)
         except LiveBusy as busy_live:
             self.wait(sha, "live", f"{busy_live}.")
         finally:
             paper.normalize()
 
     def resume(self, control: str) -> bool:
-        """Finish a cutover a tick left (its journal), before the tick recovers or releases anything: the ledger may
-        be stopped and its data half moved. True when it ran one."""
+        """Take the next step of a cutover a tick left (its journal), before the tick recovers or releases anything:
+        the ledger may be stopped and its data half moved. One step per tick; True when it took one or waited."""
         journal = self.read()
         if journal is None or journal["phase"] == "done":
             return False
@@ -273,16 +293,23 @@ class Generation:
             if target["revision"] != control or target["service"] is None:
                 raise RuntimeError("a data generation cutover is pending for another version; left for the operator")
             journal = self.write({**journal, "revision": control, "service": target["service"]})
-        print(f"Finishing the data generation cutover from its {journal['phase']} step", flush=True)
-        paper = self.release.paper().host
-        paper.switch(paper.disk_route(), "all")
-        try:
-            self.run(journal, lambda: None)
-        finally:
-            paper.normalize()
+        print(f"Continuing the data generation cutover from its {journal['phase']} step", flush=True)
+        if journal["phase"] == "archiving":  # it stops services: the same hold as the first pass
+            routed = self.host.disk_route()
+            self.hold(journal["revision"], routed, routed, None, lambda held: self.step(journal, held))
+        elif journal["phase"] == "archived":
+            paper = self.release.paper().host
+            paper.switch(paper.disk_route(), "all")
+            try:
+                self.step(journal, lambda: None)
+            finally:
+                paper.normalize()
+        else:
+            self.step(journal, lambda: None)
         return True
 
-    def run(self, journal: dict, held) -> None:
+    def step(self, journal: dict, held) -> None:
+        """One step of the cutover from the journal's phase; each can run again after an interruption."""
         sha, service, data = journal["revision"], journal["service"], self.host.config.data
         if journal["phase"] == "archiving":
             for name in (MARKET_IMPORT, LEDGER):
@@ -291,13 +318,13 @@ class Generation:
             if self.host.exists(LEDGER):
                 self.host.docker("rm", LEDGER)  # it holds the volume
             held()
-            volume = VOLUME in self.host.docker("volume", "ls", "--format", "{{.Name}}").splitlines()
-            self.host.docker(*archiver(data, journal["archive"], service, volume), timeout=3600)
-            if volume:
-                self.host.docker("volume", "rm", VOLUME)
-            journal = self.write({**journal, "phase": "archived"})
-            held()
-        if journal["phase"] == "archived":
+            self.host.docker(*archiver(data, journal["archive"], service, False), timeout=ARCHIVE_SECONDS)
+            if VOLUME in self.host.docker("volume", "ls", "--format", "{{.Name}}").splitlines():
+                self.host.docker("volume", "rm", VOLUME)  # a mirror: the old generation's repository holds it
+            self.write({**journal, "phase": "archived"})
+            print(f"Archived the ledger's data in {data / ARCHIVE / journal['archive']}; the next tick starts the "
+                  "new generation's ledger", flush=True)
+        elif journal["phase"] == "archived":
             files = self.host.definition(service, sha)
             env = images(self.release.github, {"revision": sha, "service": service})
             # No --force-recreate: a ledger a resumed cutover finds already started is waited for, never restarted
@@ -308,9 +335,12 @@ class Generation:
                 self.host.compose(files, "up", "--detach", "--no-deps", "--pull", "never", "market-import", env=env)
             if self.release.paper().host.generations(service):
                 raise RuntimeError("the new data generation's ledger is not the version's schema generation")
+            self.write({**journal, "phase": "started"})
+            print(f"Data generation started for {sha}; the next tick removes older archives", flush=True)
+        elif journal["phase"] == "started":
             removed = self.host.docker(*pruner(data, journal["archive"], service), timeout=1800)
             self.write({**journal, "phase": "done"})
-            print(f"Data generation started for {sha}; archived in {data / ARCHIVE / journal['archive']}"
+            print(f"Data generation cutover done; archived in {data / ARCHIVE / journal['archive']}"
                   + (f", removed older archives {removed}" if removed else ""), flush=True)
 
 

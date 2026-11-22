@@ -7,9 +7,11 @@
   itself, replacing the manual "Starting a new data generation" steps. `deploy/update.sh` publishes the old ledger,
   creates the new DoltHub repository when it is missing (with a DoltHub API token in `TRADE_DOLTHUB_TOKEN_FILE`,
   default `$TRADE_DATA/dolthub-token`; without one it stops first and names the repository to create), archives the
-  ledger's data into `$TRADE_DATA/archive/` and starts the new ledger, which publishes it. The release host waits,
-  with one notice, until that ledger is published, no Paper runner runs and Live is idle, then archives the same way,
-  starts the ledger mirror and market import from the version's definition and releases the version on the next tick.
+  ledger's data into `$TRADE_DATA/archive/` and starts the new ledger, which publishes it; a failed publish of the old
+  ledger stops it before anything changes. The release host waits, with one notice, until that ledger is published,
+  no Paper runner runs and Live is idle, then archives the same way (its volume, a mirror of the old repository, is
+  removed, not kept), and on the following ticks starts the ledger mirror and market import from the version's
+  definition, removes older archives and releases the version, one step per tick.
   Only the newest archive is kept on either. Both finish an interrupted cutover from its step
   (deploy/README.md Updating; deploy/remote/README.md, A version that starts a new data generation).
 - Release workflow: a version that changes `SCHEMA_VERSION` or `PAPER_SCHEMA_VERSION` since the newest release must

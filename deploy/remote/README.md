@@ -117,18 +117,21 @@ Then the tick stops `ledger` and `market-import`, removes the ledger's container
 version's service image with no network, what the ledger service left: the contents of `$TRADE_DATA/dolt` (the
 `paper` directory itself stays, emptied: the Paper controller and docker-api bind mount it), `ledgers` and
 `dolt-backups`, renamed into `$TRADE_DATA/archive/<UTC time>-<revision>/` (one file system: a rename, never a copy),
-and the `trade-dolt-data` volume as `trade-dolt-data.tgz` there before the volume is removed. It starts the ledger
-from the version's own compose definition and waits for its health check (the mirror's first start clones the new
-generation and makes an empty Paper database), starts market import again if it ran, and checks that the version
-reads the new ledger. It then removes every other archive it named, so only the previous generation's stays, and
-resumes Paper's writes. The market directory has no generation and stays as it is. The next tick releases the
-version as any other; until then the routed earlier version cannot read the new ledger.
+and removes the `trade-dolt-data` volume, which only mirrors the old generation's DoltHub repository. The next tick
+starts the ledger from the version's own compose definition and waits for its health check (the mirror's first start
+clones the new generation and makes an empty Paper database), starts market import again if it ran, and checks that
+the version reads the new ledger. The tick after removes every other archive it named, so only the previous
+generation's stays. Each of these ticks pauses Paper's writes while it works, and the tick that archives holds the
+same conditions as above; one step per tick keeps each tick within the release unit's start timeout. The market
+directory has no generation and stays as it is. The tick after the cutover releases the version as any other; until
+then the routed earlier version cannot read the new ledger.
 
-`/var/lib/trade-release/generation.json` records the cutover's step. A tick that finds it unfinished (a crash, a
-failed start) goes on from that step before it recovers or releases anything, never archiving twice. Once the cutover
-is done it stays until a version's Web release commits: until then a failed release rolls back to the earlier
-version without waiting for it to answer healthy, since it cannot read the new ledger. Watch it with `journalctl -u
-trade-release.service` (`Starting data generation`, `Data generation started`) and the notices.
+`/var/lib/trade-release/generation.json` records the cutover's step. Every tick takes the next step before it
+recovers or releases anything, never archiving twice; a tick that would archive again after a crash waits for the
+same Paper and Live conditions first. Once the new ledger runs the journal stays until a version's Web release
+commits: until then a failed release rolls back to the earlier version without waiting for it to answer healthy,
+since it cannot read the new ledger. Watch it with `journalctl -u trade-release.service` (`Starting data generation`,
+`Archived the ledger's data`, `Data generation started`, `Data generation cutover done`) and the notices.
 
 ### Compose services
 

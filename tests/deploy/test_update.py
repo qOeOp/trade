@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.error
 
 from deploy import generation
@@ -126,6 +126,7 @@ class Workstation(Fake):
         self.data, self.volume = data, volume
         self.unread = {"research"}
         self.published = True
+        self.stored = f"{BASE}-g2"  # where the running ledger publishes
         self.volumes = {generation.VOLUME}
 
     def __call__(self, *args: str, check: bool = True) -> str:
@@ -148,6 +149,8 @@ class Workstation(Fake):
 
     def result(self, *args: str):
         self.calls.append(args)
+        if args[0] == "exec" and "status" in args:
+            return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps({"running": True, "remote": self.stored}))
         if args[0] == "exec":
             return SimpleNamespace(returncode=0 if self.published else 1, stderr="PUBLISH_FAILED",
                                    stdout=json.dumps({"remote": BASE}) if self.published else "")
@@ -169,7 +172,8 @@ class DoltHub:
             return io.BytesIO(b"{}")
         if self.state == "data":
             return io.BytesIO(json.dumps({"query_execution_status": "Success", "rows": [{"version": "2"}]}).encode())
-        message = "no such repository" if self.state == "absent" else "table not found: ledger_schema"
+        message = {"absent": "no such repository", "empty": "query error: table not found: ledger_schema"}.get(
+            self.state, "query error: something else")
         raise urllib.error.HTTPError(request.full_url, 400, "", {}, io.BytesIO(json.dumps(
             {"query_execution_status": "Error", "query_execution_message": message}).encode()))
 
@@ -200,6 +204,15 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(self.cutover.unread({}), {}, "a first start has nothing to compare")
         with self.assertRaisesRegex(RuntimeError, "not running"):
             self.cutover.unread({"ledger": {"state": "exited"}})
+
+    def test_a_ledger_of_this_generation_publishing_elsewhere_is_refused(self):
+        self.docker.unread = set()
+        self.docker.stored = BASE  # generation 1's repository, while the version names generation 2's
+        with self.assertRaisesRegex(RuntimeError, f"publishes to {BASE}, but .*{BASE}-g2"):
+            self.cutover.unread(self.running)
+        self.assertFalse(self.stopped())
+        self.env.write_text(f"TRADE_DATA={self.data}\n")
+        self.assertEqual(self.cutover.unread(self.running), {}, "without a base there is nothing to compare")
 
     def test_a_new_generation_archives_the_ledger_and_starts_it_alone_first(self):
         older = self.data / generation.ARCHIVE / ("20260101T000000Z-" + "c" * 12)
@@ -246,11 +259,21 @@ class CutoverTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "schema generation 2, not 3"):
             self.cutover.begin({"research": "3"}, check=False)
         self.docker.published = False
-        with self.assertRaisesRegex(RuntimeError, "only the Paper database"):
-            self.cutover.begin({"paper": "2"}, check=False)
-        self.env.write_text(f"TRADE_DATA={self.data}\n")
-        with self.assertRaisesRegex(RuntimeError, "names no TRADE_RESEARCH_ORIGIN"):
+        for found in ({"paper": "2"}, {"research": "2"}, {"research": "2", "paper": "2"}):
+            with self.subTest(found=found), self.assertRaisesRegex(RuntimeError, "publish failed"):
+                self.cutover.begin(found, check=False)
+        self.assertFalse([call for call in self.docker.calls if call[0] == "run" and generation.ORIGIN in call],
+                         "a failed publish refuses before anything else")
+        self.hub.state = "unknown"  # DoltHub answers something that is neither a repository nor its absence
+        self.docker.published = True
+        with self.assertRaises(generation.OriginUnreadable):
             self.cutover.begin({"research": "2"}, check=False)
+        self.assertFalse([request for request in self.hub.requests if request.get_method() == "POST"])
+        self.env.write_text(f"TRADE_DATA={self.data}\n")
+        self.hub.state = "absent"
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            self.cutover.begin({"research": "2"}, check=False)
+        self.assertNotIn("TRADE_RESEARCH_ORIGIN", read_env(self.env), "a refusal leaves the env file as it was")
         self.assertIsNone(self.cutover.begin({"research": "2"}, check=True))
         self.assertFalse(self.cutover.journal.exists())
         self.assertFalse(self.stopped())
@@ -272,6 +295,29 @@ class CutoverTests(unittest.TestCase):
         self.cutover.journal.write_text('{"phase": "done"}')
         with self.assertRaisesRegex(RuntimeError, "not a cutover journal"):
             self.cutover.pending()
+
+
+class MainTests(unittest.TestCase):
+    def test_a_refused_cutover_leaves_the_env_file_and_the_definition_as_they_were(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            volume = fill(data)
+            env = data / ".env"
+            before = f"TRADE_DATA={data}\nTRADE_RESEARCH_ORIGIN={BASE}\nTRADE_SERVICE_IMAGE=old\n"
+            env.write_text(before)
+            docker = Workstation(data, volume)
+            source = Mock()
+            source.git.return_value = "services: {}\n"
+            with patch("deploy.update.paper_busy", return_value=[]), \
+                    patch("deploy.update.services", return_value={"ledger": {"state": "running", "revision": None}}), \
+                    patch("deploy.update.channel_source", return_value=(source, "deploy")), \
+                    patch("deploy.update.resolve", return_value=(ADMITTED, {"TRADE_SERVICE_IMAGE": SERVICE})), \
+                    patch("deploy.update.urllib.request.urlopen", DoltHub("absent")), \
+                    self.assertRaisesRegex(RuntimeError, "does not exist"):
+                main(["--env", str(env), "--arch", "arm64"], docker)
+            self.assertEqual(env.read_text(), before)
+            self.assertFalse((data / "deploy" / ADMITTED).exists())
+            self.assertFalse([call for call in docker.calls if call[0] == "compose"])
 
 
 def fill(data: Path) -> Path:
