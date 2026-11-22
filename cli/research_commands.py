@@ -165,13 +165,19 @@ class {entry_class}(Strategy):
 
 
 
+def _header_block(template: str) -> str:
+    """The docstring in strategy-header.md's text block, quotes included: the header a new source fills in."""
+    block = template.split("```text\n", 1)[1].split("\n```", 1)[0].strip()
+    assert block.startswith('"""') and block.endswith('"""')  # the packaged template's shape
+    return block
+
+
 def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
     """candidate new: a strategy scaffold in a new temporary directory; writes no ledger."""
     directory = _new_temporary(output)
     if not entry_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
-    header = TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8")
-    header = '"""' + header.replace('"""', "'''").strip() + '\n"""'
+    header = _header_block(TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8"))
     directory.mkdir(mode=0o700, parents=True)
     (directory / "strategy.py").write_text(STRATEGY_STUB.format(header=header, entry_class=entry_class),
                                            encoding="utf-8")
