@@ -280,7 +280,8 @@ Refusals are sorted by what fixes them:
 - **Until the process restarts:** any refusal of bars stops bars; other content refusals and uncoded errors stop the
   contract's kind; a refusal about the whole directory stops everything.
 
-Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
+Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily, except bars: their import
+waits for the newest closed day's archives however far behind it is, so lagging bars are polled hourly.
 `market.follow.check()` is the healthcheck: unhealthy while anything is stopped, lagging or unknown, or while
 the status is older than 26 hours; skipped months are not.
 

@@ -340,6 +340,12 @@ class RoundOrderTests(unittest.TestCase):
         self.assertEqual(status["kinds"]["bars"]["scope"]["state"], "waiting")
         self.assertEqual(status["next_round"], (at(date(2025, 3, 3)) + follow.HOURLY).isoformat())
 
+    def test_bars_behind_keep_the_rounds_hourly(self):
+        now = at(date(2025, 3, 10))  # bars and metrics hold March 1 only: both lagging, nothing waiting
+        status, _ = self.run_round(follow.Memory(), now=now)
+        self.assertEqual(status["kinds"]["bars"]["scope"]["state"], "lagging")
+        self.assertEqual(status["next_round"], (now + follow.HOURLY).isoformat())
+
     def test_a_failure_between_imports_is_retried_and_one_about_the_market_stops_everything(self):
         def monthly_(kind, *args):
             raise refusal("MARKET_UNREACHABLE")
