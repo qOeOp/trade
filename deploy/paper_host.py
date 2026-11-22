@@ -2,12 +2,14 @@
 
 from contextlib import contextmanager, suppress
 import json
+import re
 import select
 import subprocess
 
 from .release_host import (
     BACKEND,
     DOCKER_API_NETWORK,
+    DockerFailure,
     LEDGER,
     UNPRIVILEGED,
     Config,
@@ -18,6 +20,7 @@ from .release_host import (
     contained,
     limits,
     durable_json,
+    printed_refusal,
     proxy,
     revision,
     router,
@@ -41,6 +44,9 @@ print(json.dumps(out))
 PAPER = "trade-release-paper-"
 PAPER_ROUTER = "trade-ide-paper-router-1"
 CONTROLLERS = "trade-ide_trade-paper-controller"
+# The databases a version reads on the host's ledger service, each by its profile in CONTROLLERS.
+DATABASES = ("research", "paper")
+GENERATION = re.compile(r"[0-9]{1,4}\Z")
 
 
 def route_config(name: str, freeze: str | None = None) -> dict:
@@ -221,6 +227,26 @@ class PaperHost(DockerHost):
             f"--release-name={name}",
         )
         self.docker("network", "connect", DOCKER_API_NETWORK, name)
+
+    def generations(self, service: str) -> dict[str, str]:
+        """The databases on the host's ledger service that the version of service image `service` does not read: each
+        one its own `ledger service check` (the ledger's health check) refuses with SCHEMA_MISMATCH, mapped to the
+        schema generation that version expects ("" when its refusal names none). The check runs read-only in a
+        container of that image with the Paper controller's profiles. Any other failure raises."""
+        found = {}
+        for database in DATABASES:
+            try:
+                self.docker("run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=16777216",
+                            *limits("256m", "0.5"), *self.common(), "--env", "HOME=/tmp", service,
+                            "python", "-m", "cli.main", "ledger", "service", "check", "--ledger", database,
+                            timeout=180)
+            except DockerFailure as error:
+                refusal = printed_refusal(error.stderr)
+                if refusal is None or refusal["code"] != "SCHEMA_MISMATCH":
+                    raise
+                expected = refusal.get("expected")
+                found[database] = expected if isinstance(expected, str) and GENERATION.fullmatch(expected) else ""
+        return found
 
     def runtime(self, name: str) -> str:
         return runtime_default(json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))

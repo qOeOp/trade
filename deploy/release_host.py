@@ -304,7 +304,20 @@ class DockerFailure(RuntimeError):
 
     def __init__(self, command: str, status: int, stderr: str):
         super().__init__(f"docker {command} failed: {stderr}")
-        self.command, self.status = command, status
+        self.command, self.status, self.stderr = command, status, stderr
+
+
+def printed_refusal(stderr: str) -> dict | None:
+    """The refusal a product command printed on stderr (cli.main: one JSON object, the stream's last output), None
+    when it ends in none. shared.errors.printed_refusal, which this host's Python cannot import."""
+    text = stderr.rstrip()
+    for start in reversed([match.start() for match in re.finditer(r"^\{", text, re.MULTILINE)]):
+        try:
+            value = json.loads(text[start:])
+        except ValueError:
+            continue
+        return value if isinstance(value, dict) and isinstance(value.get("code"), str) else None
+    return None
 
 
 class DockerHost:

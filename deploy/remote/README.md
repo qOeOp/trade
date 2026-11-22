@@ -80,6 +80,25 @@ A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
 admitted version ([Release control code](#release-control-code)).
 
+### A version that needs a new ledger generation
+
+Before its journal, a release runs the candidate's own `ledger service check` on the research mirror and on the Paper
+database, read-only, in a container of the candidate's service image with the Paper controller's profiles. When the
+candidate refuses either with `SCHEMA_MISMATCH` (its code reads another schema generation; [`CHANGELOG.md`](../../CHANGELOG.md)
+names the version that starts one), the release waits: nothing changes and nothing is marked failed, the tick prints
+which database and generation, one Telegram notice says the same ([Notices](#notices)), and every tick checks again.
+Any other failure of the check fails the tick before the journal, as a pull does.
+
+Moving the host to the new generation is the owner's step, since it replaces the host's ledger: the mirror keeps the
+origin it first cloned (`REMOTE_MISMATCH` otherwise), and the Paper database lives in the same service directory and
+`trade-dolt-data` volume. [Pause releases](#pausing-releases); keep a copy of what the Paper database holds that
+should outlive it; stop the ledger and empty its service directory and volume as for a first start (install steps 4
+and 5 below); set `TRADE_RESEARCH_ORIGIN` to the new generation's public DoltHub repository; name the waiting
+version's images (`python3 -m deploy.images --revision <revision> --env /etc/trade/remote.env`) and start the ledger
+with the `compose` of step 6 below: its control already handed over and copied its compose files there. The routed Web
+of the earlier version cannot read the new ledger until the release, which the next tick runs once the timer is
+started again.
+
 ### Ledger mirror and market import
 
 The compose services `ledger` (`ledger mirror`) and `market-import` run the service image too, and follow the version
@@ -190,7 +209,8 @@ explicit request recovery for an uncertain response instead of submitting anothe
 
 ### Notices
 
-The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed; a routed Web
+The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed; an admitted
+version that waits for the host's ledger generation ([above](#a-version-that-needs-a-new-ledger-generation)); a routed Web
 that does not answer, or whose Market overview, Agent or Paper controller health fails through the router; a
 `ledger` or `market-import` container that is unhealthy, whose last exit was out of memory, or that restarted (sent
 at 1, 2, 4, ... restarts); a Paper run that stopped and could not resume; and a research ledger whose publish has

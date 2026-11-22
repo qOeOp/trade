@@ -9,10 +9,8 @@ import argparse
 import contextlib
 from datetime import datetime, UTC
 import fcntl
-import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import time
@@ -34,8 +32,6 @@ from .release_host import (
     SERVICE_IMAGE,
     SERVICE_REF,
     RUNTIME_REF,
-    REVISION,
-    SOURCE,
     WEB,
     Config,
     DockerHost,
@@ -47,22 +43,7 @@ from .release_host import (
     until_ready,
 )
 from .notices import Notices
-from .runtime_inputs import DOCKERFILE, project
-
-
-# Paths outside the images' build context (deploy/Dockerfile.dockerignore), plus top-level *.md: a diff touching
-# only these changes no container.
-OUTSIDE_IMAGE = ("docs/", "tests/", ".agents/", ".github/")
-OUTSIDE_IMAGE_FILES = frozenset({"deploy/README.md"})
-# What the Agent never loads, beside those paths: it runs ide/agent and the product's Python but never the browser,
-# the overview or deploy's host modules; deploy/Dockerfile, which builds its image, is a change.
-AGENT_UNCHANGED = ("ide/web/", "ide/overview/", "deploy/")
-# What a version's deploy/compose.yaml pins docker-api to, with or without TRADE_DOCKER_API_IMAGE around it.
-DOCKER_API_PIN = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}")
-
-
-def outside_image(path: str) -> bool:
-    return path.startswith(OUTSIDE_IMAGE) or path in OUTSIDE_IMAGE_FILES or ("/" not in path and path.endswith(".md"))
+from .source import GitSource, SourceUnreachable
 
 
 def source_line(error: BaseException, outside: str | None = None) -> str | None:
@@ -82,17 +63,6 @@ def failure_origin(error: BaseException) -> str:
     name = kind.__qualname__ if kind.__module__ == "builtins" else f"{kind.__module__}.{kind.__qualname__}"
     where = source_line(error)
     return f"{name} at {where}" if where else name
-
-
-class SourceUnreachable(RuntimeError):
-    """A public git command against GitHub failed: `command` names it, never its output. `first` is set on a fetch
-    whose previous fetch succeeded: a brief GitHub outage fails one tick and the next fetch succeeds (production,
-    2026-11-19), so only a second failure in a row is noticed."""
-
-    def __init__(self, command: str):
-        super().__init__(f"public git {command} failed")
-        self.command = command
-        self.first = False
 
 
 def failure_summary(error: Exception) -> str:
@@ -171,133 +141,6 @@ PAPER_OPERATIONS = frozenset({"stopping", "ended", "unsealed"})
 PAPER_LISTING_SECONDS = 3  # past the Paper controller's listing cache (paper/serve.py LIST_SECONDS)
 
 
-class GitSource:
-    """Consume the append-only CI eligibility channel, not mutable image tags or host API credentials."""
-
-    def __init__(self, state: Path):
-        self.state = state
-        self.repo = state / "source.git"
-
-    def git(self, *args: str, raw: bool = False) -> str:
-        env = {
-            "PATH": os.defpath,
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-        result = subprocess.run(
-            ["git", "-c", "credential.helper=", "--git-dir", str(self.repo), *args],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        if result.returncode:
-            raise SourceUnreachable(args[0])
-        return result.stdout if raw else result.stdout.strip()
-
-    def refresh(self) -> None:
-        self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if not self.repo.exists():
-            subprocess.run(["git", "init", "--bare", str(self.repo)], check=True, capture_output=True)
-        self.git("config", "remote.origin.url", f"{SOURCE}.git")
-        self.git("config", "remote.origin.promisor", "true")
-        self.git("config", "remote.origin.partialclonefilter", "blob:none")
-        # git empties FETCH_HEAD when a fetch starts and fills it only when the fetch gets the refs, so a non-empty
-        # one says the previous fetch succeeded.
-        head = self.repo / "FETCH_HEAD"
-        succeeded = head.exists() and head.stat().st_size > 0
-        try:
-            self.git(
-                "fetch",
-                "--atomic",
-                "--filter=blob:none",
-                "origin",
-                "refs/heads/main:refs/heads/main",
-                "refs/heads/deploy-ready:refs/heads/deploy-ready",
-            )
-        except SourceUnreachable as error:
-            error.first = succeeded
-            raise
-
-    def ancestor(self, before: str, after: str) -> bool:
-        if not REVISION.fullmatch(before) or not REVISION.fullmatch(after):
-            return False
-        result = subprocess.run(
-            ["git", "--git-dir", str(self.repo), "merge-base", "--is-ancestor", before, after],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-
-    def agent_changed(self, before: str, after: str) -> bool:
-        if not self.ancestor(before, after):
-            raise RuntimeError("Agent revision is not an ancestor of the candidate")
-        paths = self.git("diff", "--no-renames", "--name-only", before, after).splitlines()
-        return any(path == "deploy/Dockerfile" or not (outside_image(path) or path.startswith(AGENT_UNCHANGED))
-                   for path in paths)
-
-    def docker_api(self, sha: str) -> str:
-        """The docker-api digest `sha`'s deploy/compose.yaml pins: a version's proxy, which CI does not admit."""
-        if not REVISION.fullmatch(sha):
-            raise RuntimeError("invalid docker-api revision")
-        pins = set(DOCKER_API_PIN.findall(self.git("show", f"{sha}:deploy/compose.yaml")))
-        if len(pins) != 1:
-            raise RuntimeError("the version pins no single docker-api digest")
-        return pins.pop()
-
-    def runtime_inputs(self, sha: str) -> tuple:
-        if not REVISION.fullmatch(sha):
-            raise RuntimeError("invalid runtime input revision")
-        entries = []
-        for row in self.git("ls-tree", "-r", "-z", sha, raw=True).split("\0"):
-            if row:
-                facts, path = row.split("\t", 1)
-                mode, kind, identity = facts.split(" ")
-                entries.append({"path": path, "mode": mode, "type": kind, "sha": identity})
-        return project(entries, self.git("show", f"{sha}:{DOCKERFILE}", raw=True))
-
-    def require_runtime(self, runtime_source: str, target: str) -> None:
-        """The OCI label was checked by the consumer; now bind its inputs to the target."""
-        if not self.ancestor(runtime_source, target):
-            raise RuntimeError("admitted runtime is not an ancestor of its service source")
-        if self.runtime_inputs(runtime_source) != self.runtime_inputs(target):
-            raise RuntimeError("admitted runtime build inputs do not match its service source")
-
-    def approved(self) -> dict:
-        self.refresh()
-        value = json.loads(self.git("show", "refs/heads/deploy-ready:release.json"))
-        if set(value) != {"revision", "image", "service", "runtime"} or not isinstance(value["revision"], str):
-            raise RuntimeError("unrecognized CI eligibility record")
-        sha = value["revision"]
-        if not REVISION.fullmatch(sha) or not self.ancestor(sha, self.git("rev-parse", "refs/heads/main")):
-            raise RuntimeError("CI eligibility subject is not on main")
-        image = value["image"]
-        if image is not None and (not isinstance(image, str) or not IMAGE_REF.fullmatch(image)):
-            raise RuntimeError("CI eligibility has no exact native image identity")
-        for field, pattern in (("service", SERVICE_REF), ("runtime", RUNTIME_REF)):
-            ref = value[field]
-            if ref is not None and (not isinstance(ref, str) or not pattern.fullmatch(ref)):
-                raise RuntimeError(f"CI eligibility has no exact {field} identity")
-        if image is not None and (value["service"] is None or value["runtime"] is None):
-            raise RuntimeError("admitted Web release has no admitted execution images")
-        return value
-
-    def choose(self, active: str, failed: Path) -> dict | None:
-        """The admitted record newer than `active`."""
-        target = self.approved()
-        sha = target["revision"]
-        if target["image"] is None or sha == active or (failed / sha).exists():
-            return None
-        return target if self.ancestor(active, sha) else None
-
-    def ensure(self, target: dict) -> None:
-        if self.approved() != target:
-            raise RuntimeError("CI eligibility was withdrawn or superseded during preparation")
-
-
 # A compose service a move put back (Release.move) is created after the routed Web, as one the operator recreated is.
 # Either is moved again once it is FOLLOW_RETRY_SECONDS old, while it was created within
 # (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS of the Web: each undone move leaves a container at least that much
@@ -362,6 +205,7 @@ class Release:
         self.failed = self.state / "failed"
         self.live = live or LiveHost(host, github)
         self._paper = paper
+        self.waits: dict[str, str] = {}  # why the admitted version waits this tick, as notice facts (deploy/notices.py)
 
     def stop_controls(self, kept: str) -> None:
         """Inside the account lock, once the route is committed: stop every Live control but `kept`'s. A failure
@@ -509,10 +353,13 @@ class Release:
         self.host.pull(image, IMAGE_REF, sha)
         paper = self.paper()
         paper_plan = paper.prepare(target)  # its refusals journal nothing
+        # Read before the journal (a failure here journals nothing), and before a wait, whose step uses the files.
+        self.host.definition(target["service"], sha)
+        if self.generations(target):
+            return
         self.github.ensure(target)
         agent_before = agent if change_agent else None
         self.live.prepare(owner, target)
-        self.host.definition(target["service"], sha)  # read before the journal: a failure here journals nothing
         try:
             with self.live.barrier(candidate, target["service"], idle=True) as held:
                 held()
@@ -581,6 +428,27 @@ class Release:
             self.retire_webs(candidate)  # the previous Web held its memory until the next release
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("previous", error)  # the next release's admission stops it
+
+    def generations(self, target: dict) -> bool:
+        """Whether the version waits for the host's ledger service to hold the schema generations its code reads: its
+        own `ledger service check` refuses a database with SCHEMA_MISMATCH (PaperHost.generations). Before the
+        journal, so a ledger generation the owner has not moved the host to yet changes nothing and marks nothing
+        failed; every tick asks again (doctor 20261122-30)."""
+        sha = target["revision"]
+        found = self.paper().host.generations(target["service"])
+        if not found:
+            return False
+        named = " and ".join(f"the {database} database" + (f" (its code reads generation {generation})"
+                                                           if generation else "")
+                             for database, generation in sorted(found.items()))
+        print(f"Version {sha} does not read the schema generation of {named} on the host; the release waits",
+              flush=True)
+        self.waits[f"wait:generation:{sha}:{','.join(sorted(found))}"] = (
+            f"Version {sha[:12]} waits before its release: the host's ledger service holds another schema generation "
+            f"of {named} than its code reads (SCHEMA_MISMATCH). Nothing was changed or marked failed, and every tick "
+            "checks again. Moving the host to that generation is the owner's step: deploy/remote/README.md, A version "
+            "that needs a new ledger generation.")
+        return True
 
     def paper(self) -> PaperRelease:
         if self._paper is None:
@@ -852,8 +720,11 @@ def main() -> None:
 def tick(host: DockerHost, notices: Notices) -> bool:
     """One timer tick, then the failure notices of what it and the routed Web saw; True when it handed control over."""
     try:
-        handed = Release(host, GitSource(host.state)).tick()  # it prepares the host after any handoff
+        release = Release(host, GitSource(host.state))
+        handed = release.tick()  # it prepares the host after any handoff
         notices.released(None)
+        if not handed:  # a handoff's second tick, under the new control, says what that version waits for
+            notices.observe("wait", release.waits)
         return handed
     except Exception as error:
         # A fetch that failed right after one that succeeded leaves the release kind unobserved: what was sent

@@ -32,6 +32,7 @@ class Host:
         self.failure = None
         self.web = Mock()
         self.web.disk_route.return_value = WEB + A  # the Web release has not committed B
+        self.unread = {}  # PaperHost.generations: the databases the candidate's code does not read
 
     def exists(self, name):
         return name in self.running
@@ -50,6 +51,9 @@ class Host:
 
     def memory_available(self):
         return True
+
+    def generations(self, service):
+        return self.unread
 
     def protected(self):
         return {"native-runner": {"id": "same", "started": "same", "image": "original"}}
