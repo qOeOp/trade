@@ -1,0 +1,2 @@
+- Removed: product-doctor's skill-usage heat map (`skill_heat.py`, its page, its test and `docs/plans/doctor/skill-heat.jsonl`); a full audit no longer runs it.
+- `skill-names` rule 2 no longer follows five external host transcript fields (`EXTERNAL`: `session_meta`, `parent_thread_id`, `tool_use`, `custom_tool_call`, `function_call`) that skill text cites exactly.
