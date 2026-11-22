@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { LineageNode, Targets } from "../../model/types";
 import type { FoldBar } from "../../model/lineageTree";
-import { PREDICTION, ROLE } from "../../model/semantics";
+import { ROLE } from "../../model/semantics";
 import { RoleMark } from "../../icons/marks";
 import { hoverProps, toggleBranch } from "../../state/linking";
 import { useIsSelected } from "../../state/selection";
@@ -16,12 +16,12 @@ import { MARK_CENTRE } from "./geometry";
 export type VersionData = LineageNode & { targets: Targets | null };
 export type FoldData = FoldBar & { targets: Targets | null };
 
+// Its role and change; the prediction mark says its own on hover.
 function NodeTip({ data }: { data: VersionData }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5 text-fg-muted">
         <RoleMark role={data.role} size={12} />{ROLE[data.role]?.label}
-        {data.prediction !== "none" && <span>· {PREDICTION[data.prediction].label}</span>}
       </div>
       {data.change && <div className="line-clamp-3 text-fg-faint">{data.change}</div>}
     </div>

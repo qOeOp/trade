@@ -68,6 +68,9 @@ class LayoutTests(unittest.TestCase):
                          {"root@1": "masked", "a@1": "recommended", "b@1": "below_targets"})
         self.assertEqual((nodes["a@1"]["prediction"], nodes["b@1"]["prediction"], nodes["root@1"]["prediction"]),
                          ("held", "mixed", "none"))
+        self.assertEqual(nodes["b@1"]["failed_predictions"], ["n"], "a mixed mark names the prediction that failed")
+        self.assertEqual({r["id"]: r["failed_predictions"] for r in widgets["table"]["rows"]},
+                         {"root@1": [], "a@1": [], "b@1": ["n"]})
         segment, = tree["trail"]
         self.assertEqual(segment["candidate"], "a@1")
         self.assertEqual(segment["x0"], 4.5, "a timed event sits halfway through the gap after its last trial")

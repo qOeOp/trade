@@ -82,6 +82,11 @@ def prediction(candidate: dict) -> str:
     return "held" if set(outcomes) == {"held"} else "failed" if set(outcomes) == {"failed"} else "mixed"
 
 
+def failed_predictions(candidate: dict) -> list[str]:
+    """The measures of the predictions that failed, so a mixed mark can say which (D-113)."""
+    return [p["measure"] for p in candidate.get("predictions") or [] if p.get("outcome") == "failed" and p.get("measure")]
+
+
 class Clock:
     """Maps a time to an x from (time, trial x) anchors that rise together."""
 
@@ -168,7 +173,7 @@ def build_view(graph: dict) -> dict:
         last = runs[-1] if runs else {}
         nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
                       "role": c.get("status"), "change": c.get("change"),
-                      "prediction": prediction(c), "trials": [t["trial_id"] for t in c.get("trials") or []],
+                      "prediction": prediction(c), "failed_predictions": failed_predictions(c), "trials": [t["trial_id"] for t in c.get("trials") or []],
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
@@ -228,7 +233,7 @@ def build_view(graph: dict) -> dict:
                     if t.get("annual_return") is not None and t.get("max_drawdown") is not None]},
         {"type": "table", "targets": targets,
          "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
-                   "prediction": prediction_of[c["id"]], "first_trial": first_trial(c), "runs": len(research_runs(c)),
+                   "prediction": prediction_of[c["id"]], "failed_predictions": failed_predictions(c), "first_trial": first_trial(c), "runs": len(research_runs(c)),
                    **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in MEASURES}}
                   for c in candidates]},
         {"type": "notes", "items": graph["gaps"]},

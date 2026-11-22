@@ -10,7 +10,8 @@ const runs = [];
 const { VersionTable, VersionTableTools } = await loader({ stubs: {
   "widgets/useFolded": { useFolded: () => folded, useFoldable: () => foldable, fold: () => runs.push("fold"), unfold: () => runs.push("unfold") },
   "widgets/runs/VersionMenu": { VersionMenu: ({ children }) => children },
-  "icons/marks": { RoleMark: () => null, PredictionMark: () => null },
+  "icons/marks": { RoleMark: () => null },
+  "widgets/PredictionMark": { PredictionMark: () => null },
   "icons/Icon": { Icon: () => null },
   "state/selection": { useSelection: () => null, select: () => {} },
   "state/linking": { requestFocus: () => {}, hoverProps: () => ({}) },
