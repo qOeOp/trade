@@ -215,7 +215,7 @@ def _ledger_init(args):
 def _ledger_service(args):
     from ledger import service
     if args.action == "check":
-        return service.check(db.profile(args.ledger))
+        return service.check(db.profile(args.ledger, holds=None))  # each database its own schema
     if args.action == "run":
         if not (args.service_root and args.data_dir and args.backup_root):
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")

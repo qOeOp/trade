@@ -434,6 +434,8 @@ class CommandTests(unittest.TestCase):
         self.refused("LEDGER_KIND", "candidate", "list", "--ledger", "probe-paper", env=env)
         self.refused("LEDGER_KIND", "paper", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "status", "--ledger", "probe-paper", env=env)["running"])
+        # The release reads every database's generation through the health check, the Paper one included.
+        self.assertTrue(self.ok("ledger", "service", "check", "--ledger", "probe-paper", env=env)["running"])
 
     def test_market_init_makes_a_directory(self):
         root = self.tmp / "market-kept"
