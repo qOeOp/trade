@@ -32,10 +32,23 @@ product cause and current-main status.
 Check applicable research instructions against the session, ambiguous or conflicting guidance,
 strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
 Distinguish faithful execution from justified interpretation: what observation supports the
-claim, what alternatives remain, and what information the next step could add? Assess product
-support for that reasoning without making research selections or claiming economic validity:
-how hypotheses reach a mechanism and prior work (`research-sources`), and whether a stop or
-switch rule can separate the compared effects on the window it runs on.
+claim, what alternatives remain, and what information the next step could add? Judge whether the
+method and the product's support for it hold: how hypotheses reach a mechanism and prior work
+(`research-sources`), and whether a stop or switch rule can separate the compared effects on the
+window it runs on. Never pick candidates or claim a strategy is profitable.
+
+A full audit also reads each line's history longitudinally through the product's read commands
+(`research status`, `research state`, `research history`, `hypothesis compare`, `replay report`) and the versions'
+source diffs, never ad hoc SQL against the active ledger, and reports:
+- a headline that improves while the worst sub-period or the result without the top instrument
+  stays flat or worsens;
+- `changed_duties` circling the same duties across a `Change of approach.`;
+- complexity (rules, constants) that only grows, with no removal or ablation run;
+- gains concentrated in removed trades (`trade_pairs` `removed_net` against `matched_delta_net`);
+- improvements inside the comparison's detectable difference;
+- mechanism predictions that are only mechanical consequences of the change (counting measures).
+
+A product gap behind a pattern (a missing measure or refusal) is a finding, not skill text.
 
 ## Data and usage cost
 
