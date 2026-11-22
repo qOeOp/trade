@@ -6,20 +6,21 @@ the commit of the highest version tag on `main` to the `deploy-ready` channel th
 A merge only reaches `main-ready`, the staging channel every checked `main` build goes to. Shipping a version is the
 user's call each time.
 
-To release a version: in one pull request, raise the version in `pyproject.toml` and run
-`python .github/scripts/changelog-release.py X.Y.Z`, which moves every `changelog.d/` entry under the new version
-with today's date (breaking entries first) and deletes the files. After it merges, write that version's entry to a
-file and create the release, which tags the merge commit:
-
-```bash
-gh release create vX.Y.Z --target <merge-commit> --title vX.Y.Z --notes-file <entry.md>
-```
+To release a version, start the `release` workflow with it (Actions, release, Run workflow, or
+`gh workflow run release.yml -f version=X.Y.Z`); starting it is the owner's release decision, and everything after is
+automatic. The version must be above the newest released one. The workflow opens the bump pull request, which raises
+the version in `pyproject.toml`, follows it in `uv.lock` and runs `python .github/scripts/changelog-release.py X.Y.Z`
+(every `changelog.d/` entry moves under the version with today's date, breaking entries first, and the files are
+deleted; when `pyproject.toml` already carries the version, the entries join its section), and sets it to merge once
+its checks pass. It then waits until `main-ready` admits the commit carrying that version and creates the GitHub
+release `vX.Y.Z` on it, with the version's section as notes, which creates the tag. The bump pull request needs the
+`RELEASE_TOKEN` secret ([`release.yml`](.github/workflows/release.yml) says why and which token).
 
 A commit that changes only documentation builds no image and is never admitted, so its tag never reaches the host:
-when the version was raised in an earlier pull request and this one changes only this file, target the newest
-commit `main-ready` admitted instead (the `revision` in its `release.json`), which carries the same product.
+when the version was raised earlier and the bump changes only this file, the workflow releases the newest commit at
+or before it that built the product images, which carries the same product.
 
-The tag push wakes `release-ready`, which admits the version once every check of its commit has passed and records
+The workflow then wakes `release-ready`, which admits the version once every check of its commit has passed and records
 a GitHub deployment to `production`; the host switches on its next release tick. A version on a commit behind the
 one the host runs is ignored. Its images are the digests `deploy-ready` records for it: the IDE, the service and the
 execution runtime `trade-runtime:exec-sha-<commit>` ([Image versions](deploy/README.md#image-versions)); going back to

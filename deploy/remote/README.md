@@ -387,7 +387,7 @@ previous version's kept containers by hand ([below](#returning-to-the-previous-v
 2. [Pause releases](#pausing-releases) while you work.
 3. Revert the bad merge on a branch (`git revert -m 1 <merge-commit>`), or revert back to the last good tag
    ([`CHANGELOG.md`](../../CHANGELOG.md)), merge it through the usual checks and ship that merge commit as a new
-   version (`gh release create`, [`CHANGELOG.md`](../../CHANGELOG.md)). Then `sudo systemctl start trade-release.timer`:
+   version (the `release` workflow, [`CHANGELOG.md`](../../CHANGELOG.md)). Then `sudo systemctl start trade-release.timer`:
    once CI admits that version, the next tick releases it like any other.
 4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
 
