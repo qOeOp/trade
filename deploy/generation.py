@@ -31,8 +31,8 @@ import urllib.parse
 import urllib.request
 
 from .live_host import LiveBusy
-from .release_host import (FOLLOW_WAIT_SECONDS, JOURNAL_FORMAT, LEDGER, MARKET_IMPORT, WEB, durable_json, read_journal,
-                           sync_directory)
+from .release_host import (FOLLOW_WAIT_SECONDS, JOURNAL_FORMAT, LEDGER, MARKET_IMPORT, SERVICE_REF, WEB, durable_json,
+                           read_journal, sync_directory)
 from .services import PAPER_LISTING_SECONDS, Follow, images
 
 ARCHIVE = "archive"  # $TRADE_DATA/archive/
@@ -327,6 +327,9 @@ class Generation:
         elif journal["phase"] == "archived":
             files = self.host.definition(service, sha)
             env = images(self.release.github, {"revision": sha, "service": service})
+            # Compose runs with --pull never, and a settled tick's prune removes service images no container uses:
+            # the admitted image read at the handover may be gone by now.
+            self.host.pull(service, SERVICE_REF, sha)
             # No --force-recreate: a ledger a resumed cutover finds already started is waited for, never restarted
             # in the middle of its first start.
             self.host.compose(files, "up", "--detach", "--no-deps", "--pull", "never", "--wait", "--wait-timeout",
