@@ -118,7 +118,11 @@ function fixture() {
         : { 'main-ready-tip': f.previous, 'deploy-ready-tip': f.production }[ref];
       return { data: { content: Buffer.from(JSON.stringify(record)).toString('base64') } };
     },
-    listTags() {}, listCommits() {},
+    listTags() {},
+    async listCommits({ sha }) {
+      assert.equal(sha, 'main-ready');
+      return { data: f.staged.map((_, i) => ({ sha: `staged-${i}` })).reverse() };
+    },
     async createDeployment(args) { f.deployments.push({ ...args, statuses: [] }); return { data: { id: f.deployments.length } }; },
     async createDeploymentStatus({ owner: _owner, repo: _repo, deployment_id, ...status }) { f.deployments[deployment_id - 1].statuses.push(status); },
   };
@@ -458,4 +462,21 @@ test('a version whose commit has a red check is withheld from deploy-ready and r
   const g = fixture(); g.tags = [tag('v0.2.0', B)]; g.production = null;
   g.runs.push(run('ide-web', 3, { conclusion: 'failure' }));
   await g.go(); assert.deepEqual(g.deployed, [withheld]); assert.deepEqual(g.deployments, []);
+});
+
+test('a version on a commit that built no image fails the run and names the admitted commit to release instead', async () => {
+  const docsOnly = () => {
+    const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.context.payload = {};
+    f.runs = [run('quality', 1)];
+    f.staged = [{ ...admitted, revision: A }, { ...withheld, revision: B }];
+    return f;
+  };
+  const f = docsOnly();
+  await assert.rejects(f.go(), new RegExp(`v0.2.0 \\(${B}\\) built no product image.*Release v0.2.0 on ${A} instead`));
+  assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);
+  // A commit after the version is never offered, nor one main-ready withheld.
+  const g = docsOnly(); g.staged = [{ ...withheld, revision: A }, { ...admitted, revision: C }];
+  await assert.rejects(g.go(), /Release v0.2.0 on the newest commit main-ready admitted before it/);
+  // Before the commit's push runs start, the run only waits.
+  const early = docsOnly(); early.runs = []; await early.go(); assert.deepEqual(early.deployed, []);
 });
