@@ -2,9 +2,8 @@
 
 The channel admits amd64 digests. This host may be arm64, so each admitted digest must sit in its
 build's published platform manifest, and the env file gets this CPU's image from that manifest.
-Everything read is public and read with no credential. Nothing is pulled or recreated. With `--compose`, the
-admitted revision's own `deploy/compose.yaml` is written too, so a workstation recreates its services from the
-definition of the version it runs (deploy/update.sh).
+Everything read is public and read with no credential. Nothing is pulled or recreated; a workstation's
+deploy/update.sh (deploy/update.py) also keeps the admitted revision's own compose.yaml and moves the services.
 The default channel, deploy-ready, admits versions (production; a server runs this too); main-ready admits
 every checked main build (staging).
 """
@@ -128,6 +127,24 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
     return sha, values
 
 
+def channel_source(state: Path, channel: str) -> tuple[GitSource, str]:
+    """A fresh partial clone in `state` holding main, deploy-ready and the channel's branch."""
+    source = GitSource(state)
+    source.refresh()
+    branch = CHANNELS[channel]
+    if branch != CHANNELS["deploy"]:  # refresh fetches only the host's refs, main and deploy-ready
+        source.git("fetch", "--filter=blob:none", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+    return source, branch
+
+
+def architecture_of(name: str | None) -> str:
+    """The Docker engine's CPU: `name`, or this machine's."""
+    architecture = name or ARCHITECTURES.get(platform.machine().lower())
+    if architecture is None:
+        raise RuntimeError(f"no images for {platform.machine()}")
+    return architecture
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env", required=True, type=Path, help="the compose env file these three keys are replaced in")
@@ -135,20 +152,11 @@ def main() -> None:
     parser.add_argument("--channel", choices=tuple(CHANNELS), default="deploy",
                         help="deploy: the admitted versions (default); main: every checked main build, for staging")
     parser.add_argument("--arch", choices=("arm64", "amd64"), help="the Docker engine's CPU (default: this machine's)")
-    parser.add_argument("--compose", type=Path, help="also write the admitted revision's deploy/compose.yaml here")
     args = parser.parse_args()
-    architecture = args.arch or ARCHITECTURES.get(platform.machine().lower())
-    if architecture is None:
-        raise RuntimeError(f"no images for {platform.machine()}")
+    architecture = architecture_of(args.arch)
     with tempfile.TemporaryDirectory() as state:
-        source = GitSource(Path(state))
-        source.refresh()
-        branch = CHANNELS[args.channel]
-        if branch != CHANNELS["deploy"]:  # refresh fetches only the host's refs, main and deploy-ready
-            source.git("fetch", "--filter=blob:none", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+        source, branch = channel_source(Path(state), args.channel)
         sha, values = resolve(source, Registry(), architecture, args.revision, branch)
-        if args.compose:
-            write_file(args.compose, source.git("show", f"{sha}:deploy/compose.yaml", raw=True))
     write_env(args.env, values)
     print(json.dumps({"revision": sha, "channel": branch, "architecture": architecture, **values}, indent=2))
 

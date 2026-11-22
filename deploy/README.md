@@ -176,20 +176,37 @@ Images of pull requests share the packages and are never deployed.
 
 ## Updating
 
-A workstation follows released versions with one command, run from a checkout when no Paper start, stop or comparison
-is under way (the list below says what each restart interrupts):
+A workstation follows released versions with one command, run from a checkout:
 
 ```bash
-deploy/update.sh   # staging: deploy/update.sh --channel main
+deploy/update.sh --check   # what it would do; changes nothing
+deploy/update.sh           # staging: deploy/update.sh --channel main
 ```
 
-It names the newest admitted version's images in `.env` (`deploy/images.py`), takes that version's own `compose.yaml`
-(not the checkout's, which may be ahead of the images), pulls, and runs `docker compose -p trade-ide up -d`, which
-recreates every service whose image or definition changed, docker-api included, and leaves the others and Paper's run
-containers alone. `TRADE_ENV` names another env file; other arguments go to `deploy/images.py`. The workstation has no
-Live control. The IDE's status bar says "Behind vX.Y.Z" while a newer version is released than the page's own (read
-from GitHub at most hourly); `.env` and the services move only when you run the command. The release host refuses it:
-its release tick moves it ([remote/README.md](remote/README.md)).
+It refuses while Paper is not idle (a running Paper runner container, or a `paper compare` in paper), since the
+restarts below would interrupt them. Otherwise it names the newest admitted version's images in `.env`
+(`deploy/images.py`) and keeps that version's own `compose.yaml` (not the checkout's, which may be ahead of the
+images) with the three images it admitted at `$TRADE_DATA/deploy/<revision>/`. It prints each service's state, image
+revision, the definition it was created from and whether `up -d` will recreate it, and flags a service built from a
+commit the admitted version does not contain (an unreleased build, which the update moves back to the version). It then
+pulls and runs `docker compose -p trade-ide up -d` from that file, which recreates exactly the services whose image or
+definition changed (ledger only when its own did), docker-api included, and leaves Paper's run containers alone; it
+checks that every service now runs that definition and points `$TRADE_DATA/deploy/current` at it. Last, it removes
+what nothing uses: replay stage containers exited over an hour ago, dangling anonymous volumes, and images no container
+runs that neither the definition, `.env` nor a tag other than `pr-N` names (this repository's, and nameless ones).
+Docker still refuses to remove an image a container uses. A replay of an older trial pulls its pinned runtime digest
+again when it is gone. `TRADE_ENV` names another env file; other arguments go to `deploy/update.py`. The workstation
+has no Live control. The IDE's status bar says "Behind vX.Y.Z" while a newer version is released than the page's own
+(read from GitHub at most hourly); `.env` and the services move only when you run the command. The release host
+refuses it: its release tick moves it ([remote/README.md](remote/README.md)).
+
+Every other compose command on the workstation uses the same definition, project and env file, so no service is
+created from a checkout, a worktree or a deleted directory (`--no-deps` keeps one service's recreate from recreating
+ledger):
+
+```bash
+docker compose -p trade-ide --env-file deploy/.env -f "$TRADE_DATA/deploy/current/compose.yaml" up -d --no-deps paper
+```
 
 A version's images are admitted some minutes after its tag, once CI has checked it; until then the command resolves the
 version before, and the status bar keeps saying behind. A service's revision is the image label
