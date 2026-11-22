@@ -54,6 +54,7 @@ export type LineageNode = {
   status: Status;
   role: Role;
   prediction: Prediction;
+  failed_predictions: string[];
   change?: string | null;
   trials: number[];
   reading: { annual_return: number | null; max_drawdown: number | null };
@@ -106,7 +107,7 @@ export type ScatterWidget = Widget & {
 };
 
 export type TableRow = {
-  id: string; parent?: string | null; role?: Role | null; status: Status; prediction: Prediction;
+  id: string; parent?: string | null; role?: Role | null; status: Status; prediction: Prediction; failed_predictions: string[];
   first_trial: number | null; runs: number;
   annual_return?: number | null; max_drawdown?: number | null; sharpe?: number | null; plan_win_rate?: number | null;
 };

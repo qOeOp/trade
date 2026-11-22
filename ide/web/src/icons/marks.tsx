@@ -1,8 +1,7 @@
 import type { SVGProps } from "react";
-import type { Prediction, Role } from "../model/types";
-import { PREDICTION, ROLE } from "../model/semantics";
+import type { Role } from "../model/types";
+import { ROLE } from "../model/semantics";
 import { v } from "../theme/roles";
-import { Icon } from "./Icon";
 
 /** A version's role by shape first, colour second: filled ring = recommended, small dot = superseded,
  *  struck ring = masked, dashed ring = unrun, cross = failed review. */
@@ -25,14 +24,6 @@ export function RoleMark({ role, size = 14 }: { role: Role | null | undefined; s
     }
   })();
   return <svg width={size} height={size} className="shrink-0" aria-label={role ? ROLE[role].label : undefined}>{shape}</svg>;
-}
-
-const PREDICTION_ICON = { held: "check", failed: "close", mixed: "minus" } as const;
-
-/** Whether a version's predictions held; nothing when none was judged. */
-export function PredictionMark({ prediction, size = 12 }: { prediction: Prediction; size?: 12 | 16 }) {
-  if (prediction === "none") return null;
-  return <Icon name={PREDICTION_ICON[prediction]} size={size} tone={PREDICTION[prediction].tone} />;
 }
 
 /** A tooltip's arrow, Element Plus's: the border colour under the fill, the fill a pixel higher, so it

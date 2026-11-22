@@ -1,0 +1,1 @@
+- IDE: a version's prediction mark (check, minus, cross) says on hover and to screen readers whether its predictions held, and a partly held mark names the measures whose predictions failed.

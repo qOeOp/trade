@@ -3,7 +3,8 @@ import type { TableRow, TableWidget } from "../model/types";
 import { meets, ROLE, tone } from "../model/semantics";
 import { pct, ratio } from "../lib/format";
 import { textClass } from "../theme/roles";
-import { PredictionMark, RoleMark } from "../icons/marks";
+import { RoleMark } from "../icons/marks";
+import { PredictionMark } from "./PredictionMark";
 import { requestFocus } from "../state/linking";
 import { select, useSelection } from "../state/selection";
 import { columns, DataTable, type Column } from "../ui/DataTable";
@@ -46,7 +47,7 @@ export function VersionTable({ widget }: { widget: TableWidget }) {
     reading("sharpe", true, null, ratio),
     reading("plan_win_rate", true, null, pct),
     col.accessor("prediction", {
-      header: "Prediction", cell: (c) => c.row.original.prediction === "none" ? <Missing /> : <PredictionMark prediction={c.row.original.prediction} size={16} />,
+      header: "Prediction", cell: (c) => c.row.original.prediction === "none" ? <Missing /> : <PredictionMark prediction={c.row.original.prediction} failed={c.row.original.failed_predictions} size={16} />,
     }) as Column<TableRow>,
     col.accessor((r) => (r.role ? ROLE[r.role].label : ""), { id: "role", header: "Role", cell: (c) => c.getValue() || <Missing /> }) as Column<TableRow>,
     col.accessor("parent", { header: "Parent", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
