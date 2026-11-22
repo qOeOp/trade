@@ -71,7 +71,7 @@ timer never loops on it; to retry it after fixing the cause, delete its marker, 
 stopped candidate containers of that revision before creating them again. A release stopped by the host rather than
 by the version is undone the same way but marks nothing: a protected container (the ledger, the Docker API proxy or a
 Paper runner) that restarted or changed, host memory below what a candidate needs, a Live run that started during the
-release, or a ledger of another schema generation ([below](#a-version-that-needs-a-new-ledger-generation)). The tick
+release, or a version that starts a new data generation ([below](#a-version-that-starts-a-new-data-generation)). The tick
 says the version waits and why, one Telegram notice says the same, and the next tick tries again. A transaction found
 pending at the start of a tick (an interrupted release) still marks its version. A pending transaction is recovered before
 any new selection. Paper keeps its own recovery journal beside the Web's (one `failed/` marker covers the
@@ -88,24 +88,50 @@ A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
 admitted version ([Release control code](#release-control-code)).
 
-### A version that needs a new ledger generation
+### A version that starts a new data generation
 
 Before its journal, a release runs the candidate's own `ledger service check` on the research mirror and on the Paper
 database, read-only, in a container of the candidate's service image with the Paper controller's profiles. When the
-candidate refuses either with `SCHEMA_MISMATCH` (its code reads another schema generation; [`CHANGELOG.md`](../../CHANGELOG.md)
-names the version that starts one), the release waits: nothing changes and nothing is marked failed, the tick prints
-which database and generation, one Telegram notice says the same ([Notices](#notices)), and every tick checks again.
-Any other failure of the check fails the tick before the journal, as a pull does.
+candidate refuses either with `SCHEMA_MISMATCH`, its code reads another schema generation and the version starts a new
+data generation on this host ([`CHANGELOG.md`](../../CHANGELOG.md) says which versions do; their number raises the
+minor version before 1.0). Any other failure of the check fails the tick before the journal, as a pull does. Nobody
+moves the host by hand: the owner starting the `release` workflow for that version is the authority for its new
+ledger ([design](../../docs/plans/data-generation-in-release-20261123.zh.md)).
 
-Moving the host to the new generation is the owner's step, since it replaces the host's ledger: the mirror keeps the
-origin it first cloned (`REMOTE_MISMATCH` otherwise), and the Paper database lives in the same service directory and
-`trade-dolt-data` volume. [Pause releases](#pausing-releases); keep a copy of what the Paper database holds that
-should outlive it; stop the ledger and empty its service directory and volume as for a first start (install steps 4
-and 5 below); set `TRADE_RESEARCH_ORIGIN` to the new generation's public DoltHub repository; name the waiting
-version's images (`python3 -m deploy.images --revision <revision> --env /etc/trade/remote.env`) and start the ledger
-with the `compose` of step 6 below: its control already handed over and copied its compose files there. The routed Web
-of the earlier version cannot read the new ledger until the release, which the next tick runs once the timer is
-started again.
+Each generation's public ledger is its own DoltHub repository, named after `TRADE_RESEARCH_ORIGIN`: a version of
+schema generation N mirrors `<TRADE_RESEARCH_ORIGIN>-g<N>` (a `-g<digits>` the setting ends with is dropped first), so
+the env file stays as it is. A workstation makes and publishes that ledger when its own update reaches the version
+([Updating](../README.md#updating)).
+
+The release waits, changing nothing and marking nothing failed, with one Telegram notice ([Notices](#notices)) that
+says why, until all of these hold; every tick checks again:
+
+- the new repository holds that version's ledger (read through DoltHub's public API, no credential): until a
+  workstation published it;
+- no Paper runner container runs, since their containers bind mount the run directories the cutover moves: stop the
+  runs on the Paper page;
+- after Paper's writes are paused and admitted lifecycle operations finished, no Paper operation is in progress;
+- Live is idle, asked inside the account lock, which the cutover holds. A Live run is never stopped for it.
+
+Then the tick stops `ledger` and `market-import`, removes the ledger's container, and archives, in a container of the
+version's service image with no network, what the ledger service left: the contents of `$TRADE_DATA/dolt` (the
+`paper` directory itself stays, emptied: the Paper controller and docker-api bind mount it), `ledgers` and
+`dolt-backups`, renamed into `$TRADE_DATA/archive/<UTC time>-<revision>/` (one file system: a rename, never a copy),
+and removes the `trade-dolt-data` volume, which only mirrors the old generation's DoltHub repository. The next tick
+starts the ledger from the version's own compose definition and waits for its health check (the mirror's first start
+clones the new generation and makes an empty Paper database), starts market import again if it ran, and checks that
+the version reads the new ledger. The tick after removes every other archive it named, so only the previous
+generation's stays. Each of these ticks pauses Paper's writes while it works, and the tick that archives holds the
+same conditions as above; one step per tick keeps each tick within the release unit's start timeout. The market
+directory has no generation and stays as it is. The tick after the cutover releases the version as any other; until
+then the routed earlier version cannot read the new ledger.
+
+`/var/lib/trade-release/generation.json` records the cutover's step. Every tick takes the next step before it
+recovers or releases anything, never archiving twice; a tick that would archive again after a crash waits for the
+same Paper and Live conditions first. Once the new ledger runs the journal stays until a version's Web release
+commits: until then a failed release rolls back to the earlier version without waiting for it to answer healthy,
+since it cannot read the new ledger. Watch it with `journalctl -u trade-release.service` (`Starting data generation`,
+`Archived the ledger's data`, `Data generation started`, `Data generation cutover done`) and the notices.
 
 ### Compose services
 
@@ -226,7 +252,7 @@ explicit request recovery for an uncertain response instead of submitting anothe
 ### Notices
 
 The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed; an admitted
-version that waits for the host's ledger generation ([above](#a-version-that-needs-a-new-ledger-generation)); a routed Web
+version that waits before its new data generation ([above](#a-version-that-starts-a-new-data-generation)); a routed Web
 that does not answer, or whose Market overview, Agent or Paper controller health fails through the router; a
 `ledger` or `market-import` container that is unhealthy, whose last exit was out of memory, or that restarted (sent
 at 1, 2, 4, ... restarts); a Paper run that stopped and could not resume; and a research ledger whose publish has
@@ -306,7 +332,8 @@ not a tested capacity result; do not change an existing deployment's cap without
    `ledger mirror` bootstraps the public research origin without a DoltHub publishing key and creates a
    separate, empty `paper` execution database (`ledger/paper.sql`); the Paper controller gets that database's
    accounts and the mirror's reader, never the service administrator. `TRADE_RESEARCH_ORIGIN` must name a research ledger already
-   published from a workstation ([First start](../README.md#first-start)); the mirror never publishes. The
+   published from a workstation ([First start](../README.md#first-start)), as its base name: the mirror follows
+   `<TRADE_RESEARCH_ORIGIN>-g<N>`, N its version's schema generation. The mirror never publishes. The
    Agent chat runs inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider
    settings and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
 5. Start the ledger, the Docker API proxy, OAuth2 Proxy and `edge`. Relative compose paths are resolved against
@@ -523,66 +550,6 @@ services](#compose-services) with `--revision OLD`. Paper and Live runs started 
 `NEW`'s control, which ran the recovery and hands over to the next admitted version; the fix still ships as a new
 version, as above, and `GitSource.choose` releases it over `OLD`.
 
-## Starting a new data generation
-
-A breaking 0.x version that drops the old ledger ([`CHANGELOG.md`](../../CHANGELOG.md), "what the upgrade drops")
-starts a new ledger generation, and a full market directory starts the same way. Each step changes the active ledger
-or market, so each is the user's call (AGENTS.md); the user also ends any Live run first. The version's own code makes
-and mirrors the new ledger (no version reads another's schema), so the host's data moves while releases are paused,
-after the version is admitted and before the timer releases it:
-
-1. [Pause releases](#pausing-releases). Stop every Paper run on the Paper page; `docker ps --filter
-   label=trade.paper.role=runner` must list nothing, since their containers bind mount run directories moved below.
-2. The user tags the version (`CHANGELOG.md`). Wait until `deploy-ready` admits it (Installing a host, step 6).
-3. On the workstation that writes the ledger, start the new generation: create an empty DoltHub repository, then
-   archive and clear the old ledger as for `BOOTSTRAP_REFUSED` ([First start](../README.md#first-start)): stop the
-   services, move the contents of `$D/dolt`, `$D/ledgers` and `$D/dolt-backups` into an archive directory, keep a copy of
-   the volume `trade-ide_trade-dolt-data` and remove it. Set `TRADE_RESEARCH_ORIGIN` in `deploy/.env` to the new
-   repository and run `deploy/update.sh`: the ledger's first start makes the new ledger and publishes it. Put
-   `market.json` back into `$D/ledgers` after that start (the start refuses while that directory holds any profile).
-4. On this host, with `D=/srv/trade` (`TRADE_DATA`) and `A=/srv/trade-archive/<generation>` (same file system, so
-   each move is a rename), stop the two services and archive what they leave. A running Paper controller and
-   docker-api bind mount `$D/dolt/paper`, and the Web, Paper controller and Live control bind mount `$D/market`, so
-   their contents move and the directories stay:
-
-   ```sh
-   compose stop ledger market-import && compose rm -f ledger
-   install -d -m 700 "$A/dolt" "$A/dolt-paper" "$A/ledgers" "$A/dolt-backups" "$A/market"
-   tar -C "$(docker volume inspect -f '{{.Mountpoint}}' trade-ide_trade-dolt-data)" -czf "$A/trade-dolt-data.tgz" .
-   docker volume rm trade-ide_trade-dolt-data
-   find "$D/dolt" -mindepth 1 -maxdepth 1 ! -name paper -exec mv -t "$A/dolt" {} +
-   for d in dolt/paper:dolt-paper ledgers:ledgers dolt-backups:dolt-backups market:market; do
-     find "$D/${d%%:*}" -mindepth 1 -maxdepth 1 -exec mv -t "$A/${d#*:}" {} +
-   done
-   ```
-
-   `compose` is the active control's function at the end of [Installing a host](#installing-a-host). The archive
-   cache in the `trade-ide_trade-market-import` volume stays and is read again.
-5. In `/etc/trade/remote.env`, set `TRADE_RESEARCH_ORIGIN` to the new repository and `TRADE_MARKET_ARGS` to the full
-   eligible set, with no `--bar-symbols` ([What the market range costs](../README.md#what-the-market-range-costs):
-   about 26 GB and 10 to 15 hours from empty; check `df -h /srv` and that Binance answers). Name the version's
-   images (`python3 -m deploy.images --env /etc/trade/remote.env`) and start both services from the version's own
-   definition, which the release has not copied out yet: the checkout `/opt/trade-app` at its tag, with the files
-   the release uses (`COMPOSE`, `deploy/release_host.py`):
-
-   ```sh
-   cd /opt/trade-app && git fetch --tags && git checkout vX.Y.Z
-   tagged() {
-     docker compose --env-file /etc/trade/remote.env -f deploy/compose.yaml -f deploy/remote/compose.yaml \
-       -f deploy/remote/cd.compose.yaml -f deploy/remote/paper-cd.compose.yaml "$@"
-   }
-   tagged up -d --no-deps --wait ledger
-   tagged --profile local-research-import up -d --no-deps market-import
-   ```
-
-   The mirror bootstraps from the new repository into the empty directories. A release later leaves both alone,
-   since they already run the version's service image.
-6. Check: `compose exec ledger python -m cli.main ledger service check --ledger research` gives the same
-   `ledger_commit` as the workstation's; `compose ps` shows ledger healthy and market-import running; `compose logs
-   market-import` shows its first round. Then `sudo systemctl start trade-release.timer`: the next tick releases the
-   version (`journalctl -u trade-release.service`), and the IDE's About names its commit. The Paper page lists no run,
-   and a Paper start refuses a window until the import covers it.
-
 ## Live on this host
 
 How a Live run starts is in [`live/README.md`](../../live/README.md#live-execution). The base Paper
@@ -710,8 +677,9 @@ configuration from that checkout. 0.5.0 needs no step: the 0.4 control hands ove
 control reads its compose definition from its own service image, and on the first settled tick after 0.5.0 is routed
 it recreates every compose service that differs from that definition ([Compose services](#compose-services)), OAuth2
 Proxy and `edge` included (their configuration files are mounted from the checkout, so they differ): a few seconds
-of login and HTTPS outage. If 0.5.0 waits for the host's ledger generation, that is the owner's step first
-([A version that needs a new ledger generation](#a-version-that-needs-a-new-ledger-generation)).
+of login and HTTPS outage. 0.5 reads ledger schema generation 2: the first version that starts its data generation
+by itself (0.5.2) does so on a host still on generation 1 ([A version that starts a new data
+generation](#a-version-that-starts-a-new-data-generation)); 0.5.0 and 0.5.1 only wait for it.
 
 `/opt/trade-release/deploy/remote/` may then be removed. Keep `/opt/trade-app` for a later reinstall of the
 launcher, unit or timer (above); the release no longer reads it, so it no longer has to follow the routed version.

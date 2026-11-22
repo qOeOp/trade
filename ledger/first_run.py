@@ -43,13 +43,14 @@ def log(text: str) -> None:
 
 
 def origin_of(repository: str) -> str:
-    """The remote of what the page was given: `owner/repository`, or the address of its DoltHub page."""
+    """The remote of what the page was given: `owner/repository`, or the address of its DoltHub page, as this
+    generation's repository (publish.research_origin)."""
     text = repository.strip()
     found = PAGE_URL.fullmatch(text) or PLAIN.fullmatch(text)
     if found is None:
         raise refuse("REMOTE_INVALID", f"{text!r} does not name a DoltHub repository", missing=(text,),
                      expected="owner/repository, or the address of its DoltHub page")
-    return publish.HOST + found[1]
+    return publish.research_origin(publish.HOST + found[1])
 
 
 def _dolt(binary: str, home: Path, *arguments: str) -> subprocess.CompletedProcess:

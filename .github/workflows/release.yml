@@ -3,7 +3,9 @@ name: release
 # Releases one version (CHANGELOG.md, To release a version). Starting it with a version is the owner's release decision;
 # everything after is automatic: the bump pull request (pyproject.toml, uv.lock, the changelog section) merges once its
 # checks pass, and the GitHub release, which creates the version tag, goes on the commit carrying that version once
-# main-ready admits it. release-ready then admits the version to deploy-ready.
+# main-ready admits it. release-ready then admits the version to deploy-ready. For a version that changes the ledger
+# schema generation, starting it is also the owner's authority for the new ledger every deployment then starts on its
+# own (AGENTS.md; docs/plans/data-generation-in-release-20261123.zh.md).
 #
 # The bump pull request is opened, and set to merge, with the RELEASE_TOKEN secret, a token of the owner (a
 # fine-grained token for this repository with Contents and Pull requests read and write): GitHub starts no workflow
@@ -79,6 +81,9 @@ jobs:
           if [ -n "$released" ] && ! above "$VERSION" "$released"; then
             echo "::error::$VERSION is not above the newest released version $released"; exit 1
           fi
+          # A version that changes the ledger schema generation starts a new ledger on every deployment: a minor
+          # version until 1.0, a major one from then (docs/plans/data-generation-in-release-20261123.zh.md).
+          python3 .github/scripts/release-generation.py "$VERSION"
           current="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           if above "$current" "$VERSION"; then
             echo "::error::pyproject.toml already carries $current, above $VERSION"; exit 1
@@ -131,6 +136,8 @@ jobs:
           MERGED: ${{ steps.merge.outputs.merged }}
         run: |
           git fetch -q origin main
+          # The merged commit may carry later main commits: the version must still fit its data generation.
+          python3 .github/scripts/release-generation.py "$VERSION" "$MERGED"
           git show "$MERGED:CHANGELOG.md" > CHANGELOG.md
           python3 .github/scripts/changelog-release.py --notes "$VERSION" > "$RUNNER_TEMP/notes.md"
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

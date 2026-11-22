@@ -40,6 +40,20 @@ PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the databas
 HOST = "https://doltremoteapi.dolthub.com/"
 REPOSITORY = r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+"  # owner/repository
 DOLTHUB = re.compile(re.escape(HOST) + REPOSITORY)  # the one DoltHub remote form: publish and the mirror accept it
+GENERATION = re.compile(r"-g[0-9]+\Z")  # the generation suffix research_origin adds to a repository name
+
+
+def research_origin(base: str) -> str:
+    """The DoltHub repository of this code's ledger generation: `base` (TRADE_RESEARCH_ORIGIN) without a trailing
+    `-g<N>`, then `-g<SCHEMA_VERSION>`. A version of another schema generation reads another repository, so a
+    deployment names its repository once and each generation finds its own
+    (docs/plans/data-generation-in-release-20261123.zh.md). Anything but a DoltHub address (file:// in isolated
+    checks) is kept as it is."""
+    if not DOLTHUB.fullmatch(base):
+        return base
+    return f"{GENERATION.sub('', base)}-g{db.SCHEMA_VERSION}"
+
+
 BRANCHES = f"refs/heads/*:refs/remotes/{server.REMOTE}/*"  # the default fetch spec, named so a missing branch fails
 
 

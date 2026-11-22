@@ -24,7 +24,10 @@ Stop and ask before any of these:
   Catalog inputs or historical receipts.
 - Creating or switching the active ledger or market directory: `ledger init --kind active`,
   `market init --kind active`, or changing which profile is the active one. Isolated and temporary
-  databases need none.
+  databases need none. One exception: for a version that changes the ledger schema generation, the owner
+  starting the `release` workflow with it is the authority for the cutover `deploy/update.sh` and the release
+  host's tick then perform: archive the old ledger and start the new one as the active ledger
+  (`docs/plans/data-generation-in-release-20261123.zh.md`).
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
   skill, or either of the user's two research targets (maximum drawdown and minimum annual
   return), including to get past a failing check. Win rate is a report dimension, not a target.

@@ -29,8 +29,19 @@ class RepositoryTests(unittest.TestCase):
     def test_a_name_or_either_address_names_one_remote(self):
         for text in ("o-1/r_2", " o-1/r_2 ", "o-1/r_2/", "https://doltremoteapi.dolthub.com/o-1/r_2",
                      "https://www.dolthub.com/repositories/o-1/r_2", "dolthub.com/repositories/o-1/r_2/data/main"):
-            self.assertEqual(first_run.origin_of(text), "https://doltremoteapi.dolthub.com/o-1/r_2", text)
+            self.assertEqual(first_run.origin_of(text),
+                             f"https://doltremoteapi.dolthub.com/o-1/r_2-g{db.SCHEMA_VERSION}", text)
         self.assertTrue(publish.DOLTHUB.fullmatch(first_run.origin_of("o/r")))
+
+    def test_each_schema_generation_has_its_own_repository(self):
+        # The deployment names a base once; this version's ledger reads <base>-g<SCHEMA_VERSION>, whatever generation
+        # suffix the base already carried. A file remote (isolated checks) is kept.
+        own = f"https://doltremoteapi.dolthub.com/o/research-g{db.SCHEMA_VERSION}"
+        for base in ("https://doltremoteapi.dolthub.com/o/research", "https://doltremoteapi.dolthub.com/o/research-g1",
+                     own):
+            self.assertEqual(publish.research_origin(base), own, base)
+        self.assertEqual(publish.research_origin("file:///tmp/o/r-g1"), "file:///tmp/o/r-g1")
+        self.assertEqual(first_run.origin_of(f"o/research-g{db.SCHEMA_VERSION + 1}"), own)
 
     def test_anything_else_is_refused(self):
         for text in ("", "name", "o/r/more", "https://example.com/o/r", "file:///tmp/o/r", "o/r;drop",
