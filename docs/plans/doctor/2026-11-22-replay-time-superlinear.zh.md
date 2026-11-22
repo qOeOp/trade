@@ -53,8 +53,8 @@ main 上窗口 ×3 耗时 ×7.6，窗口 ×10 耗时 ×80：超线性成立，�
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | 上面的计量：main 镜像同一夹具 1、3、10 个月原生 6.6、50.5、525.1 秒；主因是规则 2 每张入场单调用 `Cache.orders` | fix（规则 2 只取未结订单） | hours | in PR [#3404](https://github.com/qOeOp/trade/pull/3404) |
-| 20261122-01 | Nautilus rc7 `Portfolio::update_position` 在每个仓位事件上遍历该合约历史全部仓位重算已实现盈亏，高频交易的长窗口回放耗时随仓位数平方增长 | 上面“原因”第 2 条；rc7 与 `develop` 相同 | question（是否向 Nautilus 报告；Nautilus 升级时重测） | unknown | open |
+| 20261121-02 | 回放耗时可随窗口超线性增长（Line 1 根候选窗口 ×3.3、耗时 ×37），按预检线性外推低估约 19 倍 | 上面的计量：main 镜像同一夹具 1、3、10 个月原生 6.6、50.5、525.1 秒；主因是规则 2 每张入场单调用 `Cache.orders` | fix（规则 2 只取未结订单） | hours | fixed 2ecd332a7 [#3404](https://github.com/qOeOp/trade/pull/3404) |
+| 20261122-01 | Nautilus rc7 `Portfolio::update_position` 在每个仓位事件上遍历该合约历史全部仓位重算已实现盈亏，高频交易的长窗口回放耗时随仓位数平方增长 | 上面“原因”第 2 条；rc7 与 `develop` 相同 | upstream（已报告 [nautechsystems/nautilus_trader#5730](https://github.com/nautechsystems/nautilus_trader/issues/5730)，用户 2026-11-22「报告的」「附上脚本吧」；Nautilus 升级时重测） | unknown | open |
 
 ## Decisions
 
