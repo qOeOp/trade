@@ -49,10 +49,10 @@ test("the legend offers the basket with its return under the pointer, and says w
     reading: { balance: null, before: null, margin: null, exposure: null, hold: null, basket: 101_000 },
     hold: null, onHold() {}, basket: true, onBasket() {}, basketNote: NOTE, starting: 100_000, replayed: new Map(), worst: 0, step: DAY, many: false, ret: undefined, basis: null, aside: null,
   };
-  const html = renderToStaticMarkup(createElement(EquityLegend, props)), text = html.replace(/<[^>]*>/g, "");
+  const html = renderToStaticMarkup(createElement(EquityLegend, props)), text = html.split(/<[^>]*>/).join("");
   assert.match(text, /basket\+1\.00%/);
   assert.match(html, /aria-label="Basket line"/);
   assert.ok(html.includes("universe members"), "its title carries the report's definition note");
-  const without = renderToStaticMarkup(createElement(EquityLegend, { ...props, basket: null })).replace(/<[^>]*>/g, "");
+  const without = renderToStaticMarkup(createElement(EquityLegend, { ...props, basket: null })).split(/<[^>]*>/).join("");
   assert.ok(!without.includes("basket"), "no toggle without the basket's returns");
 });
