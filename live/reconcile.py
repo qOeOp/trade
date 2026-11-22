@@ -192,11 +192,20 @@ class Reconciliation:
         return result
 
     def _run(self, config: configuration.Configuration) -> None:
+        """check() until no asked key is left unanswered: a key asked while a check ran (view() holds it as None)
+        is answered without another request, and the check is marked done under the same lock that tells."""
+        done = False
         try:
-            self.check(config)
+            while not done:
+                self.check(config)
+                with self._lock:
+                    done = None not in self._answers.values()
+                    if done:
+                        self._reading = False
         finally:
-            with self._lock:
-                self._reading = False
+            if not done:
+                with self._lock:
+                    self._reading = False
 
     def check(self, config: configuration.Configuration) -> None:
         """Answer every asked key once."""

@@ -122,6 +122,31 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(found["state"], "checking")
         self.assertIn("could not be read now (OSError)", found["reasons"][0])
 
+    def test_a_key_asked_while_a_check_runs_is_answered_without_another_request(self):
+        """Gemini audit 2026-11-22: a check reads the asked keys once, so a key asked while it ran waited for the
+        next request."""
+        first, second = (SOURCE, ("BTCUSDT",)), (SOURCE, ("ETHUSDT",))
+        comparing, release, started, make = threading.Event(), threading.Event(), [], threading.Thread
+        compare = self.reconciliation._compare
+
+        def blocking(config, paper_id):
+            comparing.set()
+            release.wait(10)
+            return compare(config, paper_id)
+        self.reconciliation._compare = blocking
+
+        def thread(**kwargs):
+            started.append(make(**kwargs))
+            return started[-1]
+        with patch.object(reconcile.threading, "Thread", side_effect=thread):
+            self.reconciliation.request(self.config, first)
+            self.assertTrue(comparing.wait(10))
+            self.assertEqual(self.reconciliation.request(self.config, second)["state"], "checking")
+        release.set()
+        started[0].join(10)
+        self.assertEqual((len(started), started[0].is_alive()), (1, False), "one check, which answered both")
+        self.assertEqual([self.reconciliation.view(key)["state"] for key in (first, second)], ["reconciled"] * 2)
+
 
 class CompareOneTests(unittest.TestCase):
     """live paper-compare, the comparison container's command: one run, its own working directory, removed after."""
