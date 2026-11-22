@@ -157,3 +157,14 @@ env 文件；secrets 文件在 `/srv` 下可读；发布容器没有 compose 标
 - 中途崩溃让 ledger 缺失或停止时不自动拉起；要自动修复需要能区分“发布留下的”与“操作员停的”，那要新的状态，
   要用户决定。
 - 发布控制在真主机上跑 `docker compose up` 还没验证过；只有隔离测试与本机原生 `compose config` 核对。
+
+## 2026-11-22 补充：按定义跟随，扩到全部常驻服务
+
+doctor 20261122-32，所有者授权 2026-11-22「全部授权」。只比镜像时，版本改了 `Caddyfile`、`oauth2-proxy.cfg` 或某个服务的
+命令、挂载、限额，主机上都不跟随，要操作员 `--force-recreate`；OAuth2 Proxy 与 `edge` 还一直挂着交接已删的控制目录里的
+文件。现在 `deploy/services.py` 对每个在跑的常驻服务（`ledger`、`market-import`、`docker-api`、`ide-router`、
+`paper-router`、`oauth2`、`edge`）比较该版本定义会建出的东西与容器本身：镜像；compose 自己的服务配置哈希
+（`docker compose config --hash`，即容器的 `com.docker.compose.config-hash` 标签，不含配置文件内容与路径）；文件型 config
+的宿主路径（bind 挂载源）；内联 config 的内容（`docker cp` 读出）。不同才在原有条件（Paper 无操作、写入暂停、Live 在账户锁
+内空闲）下 `up --no-deps --force-recreate`。新的 `paper-router` 从磁盘装入未暂停的路由，所以重建后再暂停一次。失败时只把
+镜像由变量指定且换过镜像的服务放回原镜像；定义无法放回（上一版本的文件可能已删），只改定义的服务留在新定义上，tick 失败并通知。

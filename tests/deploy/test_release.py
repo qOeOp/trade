@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -16,7 +17,9 @@ from urllib.error import HTTPError
 from deploy.live_host import LIVE, LiveBusy
 from deploy.notices import Notices
 from deploy import release
-from deploy.release import FOLLOW_RETRY_SECONDS, Release, failure_summary
+from deploy import services
+from deploy.release import Release, failure_summary
+from deploy.services import FOLLOW_RETRY_SECONDS
 from deploy.source import GitSource
 from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
@@ -1071,10 +1074,23 @@ PROXY, OLD_PROXY = ("ghcr.io/qoeop/trade-docker-api@sha256:" + digit * 64 for di
 WEB_CREATED, BEFORE, AFTER = ("2026-11-15T10:00:00Z", "2026-11-11T08:00:00.5Z", "2026-11-15T10:00:00.1Z")
 
 
+def running(image, created, definition=None):
+    """FollowHost's facts of a running compose service; `definition` names the service whose version definition it
+    was created from (the stand-in for compose's configuration hash), None for an older one."""
+    return {"image": image, "created": moment(created), "hash": definition, "mounts": {}}
+
+
+def wanted(service=TARGET["service"], proxy=PROXY):
+    """Follow.definitions of version A, as compose would create each service: the stand-in hash is its name."""
+    images = {"ledger": service, "market-import": service, "docker-api": proxy, "ide-router": "caddy",
+              "paper-router": "caddy", "oauth2": "oauth2-proxy", "edge": "caddy"}
+    return {name: {"image": image, "hash": name, "configs": {}} for name, image in images.items()}
+
+
 def hours_after_web(hours):
     """A Docker creation time `hours` after the routed Web's, and the clock reading at it."""
     return (moment(f"2026-11-15T{10 + int(hours):02d}:{int(hours % 1 * 60):02d}:00.1Z"),
-            release.epoch(moment(WEB_CREATED)) + hours * 3600 + 0.1)
+            services.epoch(moment(WEB_CREATED)) + hours * 3600 + 0.1)
 
 
 class FollowHost(Host):
@@ -1082,10 +1098,12 @@ class FollowHost(Host):
 
     def __init__(self, state):
         super().__init__(state)
-        self.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)},
-                         MARKET_IMPORT: {"image": OLD_SERVICE, "created": moment(BEFORE)},
-                         DOCKER_API: {"image": PROXY, "created": moment(BEFORE)}}  # already on A's pin
-        self.variables = []
+        self.services = {LEDGER: running(OLD_SERVICE, BEFORE), MARKET_IMPORT: running(OLD_SERVICE, BEFORE),
+                         DOCKER_API: running(PROXY, BEFORE, "docker-api")}  # already on A's pin and definition
+        self.environments = []
+        self.pulls = []  # whether each recreate let compose pull a third-party image
+        self.on_recreate = {}  # container -> what its new container does once created
+        self.denied = 0  # public authentication probes
         self.definitions = []  # the versions whose compose files a follow read
         self.pulled = []
         self.runs = {"starting": 0, "runs": [{"id": 1, "state": "sealed", "containers": 0, "recovery": None}]}
@@ -1112,17 +1130,25 @@ class FollowHost(Host):
         self.pulled.append((reference, pattern.pattern, sha))
         return sha
 
-    def recreate(self, service, name, image, healthy, files, pull=False, variable="TRADE_SERVICE_IMAGE"):
+    def recreate(self, service, name, image, healthy, files, env, pull=False):
         assert files == COMPOSE, "the active version's own compose files"
         if self.during:
             self.during()
         self.recreated.append((service, image, healthy))
-        self.variables.append(variable)
-        self.services[name] = {"image": image, "created": self.stamp}
+        self.environments.append(env)
+        self.pulls.append(pull)
+        # What compose creates from the version's files: its definition when on the version's image.
+        wanted = {OLD_SERVICE: None, OLD_PROXY: None}.get(image, service)
+        self.services[name] = {"image": image, "created": self.stamp, "hash": wanted, "mounts": {}}
+        if name in self.on_recreate:
+            self.on_recreate[name]()
         if self.after_move is not None:
             self.runs = self.after_move.pop(0) if isinstance(self.after_move, list) else self.after_move
         if service in self.broken and image in self.broken:
             raise RuntimeError("compose service did not start on its image: " + service)
+
+    def auth_denied(self):
+        self.denied += 1
 
     def probe(self, name, path, routed=False):
         assert (name, path, routed) == (WEB + A, "/api/paper/runs", True)
@@ -1169,13 +1195,20 @@ class FollowTests(unittest.TestCase):
         self.live = RecordingLive(self.host)
         self.release = Release(self.host, self.github, live=self.live, paper=paper_release(self.host))
         self.controller = self.release.paper().host
-        sleep = patch("deploy.release.time.sleep")
+        sleep = patch("deploy.services.time.sleep")
         sleep.start()
         self.addCleanup(sleep.stop)
-        self.now = release.epoch(moment(AFTER)) + 1  # just after what a move or its undo created
-        clock = patch("deploy.release.time.time", side_effect=lambda: self.now)
+        self.now = services.epoch(moment(AFTER)) + 1  # just after what a move or its undo created
+        clock = patch("deploy.services.time.time", side_effect=lambda: self.now)
         clock.start()
         self.addCleanup(clock.stop)
+        self.wanted = wanted()
+        for name, stand_in in (("definitions", lambda host, files, env: self.wanted),
+                               ("follows", lambda host, container, found, want: (found["image"], found["hash"])
+                                == (want["image"], want["hash"]))):
+            definition = patch.object(services, name, stand_in)
+            definition.start()
+            self.addCleanup(definition.stop)
 
     def unfrozen(self):
         self.assertEqual((self.controller.disk, self.controller.live), (paper_route(PAPER + A),) * 2)
@@ -1207,7 +1240,8 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True),
                                                ("market-import", TARGET["service"], False),
                                                ("docker-api", PROXY, False)])
-        self.assertEqual(self.host.variables, ["TRADE_SERVICE_IMAGE"] * 2 + ["TRADE_DOCKER_API_IMAGE"])
+        self.assertEqual(self.host.environments, [{"TRADE_SERVICE_IMAGE": TARGET["service"],
+                                                   "TRADE_DOCKER_API_IMAGE": PROXY}] * 3)
         self.assertIn((PROXY, DOCKER_API_REF.pattern, None), self.host.pulled, "checked, then --pull never")
         self.assertEqual(seen, [(paper_route(PAPER + A, "all"), [(WEB + A, True)])] * 3)
         self.unfrozen()
@@ -1223,7 +1257,7 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
         self.assertEqual(self.host.recreated[3:], [("docker-api", OLD_PROXY, False),
                                                    ("market-import", OLD_SERVICE, False), ("ledger", OLD_SERVICE, True)])
-        self.assertEqual(self.host.variables[3], "TRADE_DOCKER_API_IMAGE")
+        self.assertEqual(self.host.environments[3]["TRADE_DOCKER_API_IMAGE"], OLD_PROXY, "put back by its variable")
         self.unfrozen()
 
     def test_open_paper_runs_and_their_containers_do_not_hold_the_move_back(self):
@@ -1262,14 +1296,14 @@ class FollowTests(unittest.TestCase):
             self.host.runs = cleared  # the controller's next round resumes it
             return check()
 
-        with patch("deploy.release.until_ready", side_effect=ready):
+        with patch("deploy.services.until_ready", side_effect=ready):
             self.release.follow(WEB + A)
         self.assertEqual(polled, [True], "the move waits for the controller's retry before the tick's notices")
         self.assertEqual(len(self.host.recreated), 2)
-        self.host.services = {LEDGER: {"image": OLD_SERVICE, "created": moment(BEFORE)}}
+        self.host.services = {LEDGER: running(OLD_SERVICE, BEFORE)}
         self.host.recreated.clear()
         self.host.after_move = failing  # a recovery failure that lasts: reported by the tick's notices, not undone
-        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+        with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()):
             self.release.follow(WEB + A)
         self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True)])
 
@@ -1333,14 +1367,14 @@ class FollowTests(unittest.TestCase):
 
     def test_the_readers_after_the_move_do_not_wait_on_the_live_lock_the_move_holds(self):
         # Doctor 20261117-02: 0.4.1 and 0.4.2 both undid this move after 180 s of "routed Web /api/live: TimeoutError".
-        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+        with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()):
             self.release.follow(WEB + A)
         self.assertEqual([image for _, image, _ in self.host.recreated], [TARGET["service"]] * 2, "nothing undone")
         self.assertEqual(self.host.readers, [(WEB + A, True, False)])
 
     def test_unreadable_readers_after_the_move_put_the_services_back(self):
         self.controller.health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))
-        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()):
+        with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()):
             with self.assertRaises(RuntimeError):
                 self.release.follow(WEB + A)
         self.assertEqual([image for _, image, _ in self.host.recreated][-2:], [OLD_SERVICE, OLD_SERVICE])
@@ -1356,6 +1390,107 @@ class FollowTests(unittest.TestCase):
             self.github.choose.return_value = None
             Release(self.host, self.github, live=self.live).tick()
             follow.assert_called_once_with(WEB + A)
+
+
+class DefinitionFollowTests(unittest.TestCase):
+    """Doctor 20261122-32: only an image change moved a service, so a version that changed the Caddyfile, OAuth2
+    Proxy's settings or a router's definition needed the operator's `--force-recreate`, and OAuth2 Proxy and edge kept
+    mounting files of a control directory the handoff had removed."""
+
+    unfrozen = FollowTests.unfrozen
+
+    def setUp(self):
+        FollowTests.setUp(self)
+        self.host.services = {LEDGER: running(TARGET["service"], BEFORE, "ledger"),
+                              MARKET_IMPORT: running(TARGET["service"], BEFORE, "market-import"),
+                              DOCKER_API: running(PROXY, BEFORE, "docker-api"),
+                              "trade-ide-ide-router-1": running("caddy", BEFORE, "ide-router"),
+                              "trade-ide-paper-router-1": running("caddy", BEFORE, "paper-router"),
+                              "trade-ide-oauth2-1": running("oauth2-proxy", BEFORE, None),  # an older definition
+                              "trade-ide-edge-1": running("caddy", BEFORE, None)}
+
+    def test_a_service_whose_definition_changed_is_recreated_under_the_same_conditions(self):
+        seen = []
+        self.host.during = lambda: seen.append((self.controller.live, list(self.live.held)))
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [("oauth2", "oauth2-proxy", False), ("edge", "caddy", False)])
+        self.assertEqual(self.host.pulls, [True, True], "an image the definition pins by digest")
+        self.assertEqual(seen, [(paper_route(PAPER + A, "all"), [(WEB + A, True)])] * 2)
+        self.assertEqual(self.host.denied, 1, "the public boundary through edge and OAuth2 Proxy is read after")
+        self.unfrozen()
+        self.host.recreated.clear()
+        self.release.follow(WEB + A)
+        self.assertEqual(self.host.recreated, [], "a service on the version's definition stays")
+
+    def test_a_new_paper_router_is_paused_again_for_the_rest_of_the_move(self):
+        self.host.services["trade-ide-paper-router-1"]["hash"] = None
+        self.host.services[LEDGER]["hash"] = None
+        router = "trade-ide-paper-router-1"
+        # A new router loads the unpaused route from disk.
+        self.host.on_recreate[router] = lambda: setattr(self.controller, "live", self.controller.disk)
+        seen = []
+        self.host.during = lambda: seen.append(self.controller.live)
+        self.release.follow(WEB + A)
+        self.assertEqual([name for name, _, _ in self.host.recreated][:2], ["ledger", "paper-router"])
+        self.assertEqual(seen[-1], paper_route(PAPER + A, "all"), "Paper writes still wait after the new router")
+        self.unfrozen()
+
+    def test_a_failed_definition_move_is_not_put_back_and_fails_the_tick(self):
+        self.host.services[LEDGER]["image"] = OLD_SERVICE  # the image moves too, and is put back
+        self.host.broken = {"edge", "caddy"}
+        with self.assertRaises(RuntimeError) as raised:
+            self.release.follow(WEB + A)
+        self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
+        self.assertEqual(self.host.recreated, [("ledger", TARGET["service"], True), ("oauth2", "oauth2-proxy", False),
+                                               ("edge", "caddy", False), ("ledger", OLD_SERVICE, True)],
+                         "a definition cannot be put back; an image a variable names can")
+        self.unfrozen()
+
+
+class DefinitionTests(unittest.TestCase):
+    """Follow.definitions and Follow.follows on what compose prints and Docker holds."""
+
+    CADDYFILE = "/var/lib/trade-release/control/" + A + "/deploy/remote/Caddyfile"
+    MARKET = '{"name": "market", "holds": "market", "kind": null, "root": "/srv/trade/market"}\n'
+
+    def follow(self, held):
+        host = Mock()
+        project = {"services": {"edge": {"image": "caddy", "configs": [{"source": "remote-caddy",
+                                                                       "target": "/etc/caddy/Caddyfile"}]},
+                                "market-import": {"image": TARGET["service"], "configs": [{"source": "market"}]}},
+                   "configs": {"remote-caddy": {"file": self.CADDYFILE}, "market": {"content": self.MARKET}}}
+
+        def compose(files, *args, env):
+            self.assertEqual(env, RecreateTests.ENV)
+            return "edge 1111\nmarket-import 2222\n" if "--hash" in args else json.dumps(project)
+
+        def docker(*args, binary=False, **kwargs):
+            self.assertEqual(args[:2], ("cp", "trade-ide-market-import-1:/market"))
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w") as out:
+                data = held.encode()
+                info = tarfile.TarInfo("market")
+                info.size = len(data)
+                out.addfile(info, io.BytesIO(data))
+            return archive.getvalue()
+
+        host.compose, host.docker = compose, docker
+        return host
+
+    def test_compose_hash_config_file_and_inline_content_are_each_compared(self):
+        host = self.follow(self.MARKET)
+        wanted = services.definitions(host, COMPOSE, RecreateTests.ENV)
+        self.assertEqual(wanted["edge"], {"image": "caddy", "hash": "1111",
+                                          "configs": {"/etc/caddy/Caddyfile": {"file": self.CADDYFILE}}})
+        edge = {"image": "caddy", "hash": "1111", "mounts": {"/etc/caddy/Caddyfile": self.CADDYFILE}}
+        self.assertTrue(services.follows(host, "trade-ide-edge-1", edge, wanted["edge"]))
+        self.assertFalse(services.follows(host, "trade-ide-edge-1", {**edge, "hash": "0000"}, wanted["edge"]))
+        moved = {"/etc/caddy/Caddyfile": "/opt/trade-app/deploy/remote/Caddyfile"}  # an earlier checkout's file
+        self.assertFalse(services.follows(host, "trade-ide-edge-1", {**edge, "mounts": moved}, wanted["edge"]))
+        market = {"image": TARGET["service"], "hash": "2222", "mounts": {}}
+        self.assertTrue(services.follows(host, "trade-ide-market-import-1", market, wanted["market-import"]))
+        stale = self.follow(self.MARKET.replace("/srv/trade", "/srv/other"))
+        self.assertFalse(services.follows(stale, "trade-ide-market-import-1", market, wanted["market-import"]))
 
 
 class ReaderDiagnosisTests(unittest.TestCase):
@@ -1448,7 +1583,7 @@ class ReaderDiagnosisTests(unittest.TestCase):
         self.addCleanup(test.doCleanups)
         test.controller.health = Mock(side_effect=ReaderFailure("Paper controller", "/api/paper/runs", "HTTP 500"))
         output = io.StringIO()
-        with patch("deploy.release.until_ready", side_effect=lambda check, *args, **kwargs: check()), \
+        with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()), \
                 redirect_stderr(output), self.assertRaises(RuntimeError) as raised:
             test.release.follow(WEB + A)
         self.assertEqual(failure_summary(raised.exception), "service move failed and was undone")
@@ -1457,22 +1592,24 @@ class ReaderDiagnosisTests(unittest.TestCase):
 
 
 class RecreateTests(unittest.TestCase):
-    def test_compose_recreates_one_service_from_the_host_definition_with_the_digest_in_its_environment(self):
+    ENV = {"TRADE_SERVICE_IMAGE": TARGET["service"], "TRADE_DOCKER_API_IMAGE": PROXY}
+
+    def test_compose_recreates_one_service_from_the_host_definition_with_the_digests_in_its_environment(self):
         host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
         self.addCleanup(shutil.rmtree, host.state)
         done = subprocess.CompletedProcess([], 0, "", "")
         with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
                 patch.object(DockerHost, "inspect", return_value={"image": TARGET["service"], "running": True,
                                                                   "restarts": 0}):
-            host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE)
+            host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE, self.ENV)
         command, env = run.call_args.args[0], run.call_args.kwargs["env"]
-        self.assertEqual(env["TRADE_SERVICE_IMAGE"], TARGET["service"])
+        self.assertEqual((env["TRADE_SERVICE_IMAGE"], env["TRADE_DOCKER_API_IMAGE"]), (TARGET["service"], PROXY))
         self.assertEqual(command[:5], ["docker", "--config", str(host.state / "docker"), "--host",
                                        "unix:///var/run/docker.sock"])
         self.assertEqual(command[5:8], ["compose", "--env-file", "/etc/trade/remote.env"])
         self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-f"], COMPOSE)
         self.assertEqual(command[-1], "ledger")
-        for flag in ("--no-deps", "--wait", "--detach"):
+        for flag in ("--no-deps", "--wait", "--detach", "--force-recreate"):  # a config file's change too
             self.assertIn(flag, command)
         self.assertEqual(command[command.index("--pull") + 1], "never", "the release pulled and checked it")
         with patch("deploy.release_host.subprocess.run", return_value=done), \
@@ -1480,20 +1617,18 @@ class RecreateTests(unittest.TestCase):
                 patch.object(DockerHost, "inspect", return_value={"image": OLD_SERVICE, "running": True,
                                                                   "restarts": 0}):
             with self.assertRaisesRegex(RuntimeError, "did not start"):
-                host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False, COMPOSE)
+                host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False, COMPOSE, self.ENV)
 
-    def test_docker_api_takes_the_pin_in_its_own_variable(self):
+    def test_a_third_party_image_pinned_by_the_definition_is_pulled_by_compose(self):
         host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
         self.addCleanup(shutil.rmtree, host.state)
         done = subprocess.CompletedProcess([], 0, "", "")
         with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
                 patch("deploy.release_host.time.sleep"), \
-                patch.object(DockerHost, "inspect", return_value={"image": PROXY, "running": True, "restarts": 0}):
-            host.recreate("docker-api", DOCKER_API, PROXY, False, COMPOSE, variable="TRADE_DOCKER_API_IMAGE")
-        self.assertEqual(run.call_args.kwargs["env"]["TRADE_DOCKER_API_IMAGE"], PROXY)
-        self.assertNotIn("TRADE_SERVICE_IMAGE", {key for key in run.call_args.kwargs["env"]
-                                                 if run.call_args.kwargs["env"][key] == PROXY})
-        self.assertEqual(run.call_args.args[0][-1], "docker-api")
+                patch.object(DockerHost, "inspect", return_value={"image": "caddy", "running": True, "restarts": 0}):
+            host.recreate("edge", "trade-ide-edge-1", "caddy", False, COMPOSE, self.ENV, pull=True)
+        command = run.call_args.args[0]
+        self.assertEqual((command[command.index("--pull") + 1], command[-1]), ("missing", "edge"))
 
     def test_the_compose_definition_is_read_once_from_the_running_versions_service_image(self):
         root = Path(tempfile.mkdtemp())
@@ -1571,12 +1706,12 @@ class DriftTests(unittest.TestCase):
         self.host.inspect.return_value = {"image": self.PIN}
         self.host.follower.return_value = None  # no compose service, unless a test runs one
         self.source.approved = Mock(return_value={**TARGET, "revision": self.sha})
-        clock = patch("deploy.release.time.time", return_value=hours_after_web(3)[1])
+        clock = patch("deploy.services.time.time", return_value=hours_after_web(3)[1])
         clock.start()
         self.addCleanup(clock.stop)
 
     def drift(self):
-        return release.drift(self.host, self.source)
+        return services.drift(self.host, self.source)
 
     def test_a_docker_api_that_follows_the_active_version_says_nothing(self):
         self.assertEqual(self.drift(), {})

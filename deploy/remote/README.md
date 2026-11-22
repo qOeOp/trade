@@ -10,8 +10,9 @@ and updates it by hand, or forks the repository and changes those names in the f
 
 The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
 single Agent writer, its Live control and the Paper controller, and publishes admitted versions without recreating Paper
-runs or strategy containers; the ledger mirror and market import follow each version while no Paper operation is in progress and Live is idle
-([Ledger mirror and market import](#ledger-mirror-and-market-import)). A merge to `main` is not a release: only a version tag
+runs or strategy containers; the long-lived compose services (the ledger mirror, market import, the Docker API proxy,
+the routers, OAuth2 Proxy and `edge`) follow each version's definition while no Paper operation is in progress and
+Live is idle ([Compose services](#compose-services)). A merge to `main` is not a release: only a version tag
 ([`CHANGELOG.md`](../../CHANGELOG.md)) moves this host, and each version is released by its own control code
 ([Release control code](#release-control-code)). Bootstrap the plane once on a new host with
 `sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It hands control to the newest
@@ -104,54 +105,62 @@ with the `compose` of step 6 below: its control already handed over and copied i
 of the earlier version cannot read the new ledger until the release, which the next tick runs once the timer is
 started again.
 
-### Ledger mirror and market import
+### Compose services
 
-The compose services `ledger` (`ledger mirror`) and `market-import` run the service image too, and follow the version
-the release committed ([design](../../docs/plans/release-moves-ledger-mirror-20261116.zh.md)). On the first settled
-tick after a version commits (never in the tick that releases it), each of the two that runs another image and was
-created before the routed Web is recreated on that version's admitted service digest, from that version's own
-compose definition and with `TRADE_SERVICE_IMAGE` passed in the environment: `/etc/trade/remote.env` is not
-written. The definition is `deploy/compose.yaml`, `deploy/remote/*.yaml`, the `Caddyfile` and `oauth2-proxy.cfg` as
-the version's service image carries them; the control copies them out of that image once, as the handoff copies its
-code, into `control/<revision>/deploy/` beside the code. A version's command, mounts and settings for these services
-therefore arrive with the version, with no operator step. The ledger must pass its health check within 10 minutes;
-market import must still run 30 seconds later.
-The Docker API proxy follows the same way, on the same tick and under the same conditions, to the digest the routed
-version's `deploy/compose.yaml` pins (the user, 2026-11-16): a version's Paper controller creates runs only with the
-container options its own proxy's `docker-api/check.go` admits. The release pulls that digest (this repository,
-amd64), then recreates `docker-api` with `TRADE_DOCKER_API_IMAGE` passed in the environment, so compose makes the
-container and its mounts anew, as after a moved data directory, where a restart would not; it must still run 30
-seconds later, and the Paper controller's listing, which reads Docker through it, must answer. While it is recreated the Paper controller's Docker calls are refused (`RUNTIME_UNAVAILABLE`): the Paper
-page's run list, starts, stops, resumes and seals fail for those seconds and its seal loop skips a round. Running runs
-go on: their runner and egress containers are the engine's own and never call the proxy. A comparison already running
-on the Paper page attaches its replay through the proxy and fails, as it does for a ledger move.
-Every tick compares the running docker-api with the digest the routed version pins, and sends a Telegram notice
-(below) while they differ once the release no longer moves it (it was recreated after the routed Web, a move undone
-or by hand, and the release's retries below are spent).
-A service that is stopped or absent (market import before step 5 below) is never started.
+The long-lived compose services follow the version the release committed
+([design](../../docs/plans/release-moves-ledger-mirror-20261116.zh.md)): `ledger` (`ledger mirror`) and
+`market-import`, which run the service image, the Docker API proxy `docker-api`, the internal routers `ide-router` and
+`paper-router`, OAuth2 Proxy (`oauth2`) and `edge`. On the first settled tick after a version commits (never in the
+tick that releases it), each one that runs is compared with what that version's own compose definition creates, and
+recreated when they differ. The definition is `deploy/compose.yaml`, `deploy/remote/*.yaml`, the `Caddyfile` and
+`oauth2-proxy.cfg` as the version's service image carries them; the control copies them out of that image once, as
+the handoff copies its code, into `control/<revision>/deploy/` beside the code. The release passes the version's
+admitted service digest as `TRADE_SERVICE_IMAGE` and the docker-api digest its `deploy/compose.yaml` pins as
+`TRADE_DOCKER_API_IMAGE` in the environment (`/etc/trade/remote.env` is not written), and compares, per service:
+the image; compose's own hash of the service's configuration (`docker compose config --hash`, which compose stores
+on the container as the `com.docker.compose.config-hash` label: command, environment, mounts, limits, networks,
+labels); the host file each file-based config (the `Caddyfile`, `oauth2-proxy.cfg`) is mounted from, which names the
+control directory of the version that created it; and the content of each inline config. A version's command,
+mounts, settings and configuration files for these services therefore arrive with the version, with no operator step,
+and a service whose definition the version does not change is left running. So is one whose definition differs only
+by what the env file changed since, until a version recreates it. A recreate is `compose up --no-deps
+--force-recreate`; the ledger must pass its health check within 10 minutes, every other service must still run 30
+seconds later. The release pulls and checks the service and docker-api digests before (this repository, amd64);
+compose pulls an image the definition pins by digest (Caddy, OAuth2 Proxy) when the host lacks it.
+
+What each one interrupts: the ledger, a short outage of ledger reads for the Web, Agent, Paper controller and Live
+control (the Paper database and the research mirror live in `$TRADE_DATA/dolt` and the `trade-dolt-data` volume and
+survive it); `docker-api`, the Paper controller's Docker calls (its run list, starts, stops, resumes and seals refuse
+with `RUNTIME_UNAVAILABLE` and its seal loop skips a round), while running runs go on, since their runner and egress
+containers are the engine's own and never call the proxy; the routers, the IDE or its Paper API for seconds;
+`oauth2` and `edge`, login and HTTPS for seconds. A comparison already running on the Paper page fails and can be
+started again. A version's Paper controller creates runs only with the container options its own proxy's
+`docker-api/check.go` admits, which is why docker-api follows the version's pin (the user, 2026-11-16).
 
 It waits, and the tick says why, until no Paper operation is in progress and Live is idle: no Paper run is starting,
 stopping, or ended or unsealed and so about to be resumed or sealed (the Paper controller does those in the Paper
 database, which shares the ledger's Dolt process), and Live answers idle inside the account lock, which it holds
-during the move. Running Paper runs do not hold it back: their runners never reach the ledger, and a run that ends
+during the moves. Running Paper runs do not hold it back: their runners never reach the ledger, and a run that ends
 during the restart is resumed or sealed on the controller's next round without using up a recovery attempt; the
-move then waits up to 3 minutes for such a run's recovery failure to clear before the tick's notices read it. Paper's writes are paused for the move, as in a
-release, and lifecycle operations already admitted finish first. The restart is a short outage of ledger reads for
-the Web, Agent, Paper controller and Live control; the Paper database and the research mirror live in
-`$TRADE_DATA/dolt` and the `trade-dolt-data` volume and survive it. A comparison already running on the Paper page
-fails and can be started again. After the move the routed Web and the Paper controller must answer within 3 minutes.
+move then waits up to 3 minutes for such a run's recovery failure to clear before the tick's notices read it. Paper's
+writes are paused for the moves, as in a release (again after a new `paper-router`, which loads the unpaused route),
+and lifecycle operations already admitted finish first. After the moves the routed Web and the Paper controller must
+answer and the public API must still refuse without login, within 3 minutes. A service that is stopped or absent
+(market import before step 5 below) is never started.
 
-On any failure every service it touched is recreated on the image it ran before and the tick fails (a Telegram notice
-as for any failed tick). They are then newer than the routed Web: a later tick moves such a service again under the
-same conditions once it is an hour old, as long as it was created within two hours of the routed Web, so a version
-makes at most three moves an hour apart. After the last a Telegram drift notice names each service left on another
-image, and it stays until the next version (no state is kept: the containers' creation times are the count). To move
-them by hand, name the active version's images (`python3 -m deploy.images --revision <revision>
---env /etc/trade/remote.env`) and `compose up -d --no-deps ledger` (`--profile local-research-import` for market
-import, `docker-api` for the Docker API proxy), with the compose files under
-`/var/lib/trade-release/control/current/deploy/` (below). An operator's own
-recreate of any of them after a release counts the same: within those two hours the release moves it again an hour
-later.
+On any failure each touched service whose image a variable names (`ledger`, `market-import`, `docker-api`) and that
+changed image is recreated on the image it ran before, and the tick fails (a Telegram notice as for any failed tick).
+A definition cannot be put back (the previous version's may be gone), so a service the move changed only by its
+definition stays on it. A service put back is newer than the routed Web: a later tick moves it again under the same
+conditions once it is an hour old, as long as it was created within two hours of the routed Web, so a version makes
+at most three moves an hour apart. Every tick compares docker-api with the digest the routed version pins and
+`ledger` and `market-import` with its service digest, and after the last move a Telegram drift notice names each
+service left on another image; it stays until the next version (no state is kept: the containers' creation times
+are the count). To move one by hand, name the active version's images (`python3 -m deploy.images --revision
+<revision> --env /etc/trade/remote.env`) and run `compose up -d --no-deps <service>` (`--profile
+local-research-import` for market import) with the compose files under `/var/lib/trade-release/control/current/deploy/`
+(below). An operator's own recreate of a service after a release counts the same: within those two hours the release
+moves it again an hour later if it differs from the definition.
 
 Since the env file keeps the image of the host's install, name the routed version's images in it the same way before
 any whole-project `compose up`, or compose puts the ledger back on the older image.
@@ -339,9 +348,9 @@ compose() {
 ### Login and HTTPS
 
 Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
-proxy or OAuth2 Proxy: a version whose `CHANGELOG.md` entry changes the `Caddyfile`, `oauth2-proxy.cfg` or either
-service reaches them once it is the active control, by recreating them alone (`compose up -d --no-deps
---force-recreate oauth2 edge`). OAuth2 Proxy keeps encrypted
+proxy or OAuth2 Proxy: a version that changes the `Caddyfile`, `oauth2-proxy.cfg` or either service's definition
+reaches them on the first settled tick after it commits ([Compose services](#compose-services)). OAuth2 Proxy keeps
+encrypted
 sessions in secure HttpOnly cookies and does not pass provider tokens or user headers into the IDE.
 The GitHub identity session is independent of Paper process lifetime. `/api/…` returns 401 when login
 expires; a full page navigation uses GitHub login. After login, the existing same-origin/CSRF checks still
@@ -417,8 +426,8 @@ previous version's kept containers by hand ([below](#returning-to-the-previous-v
 4. Check the About dialog names the new commit, and `journalctl -u trade-release.service` shows it routed.
 
 What a rollback does not undo: ledger records and the market directory only grow, and running Paper and Live runs
-keep the runtime image and controller they started with. The ledger mirror and market import follow the reverted
-version like any other ([Ledger mirror and market import](#ledger-mirror-and-market-import)). 0.x keeps no compatibility between versions, so a revision
+keep the runtime image and controller they started with. The compose services follow the reverted
+version like any other ([Compose services](#compose-services)). 0.x keeps no compatibility between versions, so a revision
 may not read what a later one wrote; a revert that needs the ledger rewound is a destructive write for the user to decide.
 A target that failed stays in `/var/lib/trade-release/failed/`, and the three newest good Web, Agent and controller
 containers stay on the host for inspection.
@@ -501,9 +510,9 @@ reason in `journalctl -u trade-release.service`. Do not delete or edit a journal
 half-done rollback from a half-done release, and it keeps the journal for exactly this. Do not delete
 `failed/NEW` later either: that retries `NEW` (see above).
 
-What it does not move back: the ledger mirror and market import stay on `NEW`'s service image, since they follow
-only the admitted version and only while it is the routed one (`Release.follow`); move them by hand as in [Ledger
-mirror and market import](#ledger-mirror-and-market-import) with `--revision OLD`. Paper and Live runs started under
+What it does not move back: the compose services stay on `NEW`'s images and definition, since they follow
+only the admitted version and only while it is the routed one (`Release.follow`); move them by hand as in [Compose
+services](#compose-services) with `--revision OLD`. Paper and Live runs started under
 `NEW` keep running on what they started with, and `OLD` may not read what `NEW` wrote. `control/current` stays
 `NEW`'s control, which ran the recovery and hands over to the next admitted version; the fix still ships as a new
 version, as above, and `GitSource.choose` releases it over `OLD`.
@@ -689,16 +698,12 @@ systemd and starts the timer.
 
 Before 0.5.0 the release recreated the ledger, market import and the Docker API proxy from the checkout
 `/opt/trade-app` and the overlays in `/opt/trade-release/deploy/remote/`, and OAuth2 Proxy and `edge` mount their
-configuration from that checkout. 0.5.0 needs no step before it: the 0.4 control hands over to it as to any version,
-and the 0.5.0 control reads its compose definition from its own service image on its first tick. Once 0.5.0 is the
-routed version (`/var/lib/trade-release/control/current` names its revision), recreate OAuth2 Proxy and `edge` from
-that definition, a few seconds of login and HTTPS outage:
-
-```sh
-d=/var/lib/trade-release/control/current/deploy
-docker compose --env-file /etc/trade/remote.env -f $d/compose.yaml -f $d/remote/compose.yaml \
-  -f $d/remote/cd.compose.yaml -f $d/remote/paper-cd.compose.yaml up -d --no-deps --force-recreate oauth2 edge
-```
+configuration from that checkout. 0.5.0 needs no step: the 0.4 control hands over to it as to any version, the 0.5.0
+control reads its compose definition from its own service image, and on the first settled tick after 0.5.0 is routed
+it recreates every compose service that differs from that definition ([Compose services](#compose-services)), OAuth2
+Proxy and `edge` included (their configuration files are mounted from the checkout, so they differ): a few seconds
+of login and HTTPS outage. If 0.5.0 waits for the host's ledger generation, that is the owner's step first
+([A version that needs a new ledger generation](#a-version-that-needs-a-new-ledger-generation)).
 
 `/opt/trade-release/deploy/remote/` may then be removed. Keep `/opt/trade-app` for a later reinstall of the
 launcher, unit or timer (above); the release no longer reads it, so it no longer has to follow the routed version.

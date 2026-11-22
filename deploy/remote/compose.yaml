@@ -2,7 +2,7 @@
 # Never expose the unauthenticated IDE, ledger or Paper API on a public interface.
 
 # Every service's log goes to the host journal under its container's name, so it outlives the container (a release
-# recreates ledger, market-import and docker-api) and a reboot; journald's own size cap bounds it (README.md, Logs).
+# recreates the compose services) and a reboot; journald's own size cap bounds it (README.md, Logs).
 x-journald: &journald
   driver: journald
   options: {tag: "{{.Name}}"}

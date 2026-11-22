@@ -9,8 +9,10 @@ import re
 import shutil
 import subprocess
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import ProxyHandler, Request, build_opener, urlopen
+from urllib.error import HTTPError
+from urllib.request import ProxyHandler, Request, build_opener
+
+from .registry import Registry
 
 
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
@@ -20,7 +22,9 @@ AGENT = "trade-release-agent-"
 LEDGER = "trade-ide-ledger-1"
 MARKET_IMPORT = "trade-ide-market-import-1"
 ROUTER = "trade-ide-ide-router-1"
+PAPER_ROUTER = "trade-ide-paper-router-1"
 DOCKER_API = "trade-ide-docker-api-1"
+OAUTH2, EDGE = "trade-ide-oauth2-1", "trade-ide-edge-1"
 DOCKER_API_NETWORK = "trade-ide_docker-api"
 BACKEND = "trade-ide_default"
 FRONTEND = "trade-ide_frontend"
@@ -35,9 +39,6 @@ IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
 SERVICE_REF = re.compile(r"ghcr\.io/qoeop/trade-service@sha256:[0-9a-f]{64}\Z")
 RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
 DOCKER_API_REF = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}\Z")  # pinned in deploy/compose.yaml
-MANIFESTS = ", ".join(f"application/vnd.{kind}" for kind in (
-    "oci.image.index.v1+json", "docker.distribution.manifest.list.v2+json", "oci.image.manifest.v1+json",
-    "docker.distribution.manifest.v2+json"))
 KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
 # A release needs this much MemAvailable before it starts a candidate (its Web's cap plus 512 MiB). Paper admission
 # keeps the same amount free after a new run's limit (paper/runs.py): starting a run never takes the host below it.
@@ -170,13 +171,18 @@ ENV_FILE = Path("/etc/trade/remote.env")
 IMAGE_DEPLOY = "/opt/trade/deploy"  # deploy/Dockerfile: WORKDIR /opt/trade, COPY . ./ (deploy/Dockerfile.dockerignore)
 EXTRACTOR = "trade-release-control-extract"
 # The compose files of the host's whole project, as each version's service image carries them under deploy/, and the
-# files they name. The release recreates the services of the service image and docker-api from its own version's
-# files, changing only the image variable (docs/plans/release-moves-ledger-mirror-20261116.zh.md).
+# files they name. The release recreates each long-lived service from its own version's files, passing only the image
+# variables (deploy/services.py; docs/plans/release-moves-ledger-mirror-20261116.zh.md).
 COMPOSE = ("compose.yaml", "remote/compose.yaml", "remote/cd.compose.yaml", "remote/paper-cd.compose.yaml")
 DEFINITION = (*COMPOSE, "remote/Caddyfile", "remote/oauth2-proxy.cfg")
-# What follows a version: each compose service, its container, and whether its health check says the image works
-# (market-import's says whether the data lags, so it is only seen running).
+# The compose services of the service image: each one, its container, and whether its health check says the image
+# works (market-import's says whether the data lags, so it is only seen running).
 FOLLOWERS = (("ledger", LEDGER, True), ("market-import", MARKET_IMPORT, False))
+# Every long-lived compose service of the host the release keeps on the routed version's definition
+# (deploy/services.py), its container, and whether compose waits for its health check.
+SERVICES = (*FOLLOWERS, ("docker-api", DOCKER_API, False), ("ide-router", ROUTER, False),
+            ("paper-router", PAPER_ROUTER, False), ("oauth2", OAUTH2, False), ("edge", EDGE, False))
+CONFIG_HASH = "com.docker.compose.config-hash"  # the label compose gives a container: its service's `config --hash`
 # The variables deploy/compose.yaml takes those services' images from, and docker-api's (which defaults to its pin).
 SERVICE_IMAGE, DOCKER_API_IMAGE = "TRADE_SERVICE_IMAGE", "TRADE_DOCKER_API_IMAGE"
 FOLLOW_WAIT_SECONDS, FOLLOW_SETTLE_SECONDS = 600, 30
@@ -196,42 +202,6 @@ def deployment_env(path: Path, run=subprocess.run) -> dict[str, str]:
     if result.returncode:
         raise RuntimeError(f"Docker Compose 2.28 or newer could not read {path}: {result.stderr[-400:]}")
     return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-
-
-class Registry:
-    """Anonymous reads of the public GHCR packages."""
-
-    def __init__(self, timeout: float = 60):
-        self.tokens: dict[str, str] = {}
-        self.timeout = timeout
-
-    def get(self, repository: str, path: str, accept: str | None = None) -> dict:
-        name = repository.removeprefix("ghcr.io/")
-        if name not in self.tokens:
-            self.tokens[name] = self.fetch(f"https://ghcr.io/token?scope=repository:{name}:pull", {})["token"]
-        headers = {"Authorization": f"Bearer {self.tokens[name]}"}
-        if accept:
-            headers["Accept"] = accept
-        return self.fetch(f"https://ghcr.io/v2/{name}/{path}", headers)
-
-    def fetch(self, url: str, headers: dict) -> dict:
-        with urlopen(Request(url, headers=headers), timeout=self.timeout) as response:
-            return json.load(response)
-
-    def manifest(self, repository: str, reference: str) -> dict:
-        return self.get(repository, f"manifests/{reference}", MANIFESTS)
-
-    def config(self, repository: str, digest: str) -> dict:
-        return self.get(repository, f"blobs/{self.manifest(repository, digest)['config']['digest']}")
-
-    def serves(self, image: str) -> bool:
-        """Whether anyone can still pull this digest from its registry; False when that cannot be read."""
-        name, digest = image.split("@", 1)
-        try:
-            self.manifest(name, digest)
-            return True
-        except (HTTPError, URLError, OSError, ValueError, KeyError):
-            return False
 
 
 @dataclass(frozen=True)
@@ -333,21 +303,23 @@ class DockerHost:
         self.config = config
         self.state = config.state
 
-    def docker(self, *args: str, check: bool = True, timeout: int = 120, env: dict[str, str] | None = None) -> str:
+    def docker(self, *args: str, check: bool = True, timeout: int = 120, env: dict[str, str] | None = None,
+               binary: bool = False):
         # Empty private Docker configuration: public pulls do not read a host credential helper.
         root = self.state / "docker"
         root.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(
             ["docker", "--config", str(root), "--host", "unix:///var/run/docker.sock", *args],
             capture_output=True,
-            text=True,
+            text=not binary,
             timeout=timeout,
             check=False,
             env=None if env is None else {**os.environ, **env},
         )
         if check and result.returncode:
-            raise DockerFailure(args[0], result.returncode, result.stderr[-1200:])
-        return result.stdout.strip()
+            stderr = result.stderr.decode(errors="replace") if binary else result.stderr
+            raise DockerFailure(args[0], result.returncode, stderr[-1200:])
+        return result.stdout if binary else result.stdout.strip()
 
     def inspect(self, name: str) -> dict:
         template = (
@@ -371,11 +343,24 @@ class DockerHost:
         return moment(json.loads(self.docker("inspect", "--format", "{{json .Created}}", name)))
 
     def follower(self, name: str) -> dict | None:
-        """A running compose service's image and creation time; None when it is absent or stopped."""
+        """A running compose service's image, creation time, compose configuration hash (CONFIG_HASH) and the host
+        source of each bind mount by its destination; None when it is absent or stopped."""
         if not self.exists(name):
             return None
-        found = self.inspect(name)
-        return {"image": found["image"], "created": self.created(name)} if found["running"] else None
+        template = ('{"running":{{json .State.Running}},"image":{{json .Config.Image}},"created":{{json .Created}},'
+                    f'"hash":{{{{json (index .Config.Labels "{CONFIG_HASH}")}}}},"mounts":{{{{json .Mounts}}}}}}')
+        found = json.loads(self.docker("inspect", "--format", template, name))
+        if not found["running"]:
+            return None
+        return {"image": found["image"], "created": moment(found["created"]), "hash": found["hash"],
+                "mounts": {mount["Destination"]: mount["Source"] for mount in found["mounts"] or []
+                           if mount.get("Type") == "bind"}}
+
+    def compose(self, files: list[str], *args: str, env: dict[str, str], timeout: int = 120) -> str:
+        """`docker compose` on the host's project from the compose `files` (`definition`) and the env file, with `env`
+        in the process environment, which compose reads over the env file (the env file is never written)."""
+        return self.docker("compose", "--env-file", str(ENV_FILE), *[arg for path in files for arg in ("-f", path)],
+                           "--profile", "local-research-import", *args, timeout=timeout, env=env)
 
     def condition(self, name: str) -> dict | None:
         """A compose service's container as Docker last saw it: running, its health check's status (None without
@@ -426,16 +411,15 @@ class DockerHost:
             print(f"Read the compose definition of {sha} from its service image", flush=True)
         return [str(root / name) for name in COMPOSE]
 
-    def recreate(self, service: str, name: str, image: str, healthy: bool, files: list[str], pull: bool = False,
-                 variable: str = SERVICE_IMAGE) -> None:
-        """Recreate one compose service on `image` from the compose `files` of the active version (`definition`): the
-        digest is passed in the process environment as `variable`, which compose reads over the env file, so the env
-        file is not written. Compose recreates a service whose image changed, so its mounts are made anew."""
-        files = [arg for path in files for arg in ("-f", path)]
+    def recreate(self, service: str, name: str, image: str, healthy: bool, files: list[str], env: dict[str, str],
+                 pull: bool = False) -> None:
+        """Recreate one compose service from the compose `files` of the active version (`definition`), with the image
+        variables `env` (`compose`), so compose makes it and its mounts anew. `pull` lets compose pull an image it does
+        not hold (one pinned by digest in the definition, or one a move puts back); otherwise the release pulled and
+        checked it."""
         wait = ["--wait", "--wait-timeout", str(FOLLOW_WAIT_SECONDS)] if healthy else []
-        self.docker("compose", "--env-file", str(ENV_FILE), *files, "--profile", "local-research-import", "up",
-                    "--detach", "--no-deps", "--timeout", "60", "--pull", "missing" if pull else "never", *wait,
-                    service, timeout=FOLLOW_WAIT_SECONDS + 180, env={variable: image})
+        self.compose(files, "up", "--detach", "--no-deps", "--force-recreate", "--timeout", "60",
+                     "--pull", "missing" if pull else "never", *wait, service, env=env, timeout=FOLLOW_WAIT_SECONDS + 180)
         if not healthy:
             time.sleep(FOLLOW_SETTLE_SECONDS)
         found = self.inspect(name)

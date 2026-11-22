@@ -7,13 +7,11 @@ version's own control releases it (deploy/control.py). Git and Docker use no exi
 
 import argparse
 import contextlib
-from datetime import datetime, UTC
 import fcntl
 import os
 from pathlib import Path
 import subprocess
 import sys
-import time
 import traceback
 
 from .control import HANDOFF, hand_off, running
@@ -22,15 +20,10 @@ from .paper_host import PAPER, PaperHost
 from .paper_release import PaperRelease
 from .release_host import (
     AGENT,
-    DOCKER_API,
-    DOCKER_API_IMAGE,
-    DOCKER_API_REF,
-    FOLLOWERS,
     DockerFailure,
     HostCondition,
     ReaderFailure,
     IMAGE_REF,
-    SERVICE_IMAGE,
     SERVICE_REF,
     RUNTIME_REF,
     WEB,
@@ -41,9 +34,9 @@ from .release_host import (
     read_journal,
     revision,
     sync_directory,
-    until_ready,
 )
 from .notices import Notices
+from .services import Follow, drift
 from .source import GitSource, SourceUnreachable
 
 
@@ -135,62 +128,6 @@ def report_failure(phase: str, error: Exception) -> None:
     with contextlib.suppress(OSError, ValueError):  # A closed diagnostic stream must not prevent transaction recovery.
         print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)
-
-
-# Paper states whose run the controller is about to stop, resume or seal: a lifecycle operation is due.
-PAPER_OPERATIONS = frozenset({"stopping", "ended", "unsealed"})
-PAPER_LISTING_SECONDS = 3  # past the Paper controller's listing cache (paper/serve.py LIST_SECONDS)
-
-
-# A compose service a move put back (Release.move) is created after the routed Web, as one the operator recreated is.
-# Either is moved again once it is FOLLOW_RETRY_SECONDS old, while it was created within
-# (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS of the Web: each undone move leaves a container at least that much
-# newer than the last, so a version tries at most FOLLOW_ATTEMPTS moves, an hour apart, and then leaves the service to
-# the next version with a drift notice (doctor 20261117-02). Nothing is stored: Docker's creation times are the count.
-FOLLOW_RETRY_SECONDS, FOLLOW_ATTEMPTS = 3600, 3
-
-
-def epoch(created: tuple[str, str]) -> float:
-    """A `moment` as seconds since the epoch (to the microsecond)."""
-    whole, fraction = created
-    return datetime.fromisoformat(f"{whole}.{fraction[:6]}").replace(tzinfo=UTC).timestamp()
-
-
-def retry(since: tuple[str, str], created: tuple[str, str], now: float) -> str:
-    """For a service created after the routed Web (created `since`): "due" to be moved again, "wait" for its retry,
-    or "over" once this version's attempts are spent."""
-    if epoch(created) - epoch(since) >= (FOLLOW_ATTEMPTS - 1) * FOLLOW_RETRY_SECONDS:
-        return "over"
-    return "due" if now - epoch(created) >= FOLLOW_RETRY_SECONDS else "wait"
-
-
-def drift(host: DockerHost, github: GitSource) -> dict[str, str]:
-    """What on the host does not follow the active version (doctor 20261116-04): docker-api against the digest the
-    version pins, and the compose services of the service image against its digest, once the release no longer
-    moves them (Release.follow)."""
-    sha = revision(host.disk_route())
-    short = sha[:12]
-    facts = {}
-    since, now = host.created(WEB + sha), time.time()
-    pin = github.docker_api(sha)
-    running = host.inspect(DOCKER_API)["image"]
-    if running != pin and host.created(DOCKER_API) > since and retry(since, host.created(DOCKER_API), now) == "over":
-        # One created before the routed Web, or whose retries are not spent, is moved by a settled tick (Release.follow).
-        facts[f"drift:docker-api:{pin}"] = (
-            f"docker-api runs {running}, but the active version {short} pins {pin}. It was recreated after that "
-            "version was released (a move undone, or by hand) and the release's retries are spent, so it stays until "
-            "the next version; recreate it by hand from that version's compose files (deploy/remote/README.md).")
-    target = github.approved()
-    service = target["service"] if target["revision"] == sha else None
-    for name, container, _ in FOLLOWERS if service is not None else ():
-        found = host.follower(container)
-        if (found is not None and found["image"] != service and found["created"] > since
-                and retry(since, found["created"], now) == "over"):
-            facts[f"drift:{name}:{service}"] = (
-                f"{name} runs {found['image']}, but the active version {short} runs {service}. Its moves were undone "
-                "(or it was recreated by hand) and the release's retries are spent, so it stays until the next "
-                "version; journalctl -u trade-release.service names the reader that failed.")
-    return facts
 
 
 class Release:
@@ -474,6 +411,11 @@ class Release:
             "that needs a new ledger generation.")
         return True
 
+    def follow(self, active: str) -> None:
+        """Recreate the long-lived compose services whose definition the committed version changed (deploy/services.py),
+        on a settled tick, while no Paper operation is in progress and Live is idle."""
+        Follow(self, report_failure).run(active)
+
     def paper(self) -> PaperRelease:
         if self._paper is None:
             self._paper = PaperRelease(PaperHost(self.host.config), self.github)
@@ -588,132 +530,6 @@ class Release:
             self.follow(active)
         self.prune()
         return False
-
-    def paper_quiet(self, web: str) -> set[int] | None:
-        """No Paper operation is in progress, read through the routed Web: no run is starting, stopping, or ended
-        or unsealed and so about to be resumed or sealed. Open runs and their containers are allowed (the user,
-        2026-11-16, 「放宽」): runners never reach the ledger, and what the controller does with an open run across a
-        restart either fails before any effect or replays, and is retried every 15 s. The runs that already carry a
-        recovery failure; None when an operation is in progress or the listing is unreadable."""
-        try:
-            listed = self.host.probe(web, "/api/paper/runs", routed=True)
-            if listed["starting"] or any(run["state"] in PAPER_OPERATIONS for run in listed["runs"]):
-                return None
-            return {run["id"] for run in listed["runs"] if run["recovery"]}
-        except (RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired):
-            return None
-
-    def recovered(self, web: str, before: set[int]) -> None:
-        """Wait a while for recovery failures that appeared during the move to clear: a run that ended while the
-        ledger restarted fails to resume or seal until the controller's next round, and the tick's notices would
-        report it as a run that could not resume. One that stays is reported; it does not undo the move."""
-        def cleared() -> None:
-            runs = self.host.probe(web, "/api/paper/runs", routed=True)["runs"]
-            if any(run["recovery"] and run["id"] not in before for run in runs):
-                raise RuntimeError("a Paper recovery failed during the service move")
-
-        try:
-            until_ready(cleared, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))
-        except (RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
-            print("A Paper run's recovery still fails after the service move; the notice reports it", flush=True)
-
-    def follow(self, active: str) -> None:
-        """Move the compose services to the committed version: the ledger mirror and market-import to its admitted
-        service digest, and docker-api to the digest its deploy/compose.yaml pins (the user, 2026-11-15 and
-        2026-11-16, doctors 20261115-06 and 20261116-04; docs/plans/release-moves-ledger-mirror-20261116.zh.md),
-        each from the version's own compose files (DockerHost.definition), while no Paper operation is in progress and
-        Live is idle. A running service created after the active Web was recreated since this version committed, by a
-        move undone or by the operator: it is moved again under the same conditions once `retry` says so, at most
-        FOLLOW_ATTEMPTS moves per version, and then stays until the next version (`drift` sends the notice). One that
-        is absent or stopped is the operator's and is never started."""
-        sha = revision(active)
-        target = self.github.approved()
-        service = target["service"]
-        if target["revision"] != sha or service is None:
-            return
-        wanted = [(name, container, healthy, SERVICE_IMAGE, service) for name, container, healthy in FOLLOWERS]
-        wanted.append(("docker-api", DOCKER_API, False, DOCKER_API_IMAGE, self.github.docker_api(sha)))
-        since, now = self.host.created(active), time.time()
-        moving = []
-        for name, container, healthy, variable, image in wanted:
-            found = self.host.follower(container)
-            if found is None or found["image"] == image:
-                continue
-            again = retry(since, found["created"], now) if found["created"] > since else "due"
-            if again == "over":
-                print(f"{name} was recreated after {active} and its retries are spent; it stays on {found['image']} "
-                      "until the next version", flush=True)
-                continue
-            if again == "wait":
-                print(f"{name} was recreated after {active} (a move undone, or by hand); the release moves it again "
-                      f"{FOLLOW_RETRY_SECONDS // 60} minutes after that", flush=True)
-                continue
-            moving.append((name, container, healthy, variable, image, found["image"]))
-        if not moving:
-            return
-        if self.paper_quiet(active) is None:
-            print("The compose services wait until no Paper operation is in progress", flush=True)
-            return
-        files = self.host.definition(service, sha)
-        for _, _, _, variable, image, _ in moving:
-            if variable == DOCKER_API_IMAGE:
-                self.host.pull(image, DOCKER_API_REF)  # this repository and amd64, built from an earlier commit
-            else:
-                self.host.pull(image, SERVICE_REF, sha)
-        paper = self.paper().host
-        controller = paper.disk_route()
-        paper.switch(controller, "all")  # new Paper writes wait; recover() unfreezes it after a crash
-        try:
-            with paper.barrier(paper.inspect(controller)["image"]) as drained:
-                drained()  # a lifecycle operation that passed before the freeze has finished
-            time.sleep(PAPER_LISTING_SECONDS)
-            before = self.paper_quiet(active)
-            if before is None:
-                print("A Paper operation began; the compose services wait", flush=True)
-                return
-            with self.live.barrier(active, idle=True) as held:
-                held()
-                self.move(active, controller, moving, files, held)
-        except LiveBusy as busy:
-            print(f"{busy}; the compose services wait until Live is idle", flush=True)
-            return
-        finally:
-            paper.normalize()
-        self.recovered(active, before)
-
-    def move(self, web: str, controller: str, moving: list, files: list[str], held) -> None:
-        """Recreate each service on its image, then check what reads them; on any failure put back every one it
-        touched on its previous image and fail the tick. docker-api is recreated, never only restarted, so it also
-        mounts what the definition names now. While it is down the Paper controller's Docker calls fail (its listing,
-        start, stop, resume and seal refuse with RUNTIME_UNAVAILABLE) and running runs, whose containers the engine
-        runs, go on."""
-        touched = []
-        try:
-            for name, container, healthy, variable, image, _ in moving:
-                touched.append(name)
-                print(f"Moving {name} to {image}", flush=True)
-                self.host.recreate(name, container, image, healthy, files, variable=variable)
-                held()
-
-            def readers() -> None:
-                # Not /api/live: this move holds the Live account lock that its listing waits on (doctor 20261117-02).
-                # The services moved here are not on the Web to Live control path it would check.
-                self.host.health(web, [], routed=True, live=False)
-                self.paper().host.health(controller)  # its listing reads Docker through docker-api
-
-            until_ready(readers, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))
-        except Exception as error:
-            report_failure("services", error)
-            try:
-                for name, container, healthy, variable, _, previous in reversed(moving):
-                    if name in touched:
-                        self.host.recreate(name, container, previous, healthy, files, pull=True, variable=variable)
-            except Exception as undo:
-                report_failure("services", undo)
-                raise RuntimeError("compose services did not move nor return; left for the operator") from undo
-            raise RuntimeError("compose services did not move; previous images restored") from error
-        print(f"Moved {', '.join(touched)}", flush=True)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
