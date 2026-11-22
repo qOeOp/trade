@@ -1,1 +1,0 @@
-- A sealed reading's `drawdown` block gains `years`: each development year's bar-close MARK drawdown with its peak and trough, the peak carried across years. `replay report` `dev_years` shows it beside each year's return.

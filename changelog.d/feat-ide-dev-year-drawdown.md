@@ -1,1 +1,0 @@
-- IDE: the per-year table of a run's periods shows each development year's sealed MARK drawdown beside its return.

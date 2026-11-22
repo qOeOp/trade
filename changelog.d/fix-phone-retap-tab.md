@@ -1,1 +1,0 @@
-- IDE phone: tapping Runs again on an open run's page goes back to the run list, as on iOS.

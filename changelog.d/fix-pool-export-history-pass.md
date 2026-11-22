@@ -1,1 +1,0 @@
-- A market export reads each bar month file once for all its contracts instead of once per contract: a 259-contract pool export of 7 days drops from 1065 s to 80 s with the same bytes.

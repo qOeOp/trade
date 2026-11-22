@@ -1,1 +1,0 @@
-- IDE (doctor 20261122-06): a position held under two or more working protective stops shows every trigger, nearest the mark first, instead of only the first: the desktop Live run's `SL 75,880 / 77,000`, the phone's `2 stops 75,880 / 77,000 · nearest 2.4% away`, and the Paper Trades table's open row (its targets too).

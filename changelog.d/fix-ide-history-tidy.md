@@ -1,1 +1,0 @@
-- History page: cells colour by the measure Show picks (Max drawdown colours by drawdown, Sharpe by Sharpe), the Development, Holdout, Median and Meeting headers sort the rows, the Verdict and DSR columns stay in view while the table scrolls sideways, the colour and method notes moved behind an info tip, and a line's two targets read in one Targets field.

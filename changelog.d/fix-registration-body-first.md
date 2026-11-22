@@ -1,2 +1,0 @@
-- `registration add` checks the body's comparison design, grid, changed duties, predictions and header lines before it exports the market and probes the image, so `PREDICTION_INVALID`, `DUTY_HEADER_MISMATCH` and the like arrive at once instead of after about half a minute.
-- `PREDICTION_INVALID` for a slice or measure outside the measure catalogue lists the valid names in `expected` (the slice's measures, the catalogue's slices, or every measure for a prediction without a slice).
