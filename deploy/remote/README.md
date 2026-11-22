@@ -161,9 +161,8 @@ A release waits until Live is idle: no run holds account custody and every runne
 inspects the account inside the account lock (`live release-inspect`) before anything is prepared, and the
 candidate's control again before the journal and at commit; a host with no runs answers idle (one 256 MiB helper
 run). While Live is busy or unresolved, or a read in progress holds the lock, the current Web/control pair stays,
-Web-only changes included, and the next tick asks again; an inspection that fails to run counts as unavailable. 0.x
-keeps no compatibility between versions (the user's decision of 2026-11-14): a new control does not take over, read
-or migrate a run an earlier version prepared. Such a run stays on disk under `runs/`, and while its runner container
+Web-only changes included, and the next tick asks again; an inspection that fails to run counts as unavailable. A new
+control does not take over, read or migrate a run an earlier version prepared (0.x keeps no compatibility, as for Paper above). Such a run stays on disk under `runs/`, and while its runner container
 still runs the account counts as unavailable. During a paired update, new effect-producing Live requests wait for a
 committed owner; reads and STOP remain available. Existing runners are never restarted for publication. Once the new
 route is committed, still inside the account lock under which Live answered idle, the release stops every other
@@ -371,6 +370,12 @@ own size cap bounds it (by default a tenth of the file system, at most 4 GB). `j
 a Paper run's seal keeps its runner log's last MiB and its egress log, and Live archives each container's log in its
 root when the run ends ([Live on this host](#live-on-this-host)).
 
+## Pausing releases
+
+Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
+`systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed` (a running
+oneshot tick shows `activating`). Do not kill a tick. `sudo systemctl start trade-release.timer` resumes releases.
+
 ## Rolling back
 
 The release plane only moves forward along `main` (CI ignores a version behind the one admitted), so a rollback
@@ -379,8 +384,7 @@ previous version's kept containers by hand ([below](#returning-to-the-previous-v
 
 1. Name what runs: the IDE's About (version and commit), or the Web container in
    `/var/lib/trade-release/router/active.json` (`trade-release-web-<commit>`).
-2. Stop further releases while you work: `sudo systemctl stop trade-release.timer`. A release already running
-   finishes by itself; do not kill it.
+2. [Pause releases](#pausing-releases) while you work.
 3. Revert the bad merge on a branch (`git revert -m 1 <merge-commit>`), or revert back to the last good tag
    ([`CHANGELOG.md`](../../CHANGELOG.md)), merge it through the usual checks and ship that merge commit as a new
    version (`gh release create`, [`CHANGELOG.md`](../../CHANGELOG.md)). Then `sudo systemctl start trade-release.timer`:
@@ -406,10 +410,8 @@ with its own health, authentication and lock checks, persists `router/active.jso
 `GitSource.choose` never selects the version again, and stops the bad version's containers. Below, `NEW` is the bad
 version's commit and `OLD` the previous one.
 
-1. Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
-   `systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed`. Do not kill a
-   tick. If `/var/lib/trade-release/transaction.json` or `paper-transaction.json` exists, a release is still open:
-   start the timer, let the control recover it, and stop it again.
+1. [Pause releases](#pausing-releases). If `/var/lib/trade-release/transaction.json` or `paper-transaction.json`
+   exists, a release is still open: start the timer, let the control recover it, and pause again.
 2. Make sure Live is idle: no run is running or unresolved on the Live page (or in `live status`, [Live on this
    host](#live-on-this-host)). The recovery takes the account lock but does not ask whether Live is idle, and then
    stops the bad version's Live control (`Release.stop_controls`); the previous control may not read a run a later
@@ -483,8 +485,7 @@ version, as above, and `GitSource.choose` releases it over `OLD`.
 
 ## Live on this host
 
-Live runs are prepared, started and reconciled only from the Live page, through the Live control pairing
-above, with a credential saved there ([`live/README.md`](../../live/README.md#live-execution)). The base Paper
+How a Live run starts is in [`live/README.md`](../../live/README.md#live-execution). The base Paper
 overlay mounts no Binance credential. The ledger's Dolt port stays unpublished. Account-mode changes and order tests
 need the user's explicit scope; a successful preflight is not evidence of a completed real trade.
 
@@ -594,9 +595,7 @@ to the admitted version, whose control then recovers a pending transaction; with
 it refuses one. On a new host
 the installer runs that handoff itself (`python3 -m deploy.release handoff`) before the first release.
 
-A version that changes the launcher, the unit or the timer needs them reinstalled. Stop the timer (`sudo systemctl
-stop trade-release.timer`) and wait until `systemctl show -p ActiveState --value trade-release.service` says
-`inactive` or `failed`; do not kill a running tick. Once `deploy-ready` admits that version, update `/opt/trade-app`
+A version that changes the launcher, the unit or the timer needs them reinstalled. [Pause releases](#pausing-releases). Once `deploy-ready` admits that version, update `/opt/trade-app`
 to its tag (`git fetch --tags && git checkout vX.Y.Z`) and run `sudo sh deploy/remote/install-release.sh control`
 from it. It refuses while the timer or a tick runs; otherwise it installs them and the bootstrap copy, reloads
 systemd and starts the timer.
@@ -629,9 +628,7 @@ control that fails before or inside `handoff()` (reading the env file, importing
 itself) fails every tick before it can hand over, so it never installs the version that fixes it. This is the
 operator's way out; it changes no code and no recovery rule.
 
-1. Stop the timer and let a running tick finish: `sudo systemctl stop trade-release.timer`, then repeat
-   `systemctl show -p ActiveState --value trade-release.service` until it says `inactive` or `failed` (a running
-   oneshot tick shows `activating`). Do not kill a tick.
+1. [Pause releases](#pausing-releases).
 2. Look for a pending transaction: `ls -l /var/lib/trade-release/transaction.json
    /var/lib/trade-release/paper-transaction.json` (`Release.transaction`, `PaperRelease.transaction`; a leftover
    `*.pending` file is an unfinished write, not a journal). Do not delete, edit or move a journal. With one pending,

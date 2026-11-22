@@ -54,8 +54,7 @@ uv run --frozen python -m cli.main market follow --bars-from 2020-01
 eligible contract (about 26 GB, 10 to 15 hours the first time); `--bar-symbols` narrows it for a quick look, and
 narrows the monthly universe and the report's basket to that list ([`deploy/README.md`](deploy/README.md#what-the-market-range-costs)).
 
-Then open your Agent at the repository root and say "start research". It reads the ledger, offers lines that can start
-and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENTS.md) reserves for you.
+Then [start research](docs/operator/README.md#start-research) with your Agent.
 
 Running it from day to day (Paper, Live, backups, updates): the [operator manual](docs/operator/README.md), its
 [FAQ](docs/operator/faq.md) and [troubleshooting](docs/operator/troubleshooting.md).
