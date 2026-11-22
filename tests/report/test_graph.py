@@ -220,6 +220,8 @@ class ResearchGraphTests(unittest.TestCase):
         gate, = found["line"]["gates"]
         self.assertEqual(gate["code"], "INTERPRETATION_REQUIRED", "a research run without an interpretation holds the next registration")
         self.assertIn(str(trial_id), gate["message"])
+        steps = status.research_state(world.profile, found["line"]["name"])["next_actions"]
+        self.assertTrue(steps and "judgment add --kind interpretation" in steps[0], steps)
 
     def test_2c_a_recommended_version_that_loses_its_evidence_is_masked(self):
         """CF-08: the recommendation stays an event, but the version is shown masked, not as the current pick."""
