@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loader } from "./load.mjs";
 
-const { liveHeld, liveWorking, liveSnapshot, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, stopFor, away, runsDot } = await loader().namespace("model/runSnapshot.ts");
+const { liveHeld, liveWorking, liveSnapshot, lastFill, liveMoney, liveStatus, paperHeld, paperIssues, paperEquity, marked, protects, away, runsDot } = await loader().namespace("model/runSnapshot.ts");
 
 const T = Date.UTC(2026, 10, 11, 0, 10), ns = (ms) => String(BigInt(ms) * 1_000_000n);
 const row = (type, ms, extra = {}) => ({ event_type: type, ts_event: ns(ms), observed_ns: ns(ms), event_ref: { source: "native", cursor: `${type}:${ms}` },
@@ -80,15 +80,22 @@ test("a Live position is marked at the overview's price, its stop found on the o
   assert.ok(Math.abs(m.pnl - 2) < 1e-9, "a short gains as the price falls");
   assert.deepEqual(marked([short], undefined).map((h) => [h.mark, h.pnl]), [[null, null]], "no snapshot, no estimate");
   const stop = { key: "S", symbol: "BTCUSDT", buy: true, qty: 0.002, type: "stop market", trigger: 75880, price: null, reduceOnly: true };
-  assert.equal(stopFor(short, [{ ...stop, buy: false }]), null, "a sell stop does not protect a short");
-  assert.equal(stopFor(short, [stop]), stop);
+  assert.equal(protects({ ...stop, buy: false }, [short]), false, "a sell stop does not protect a short");
+  assert.equal(protects(stop, [short]), true);
   assert.ok(Math.abs(away(75880, 73652.3) - 0.030245) < 1e-5);
 });
 
 test("a Live run's snapshot gives each position the stop protecting it and keeps entries apart from stops", () => {
   const open = run({ orders: [...run().orders, row("OrderAccepted", T + 5000, { client_order_id: "E-3", order_side: "SELL", order_type: "LIMIT", price: "80000", quantity: "0.002" })] });
   const s = liveSnapshot(open, [{ symbol: "BTCUSDT", price: 73652.3 }]);
-  assert.deepEqual(s.held.map((h) => [h.symbol, h.stop, h.mark]), [["BTCUSDT", 75880, 73652.3]]);
+  assert.deepEqual(s.held.map((h) => [h.symbol, h.stops, h.mark]), [["BTCUSDT", [75880], 73652.3]]);
   assert.deepEqual([s.stops.map((o) => o.key), s.entries.map((o) => o.key), s.fills], [["S-1"], ["E-3"], 1]);
   assert.equal(s.money.stopsAt, 85, "the brake is the run's number, not a figure read back from its facts");
+});
+
+test("a position protected by two working stops keeps both triggers, nearest the mark first", () => {
+  const two = run({ orders: [row("OrderAccepted", T + 5000, { client_order_id: "S-2", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "77000", quantity: "0.001" }), ...run().orders] });
+  const s = liveSnapshot(two, [{ symbol: "BTCUSDT", price: 73652.3 }]);
+  assert.deepEqual(s.held.map((h) => h.stops), [[75880, 77000]]);
+  assert.deepEqual(s.stops.map((o) => o.key).sort(), ["S-1", "S-2"]);
 });

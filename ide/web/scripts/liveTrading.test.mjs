@@ -288,6 +288,8 @@ test("a shown Live run lists what its native events leave held and working, and 
       "the protective stop is shown on its position, not again among the open orders");
     assert.match(html, />New run<\/button>.*>Request stop…<\/button>/s);
     assert.doesNotMatch(html, /Confirm stop|Stop this Live run/, "nothing is armed before the first click");
+    canvasRun = { ...canvasRun, orders: [...canvasRun.orders, row("OrderAccepted", T, { client_order_id: "S-2", order_side: "BUY", order_type: "STOP_MARKET", trigger_price: "77000.0", quantity: "0.001" })] };
+    assert.match(render("LiveRunCanvas", {}), / · SL <\/span>75,880 \/ 77,000.*Open orders.*None/s, "every working protective stop's trigger, not only the first");
     const entry = row("OrderAccepted", T, { client_order_id: "E-2", order_side: "SELL", order_type: "LIMIT", price: "76000.0", quantity: "0.001" });
     canvasRun = { ...canvasRun, orders: [entry] };
     const bare = render("LiveRunCanvas", {});

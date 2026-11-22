@@ -12,7 +12,7 @@ const NOTE = "As the run's native events last say (the phone's run page reads th
   + "overview's Binance price. Binance is the account of record.";
 
 /** What a live run holds and its working orders, one readout line each, as the identity line above them: each
- *  position with its protective stop (No stop while it runs without one, in the failure hue once the latest check of
+ *  position with every protective stop's trigger (No stop while it runs without one, in the failure hue once the latest check of
  *  the stops at Binance found none) and an estimated P&L, then each other working order. */
 export function LiveHoldings({ run }: { run: LiveRun }) {
   // A protective stop is shown on its position; the rest are the orders still working.
@@ -23,10 +23,10 @@ export function LiveHoldings({ run }: { run: LiveRun }) {
       {held.length ? held.map((h) => {
         // A running position without a stop is flagged always; in the failure hue once the check of the stops at
         // Binance found it without one.
-        const stop = h.stop, gap = run.running && heldGap(run.heldAlert, h.symbol, h.long);
+        const gap = run.running && heldGap(run.heldAlert, h.symbol, h.long);
         return <span key={h.key} className="whitespace-nowrap tabular-nums">
           {h.symbol} <Side long={h.long} /> {fixed(h.qty)} @ {fixed(h.entry) ?? MISSING}
-          <span className="text-fg-faint"> · SL </span>{stop !== null ? fixed(stop) : run.running ? <span className={textClass(gap ? "fail" : "misses")}>No stop</span> : <span className="text-fg-faint">{MISSING}</span>}
+          <span className="text-fg-faint"> · SL </span>{h.stops.length ? h.stops.map((t) => fixed(t)).join(" / ") : run.running ? <span className={textClass(gap ? "fail" : "misses")}>No stop</span> : <span className="text-fg-faint">{MISSING}</span>}
           <span className="text-fg-faint"> · P&L ≈ </span><span className={pnlClass(h.pnl)}>{signed(h.pnl)}</span>
         </span>;
       }) : <span className="text-fg-faint">None open</span>}

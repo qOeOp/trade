@@ -70,7 +70,7 @@ test("one position: its mark in the heading at its decimals; before the journal 
 test("the Runs card's held line keeps a long contract's whole entry, wrapping it rather than cutting it", async () => {
   const { HeldLine } = await loader({ stubs: { "icons/Icon": { Icon: () => null } } }).namespace("ui/PhoneParts.tsx");
   const html = renderToStaticMarkup(createElement(HeldLine, { held: { key: "P-4", symbol: "1000PEPEUSDT", long: false, qty: 125_000,
-    entry: 0.0123456, mark: 0.011987, pnl: 1448.25, stop: null } }));
+    entry: 0.0123456, mark: 0.011987, pnl: 1448.25, stops: [] } }));
   assert.match(html, /<span class="whitespace-nowrap">@ 0\.0123456<\/span>/);
   assert.doesNotMatch(html, /truncate/);
 });

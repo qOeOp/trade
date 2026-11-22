@@ -685,6 +685,11 @@ test("20261106-01: an interrupted short stays visible without becoming a closing
   assert.equal(atStop[0].stopped, stopped / 1e6);
   assert.deepEqual(trades(lines), [], "no PositionClosed was fabricated");
   assert.deepEqual(holdings(lines, null, [], false).open, [], "a missing new account snapshot is not an inherited holding");
+  const order = (id, type, price, extra = {}) => ({ client_order_id: id, instrument_id: position.instrument_id, side: "BUY", type, price, quantity: "0.2", reduce_only: true, ...extra });
+  const held = holdings(lines, [{ position_id: "P1", instrument_id: position.instrument_id, signed_qty: "-0.4", avg_px_open: "77441.7", mark: "77000", unrealized_pnl: "0", realized_pnl: "0" }],
+    [order("S-far", "STOP_MARKET", null, { trigger_price: "79000" }), order("T-1", "LIMIT", "75500"), order("S-near", "STOP_MARKET", null, { trigger_price: "78000" })], false);
+  assert.deepEqual(held.open[0].orders.map((w) => [w.id, w.kind]), [["S-near", "stop"], ["T-1", "target"], ["S-far", "stop"]],
+    "both of a short's stops are kept, nearest the mark first");
   assert.equal(stoppedPositions(lines, prices, (stopped + 4 * MIN) / 1e6).length, 2, "a sealed latest run keeps its own residual too");
   assert.equal(stoppedPositions([position, { ...position, type: "PositionClosed" }, lines[1]], prices).length, 0);
   assert.equal(stoppedPositions([position, lines[1]], { BTCUSDT: [[T0, 70000]] })[0].pnl, null, "no mark guessed from before the entry");
