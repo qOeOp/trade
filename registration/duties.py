@@ -41,6 +41,12 @@ _SLICES = (
 )
 
 
+# Counts of activity that a threshold or filter change moves mechanically (looser admits more cycles, orders
+# and turnover): a duty predicted only on them cannot be refuted (doctor 20261122-23), so registration asks
+# for at least one other measure of that duty.
+_COUNTS = frozenset({"cycles", "daily_turnover", "entry_orders"})
+
+
 def measure_catalogue() -> dict:
     """{slices: [{id, title, duties, measures}]}: the fixed catalogue, a new copy on every call."""
     return {"slices": [{"id": slice_id, "title": title, "duties": list(duties), "measures": list(measures)}
@@ -50,6 +56,11 @@ def measure_catalogue() -> dict:
 def slice_measures() -> dict[str, frozenset[str]]:
     """Measures by slice ID."""
     return {item["id"]: frozenset(item["measures"]) for item in measure_catalogue()["slices"]}
+
+
+def counting_measures() -> frozenset[str]:
+    """The catalogue measures that only count activity (cycles, turnover, entry orders)."""
+    return _COUNTS
 
 
 def header_changes(parent: bytes, child: bytes) -> list[str]:

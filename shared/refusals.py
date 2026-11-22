@@ -224,7 +224,10 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                              "from their parent's. When a line changed whose own rule the change does not touch, "
                              "publish the source again with that line byte for byte as in the parent.",),
     "PREDICTION_INVALID": ("Write at least one prediction per changed duty on a catalogue slice and measure (or an "
-                           "empty slice with a reason).",),
+                           "empty slice with a reason).",
+                           "A duty predicted on cycles, daily_turnover or entry_orders also needs a prediction on a "
+                           "measure of quality, return, drawdown or exit structure (expectancy, avg_loss, "
+                           "max_drawdown, top_exit_share, ...).",),
     "INTERPRETATION_REQUIRED": ("Add an interpretation with `judgment add --kind interpretation` about the trials "
                                 "the message lists.",),
     "REVIEW_DUE": ("Run `research status` and read its `comparison` table.",
