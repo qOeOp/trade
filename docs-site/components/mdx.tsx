@@ -5,7 +5,6 @@ import type { ComponentType } from 'react';
 import type { Locale } from '@/lib/i18n';
 import { Mermaid } from './mdx/mermaid';
 import { Ref } from './mdx/ref';
-import { ChapterMap } from './mdx/chapter-map';
 import { ArchitectureOverview } from './mdx/architecture-overview';
 
 /** The page's locale reaches every component that has one; MDX sources never write it. */
@@ -19,7 +18,6 @@ export function getMDXComponents(lang: Locale, components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
     ArchitectureOverview: withLang(ArchitectureOverview, lang),
-    ChapterMap: withLang(ChapterMap, lang),
     Mermaid,
     Ref: withLang(Ref, lang),
     Step,

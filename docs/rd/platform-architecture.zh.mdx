@@ -8,7 +8,42 @@
 
 `deploy/compose.yaml` 是基础部署，工作站与服务器相同：五个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。[远程主机](#remote)在它上面叠加 `deploy/remote/`。
 
-<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api 代理]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 账本公开副本)]\n  MI[market-import] -->|写| M[(市场目录 宿主目录)]\n  IDE -->|市场命令 只读| M\n  P -->|市场命令 只读| M\n  C -->|市场命令 只读| M\n  C -->|市场写命令 docker compose exec| MI"} />
+<Mermaid chart={`flowchart TB
+  subgraph Host["宿主与浏览器"]
+    direction LR
+    U["浏览器 (127.0.0.1:8765)"]
+    C["宿主命令行 (python -m cli.main)"]
+    E["宿主 Docker 引擎"]
+  end
+
+  subgraph Services["容器服务网络 (deploy/compose.yaml)"]
+    direction LR
+    IDE["ide 服务 (8765)<br/>研究图页面、Agent 聊天 (8766) 与市场概览 (8768)"]
+    P["paper 守护进程 (8767)"]
+    L["ledger Dolt 服务 (13330)<br/>研究账本与独立 paper 库"]
+    MI["market-import 服务"]
+    D["docker-api 受限代理"]
+  end
+
+  subgraph Storage["持久化存储与公开副本"]
+    direction LR
+    H[("DoltHub 账本公开副本")]
+    M[("市场目录 TRADE_DATA/market<br/>宿主 Parquet 文件")]
+  end
+
+  U -->|"HTTP / SSE"| IDE
+  IDE -->|"/api/paper/ 代理（同源加令牌）"| P
+  IDE -->|"只读账号 (TRADE_DOLT_HOST)"| L
+  P -->|"读研究账本 / 写独立 paper 库"| L
+  P -->|"受限 Docker API"| D
+  D --> E
+  C -->|"读写研究账本 (13330)"| L
+  L -->|"bootstrap 与 publish"| H
+  MI -->|"写"| M
+  IDE -->|"市场命令（只读）"| M
+  P -->|"市场命令（只读）"| M
+  C -->|"市场命令（只读）"| M
+  C -->|"市场写命令 (docker compose exec)"| MI`} />
 
 | 服务 | 镜像 | 谁能访问 | 读 | 写 |
 |---|---|---|---|---|
