@@ -75,6 +75,10 @@
    - 全面审计用产品读命令与版本源码 diff 纵向读每条线的历史（不对活动账本写临时 SQL），报告六种形态：头部读数变好而最差子期或去掉最好合约后不动；`changed_duties` 在换思路后绕回同样的职责；复杂度只增、没有删减或消融；收益集中在被删掉的交易；改进落在可检测差异以内；机制预测只是改动的机械后果；
    - 形态背后的产品缺口（缺读数或缺拒绝）记为发现，不写成技能文字；
    - 新用例 `line-history-method` 量这一段（读数见下）。
+8. **研究者要看的与双向怀疑**（第四份外部意见读了本分支草稿，2026-11-22，协调会话的决定，同一委托）。采纳，都写进 lenses.md：
+   - **Human use 问研究者要答的问题**，不只问控件好不好用：和父版本或对照比改了什么、是否更好；哪一年、哪个合约、哪一边、哪种出场撑起结果，每年回撤多少；离买入持有多远。每个答案要在同一屏上，不分在不同面板或折叠里；产品算了而页面不显示的数是发现；页面按真实密度审（端到端跑出的临时账本，多版本、多合约、多历史格）。外部意见列的用户先发现的例子（#3413、#3365、#3380、#3417、#3369、#3376）没写进技能。
+   - **怀疑双向**：原句只查“该拒的是否放行”；补上反向，产品或 Agent 宣布证伪、未达目标或无效时，问是机制失败还是测试造出来的（段边界、整期规则丢掉部分期、模板或脚手架缺陷、风险预算离未达的目标很远、单个数据缺陷）；宣称确认时，问更朴素的机械原因（交易变少、删掉几笔亏损、单一合约或季度）能否给出同样的数。任一方向的错误判定路径都是发现，改其背后的检查是授权项；doctor 仍不挑候选、不改目标。
+   - 为两条各写了一个用例（`page-answers-researcher`、`false-falsification`），都不分离（sonnet 重判：前者带与不带都 3/3；后者两臂都只挂在“不越界”一题上），按门槛删掉，规则留在技能里。加入第二条后 `gate-partial-state` 初跑掉到 0/3：回答把改检查记成 `fix` 而不是授权项；把句子改为“改其背后的检查是授权项”后复跑（读数见下）。
 
 ## 评测读数（2026-11-22）
 
@@ -88,25 +92,29 @@
 | attach-decides-by-default | 3/0 | 0/0 | | 删（规则删了） |
 | audits-own-session-refused | 3/0 | 3/0 | | 留 |
 | codex-subagents-found | 3/0 | 3/0 | | 留 |
-| converge-before-exempting | 1/0 | 1/0 | 0/0 | 留，红（旧版 sonnet 重判也是 0/0，各次挂在不同的题上；本次未改它的规则） |
+| converge-before-exempting | 1/0 | 1/0；末版 2/0 | 0/0 | 留（旧版 sonnet 重判也是 0/0，各次挂在不同的题上；本次未改它的规则） |
 | convergence-claim | 3/0 | 3/0 | | 留 |
 | diagnosis-does-not-reproduce | 1/0 | 2/1 | 3/0 | 留（判据改为只禁活动账本） |
-| finding-needs-proof | 3/1 | 3/2，复跑 3/1 | 3/0 | 留（Q5 改为写进索引） |
+| finding-needs-proof | 3/1 | 3/2，复跑 3/1，末版 3/2 | 3/0（两次） | 留（Q5 改为写进索引） |
 | focused-questions-are-audit | 3/0 | 3/0 | | 留 |
 | help-call-not-defect | 2/0 | 2/0 | | 留 |
-| page-states-run-not-read | 2/0 | 2/0 | | 留 |
+| page-states-run-not-read | 2/0 | 2/0；加第 8 条后 3/0 | | 留 |
 | record-immutable | 3/0 | 3/0 | | 留 |
 | reviewers-get-no-conclusions | 3/0 | 3/0 | | 留 |
-| structure-deliberate-and-check | 3/0 | 2/0 | | 留 |
+| structure-deliberate-and-check | 3/0 | 2/0；复跑 2/0、3/0 | | 留 |
 | user-first-miss | 3/0 | 0/0 → 3/0 | 0/0（旧版 2/0） | 留。新版初跑 0/3：来源 `user` 要写明工作流、同因复发沿用原 id 这两条随行规则移到索引表头后，技能里不再有；在第 6 步与 record.md 各补回一句后 3/3 对 0/3。sonnet 逐题重判仍判 0/3，读回答后看是判官较严（回答写明了 `recurred` 与工作流名），按运行器读数留 |
-| gate-partial-state | — | 2/0 | 3/0 | 新增，留 |
-| line-history-method | — | 2/1 | 2/0 | 新增，留 |
+| gate-partial-state | — | 2/0；加第 8 条后 0/0，改句后 3/0 | 3/0；末版 2/0 | 新增，留 |
+| line-history-method | — | 2/1；末版前 3/1 | 2/0 | 新增，留 |
 | cost-claim-two-sizes | — | 3/3（改写后 3/3） | | 新增后删 |
 | duplicate-across-trust-boundary | — | 0/0 | 1/3 | 新增后删 |
+| page-answers-researcher | — | 3/1 | 3/3 | 新增后删 |
+| false-falsification | — | 0/1 | 0/0 | 新增后删 |
 | session-graph-isolated、index-row-closing、cost-class-measured-only、credential-carriers-off-limits | 各 3/0 | — | | 删（规则移出技能） |
 | trigger-positive | — | 触发 3/3，不带 0/3 | | 留 |
 | trigger-negative | — | 3/3 未触发 | | 留 |
 | research-round/reviewer-reads-terms-by-command（`eval-cases.py` 按 `--help` 选出） | — | 3/0 | | 不受影响 |
+| nautilus-report-analysis/no-cross-run-trade-pairing、research-round/prediction-falsifiable、research-round/report-follows-template（按 `trade_pairs` 选出） | — | 3/0、2/0、2/0 | | 不受影响 |
+| research-start/line-options-state-dev-length（按 `--help` 选出，main 新合入） | — | 2/2 | | 本 PR 不碰该技能；不分离属该用例自己 |
 
 ## 未完成
 
