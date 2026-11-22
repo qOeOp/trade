@@ -480,7 +480,8 @@ class LifecycleAuditTests(unittest.TestCase):
                                  market_day=self.COMMIT,
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
         ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
-        last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
+        last = (None if last_bar == "none" else pd.Timestamp(last_bar).value if last_bar
+                else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000)
         receipt = {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
                                "counts": receipt_counts or counted, "last_bar_ns": last,
                                "episode": ({"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
@@ -540,6 +541,9 @@ class LifecycleAuditTests(unittest.TestCase):
         early = self.run_audit([], bundle=None, last_bar="2026-01-01 18:00:00+00:00")
         self.assertEqual(codes(early), {"DATA_ENDS_WITHOUT_TERMINATION"})
         self.assertIn("the window end is 2026-01-02T00:00:00+00:00", early["findings"][0])
+        empty = self.run_audit([], bundle=None, last_bar="none")  # a contract with no bar in the input window
+        self.assertEqual(codes(empty), {"DATA_ENDS_WITHOUT_TERMINATION"})
+        self.assertIn("the input holds no bar of it, the window end is", empty["findings"][0])
         # a trailing hole within the MARK carry limit is a hole, not an end
         self.assertTrue(self.run_audit([], bundle=None, last_bar="2026-01-01 23:30:00+00:00")["passed"])
         terminated = [self.status("CLOSE", "2026-01-01 18:20:00+00:00")]
