@@ -298,6 +298,12 @@ class ReaderFailure(RuntimeError):
         return f"{self.reader} {self.path}: {self.answer}"
 
 
+class HostCondition(RuntimeError):
+    """A condition of the host, not of the version being released: a protected container that restarted or changed,
+    or memory the release needs. A release it stops is undone like any other but marks nothing failed: the version
+    waits and the next tick tries again (deploy/release.py Release.wait)."""
+
+
 class DockerFailure(RuntimeError):
     """A `docker` command that exited non-zero. Its stderr stays in the exception for a traceback by hand;
     failure_summary prints only the subcommand and the exit status, since stderr can quote what a container printed."""
@@ -475,7 +481,7 @@ class DockerHost:
         for name, identity in before.items():
             current = self.inspect(name)
             if any(current[key] != value for key, value in identity.items()):
-                raise RuntimeError(f"protected container changed during release: {name}")
+                raise HostCondition(f"protected container changed during release: {name}")
 
     # The router this host switches and the directory of its configurations (mounted at /etc/caddy/release).
     ROUTER: str = ROUTER

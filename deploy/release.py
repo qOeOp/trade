@@ -27,6 +27,7 @@ from .release_host import (
     DOCKER_API_REF,
     FOLLOWERS,
     DockerFailure,
+    HostCondition,
     ReaderFailure,
     IMAGE_REF,
     SERVICE_IMAGE,
@@ -91,7 +92,7 @@ def failure_summary(error: Exception) -> str:
         return f"docker {error.command} exited {error.status} (called at {source_line(error, 'docker')})"
     if isinstance(error, (ValueError, KeyError, TypeError)):
         return "release metadata unavailable"
-    if type(error) is RuntimeError:
+    if type(error) in (RuntimeError, HostCondition):
         known = {
             "CI eligibility was withdrawn or superseded during preparation": "CI eligibility changed",
             "Live idle observation is unavailable": "Live idle observation unavailable",
@@ -246,17 +247,19 @@ class Release:
         if self.host.live_route() not in allowed or self.host.disk_route() not in allowed:
             raise RuntimeError("router has an independent change; preserve transaction and stop")
 
-    def recover(self) -> None:
+    def recover(self, failed: bool = True) -> None:
         """Paper first: it rolls forward only when the Web commit already happened, else it rolls back while the
-        Web journal is still open, and the Web rolls back after it."""
+        Web journal is still open, and the Web rolls back after it. `failed` False (a host condition stopped the
+        release, `waits`) leaves the version unmarked; a journal found at the start of a tick (an interrupted
+        release) marks it."""
         try:
             self.paper().recover()
-            self._recover()
+            self._recover(failed)
         except Exception as error:
             report_failure("recovery", error)
             raise
 
-    def _recover(self) -> None:
+    def _recover(self, failed: bool) -> None:
         if not self.transaction.exists():
             return
         transaction = read_journal(self.transaction, frozenset({"candidate", "previous"}), frozenset({"agent_before"}))
@@ -296,7 +299,8 @@ class Release:
             self.host.ensure_protected(protected)
             held()
             self.host.persist_route(previous)
-            self.mark_failed(candidate)
+            if failed:
+                self.mark_failed(candidate)
             self.clear()  # only a verified rollback commits removal of the recovery journal
             self.stop_controls(previous)  # the candidate's control admitted no effect while the journal was open
         if self.host.exists(candidate):
@@ -315,7 +319,7 @@ class Release:
         transient refusal journals nothing, so it never marks the version failed."""
         self.retire_webs(previous)
         if not self.host.memory_available():
-            raise RuntimeError("insufficient candidate memory headroom; keep current release")
+            raise HostCondition("insufficient candidate memory headroom; keep current release")
 
     def apply(self, target: dict) -> None:
         sha = target["revision"]
@@ -352,7 +356,11 @@ class Release:
         image = target["image"]
         self.host.pull(image, IMAGE_REF, sha)
         paper = self.paper()
-        paper_plan = paper.prepare(target)  # its refusals journal nothing
+        try:
+            paper_plan = paper.prepare(target)  # its refusals journal nothing
+        except HostCondition as condition:
+            self.wait(sha, condition)
+            return
         # Read before the journal (a failure here journals nothing), and before a wait, whose step uses the files.
         self.host.definition(target["service"], sha)
         if self.generations(target):
@@ -368,6 +376,9 @@ class Release:
                 transaction = self.journal(candidate, previous, agent_before)
         except LiveBusy as busy:
             print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
+            return
+        except HostCondition as condition:
+            self.wait(sha, condition)
             return
         print(f"Preparing main Web release {sha}", flush=True)
         try:
@@ -422,12 +433,25 @@ class Release:
         except Exception as error:
             # If recovery itself fails, retain the journal and every side for the next invocation/operator.
             report_failure("primary", error)
-            self.recover()
-            raise
+            waits = isinstance(error, (HostCondition, LiveBusy))  # Live became busy, or its lock wait expired
+            self.recover(failed=not waits)
+            if not waits:
+                raise
+            self.wait(sha, error)
+            return
         try:
             self.retire_webs(candidate)  # the previous Web held its memory until the next release
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("previous", error)  # the next release's admission stops it
+
+    def wait(self, sha: str, condition: Exception) -> None:
+        """A host condition stopped the release of `sha` (HostCondition, a Live that became busy): nothing is marked
+        failed, one notice says why, and the next tick tries again (doctor 20261122-31)."""
+        summary = failure_summary(condition)
+        print(f"Version {sha} waits: {summary}", flush=True)
+        self.waits[f"wait:host:{sha}:{summary}"] = (
+            f"Version {sha[:12]} waits for the host: {summary}. Nothing is marked failed and the next tick tries "
+            "again; journalctl -u trade-release.service says more.")
 
     def generations(self, target: dict) -> bool:
         """Whether the version waits for the host's ledger service to hold the schema generations its code reads: its

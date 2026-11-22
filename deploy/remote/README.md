@@ -67,7 +67,12 @@ identified pre-forward same-origin nonce rejection, preserving the original oper
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
 status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`, so the
 timer never loops on it; to retry it after fixing the cause, delete its marker, and the next tick removes the
-stopped candidate containers of that revision before creating them again. A pending transaction is recovered before
+stopped candidate containers of that revision before creating them again. A release stopped by the host rather than
+by the version is undone the same way but marks nothing: a protected container (the ledger, the Docker API proxy or a
+Paper runner) that restarted or changed, host memory below what a candidate needs, a Live run that started during the
+release, or a ledger of another schema generation ([below](#a-version-that-needs-a-new-ledger-generation)). The tick
+says the version waits and why, one Telegram notice says the same, and the next tick tries again. A transaction found
+pending at the start of a tick (an interrupted release) still marks its version. A pending transaction is recovered before
 any new selection. Paper keeps its own recovery journal beside the Web's (one `failed/` marker covers the
 version), with starts kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
