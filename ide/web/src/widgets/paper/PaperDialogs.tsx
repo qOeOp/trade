@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { AlertDialog, Dialog } from "radix-ui";
 import { CONTRACT } from "../../model/liveLaunchText";
+import { paperHeld } from "../../model/runSnapshot";
 import { useAtom } from "../../state/atom";
-import { deleteDialog, deletePaper, type StartDefaults, startDefaults, startDialog, startPaper, stopDialog, stopPaper } from "../../state/paper";
+import { deleteDialog, deletePaper, type StartDefaults, startDefaults, startDialog, startPaper, stopDialog, stopPaper, usePaperRuns } from "../../state/paper";
 import { FormButton } from "../../ui/chat/Field";
 import { PANEL, SCRIM } from "../../ui/dialog";
 import { Skeleton } from "../../ui/Missing";
+import { HeldLine } from "../../ui/PhoneParts";
 
 /** "Run paper", asked before every new start: the contracts (the last research replay's to start with) or
  *  the whole universe; execution is bars and the account the replay default the controller names, so neither is a choice. */
@@ -66,7 +68,9 @@ function StartDialog({ candidate }: { candidate: string }) {
 /** The dialogs a paper start, stop or delete asks first; mounted once in the shell. */
 export function PaperDialogs() {
   const candidate = useAtom(startDialog);
-  const run = useAtom(stopDialog);
+  const run = useAtom(stopDialog), listing = usePaperRuns();
+  // What the run holds as the listing last says, not as it stood when the dialog opened.
+  const held = run ? paperHeld(listing?.runs.find((r) => r.paper_id === run.paper_id) ?? run) : [];
   const doomed = useAtom(deleteDialog);
   return (
     <>
@@ -86,6 +90,12 @@ export function PaperDialogs() {
               cancelled; then the run ends and is sealed into the ledger. Open positions remain recorded at their last
               observed price; stopping does not create a closing fill. A sealed run cannot be resumed.
             </AlertDialog.Description>
+            <section aria-label="Open positions" className="space-y-1 border-l-2 border-line-strong pl-2">
+              {held.length ? <>
+                <p className="flex text-small text-fg-faint"><span>Open now</span><span className="ml-auto">Unrealised P&L</span></p>
+                {held.map((h) => <HeldLine key={h.key} held={h} />)}
+              </> : <p className="text-dense text-fg-muted">Currently flat</p>}
+            </section>
             <div className="flex justify-end gap-2 pt-1">
               <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>
               <AlertDialog.Action asChild>
