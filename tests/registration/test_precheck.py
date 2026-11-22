@@ -114,6 +114,7 @@ class PrecheckTests(unittest.TestCase):
         malformed = [{**body, "extra": 1}, {k: v for k, v in body.items() if k != "api"}, {**body, "trial_id": "1"},
                      {**body, "trial_id": True}, {**body, "verdict": "maybe"},
                      {**body, "api": {"status": "fine", "note": "n"}}, {**body, "api": {"status": "passed", "note": " "}},
+                     {**body, "activity": {"status": "no_opportunity", "note": "no signal in three days"}},
                      {**body, "api": {"status": "passed", "note": "n", "score": 1}},
                      {**body, "causal": {"status": "unresolved", "note": "lookahead unclear"}},
                      {**body, "verdict": "failed"}, "not a body"]
@@ -141,7 +142,7 @@ class PrecheckTests(unittest.TestCase):
 
     def test_a_passing_review_of_a_clean_precheck_admits_the_source(self):
         trial_id = self.sealed()
-        review = self.review(trial_id, api={"status": "no_opportunity", "note": "no signal in three days"})
+        review = self.review(trial_id)
         self.assertEqual(precheck.require_precheck(self.conn, review, sha(self.data), self.identity()), trial_id)
 
     def test_a_review_of_another_source_runtime_or_input_is_required_again(self):

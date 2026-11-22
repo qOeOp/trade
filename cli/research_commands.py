@@ -909,8 +909,8 @@ COMMANDS = [
         "one source_review row (the verdict, items and reviewer); the same content again is a replay",
         "review_id, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed",
         "PRECHECK_NOT_FOUND (the trial is no precheck of this source on this image); REVIEW_INVALID (unknown or "
-        "missing items; each needs {status: passed|failed|unresolved|no_opportunity, note}; passed only when no "
-        "item failed or is unresolved); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
+        "missing items; each needs {status: passed|failed|unresolved, note}; passed only when every "
+        "item passed); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
         "PRECHECK_CAPTURE_MISSING"), LEDGER, CANDIDATE,
          option("--runtime", required=True, help=RUNTIME_HELP + "; the precheck's image"),
          option("--trial-id", required=True, type=int, help="the precheck trial reviewed"),

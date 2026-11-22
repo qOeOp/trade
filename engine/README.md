@@ -492,7 +492,7 @@ affected source, then the full instrument set. `replay explore` trades inside an
 period and a temporary ledger has no line, so open one there first: publish the source, precheck it over at
 most 7 trading days (`PRECHECK-ARGS`), record a review of that precheck and select the line. `items.json`
 holds `api`, `causal`, `activity` and `readiness`, each
-`{"status": "no_opportunity", "note": "paired-acceptance fixture, not a review"}`; `line select` returns the
+`{"status": "passed", "note": "paired-acceptance fixture, not a review"}`; `line select` returns the
 development period every trading window here lies in:
 
 ```bash

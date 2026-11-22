@@ -235,8 +235,8 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
-    only on the activity of a precheck that did not trade is not counted once a later precheck traded and passed
-    (`review_activity.resolved`).
+    only on activity (unresolved, or failed on a precheck that did not trade) is not counted once a later precheck
+    traded and passed (`review_activity.resolved`).
     """
     if targets is not None:
         line_targets.check(*targets)

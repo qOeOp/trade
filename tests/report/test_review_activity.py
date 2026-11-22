@@ -1,4 +1,4 @@
-"""20261029-01: resolved zero-activity reviews, using only a throwaway ledger."""
+"""20261029-01: resolved activity reviews, using only a throwaway ledger."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from tests.helpers import refused
 
 
 QUIET = {"status": "unresolved", "note": "no fills to inspect"}
+FAILED = {"status": "failed", "note": "no activity"}
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64,
                  "image_digest": "sha256:" + "c" * 64}
 
@@ -69,8 +70,8 @@ class ReviewActivityTests(unittest.TestCase):
         cases = [("api", 0, 0, {"api": QUIET, "activity": QUIET}, 2, False),
                  ("causal", 0, 0, {"causal": QUIET, "activity": QUIET}, 2, False),
                  ("readiness", 0, 0, {"readiness": QUIET, "activity": QUIET}, 2, False),
-                 ("fills", 1, 0, {"activity": QUIET}, 2, False),
-                 ("positions", 0, 1, {"activity": QUIET}, 2, False),
+                 ("fills", 1, 0, {"activity": FAILED}, 2, False),
+                 ("positions", 0, 1, {"activity": FAILED}, 2, False),
                  ("later-quiet", 0, 0, {"activity": QUIET}, 0, False),
                  ("later-failed", 0, 0, {"activity": QUIET}, 2, True)]
         for label, fills, positions, items, later_fills, failed in cases:
@@ -88,13 +89,23 @@ class ReviewActivityTests(unittest.TestCase):
 
     def test_missing_sealed_counts_cannot_be_assumed_zero(self):
         data = self.world.publish("missing-counts")["source"]
-        self.reviewed(data, fingerprinted=False, activity=QUIET)
+        self.reviewed(data, fingerprinted=False, activity=FAILED)
         self.reviewed(data, 2, 1, verdict="passed")
         self.assertEqual(self.check(data)["status"], "failed")
 
     def test_activity_failed_can_be_resolved_as_well_as_unresolved(self):
         data = self.world.publish("activity-failed")["source"]
-        self.reviewed(data, activity={"status": "failed", "note": "no activity"})
+        self.reviewed(data, activity=FAILED)
+        self.reviewed(data, 2, 1, verdict="passed")
+        self.assertEqual(self.check(data)["status"], "passed")
+
+    def test_unresolved_activity_of_a_traded_precheck_is_resolved_by_a_later_passed_one(self):
+        """An order path the change adds never ran although the precheck traded: the review fails while it is
+        unresolved and stops withdrawing the source's evidence once a later precheck's review passes (0.5.0
+        release run, 2026-11-22)."""
+        data = self.world.publish("unresolved-traded")["source"]
+        self.reviewed(data, 3, 1, activity=QUIET)
+        self.assertEqual(self.check(data)["status"], "failed")
         self.reviewed(data, 2, 1, verdict="passed")
         self.assertEqual(self.check(data)["status"], "passed")
 
