@@ -51,7 +51,7 @@
    - **只写索引行。** 一个根因、一个 PR 的发现只写索引一行：发现格写证明，动作格写补救和谁在何时决定，完整复现写在修复 PR 里。
    - **记录文件。** 只有审计、多行诊断，或证明放不进单元格时才写记录文件。
    - **状态。** 状态只记在索引，记录不带状态列。
-   - **行规则只留一份。** 行的规则（id、合并、来源、代价、状态词、关闭、整体审计重跑证明）只留一份，放在索引表头；record.md 只管记录文件，原来的英文复述删掉。
+   - **行规则只留一份。** 行的规则（id、合并、来源、代价、状态词、关闭、整体审计重跑证明）只留一份，放在索引表头；record.md 只管记录文件，原来的英文复述删掉；评测显示技能仍需要其中两句（同因并为一行、复发沿用原 id；用户先发现的写明本应发现它的工作流），分别留在 record.md 与 SKILL.md 第 6 步。
    - **已有记录。** 已有记录不改，按原删除条件处理。
    - **AGENTS.md。** 原文“A fix for a doctor finding follows the header”仍然成立，不改。
 4. **删除 skill_heat**：脚本、页面、jsonl、测试、mypy 条目、SKILL.md 一句。`skill-continuous-audit.zh.md` 的热力图一节注明已删。
@@ -91,14 +91,14 @@
 | converge-before-exempting | 1/0 | 1/0 | 0/0 | 留，红（旧版 sonnet 重判也是 0/0，各次挂在不同的题上；本次未改它的规则） |
 | convergence-claim | 3/0 | 3/0 | | 留 |
 | diagnosis-does-not-reproduce | 1/0 | 2/1 | 3/0 | 留（判据改为只禁活动账本） |
-| finding-needs-proof | 3/1 | 3/2 | 3/0 | 留（Q5 改为写进索引） |
+| finding-needs-proof | 3/1 | 3/2，复跑 3/1 | 3/0 | 留（Q5 改为写进索引） |
 | focused-questions-are-audit | 3/0 | 3/0 | | 留 |
 | help-call-not-defect | 2/0 | 2/0 | | 留 |
 | page-states-run-not-read | 2/0 | 2/0 | | 留 |
 | record-immutable | 3/0 | 3/0 | | 留 |
 | reviewers-get-no-conclusions | 3/0 | 3/0 | | 留 |
 | structure-deliberate-and-check | 3/0 | 2/0 | | 留 |
-| user-first-miss | 3/0 | USER_FIRST | | USER_FIRST_ACTION |
+| user-first-miss | 3/0 | 0/0 → 3/0 | 0/0（旧版 2/0） | 留。新版初跑 0/3：来源 `user` 要写明工作流、同因复发沿用原 id 这两条随行规则移到索引表头后，技能里不再有；在第 6 步与 record.md 各补回一句后 3/3 对 0/3。sonnet 逐题重判仍判 0/3，读回答后看是判官较严（回答写明了 `recurred` 与工作流名），按运行器读数留 |
 | gate-partial-state | — | 2/0 | 3/0 | 新增，留 |
 | line-history-method | — | 2/1 | 2/0 | 新增，留 |
 | cost-claim-two-sizes | — | 3/3（改写后 3/3） | | 新增后删 |
