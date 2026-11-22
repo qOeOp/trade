@@ -607,6 +607,55 @@ starts with `- Breaking`.
 - The research graph contract check (`research_graph check`, graph loads) validates with `jsonschema` Draft 2020-12; a schema problem reads as `path: jsonschema message` (a missing key is named at its parent).
 - Removed: product-doctor's skill-usage heat map (`skill_heat.py`, its page, its test and `docs/plans/doctor/skill-heat.jsonl`); a full audit no longer runs it.
 - `skill-names` rule 2 no longer follows five external host transcript fields (`EXTERNAL`: `session_meta`, `parent_thread_id`, `tool_use`, `custom_tool_call`, `function_call`) that skill text cites exactly.
+- CI: a daily `ghcr-retention` workflow lists the pull request image versions (`pr-N` tags) of `trade-ide`,
+  `trade-service` and `trade-docker-api` last tagged more than 30 days ago; a dispatch on main with `delete` deletes
+  them. A version that also carries `main`, a version tag or the `sha-` of a main commit, or whose digest this
+  repository pins, stays, as do untagged versions and every `trade-runtime` version.
+- Release: a version is released by starting the `release` workflow with it (`gh workflow run release.yml -f
+  version=X.Y.Z`). It opens and auto-merges the bump pull request (`pyproject.toml`, `uv.lock`, the changelog
+  section), waits until `main-ready` admits the commit carrying the version and creates the GitHub release and tag on
+  it, then wakes `release-ready`. The bump pull request needs a `RELEASE_TOKEN` secret (`release.yml` says which).
+  `changelog-release.py` now folds pending entries into the newest section when its version is not released yet, and
+  prints a version's notes with `--notes`.
+- Release (host): every long-lived compose service (`ledger`, `market-import`, `docker-api`, `ide-router`,
+  `paper-router`, `oauth2`, `edge`) is recreated on the first settled tick after a version commits when it differs
+  from what that version's own compose definition creates: its image, compose's configuration hash, the host file
+  of each file-based config or the content of each inline config. Before, only an image change moved `ledger`,
+  `market-import` and `docker-api`, so a changed `Caddyfile`, `oauth2-proxy.cfg` or service definition needed the
+  operator's `--force-recreate`; the 0.5.0 upgrade's manual OAuth2 Proxy and `edge` recreate is gone
+  (doctor 20261122-32).
+- Release (host): a release stopped by the host rather than by the version (a protected container — the ledger, the
+  Docker API proxy or a Paper runner — that restarted or changed, host memory below what a candidate needs, a Live
+  run that started during the release) is rolled back as before but writes no `failed/<revision>`: the version waits,
+  one notice names the condition, and the next tick tries again. A product failure, or a transaction found pending at
+  the start of a tick, still marks the version failed (doctor 20261122-31).
+- Release: a version tag on a commit that built no product image (a documentation-only commit) now fails every
+  `release-ready` run, naming the newest commit `main-ready` admitted at or before it to release instead; it used to
+  log only a warning while `deploy-ready` stayed on the previous version. Before the tagged commit's push runs start,
+  the run still only waits.
+- Release (host): a settled tick keeps the routed version and the previous good one of each kind of release
+  container (was three). A failed version older than the routed one loses its stopped containers and then its
+  `failed/` marker, and `paper-failed/`, which no version writes, is removed; nothing a running container, a kept
+  controller or a Live run names is touched. When the launcher, unit or timer `install-release.sh` installed differs
+  from the routed version's own copy, one Telegram notice names it (the release service cannot write `/opt` or
+  `/etc`); the service image now carries those copies (doctor 20261122-34).
+- Release (host): before its journal, a release runs the candidate's own `ledger service check` on the host's
+  research mirror and Paper database. A database it refuses with `SCHEMA_MISMATCH` makes the release wait: nothing
+  changes, no `failed/<revision>` is written, one Telegram notice names the database and the owner's step
+  (`deploy/remote/README.md`, A version that needs a new ledger generation), and every tick checks again. Before,
+  such a version warmed for 30 minutes, rolled back and was blocked for good (doctor 20261122-30).
+- Release (host): on each tick that releases nothing, the release compares the host with the routed version's
+  admitted record (Web, Agent, Paper controller and Live control by revision label, image digest and route, and
+  every running compose service by that version's definition) and sends one Telegram notice per version:
+  `vX.Y.Z live: N/N services on <revision>` with the Web revisions kept, what the tick cleaned and the `failed/`
+  markers, or a notice naming each part that differs. The drift notice now covers every compose service and its
+  definition, not only the service and docker-api images (doctor 20261122-33).
+- Deployment: `deploy/update.sh` keeps each admitted version's `compose.yaml` and images at
+  `$TRADE_DATA/deploy/<revision>/` (`current` names the one in use) instead of a temporary directory, so later
+  recreates have one definition. It refuses while a Paper run or comparison is under way, reports each service's
+  revision and definition (flagging a build the admitted version does not contain) and what `up -d` recreates, checks
+  every service took the definition, then removes stale replay containers, dangling anonymous volumes and images
+  nothing uses or names. `--check` reports without changing anything. `deploy/images.py` no longer takes `--compose`.
 
 ## 0.4.4 (2026-11-21)
 
