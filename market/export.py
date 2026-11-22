@@ -1,6 +1,5 @@
 """Export one market day as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
-`market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`,
-`market.write_marks`, `market.write_quotes`, `market.write_funding`, `market.write_metrics`).
+`market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`, `market.write_marks`, `market.write_quotes`, `market.write_funding`, `market.write_metrics`).
 
 Per contract, `<root>/<SYMBOL>/` holds its receipt `export.json` and one Catalog per piece: the whole
 contract when no lifecycle is given (the Catalog sits in the contract directory), one
@@ -37,7 +36,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
-from market import coverage, files, instrument, lifecycle, series
+from market import coverage, files, history, instrument, lifecycle, series
 from market.sources import DAY, MINUTE
 from shared import clock
 from shared.refusals import refuse
@@ -122,23 +121,20 @@ def on_grid(values: np.ndarray, increment: str, scale: int) -> bool:
     return step == step.to_integral_value() and (not len(values) or not np.any(values % int(step)))
 
 
-def price_grid(market: files.Market, market_day: str, symbol: str, increment: str, start_ms: int) -> tuple[int, bool]:
-    """(decimals, on grid) of `symbol`'s one-minute LAST prices stored by the market day: the fewest decimals that
-    represent the contract's whole history, and whether every price from `start_ms` (a window's first minute, its
-    warm-up included) to the market day is a whole multiple of `increment`. The tick a window trades on is thereby
-    the one in force from its start on, as Paper and Live trade on it, and depends on the market day and the window's
-    start but never on its end: a window that reaches back before the contract's last minute off the terms' tick
-    (BTCUSDT: 0.01 until 2022-02, then a few stray minutes to 2024-08) widens to the prices' finest step, which
-    Nautilus needs to match every bar (docs/plans/trust-boundary-deferred.zh.md)."""
-    places, grid = 0, True
-    prices = [COLUMNS.index(name) for name in ("open", "high", "low", "close")]
-    opened = COLUMNS.index("ts_open")
-    for block in coverage.bar_blocks(market, market_day, symbol, "LAST", 0, None):
-        values = block[:, prices]
-        places = max(places, needed_decimals(values.ravel(), series.PRICE_SCALE))
-        if grid:
-            grid = on_grid(values[block[:, opened] >= start_ms].ravel(), increment, series.PRICE_SCALE)
-    return places, grid
+def price_grid(stored: dict, increment: str) -> tuple[int, bool]:
+    """(decimals, on grid) of a contract's one-minute LAST prices stored by the market day (`stored`, one contract's
+    `market.contract_history`): the fewest decimals that represent the contract's whole history, and whether every price
+    from the window's start (a window's first minute, its warm-up included) to the market day is a whole
+    multiple of `increment`. The tick a window trades on is thereby the one in force from its start on, as Paper and
+    Live trade on it, and depends on the market day and the window's start but never on its end: a window that
+    reaches back before the contract's last minute off the terms' tick (BTCUSDT: 0.01 until 2022-02, then a few stray
+    minutes to 2024-08) widens to the prices' finest step, which Nautilus needs to match every bar
+    (docs/plans/trust-boundary-deferred.zh.md). Every price divides by a power of ten or the tick exactly when their
+    greatest common divisor does, so the history keeps only that."""
+    if not stored["rows"]:
+        return 0, True
+    places = needed_decimals(np.array([stored["gcd"]], np.int64), series.PRICE_SCALE)
+    return places, on_grid(np.array([stored["gcd_start"]], np.int64), increment, series.PRICE_SCALE)
 
 
 def price_precision(increment: str, places: int, grid: bool) -> int:
@@ -453,33 +449,6 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
     return len(rows)
 
 
-# The daily warm-up, derived while streaming
-
-def daily_bars(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,
-               end_ms: int) -> dict[str, np.ndarray]:
-    """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
-    `low_ms` and close before `high_ms`, streamed file by file: a block's last (possibly unfinished) day
-    carries into the next, so memory holds one block and the days, never the whole history."""
-    stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    parts, carry = [], np.empty((0, 6), np.int64)
-    for block in coverage.bar_blocks(market, market_day, symbol, "LAST", low_ms, stop):
-        if high_ms is not None:
-            block = block[block[:, 0] + MINUTE - 1 < high_ms]
-        block = np.concatenate([carry, block]) if len(carry) else block
-        if not len(block):
-            continue
-        days = block[:, 0] // DAY
-        cut = int(np.searchsorted(days, days[-1]))
-        if cut:
-            parts.append(series.derive_bars({name: block[:cut, i] for i, name in enumerate(COLUMNS)}))
-        carry = block[cut:]
-    if len(carry):
-        parts.append(series.derive_bars({name: carry[:, i] for i, name in enumerate(COLUMNS)}))
-    daily = {name: np.concatenate([part[name] for part in parts]) if parts else np.empty(0, np.int64)
-             for name in COLUMNS}
-    return _keep(daily, daily["ts_open"] + DAY <= end_ms)
-
-
 # market.export_episode
 
 def export_episode(job: dict) -> dict:
@@ -526,14 +495,15 @@ def _export_episode(job: dict, path: Path) -> dict:
            "mark": coverage.read_bars(market, market_day, symbol, "MARK", start, end),
            "funding": coverage.read_funding(market, market_day, symbol, start, end)}
     require_funding_files(market, symbol, raw["last"]["ts_open"])
-    facts = coverage.coverage_facts(market, market_day, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
+    stored = job.get("history") or history.contract_history(
+        market, market_day, {symbol: history.daily_cuts(job.get("episodes"))}, start, end)[symbol]
+    facts = coverage.coverage_facts(market, market_day, symbol, start, end, raw["last"], raw["mark"], raw["funding"],
+                                    stored["edges"])
     split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
-    # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
+    # Every complete UTC day before the window's end, inside the piece (daily_cuts): a contract listed late starts
     # once its warm-up holds.
-    dailies = [daily_bars(market, market_day, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
-                          piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
-                          else None, end) for piece in split]
-    places, grid = price_grid(market, market_day, symbol, terms["price_increment"], start)
+    dailies = stored["daily"]
+    places, grid = price_grid(stored, terms["price_increment"])
     precision = price_precision(terms["price_increment"], places, grid)
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
@@ -611,8 +581,8 @@ def default_cache() -> Path:
 
 ROOT = Path(__file__).resolve().parents[1]
 # The exporter's implementation: the market modules an export runs and the dependency lock.
-EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
-                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py",
+EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/history.py", "market/instrument.py",
+                  "market/lifecycle.py", "market/series.py", "market/sources.py", "market/store.py", "market/universe.py",
                   "market/files.py", "uv.lock")
 
 
@@ -668,7 +638,8 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
         window = Path(root or default_cache()) / market_day / key
-    receipts, jobs = {}, []
+    receipts: dict[str, dict] = {}
+    jobs: list[dict[str, Any]] = []
     for symbol in symbols:
         found = None if fresh else complete(window / symbol)
         if found:
@@ -682,8 +653,13 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         if jobs:
             # spawn: Linux's default forkserver chmods a socket under TMPDIR, which paper's TMPDIR, a macOS bind
             # mount, refuses (EINVAL, measured).
-            with ProcessPoolExecutor(max(1, min(workers, len(jobs))), mp_context=multiprocessing.get_context("spawn")) \
-                    as pool:
+            with ProcessPoolExecutor(max(1, workers), mp_context=multiprocessing.get_context("spawn")) as pool:
+                # One read of each bar file for every contract (a file holds them all), not one per contract.
+                stored = history.contract_history(market, market_day, {job["symbol"]: history.daily_cuts(job["episodes"])
+                                                                       for job in jobs},
+                                                  start_ns // 1_000_000, end_ns // 1_000_000, pool)
+                for job in jobs:
+                    job["history"] = stored[job["symbol"]]
                 for receipt in pool.map(export_episode, jobs):
                     receipts[receipt["symbol"]] = receipt
         for name, data in sorted((lifecycle_files or {}).items()):

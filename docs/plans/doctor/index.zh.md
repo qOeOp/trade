@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261122-05 | 导出按合约各读两遍全史，`bar` 行组在币池导出里被每个同组合约重复解码：259 个合约、7 天的币池导出用 1065 s | fix（每个月文件读一次交给全部合约，字节一致：1065 → 80 s） | doctor（0.5.0 发布端到端运行 2026-11-22） | minutes | in PR [#3434](https://github.com/qOeOp/trade/pull/3434)（[记录](2026-11-22-pool-export-time.zh.md)） | 2026-11-22 | 2026-11-22 |
 | 20261122-02 | 关线结论只看已有的历史试验：`line history --limit` 或失败留下未跑的计划否决年，对照与留出期通过时 `require_unfalsified`（验证登记、Live 准入）照收 | authority（未跑的计划否决年记入 `missing`、结论未定；委托决定） | doctor（外部审计 Gemini 2026-11-22） | unknown | fixed 2187db9d3 [#3416](https://github.com/qOeOp/trade/pull/3416)（[记录](2026-11-22-history-planned-segments.zh.md)） | 2026-11-22 | 2026-11-22 |
 | 20261122-03 | Live 控制的 Paper 对账检查进行中被问的候选，要等下一次询问才得到答案 | fix | doctor（外部审计 Gemini 2026-11-22） | unknown | fixed 5ef3fd0ff [#3414](https://github.com/qOeOp/trade/pull/3414)（[记录](2026-11-22-history-planned-segments.zh.md)） | 2026-11-22 | 2026-11-22 |
 | 20261122-01 | Nautilus rc7 `Portfolio::update_position` 在每个仓位事件上遍历该合约历史全部仓位重算已实现盈亏，高频交易的长窗口回放耗时随仓位数平方增长 | upstream（已报告 [nautechsystems/nautilus_trader#5730](https://github.com/nautechsystems/nautilus_trader/issues/5730)，用户 2026-11-22「报告的」「附上脚本吧」；Nautilus 升级时重测） | doctor | unknown | open [回放耗时超线性](2026-11-22-replay-time-superlinear.zh.md) | 2026-11-22 | 2026-11-22 |

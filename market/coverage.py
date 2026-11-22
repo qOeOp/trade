@@ -124,9 +124,11 @@ def _series(bars: dict, start_ms: int, end_ms: int, volume: bool) -> dict:
 
 
 def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int, last_bars: dict,
-                   mark_bars: dict, funding_rows: list[tuple[int, Decimal]]) -> dict:
+                   mark_bars: dict, funding_rows: list[tuple[int, Decimal]],
+                   edges: dict[str, tuple[int | None, int | None]] | None = None) -> dict:
     """market.coverage_facts: the market-coverage-v1 facts of one contract in [start_ms, end_ms) at an
-    exact market day."""
+    exact market day. `edges` ({"LAST": (first, last), "MARK": ...} open times of the whole stored history) saves
+    reading them again when the caller already has (market.contract_history)."""
     _interval(start_ms, end_ms)
     files.check_day(market_day)
     last, mark = _series(last_bars, start_ms, end_ms, True), _series(mark_bars, start_ms, end_ms, False)
@@ -134,7 +136,8 @@ def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms:
     months = [month.isoformat() for month, member in universe.months_of(market, market_day) if member == symbol]
     bounds = {}
     for price_type in ("LAST", "MARK"):
-        first, latest = _edges(market, market_day, "bar", symbol, price_type=price_type)
+        first, latest = edges[price_type] if edges is not None else _edges(market, market_day, "bar", symbol,
+                                                                           price_type=price_type)
         bounds[price_type] = {"first_open_ms": first, "last_open_ms": latest} if first is not None else None
     times = [int(at) for at, _ in funding_rows]
     return {"format": FORMAT, "market_day": market_day, "symbol": symbol, "input_interval_ms": [start_ms, end_ms],

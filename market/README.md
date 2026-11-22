@@ -13,6 +13,7 @@ Nautilus Catalogs the runner reads. The tables are on the site's database page
 | `instrument.py` | the terms snapshot of a market day and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
 | `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, what the importers share (`import_contracts`) |
+| `history.py` | what an export takes from each contract's whole stored history (daily warm-up, price grid divisors, first and last bars), one read of each bar month file for all the exported contracts |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a market day, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `metrics_facts`, `diagnose_coverage`) |
@@ -332,7 +333,10 @@ refused on a market profile (`LEDGER_UNKNOWN`); `--help` states the full contrac
   own layout for it, which `ParquetDataCatalog.query` reads; status and close events go through the
   Catalog's writers, and the runner's count check ([`engine/README.md`](../engine/README.md)) covers both. Recheck them
   on a Nautilus upgrade.
-- The daily warm-up is derived while streaming, not from the whole history at once (measured with 20,000-minute
-  chunks on BTCUSDT, 934,560 minutes: 18.5 MB of growth instead of 145 MB, the same 2.5 s). The export
+- What an export takes from a contract's whole history (the daily warm-up, the price grid, the first and last stored
+  bars) comes from one read of each `bar` month file for all the exported contracts at once (`contract_history`),
+  each worker deriving one file's days: a file holds every contract and whole UTC days. Read once per contract
+  instead, a 259-contract pool export of 7 days at market day 2026-10-30 took 1065 s with 4 workers; read once per
+  file, 80 s, byte for byte the same export (one contract: 21 s, 8 s). The export
   cache key includes the exporter's source hash and the path, size and modification time of the files it reads.
 - Exports read a table's files row group by row group and write 250,000 rows per file.
