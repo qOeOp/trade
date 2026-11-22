@@ -798,7 +798,7 @@ class PruneTests(unittest.TestCase):
             github = Mock()
             github.approved.return_value = {"revision": A, "image": TARGET["image"], "service": TARGET["service"]}
             github.choose.return_value = None  # the running control's version is the admitted one
-            with patch("deploy.release.running", return_value=A):
+            with patch("deploy.release.running", return_value=A), patch.object(Release, "settle"):
                 self.assertFalse(Release(host, github, live=IdleLive(host)).tick())
             host.prune.assert_called_once()
             host.prune.reset_mock()
@@ -1383,13 +1383,15 @@ class FollowTests(unittest.TestCase):
         self.github.choose.return_value = TARGET
         with patch("deploy.release.running", return_value=A), patch.object(Release, "apply") as apply, \
                 patch.object(Release, "follow") as follow, patch.object(Release, "prune"), \
-                patch.object(Release, "recover"):
+                patch.object(Release, "recover"), patch.object(Release, "settle") as settle:
             Release(self.host, self.github, live=self.live).tick()
             apply.assert_called_once_with(TARGET)
             follow.assert_not_called()
+            settle.assert_not_called()
             self.github.choose.return_value = None
             Release(self.host, self.github, live=self.live).tick()
             follow.assert_called_once_with(WEB + A)
+            settle.assert_called_once_with()
 
 
 class DefinitionFollowTests(unittest.TestCase):
@@ -1681,65 +1683,193 @@ class RecreateTests(unittest.TestCase):
 
 
 class DriftTests(unittest.TestCase):
-    """docker-api and the compose services against the active version, read from a real local Git repository."""
-
-    PIN = "ghcr.io/qoeop/trade-docker-api@sha256:" + "1" * 64
-    FILES = {"deploy/compose.yaml": f"services:\n  docker-api:\n    image: {PIN}  # moved only by a pull request\n"}
+    """Every compose service against the active version's definition, once the release no longer moves it (doctors
+    20261116-04 and 20261122-33)."""
 
     def setUp(self):
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, root)
-        self.checkout, self.source = root / "checkout", GitSource(root / "state")
-        for path, text in self.FILES.items():
-            (self.checkout / path).parent.mkdir(parents=True, exist_ok=True)
-            (self.checkout / path).write_text(text)
-        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
-               "--git-dir", str(self.source.repo), "--work-tree", str(self.checkout)]
-        subprocess.run(["git", "init", "-q", "--bare", str(self.source.repo)], env=env, check=True)
-        subprocess.run([*git, "add", "-A"], env=env, check=True)
-        subprocess.run([*git, "commit", "-qm", "version"], env=env, check=True)
-        self.sha = subprocess.run([*git, "rev-parse", "HEAD"], env=env, check=True, capture_output=True,
-                                  text=True).stdout.strip()
-        self.host = Mock()
-        self.host.disk_route.return_value = WEB + self.sha
-        self.host.inspect.return_value = {"image": self.PIN}
-        self.host.follower.return_value = None  # no compose service, unless a test runs one
-        self.source.approved = Mock(return_value={**TARGET, "revision": self.sha})
-        clock = patch("deploy.services.time.time", return_value=hours_after_web(3)[1])
-        clock.start()
-        self.addCleanup(clock.stop)
+        FollowTests.setUp(self)
+        self.host.services = {LEDGER: running(TARGET["service"], BEFORE, "ledger"),
+                              DOCKER_API: running(PROXY, BEFORE, "docker-api"),
+                              "trade-ide-edge-1": running("caddy", BEFORE, "edge")}
 
     def drift(self):
-        return services.drift(self.host, self.source)
+        return services.drift(self.host, self.github)
 
-    def test_a_docker_api_that_follows_the_active_version_says_nothing(self):
+    def test_services_on_the_version_say_nothing(self):
         self.assertEqual(self.drift(), {})
-        self.host.inspect.assert_called_once_with("trade-ide-docker-api-1")
+        self.assertEqual(self.host.definitions, [], "nothing recreated since the Web: nothing to compare")
 
-    def test_a_docker_api_the_release_no_longer_moves_is_named_and_one_it_will_move_is_not(self):
-        running = "ghcr.io/qoeop/trade-docker-api@sha256:" + "2" * 64
-        self.host.inspect.return_value = {"image": running}
-        created = {WEB + self.sha: moment(WEB_CREATED), "trade-ide-docker-api-1": moment(BEFORE)}
-        self.host.created.side_effect = created.get
-        self.assertEqual(self.drift(), {}, "the next settled tick moves it (Release.follow)")
-        created["trade-ide-docker-api-1"] = moment(AFTER)  # a move undone, or the operator's recreate
-        self.assertEqual(self.drift(), {}, "the release tries it again")
-        created["trade-ide-docker-api-1"] = hours_after_web(2.5)[0]  # the third undone move: retries spent
-        facts = self.drift()
-        self.assertEqual(list(facts), [f"drift:docker-api:{self.PIN}"])
-        self.assertIn(f"docker-api runs {running}, but the active version {self.sha[:12]} pins {self.PIN}",
-                      facts[f"drift:docker-api:{self.PIN}"])
+    def test_a_service_the_release_no_longer_moves_is_named_once_per_version(self):
+        for name, image in ((DOCKER_API, OLD_PROXY), ("trade-ide-edge-1", "caddy")):
+            with self.subTest(name=name):
+                service = name.removeprefix("trade-ide-").removesuffix("-1")
+                self.host.services[name] = running(image, BEFORE, None)
+                self.assertEqual(self.drift(), {}, "the next settled tick moves it (Release.follow)")
+                self.host.services[name]["created"] = moment(AFTER)  # a move undone, or the operator's recreate
+                self.assertEqual(self.drift(), {}, "the release tries it again")
+                self.host.services[name]["created"] = hours_after_web(2.5)[0]  # the third undone move
+                self.now = hours_after_web(3)[1]
+                facts = self.drift()
+                self.assertEqual(list(facts), [f"drift:{service}:{A}"])
+                self.assertIn(f"{service} runs {OLD_PROXY}, but the active version {A[:12]} runs {PROXY}"
+                              if image == OLD_PROXY else
+                              f"{service} differs from the definition of the active version {A[:12]}",
+                              facts[f"drift:{service}:{A}"])
+                self.host.services[name] = running(wanted()[service]["image"], AFTER, service)
+                self.assertEqual(self.drift(), {}, "recreated by hand from the version's files")
+                self.now = services.epoch(moment(AFTER)) + 1
 
-    def test_a_service_whose_retries_are_spent_is_named_once_per_version_image(self):
-        services = {LEDGER: {"image": OLD_SERVICE, "created": moment(AFTER)}}
-        self.host.follower.side_effect = services.get
-        self.host.created.return_value = moment(WEB_CREATED)
-        self.assertEqual(self.drift(), {}, "an undone move is tried again (Release.follow)")
-        services[LEDGER]["created"] = hours_after_web(2.5)[0]
-        facts = self.drift()
-        self.assertEqual(list(facts), [f"drift:ledger:{TARGET['service']}"])
-        self.assertIn(f"ledger runs {OLD_SERVICE}, but the active version {self.sha[:12]} runs {TARGET['service']}",
-                      facts[f"drift:ledger:{TARGET['service']}"])
-        services[LEDGER]["image"] = TARGET["service"]  # moved by hand: nothing to say
+    def test_a_newer_admitted_version_leaves_drift_to_its_release(self):
+        self.host.services[LEDGER] = running(OLD_SERVICE, BEFORE, None)
+        self.host.services[LEDGER]["created"] = hours_after_web(2.5)[0]
+        self.now = hours_after_web(3)[1]
+        self.assertIn(f"drift:ledger:{A}", self.drift())
+        self.github.approved.return_value = TARGET  # B, not yet released or failed: its own notices say so
         self.assertEqual(self.drift(), {})
+
+
+class SettledHost:
+    """The release containers and compose services of version A as Docker reports them, its Web routed."""
+
+    def __init__(self, state: Path):
+        image, service = TARGET["image"], TARGET["service"]
+        self.state = state
+        self.containers = {WEB + A: [True, A, image], AGENT + A: [True, A, image], PAPER + A: [True, A, service],
+                           LIVE + A: [True, A, service], WEB + D: [False, D, image], LIVE + D: [False, D, service]}
+        self.services = {}
+        for container in (LEDGER, MARKET_IMPORT, DOCKER_API, "trade-ide-edge-1"):
+            name = container.removeprefix("trade-ide-").removesuffix("-1")
+            self.services[container] = running(wanted()[name]["image"], BEFORE, name)
+        self.routed, self.about = WEB + A, {"status": 200, "version": "0.5.0"}
+
+    def disk_route(self):
+        return WEB + A
+
+    def live_route(self):
+        return self.routed
+
+    def exists(self, name):
+        return name in self.containers
+
+    def inspect(self, name):
+        running, revision, image = self.containers[name]
+        return {"running": running, "revision": revision, "image": image}
+
+    def agent(self):
+        [name] = [name for name, (running, _, _) in self.containers.items() if name.startswith(AGENT) and running]
+        return name
+
+    def managed(self, prefix, running_only=False):
+        return [name for name, (running, _, _) in self.containers.items()
+                if name.startswith(prefix) and (running or not running_only)]
+
+    def follower(self, name):
+        return self.services.get(name)
+
+    def definition(self, service, sha):
+        assert (service, sha) == (TARGET["service"], A), "the routed version's own compose files"
+        return COMPOSE
+
+    def probe(self, name, path, routed=False):
+        assert (name, path, routed) == (WEB + A, "/api/about", True)
+        return self.about
+
+
+class SettledTests(unittest.TestCase):
+    """Doctor 20261122-33: a release reported nothing once it committed, so a host left partly on the old version
+    (a compose service on an old definition, a stopped Live control) went unseen until something broke."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = SettledHost(Path(temporary.name))
+        self.github = Mock()
+        self.github.approved.return_value = {**TARGET, "revision": A}
+        self.github.docker_api.return_value = PROXY
+        self.github.agent_changed.return_value = False
+        self.paper = Mock()
+        self.paper.disk_route.return_value = self.paper.live_route.return_value = PAPER + A
+        self.release = Mock(host=self.host, github=self.github, failed=self.host.state / "failed",
+                            live=IdleLive(self.host))
+        self.release.paper.return_value.host = self.paper
+        for name, stand_in in (("definitions", lambda host, files, env: wanted()),
+                               ("follows", lambda host, container, found, want: (found["image"], found["hash"])
+                                == (want["image"], want["hash"]))):
+            definition = patch.object(services, name, stand_in)
+            definition.start()
+            self.addCleanup(definition.stop)
+
+    def settled(self, cleaned=()):
+        return services.settled(self.release, list(cleaned))
+
+    def test_a_host_on_the_routed_version_is_reported_live_once_with_what_stays(self):
+        self.release.failed.mkdir()
+        (self.release.failed / C).write_text("")
+        facts = self.settled([WEB + "0" * 40, "ghcr.io/qoeop/trade-service@sha256:" + "0" * 64])
+        self.assertEqual(facts, {f"settled:{A}": (
+            f"v0.5.0 live: 8/8 services on {A[:12]} (Web, Agent, Paper controller, Live control, ledger, "
+            f"market-import, docker-api, edge). Kept for a return by hand: {D[:12]}. Cleaned this tick: "
+            f"trade-release-web-{'0' * 12}, trade-service@{'0' * 12}. Failed markers: {C[:12]}.")})
+        self.assertEqual(list(self.settled()), [f"settled:{A}"], "the same fact: sent once (deploy/notices.py)")
+
+    def test_an_agent_the_version_did_not_change_stays_on_its_own_revision(self):
+        del self.host.containers[AGENT + A]
+        self.host.containers[AGENT + D] = [True, D, "ghcr.io/qoeop/trade-ide@sha256:" + "d" * 64]
+        self.assertEqual(list(self.settled()), [f"settled:{A}"])
+        self.github.agent_changed.return_value = True
+        self.assertIn(f"Agent runs {D[:12]}, an Agent this version changed", self.settled()[f"settled:{A}:diverged"])
+
+    def test_each_part_off_the_version_is_named(self):
+        cases = {
+            "Web is not routed": lambda: setattr(self.host, "routed", WEB + D),
+            f"Paper controller runs {OLD_SERVICE}": lambda: self.host.containers[PAPER + A].__setitem__(2, OLD_SERVICE),
+            "Paper controller is not routed": lambda: setattr(self.paper.live_route, "return_value", PAPER + D),
+            "Live control is stopped": lambda: self.host.containers[LIVE + A].__setitem__(0, False),
+            "Live control is not routed": lambda: self.host.containers[LIVE + D].__setitem__(0, True),
+            f"Agent carries revision {D}": lambda: self.host.containers[AGENT + A].__setitem__(1, D),
+            "edge differs from the version's definition":
+                lambda: self.host.services["trade-ide-edge-1"].__setitem__("hash", None),
+            "ledger differs from the version's definition":
+                lambda: self.host.services[LEDGER].__setitem__("image", OLD_SERVICE),
+        }
+        for said, change in cases.items():
+            with self.subTest(said):
+                self.setUp()
+                change()
+                [(key, text)] = self.settled().items()
+                self.assertEqual(key, f"settled:{A}:diverged")
+                self.assertIn(said, text)
+                self.assertIn("v0.5.0 is routed, but 1 of 8 services do not match its admitted record", text)
+
+    def test_an_unread_version_names_the_revision_and_a_newer_admitted_version_says_nothing(self):
+        self.host.about = {"status": 502}
+        self.assertIn(f"{A[:12]} live: 8/8 services on {A[:12]}", self.settled()[f"settled:{A}"])
+        self.github.approved.return_value = TARGET  # B is on its way, or failed: its own notices say so
+        self.assertEqual(self.settled(), {})
+
+    def test_the_tick_sends_the_settled_notice_once_and_keeps_it_through_an_unread_tick(self):
+        sent = []
+        notices = Notices(self.host.state, call=lambda token, method, body: sent.append(body["text"]),
+                          log=lambda line: None)
+        notices._token = lambda: ("token", 1)
+        settled = [{"settled:x": "live"}, None, {"settled:x": "live"}]
+
+        def tick(self):
+            self.settled = settled.pop(0)
+            return False
+
+        self.host.condition = Mock(return_value=None)
+        with patch.object(Release, "tick", tick), patch.object(release, "drift", return_value={}), \
+                patch.object(Notices, "watch"):
+            for _ in range(3):
+                release.tick(self.host, notices)
+                self.assertEqual(notices.found["settled"], {"settled:x": "live"})
+        self.assertEqual(sent, ["live"], "sent once while it lasts")
+
+    def test_a_settled_check_that_cannot_read_leaves_the_notice_as_it_was(self):
+        with patch.object(release, "settled", side_effect=RuntimeError("docker inspect failed")), \
+                redirect_stderr(io.StringIO()) as said:
+            checked = Release(self.host, self.github, live=IdleLive(self.host), paper=Mock())
+            checked.settle()
+        self.assertIsNone(checked.settled)
+        self.assertIn("Settled check skipped", said.getvalue())

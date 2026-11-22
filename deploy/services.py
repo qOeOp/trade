@@ -11,18 +11,20 @@ alone (docs/plans/release-moves-ledger-mirror-20261116.zh.md; doctor 20261122-32
 from datetime import datetime, UTC
 import io
 import json
+import re
 import subprocess
 import tarfile
 import time
 
-from .live_host import LiveBusy
+from .live_host import LIVE, LiveBusy
+from .paper_host import PAPER
 from .release_host import (
-    DOCKER_API,
+    AGENT,
     DOCKER_API_IMAGE,
     DOCKER_API_REF,
-    FOLLOWERS,
     DockerFailure,
     PAPER_ROUTER,
+    REVISION,
     SERVICE_IMAGE,
     SERVICE_REF,
     SERVICES,
@@ -38,6 +40,7 @@ PAPER_OPERATIONS = frozenset({"stopping", "ended", "unsealed"})
 PAPER_LISTING_SECONDS = 3  # past the Paper controller's listing cache (paper/serve.py LIST_SECONDS)
 # The services whose image a version names through a variable of deploy/compose.yaml: only these are put back on the
 # image they ran before when a move fails. The others change only with the definition, which a move cannot put back.
+VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\Z")  # the product version /api/about names
 VARIABLES = {"ledger": SERVICE_IMAGE, "market-import": SERVICE_IMAGE, "docker-api": DOCKER_API_IMAGE}
 
 
@@ -70,32 +73,102 @@ def images(github: GitSource, target: dict) -> dict[str, str]:
 
 
 def drift(host: DockerHost, github: GitSource) -> dict[str, str]:
-    """What on the host does not follow the active version (doctor 20261116-04): docker-api against the digest the
-    version pins, and the compose services of the service image against its digest, once the release no longer
-    moves them (Follow.run)."""
+    """What on the host does not follow the active version (doctors 20261116-04, 20261122-33): each running compose
+    service whose container differs from what the version's own definition creates (`follows`), once the release no
+    longer moves it: it was created after the routed Web (a move undone, or by hand) and its retries are spent."""
     sha = revision(host.disk_route())
-    short = sha[:12]
-    facts = {}
-    since, now = host.created(WEB + sha), time.time()
-    pin = github.docker_api(sha)
-    running = host.inspect(DOCKER_API)["image"]
-    if running != pin and host.created(DOCKER_API) > since and retry(since, host.created(DOCKER_API), now) == "over":
-        # One created before the routed Web, or whose retries are not spent, is moved by a settled tick (Follow.run).
-        facts[f"drift:docker-api:{pin}"] = (
-            f"docker-api runs {running}, but the active version {short} pins {pin}. It was recreated after that "
-            "version was released (a move undone, or by hand) and the release's retries are spent, so it stays until "
-            "the next version; recreate it by hand from that version's compose files (deploy/remote/README.md).")
     target = github.approved()
-    service = target["service"] if target["revision"] == sha else None
-    for name, container, _ in FOLLOWERS if service is not None else ():
-        found = host.follower(container)
-        if (found is not None and found["image"] != service and found["created"] > since
-                and retry(since, found["created"], now) == "over"):
-            facts[f"drift:{name}:{service}"] = (
-                f"{name} runs {found['image']}, but the active version {short} runs {service}. Its moves were undone "
-                "(or it was recreated by hand) and the release's retries are spent, so it stays until the next "
-                "version; journalctl -u trade-release.service names the reader that failed.")
+    if target["revision"] != sha or target["service"] is None:
+        return {}  # a newer version is on its way or failed; its own notices say so
+    since, now = host.created(WEB + sha), time.time()
+    late = {name: (container, found) for name, container, _ in SERVICES
+            if (found := host.follower(container)) is not None and found["created"] > since
+            and retry(since, found["created"], now) == "over"}
+    if not late:
+        return {}  # one created before the routed Web, or whose retries are not spent, is moved by Follow.run
+    wanted = definitions(host, host.definition(target["service"], sha), images(github, target))
+    facts = {}
+    for name, (container, found) in late.items():
+        if name not in wanted or follows(host, container, found, wanted[name]):
+            continue
+        image = wanted[name]["image"]
+        runs = (f"runs {found['image']}, but the active version {sha[:12]} runs {image}" if found["image"] != image
+                else f"differs from the definition of the active version {sha[:12]}")
+        facts[f"drift:{name}:{sha}"] = (
+            f"{name} {runs}. It was recreated after that version was released (a move undone, or by hand) and the "
+            "release's retries are spent, so it stays until the next version; journalctl -u trade-release.service "
+            "names the reader that failed. Recreate it by hand from that version's compose files "
+            "(deploy/remote/README.md).")
     return facts
+
+
+def brief(item: str) -> str:
+    """A container or image DockerHost.prune removed, with its revision or digest cut to 12 characters."""
+    if "@sha256:" in item:
+        name, digest = item.rsplit("/", 1)[-1].split("@sha256:")
+        return f"{name}@{digest[:12]}"
+    return item[:-28] if REVISION.fullmatch(item[-40:]) else item
+
+
+def settled(release, cleaned: list[str]) -> dict[str, str]:
+    """The routed version against its admitted record on a tick that released nothing (doctor 20261122-33): its Web,
+    Agent, Paper controller and Live control by revision label and image digest, the routes, and every running
+    compose service by its version's definition (`follows`). One fact per version, so its notice is sent once: "vX.Y.Z
+    live" with what stays for a return by hand, what this tick cleaned and the failed markers, or what differs."""
+    host, github = release.host, release.github
+    active = host.disk_route()
+    sha = revision(active)
+    target = github.approved()
+    if target["revision"] != sha or target["image"] is None:
+        return {}  # a newer version is on its way or failed; its own notices say so
+    paper = release.paper().host
+    differs: dict[str, str | None] = {}  # what was compared -> None when it matches, else how it differs
+
+    def release_container(label: str, name: str, image: str, route: bool = True) -> None:
+        found = host.inspect(name) if host.exists(name) else None
+        differs[label] = ("is absent" if found is None else "is stopped" if not found["running"]
+                          else f"carries revision {found['revision']}" if found["revision"] != sha
+                          else f"runs {found['image']}, not {image}" if found["image"] != image
+                          else None if route else "is not routed")
+
+    release_container("Web", active, target["image"], host.live_route() == active)
+    agent = host.agent()
+    before = revision(agent, AGENT) if agent is not None else None
+    if before is None:
+        differs["Agent"] = "is not running"
+    elif before == sha:
+        release_container("Agent", agent, target["image"])
+    else:  # a version that did not change the Agent keeps the one running (Release.apply)
+        differs["Agent"] = f"runs {before[:12]}, an Agent this version changed" if github.agent_changed(before, sha) \
+            else None
+    controller = PAPER + sha
+    release_container("Paper controller", controller, target["service"],
+                      paper.disk_route() == controller and paper.live_route() == controller)
+    control = LIVE + sha  # LiveHost.name
+    others = [name for name in host.managed(LIVE, running_only=True) if name != control]
+    release_container("Live control", control, target["service"], not others)
+    present = {name: (container, found) for name, container, _ in SERVICES
+               if (found := host.follower(container)) is not None}
+    if present:
+        wanted = definitions(host, host.definition(target["service"], sha), images(github, target))
+        for name, (container, found) in present.items():
+            differs[name] = None if name in wanted and follows(host, container, found, wanted[name]) \
+                else "differs from the version's definition"
+    about = host.probe(active, "/api/about", routed=True)
+    version = about.get("version") if about.get("status") == 200 else None
+    label = f"v{version}" if isinstance(version, str) and VERSION.fullmatch(version) else sha[:12]
+    wrong = [f"{what} {how}" for what, how in differs.items() if how is not None]
+    if wrong:
+        return {f"settled:{sha}:diverged": (
+            f"{label} is routed, but {len(wrong)} of {len(differs)} services do not match its admitted record: "
+            f"{'; '.join(wrong)}. The release moves the compose services on settled ticks while Paper and Live are "
+            "idle; see journalctl -u trade-release.service.")}
+    kept = sorted(revision(name)[:12] for name in host.managed(WEB) if name != active)
+    failed = sorted(path.name[:12] for path in release.failed.iterdir()) if release.failed.is_dir() else []
+    return {f"settled:{sha}": (
+        f"{label} live: {len(differs)}/{len(differs)} services on {sha[:12]} ({', '.join(differs)}). "
+        f"Kept for a return by hand: {', '.join(kept) or 'none'}. Cleaned this tick: {', '.join(map(brief, cleaned)) or 'none'}. "
+        f"Failed markers: {', '.join(failed) or 'none'}.")}
 
 
 def definitions(host: DockerHost, files: list[str], env: dict[str, str]) -> dict[str, dict]:

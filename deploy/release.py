@@ -36,7 +36,7 @@ from .release_host import (
     sync_directory,
 )
 from .notices import Notices
-from .services import Follow, drift
+from .services import Follow, drift, settled
 from .source import GitSource, SourceUnreachable
 
 
@@ -124,7 +124,7 @@ def report_failure(phase: str, error: Exception) -> None:
     labels = {"primary": "Primary release failure", "recovery": "Release recovery failure",
               "previous": "Previous Web left running", "control": "Previous Live control left running",
               "cleanup": "Release cleanup skipped", "release": "Release tick failed",
-              "services": "Compose service move failed"}
+              "services": "Compose service move failed", "settled": "Settled check skipped"}
     with contextlib.suppress(OSError, ValueError):  # A closed diagnostic stream must not prevent transaction recovery.
         print(f"{labels.get(phase, 'Release failure')}: {failure_summary(error)}",
               file=sys.stderr, flush=True)
@@ -144,6 +144,8 @@ class Release:
         self.live = live or LiveHost(host, github)
         self._paper = paper
         self.waits: dict[str, str] = {}  # why the admitted version waits this tick, as notice facts (deploy/notices.py)
+        self.cleaned: list[str] = []  # what this tick's prune removed
+        self.settled: dict[str, str] | None = None  # the routed version against its record, once a tick checked it
 
     def stop_controls(self, kept: str) -> None:
         """Inside the account lock, once the route is committed: stop every Live control but `kept`'s. A failure
@@ -479,10 +481,18 @@ class Release:
             kept = {revision(name) for name in self.host.managed(WEB)}
             active |= {LIVE + sha for sha in kept}
             runtimes |= self.live.runtimes()  # read before its directories are pruned
-            self.host.prune((WEB, AGENT, PAPER, LIVE), active, failed, runtimes)
+            self.cleaned = self.host.prune((WEB, AGENT, PAPER, LIVE), active, failed, runtimes)
             self.live.prune(kept)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
+
+    def settle(self) -> None:
+        """Compare the host with the routed version's admitted record (deploy/services.py `settled`). Like prune it
+        never fails the tick: one it cannot read leaves the notice as it was."""
+        try:
+            self.settled = settled(self, self.cleaned)
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            report_failure("settled", error)
 
     def handoff(self, control: str | None) -> bool:
         """Hand control over to the admitted version's own control code unless it is `control`, the one running;
@@ -529,6 +539,8 @@ class Release:
         if not target:  # a tick that released something leaves the services to the next one
             self.follow(active)
         self.prune()
+        if not target:
+            self.settle()
         return False
 
 def main() -> None:
@@ -565,6 +577,8 @@ def tick(host: DockerHost, notices: Notices) -> bool:
         notices.released(None)
         if not handed:  # a handoff's second tick, under the new control, says what that version waits for
             notices.observe("wait", release.waits)
+            if release.settled is not None:
+                notices.observe("settled", release.settled)
         return handed
     except Exception as error:
         # A fetch that failed right after one that succeeded leaves the release kind unobserved: what was sent
