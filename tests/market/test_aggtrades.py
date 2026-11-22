@@ -29,8 +29,8 @@ JAN = date(2025, 1, 1)
 START = day_ms(JAN)
 
 
-def archive(root, day, rows, header=True, symbol='BTCUSDT'):
-    text = aggtrades_csv(rows)
+def archive(root, day, rows, header=True, symbol='BTCUSDT', text=None):
+    text = aggtrades_csv(rows) if text is None else text
     if not header:
         text = text.split('\n', 1)[1]
     key = sources.aggtrades_key(symbol, day)
@@ -40,6 +40,15 @@ def archive(root, day, rows, header=True, symbol='BTCUSDT'):
     target.write_bytes(body)
     target.with_name(target.name + '.CHECKSUM').write_text(hashlib.sha256(body).hexdigest() + '  archive.zip\n')
     return target
+
+
+BLOCK = 100  # CSV bytes: about two rows a block
+
+
+def pulled(path, state, day='2025-01-01'):
+    """The rows `batches` gives, one list a batch."""
+    return [[tuple(row.values()) for row in batch.to_pylist()]
+            for batch in trades.batches(path, 'BTCUSDT', day, state, BLOCK)]
 
 
 def source_rows(at, identity):
@@ -85,43 +94,71 @@ class CodecTests(unittest.TestCase):
     def test_stream_retains_every_field_equal_timestamps_headers_and_no_header(self):
         with tempfile.TemporaryDirectory() as temp:
             for header in (True, False):
-                path = archive(temp, '2025-01-01', source_rows(START, 7), header)
-                readings, state = {}, trades.State()
-                chunks = list(trades.batches(path, 'BTCUSDT', '2025-01-01', state, readings, size=1))
-                self.assertEqual(chunks, [[('BTCUSDT', START + 10, 7, 10000000001, 12345678, 14, 15, True)],
-                                          [('BTCUSDT', START + 10, 8, 10001000000, 10000001, 16, 16, False)]])
-                self.assertEqual((state.last_id, readings['trades']), (8, 2))
+                path = archive(temp, '2025-01-01', source_rows(START, 7) + source_rows(START + 20, 9), header)
+                state = trades.State()
+                with patch.object(trades, '_exact', side_effect=AssertionError('read row by row')):
+                    chunks = pulled(path, state)
+                self.assertGreater(len(chunks), 1)
+                self.assertEqual(sum(chunks, []), [('BTCUSDT', START + 10, 7, 10000000001, 12345678, 14, 15, True),
+                                                   ('BTCUSDT', START + 10, 8, 10001000000, 10000001, 16, 16, False),
+                                                   ('BTCUSDT', START + 30, 9, 10000000001, 12345678, 18, 19, True),
+                                                   ('BTCUSDT', START + 30, 10, 10001000000, 10000001, 20, 20, False)])
+                self.assertEqual((state.last_id, state.last_time, state.last_trade), (10, START + 30, 20))
+
+    def test_any_other_spelling_reads_row_by_row_once_with_the_same_values(self):
+        plain = source_rows(START, 7) + source_rows(START + 20, 9)
+        expected = [('BTCUSDT', START + 10, 7, 10000000001, 12345678, 14, 15, True),
+                    ('BTCUSDT', START + 10, 8, 10001000000, 10000001, 16, 16, False),
+                    ('BTCUSDT', START + 30, 9, 10000000001, 12345678, 18, 19, True),
+                    ('BTCUSDT', START + 30, 10, 1000000000000, 10000001, 20, 20, False)]
+        head, *lines = aggtrades_csv(plain).splitlines(keepends=True)
+        last = lines[3].split(',')
+        spellings = {'exponent': '1.0E+4', 'finer zeros': '10000.000000000', 'leading zeros': '00000010000',
+                     'quoted': '"10000"', 'spaced': ' 10000'}
+        with tempfile.TemporaryDirectory() as temp:
+            for name, price in spellings.items():
+                text = head + ''.join(lines[:3]) + ','.join([last[0], price, *last[2:]])
+                with self.subTest(spelling=name):
+                    self.assertEqual(sum(pulled(archive(temp, '2025-01-01', [], text=text), trades.State()), []),
+                                     expected)
+            text = aggtrades_csv(plain).replace('true', 'True')
+            self.assertEqual(sum(pulled(archive(temp, '2025-01-01', [], text=text), trades.State()), []),
+                             [*expected[:3], (*expected[3][:3], 10001000000, *expected[3][4:])])
+            # The csv module keeps a byte order mark (the header no longer matches) and reads an empty line as a row.
+            for text in ('\ufeff' + aggtrades_csv(plain), aggtrades_csv(plain) + '\n'):
+                caught = refused(pulled, archive(temp, '2025-01-01', [], text=text), trades.State())
+                self.assertEqual(caught.code, 'SOURCE_SHAPE')
 
     def test_gap_duplicate_time_reversal_and_wrong_day_across_batches_or_days_refuse(self):
         with tempfile.TemporaryDirectory() as temp:
-            for identities, times, code in [((1, 3), (10, 11), 'SEQUENCE_GAP'),
-                                            ((1, 1), (10, 11), 'SEQUENCE_GAP'),
-                                            ((1, 2), (11, 10), 'SOURCE_SHAPE'),
-                                            ((1, 2), (10, -1), 'SOURCE_SHAPE')]:
+            for identities, times, code in [((1, 2, 4), (10, 11, 12), 'SEQUENCE_GAP'),
+                                            ((1, 2, 2), (10, 11, 12), 'SEQUENCE_GAP'),
+                                            ((1, 2, 3), (11, 12, 10), 'SOURCE_SHAPE'),
+                                            ((1, 2, 3), (10, 11, -1), 'SOURCE_SHAPE')]:
                 rows = [(i, '100', '0.1', i, i, START + t, True) for i, t in zip(identities, times, strict=True)]
                 path = archive(temp, '2025-01-01', rows)
                 with self.subTest(identities=identities, times=times):
-                    caught = refused(list, trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
+                    caught = refused(pulled, path, trades.State())
                 self.assertEqual(caught.code, code)
             path = archive(temp, '2025-01-01', source_rows(START, 7))
-            caught = refused(list,
-                             trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(5, START - 1), {}, size=1))
+            caught = refused(pulled, path, trades.State(5, START - 1))
             self.assertEqual(caught.code, 'SEQUENCE_GAP')
+            self.assertIn('after agg_trade_id 5 comes 7', caught.message)
 
     def test_repeated_id_imports_a_later_distinct_trade_and_refuses_any_other_repeat(self):
         with tempfile.TemporaryDirectory() as temp:
             rows = [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 11, False),
                     (2, '102', '0.3', 4, 4, START + 12, True)]
             path = archive(temp, '2025-01-01', rows)
-            readings, state = {}, trades.State()
-            chunks = list(trades.batches(path, 'BTCUSDT', '2025-01-01', state, readings, size=1))
-            self.assertEqual([chunk[0][1:3] for chunk in chunks], [(START + 10, 1), (START + 11, 1), (START + 12, 2)])
-            self.assertEqual((state.last_id, state.last_trade, readings['trades']), (2, 4, 3))
+            state = trades.State()
+            found = sum(pulled(path, state), [])
+            self.assertEqual([row[1:3] for row in found], [(START + 10, 1), (START + 11, 1), (START + 12, 2)])
+            self.assertEqual((state.last_id, state.last_trade), (2, 4))
             for second in [(1, '100', '0.1', 1, 1, START + 10, True), (1, '101', '0.2', 3, 3, START + 10, False),
                            (1, '101', '0.2', 1, 1, START + 11, False)]:
                 path = archive(temp, '2025-01-01', [rows[0], second])
                 with self.subTest(second=second):
-                    caught = refused(list, trades.batches(path, 'BTCUSDT', '2025-01-01', trades.State(), {}, size=1))
+                    caught = refused(pulled, path, trades.State())
                 self.assertEqual(caught.code, 'SEQUENCE_GAP')
 
     def test_bounded_download_verifies_checksum_before_promoting_cache(self):
