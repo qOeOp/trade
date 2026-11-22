@@ -1,5 +1,5 @@
 ---
-description: Rule check — a focused diagnosis stays read only and does not run `replay reproduce`, which records an explore trial and publishes.
+description: Rule check — a focused diagnosis does not run `replay reproduce` against the active ledger, where it records an explore trial and publishes; a rerun belongs on a temporary ledger.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

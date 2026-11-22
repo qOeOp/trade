@@ -10,7 +10,19 @@
 
 ## Assignment
 
-Report coverage and anything unexamined.
+A full audit exercises, not only reads, each of these on the current product, and reports
+coverage and anything unexamined:
+- the research flow end to end on a temporary ledger and market, for one contract and for a
+  pool, kept small (short windows): `line select` through `line close`, then Paper and
+  `paper compare`, then Live's research-side admission refusals against that ledger, without a
+  credential or a run;
+- every admission gate and eligibility check with partial and missing states (a run or segment
+  never started, failed or cut short), not only the passing and failing ones;
+- the cost of each long path (replay, import, reports, ledger reads) at two or more input sizes;
+- fault paths through the existing fault fixtures (live loopback, fake Docker);
+- each IDE page in a real browser on its own `ide/ide.py serve` over a temporary ledger, never the
+  user's running IDE: with no records and with records, offline (no `--paper`) and after a reload;
+- one state read through every consumer (ledger, report, CLI, IDE), which must agree.
 
 ## Behavior and decision evidence
 
@@ -20,17 +32,31 @@ product cause and current-main status.
 Check applicable research instructions against the session, ambiguous or conflicting guidance,
 strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
 Distinguish faithful execution from justified interpretation: what observation supports the
-claim, what alternatives remain, and what information the next step could add? Assess product
-support for that reasoning without making research selections or claiming economic validity:
-how hypotheses reach a mechanism and prior work (`research-sources`), and whether a stop or
-switch rule can separate the compared effects on the window it runs on.
+claim, what alternatives remain, and what information the next step could add? Judge whether the
+method and the product's support for it hold: how hypotheses reach a mechanism and prior work
+(`research-sources`), and whether a stop or switch rule can separate the compared effects on the
+window it runs on. Never pick candidates or claim a strategy is profitable.
+
+A full audit also reads each line's history longitudinally through the product's read commands
+(`research status`, `research state`, `research history`, `hypothesis compare`, `replay report`) and the versions'
+source diffs, never ad hoc SQL against the active ledger, and reports:
+- a headline that improves while the worst sub-period or the result without the top instrument
+  stays flat or worsens;
+- `changed_duties` circling the same duties across a `Change of approach.`;
+- complexity (rules, constants) that only grows, with no removal or ablation run;
+- gains concentrated in removed trades (`trade_pairs` `removed_net` against `matched_delta_net`);
+- improvements inside the comparison's detectable difference;
+- mechanism predictions that are only mechanical consequences of the change (counting measures).
+
+A product gap behind a pattern (a missing measure or refusal) is a finding, not skill text.
 
 ## Data and usage cost
 
 Trace session ledger commits to their commands and changed rows. Check wrong, missing or duplicated
 facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
-records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
-physical database growth, backup identity and query scaling.
+records and corrections, and whether normal reads preserve their meaning. Before calling a fact
+missing from the ledger, check that no record carries it and that a reader could not derive it.
+Compare blob sizes with physical database growth, backup identity and query scaling.
 
 Measure phase and replay time, tokens, discovery reads, repeated calls and polling, temporary
 scripts and oversized outputs. Attribute unnecessary work to a demonstrated cause; a help call or
@@ -47,7 +73,16 @@ unsearched is a coverage gap.
 
 For refusals, audits, eligibility, gates and skill rules, distinguish: should have fired; fired
 without value; fired usefully; silent but uniquely protective; silent with no distinct value.
-Explain every missed risk or removal proposal.
+Explain every missed risk or removal proposal. A stated reason (doc, comment, design page) is a
+claim to test, not an exemption: check whether a candidate that should be refused (wrong, partial
+or adversarial) passes the gate. That test is also how a shape the index keeps on purpose is
+rechecked (Structure). Test the reverse too: when the product or an agent declares a candidate
+falsified, short of its targets or invalid, ask whether the mechanism failed or the test made an
+artifact (segment boundaries, a whole-period rule dropping partial periods, a template or scaffold
+defect, a risk budget far from the target it missed, one data defect). For a claimed confirmation,
+ask whether a plainer mechanical cause gives the same numbers (fewer trades, a few removed losers,
+one instrument or quarter). A false verdict path either way is a finding, and changing the gate
+behind it an authority item; the doctor picks no candidate and changes no target.
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
@@ -67,10 +102,13 @@ alone does not verify a consumer.
   check that a researcher finds target attainment, line state and decisions waiting on them, and
   reaches the views and actions the research skills hand to them, against a published usability
   norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
-  Count a task's steps where that decides a finding. A whole-product review reads `ide/` and opens
-  each page on its own `ide/ide.py serve` over a temporary ledger (`ledger temp`), never the user's
-  running IDE: with no records and with records, offline (no `--paper`) and after a reload; the
-  source alone does not show what a page draws.
+  Count a task's steps where that decides a finding; the source alone does not show what a page
+  draws (Assignment). Beyond whether controls work, ask what a researcher must see, and whether each
+  answer is on screen together rather than split across panels or folds: what changed against the
+  parent or control and whether it is better; which year, instrument, side or exit carries the
+  result and what drawdown each year took; how far it is from buy-and-hold. A figure the product
+  computes and no page shows is a finding. Judge pages at realistic density: a temporary ledger from
+  the end-to-end run with many versions, instruments and history cells.
 - Residue: start from what main removed or renamed since the last full audit's checkout (`git log`),
   then search code, tests, skills, evals, blueprints, READMEs, `deploy/`, `docs-site/` and `ide/`,
   dot paths and ignored files included, for what it left: code nothing consumes (always-empty or
