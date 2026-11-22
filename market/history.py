@@ -1,7 +1,7 @@
-"""What an export takes from each contract's whole stored history (`market.contract_history`, `market.daily_bars`):
-the daily warm-up, the price grid's divisors and the first and last stored bars, from one read of each `bar` month
-file for every contract at once. A file holds every contract and whole UTC days, so each file is one task and a
-contract's days derive file by file."""
+"""What an export takes from each contract's whole stored history (`market.contract_history`, `market.daily_bars`,
+`market.data_end_stops`): the daily warm-up, the price grid's divisors and the first and last stored bars, from one
+read of each `bar` month file for every contract at once (a file holds every contract and whole UTC days, so each file
+is one task and a contract's days derive file by file), and where a contract's stored trades stop."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from market import files, lifecycle, series
 from market.sources import DAY, MINUTE
@@ -148,3 +149,51 @@ def daily_bars(market: files.Market, market_day: str, symbol: str, low_ms: int, 
     `low_ms` and close before `high_ms` (contract_history's daily warm-up of one contract)."""
     return contract_history(market, market_day, {symbol: [(low_ms, high_ms)]}, low_ms, end_ms,
                             grid=False)[symbol]["daily"][0]
+
+
+# market.data_end_stops
+
+QUIET_DAYS = 7  # a contract counts as stopped once its last trade is this long before the market day's end
+
+
+def _traded(market: files.Market, entry: files.DataFile, symbols: set[str], low: int | None, high: int) -> pa.Table:
+    """The (symbol, ts_open) of the traded minutes (volume above zero: only LAST has volume) of `symbols` in one bar
+    file that open in [low, high), from the row groups that may hold them and only the columns this needs. A reader
+    opens the file itself: mapping a whole month file costs more than the few row groups read (measured)."""
+    reader = pq.ParquetFile(pa.BufferReader(files.file_bytes(market, entry)) if market.locked or entry.relative in
+                            market.pending else str(market.root / entry.relative))
+    column, names, found = reader.schema_arrow.get_field_index("symbol"), sorted(symbols), []
+    for group in range(reader.num_row_groups):
+        stats = reader.metadata.row_group(group).column(column).statistics
+        if stats is not None and stats.has_min_max and not any(stats.min <= name <= stats.max for name in names):
+            continue
+        rows = reader.read_row_group(group, columns=["symbol", "ts_open", "volume"])
+        keep = pc.and_(pc.greater(rows.column("volume"), 0), pc.less(rows.column("ts_open"), high))
+        if low is not None:
+            keep = pc.and_(keep, pc.greater_equal(rows.column("ts_open"), low))
+        rows = rows.filter(keep)
+        found.append(rows.filter(pc.is_in(rows.column("symbol"), pa.array(names))).select(["symbol", "ts_open"]))
+    return pa.concat_tables(found) if found else pa.table({"symbol": pa.array([], pa.string()),
+                                                           "ts_open": pa.array([], pa.int64())})
+
+
+def data_end_stops(market: files.Market, market_day: str, symbols: list[str], end_ms: int) -> dict[str, int]:
+    """market.data_end_stops: {symbol: stop in ms} for each contract whose last traded LAST minute (volume above
+    zero) of everything stored through `market_day` closes before `end_ms` and at least QUIET_DAYS before the market
+    day's end; the stop is that minute's close. A trade opening at or after `cut` rules a stop out, so the files from
+    the cut on are read only until each contract has traded there, and those before it only for the rest."""
+    stop_ms = files.day_end("bar", market_day)
+    cut = min(end_ms - MINUTE, stop_ms - QUIET_DAYS * DAY - MINUTE + 1)
+    pending = set(symbols)
+    for entry in files.entries(market, "bar", None, cut, stop_ms):
+        if not pending:
+            break
+        pending -= set(pc.unique(_traded(market, entry, pending, cut, stop_ms).column("symbol")).to_pylist())
+    last: dict[str, int] = {}
+    for entry in reversed(files.entries(market, "bar", None, None, cut)):
+        if not pending:
+            break
+        grouped = _traded(market, entry, pending, None, cut).group_by("symbol").aggregate([("ts_open", "max")])
+        last.update(zip(grouped.column("symbol").to_pylist(), grouped.column("ts_open_max").to_pylist(), strict=True))
+        pending -= set(last)
+    return {symbol: opened + MINUTE for symbol, opened in sorted(last.items())}

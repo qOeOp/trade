@@ -1,4 +1,5 @@
-"""Lifecycle facts (`market.validate_lifecycle`, `market.write_lifecycle_events`, `market.require_native_price`).
+"""Lifecycle facts (`market.validate_lifecycle`, `market.derived_episode`, `market.write_lifecycle_events`,
+`market.require_native_price`).
 
 A lifecycle manifest (lifecycle.json in the evidence bundle lifecycle-<market day>) lists each
 contract's episodes: its native instrument ID, the listing time and the native InstrumentStatus and
@@ -7,6 +8,8 @@ holds. The exporter writes the events of the replay window into the contract's C
 Catalog's own writers, and the replay delivers them natively: a PRE_CLOSE status (no new
 positions), a CLOSE status (the market closes) and, only when the exchange published a settlement
 price, an InstrumentClose of type CONTRACT_EXPIRED that the engine settles at. No price is made up.
+A contract no bundle lists whose stored trades stopped gets a derived episode: only a CLOSE status at its last traded
+minute's close.
 """
 
 from __future__ import annotations
@@ -49,6 +52,19 @@ def _native(event):
         if built.close_type.name != "CONTRACT_EXPIRED" or not price.is_finite() or price <= 0:
             raise _invalid(f"InstrumentClose of {built.instrument_id} is not a positive CONTRACT_EXPIRED close")
     return built
+
+
+DERIVED_REASON = "data-end"
+
+
+def derived_episode(symbol: str, instrument_id: str, stop_ns: int) -> dict:
+    """market.derived_episode: a contract's termination without evidence, at the close of its last traded minute
+    (market.data_end_stops): one InstrumentStatus CLOSE, no settlement price, no listing clock and no source. Every
+    episode of an evidence bundle cites a source, so an empty `sources` marks a derived one."""
+    return {"symbol": symbol, "instrument_id": instrument_id, "start_ns": 0, "sources": [], "events": [
+        {"type": "InstrumentStatus", "instrument_id": instrument_id, "action": "CLOSE", "ts_event": stop_ns,
+         "ts_init": stop_ns, "reason": DERIVED_REASON, "trading_event": None, "is_trading": None, "is_quoting": None,
+         "is_short_sell_restricted": None}]}
 
 
 def termination(episode: Mapping) -> int | None:

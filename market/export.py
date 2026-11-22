@@ -83,9 +83,20 @@ def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray
 
 def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, start_ns: int, end_ns: int) -> list[dict]:
     """market.split_episodes: the pieces of one contract; with lifecycle episodes (market.validate_lifecycle's, in
-    time order), one native contract per episode holding only its complete minutes and the funding settled inside it."""
+    time order), one native contract per episode holding only its complete minutes and the funding settled inside it;
+    with a derived episode (market.derived_episode), the contract itself up to its stop."""
     if not episodes:
         return [{"index": None, "instrument_id": native_symbol(symbol), "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
+    if len(episodes) == 1 and episodes[0].get("sources") == []:  # derived (market.derived_episode): the contract, cut at its stop
+        episode, stop = episodes[0], lifecycle.termination(episodes[0])
+        if stop is None or episode["instrument_id"] != native_symbol(symbol):
+            raise refuse("EPISODE_SHAPE", f"the derived episode of {symbol} is {episode['instrument_id']} without a stop",
+                         missing=(symbol,))
+        cut = stop // 1_000_000
+        return [{"index": None, "instrument_id": episode["instrument_id"], "episode": episode, "low_ns": start_ns,
+                 "high_ns": stop, "catalog_dir": "", "last": _inside(series_["last"], 0, cut),
+                 "mark": _inside(series_["mark"], 0, cut),
+                 "funding": [(at, rate) for at, rate in series_["funding"] if at < cut]}]
     pieces: list[dict] = []
     for index, episode in enumerate(episodes, start=1):
         native = native_symbol(symbol, index)
@@ -624,6 +635,11 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         raise refuse("EMPTY_SYMBOLS", "export needs each contract once", missing=("symbols",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
+    # A contract no bundle lists whose stored trades stopped ends at its stop (market.data_end_stops).
+    stops = history.data_end_stops(market, market_day, [symbol for symbol in symbols if symbol not in (episodes or {})],
+                                   end_ns // 1_000_000)
+    episodes = {**(episodes or {}), **{symbol: [lifecycle.derived_episode(symbol, native_symbol(symbol), stop * 1_000_000)]
+                                       for symbol, stop in stops.items()}}
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)
@@ -634,6 +650,8 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         key += files_read(market, market_day, symbols, end_ns // 1_000_000, tuple(
             table for table, wanted in (("quote", include_quotes), ("agg_trade", include_trades),
                                         ("metrics", include_metrics)) if wanted))[:16]
+        if stops:
+            key += "-s" + hashlib.sha256(json.dumps(stops, sort_keys=True).encode()).hexdigest()[:16]
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -647,7 +665,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         else:
             jobs.append({"profile": profile, "market_day": market_day, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol),
-                         "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
+                         "episodes": episodes.get(symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades, "include_metrics": include_metrics})
     try:
         if jobs:

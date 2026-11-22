@@ -472,7 +472,7 @@ class LifecycleAuditTests(unittest.TestCase):
                 "trading_event": None, "is_trading": None, "is_quoting": None, "is_short_sell_restricted": None}
 
     def run_audit(self, events, counts=None, bundle="lifecycle-x", values=None, receipt_counts=None, last_bar=None,
-                  **coverage):
+                  sources=("notice.txt",), **coverage):
         values = values or reports()
         counted = {"instrument_status": sum(item["type"] == "InstrumentStatus" for item in events),
                    "instrument_close": sum(item["type"] == "InstrumentClose" for item in events)}
@@ -485,7 +485,7 @@ class LifecycleAuditTests(unittest.TestCase):
         receipt = {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
                                "counts": receipt_counts or counted, "last_bar_ns": last,
                                "episode": ({"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
-                                            "events": events, "sources": ["notice.txt"]} if bundle or events else None)}]}
+                                            "events": events, "sources": list(sources)} if bundle or events else None)}]}
         receipt_file = {"format": "execution-input-coverage-v1",
                         "membership": {"market_day": self.COMMIT, "membership": {"BTCUSDT": [[0, 10**20]]}},
                         "effective_config": {"start": "2026-01-01T00:00:00Z", "trade_start": "2026-01-01T00:00:00Z",
@@ -551,6 +551,22 @@ class LifecycleAuditTests(unittest.TestCase):
         stopped = self.run_audit(terminated, last_bar="2026-01-01 12:00:00+00:00")
         self.assertEqual(codes(stopped), {"DATA_ENDS_WITHOUT_TERMINATION"})
         self.assertIn("the termination is 2026-01-01T18:20:00+00:00", stopped["findings"][0])
+
+    def test_a_derived_stop_needs_no_bundle_and_a_position_held_across_it_is_refused(self):
+        stop = [self.status("CLOSE", "2026-01-01 00:20:00+00:00")]
+        self.assertTrue(self.run_audit(stop, bundle=None, sources=())["passed"])
+        held = self.run_audit([self.status("CLOSE", "2026-01-01 00:08:00+00:00")], bundle=None, sources=())
+        self.assertEqual(codes(held), {"POSITION_OPEN_AT_TERMINATION", "ORDER_OPEN_AT_TERMINATION"})
+        # a stop that is not where the exported bars end, or an episode citing a source, still needs a bundle
+        moved = self.run_audit(stop, bundle=None, sources=(), last_bar="2026-01-01 00:10:00+00:00")
+        self.assertIn("LIFECYCLE_BUNDLE_MISSING", codes(moved))
+        self.assertIn("LIFECYCLE_BUNDLE_MISSING", codes(self.run_audit(stop, bundle=None)))
+        # stopped before the window: no bar and no event in it, so no data-end finding (the fixture's entry lies
+        # outside the now empty membership)
+        before = self.run_audit([self.status("CLOSE", "2025-12-30 09:00:00+00:00")], bundle=None, sources=(),
+                                counts={"instrument_status": 0, "instrument_close": 0},
+                                receipt_counts={"instrument_status": 0, "instrument_close": 0})
+        self.assertEqual(codes(before), {"ENTRY_ORDER_OUTSIDE_MEMBERSHIP"})
 
     def close(self, at):
         return {"type": "InstrumentClose", "instrument_id": SCOPE["instrument_id"], "close_price": "105",

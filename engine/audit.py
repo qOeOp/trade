@@ -616,9 +616,9 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
         pieces = receipt.get("pieces") if isinstance(receipt, dict) else None
         for piece in pieces if isinstance(pieces, list) and pieces else [{}]:
             episode = piece.get("episode") if isinstance(piece, dict) else None
-            if episode is not None and (episode.get("start_ns") or 0) >= window.end_ns:
-                continue  # listed after the window
             until = trading_end(episode, window.end_ns)
+            if episode is not None and ((episode.get("start_ns") or 0) >= window.end_ns or until <= window.start_ns):
+                continue  # listed after the window or terminated before it
             last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
             name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
             if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
