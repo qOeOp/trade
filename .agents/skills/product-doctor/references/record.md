@@ -1,10 +1,12 @@
 # Diagnosis record
 
 Every finding is a row of `docs/plans/doctor/index.zh.md`; its header defines the columns, ids,
-status words and how rows close, and status lives only there. A single finding with one root cause
-and one remedy is that row alone: its finding cell names the proof (file:line chain, probe sizes and
-readings, reproduction), its action cell the remedy and who decided it when, and the fix PR carries
-the full reproduction. A rejected or `none` row says why in one clause.
+status words and how rows close, and status lives only there. Observations with one cause and
+remedy are one row; a fixed row whose cause shows again is `recurred` under its own id. A single
+finding with one root cause and one remedy is that row alone: its finding cell names the proof
+(file:line chain, probe sizes and readings, reproduction), its action cell the remedy and who
+decided it when, and the fix PR carries the full reproduction. A rejected or `none` row says why in
+one clause.
 
 Write a record file only for an audit or a diagnosis of several rows, or when a row's proof does
 not fit its cell: in Chinese, as `docs/plans/doctor/<yyyy-mm-dd>-<topic>.zh.md`. Never edit it once

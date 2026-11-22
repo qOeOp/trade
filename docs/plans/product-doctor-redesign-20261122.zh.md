@@ -68,8 +68,49 @@
    - **改写的判据：**
      - `diagnosis-does-not-reproduce`：只在活动账本上重跑才算违规，临时账本可以；
      - `finding-needs-proof` 的 Q5：写进索引，不再要求记录文件。
-   - **新增三个诊断能力用例：** `cost-claim-two-sizes`、`gate-partial-state`、`duplicate-across-trust-boundary`，按 `.agents/README.md` 的门槛决定去留（读数见下）。
-   - **其余用例。** 按门槛用新旧两版各跑 with/without，读数见下。
+   - **新增的诊断能力用例**按 `.agents/README.md` 的门槛定去留（读数见下）：留 `gate-partial-state`、`line-history-method`；`cost-claim-two-sizes`（改写一次后仍 3/3 对 3/3）与 `duplicate-across-trust-boundary`（sonnet 重判不带技能 3/3）不分离，删掉，后者为它加的一句 lenses.md 文字一并删掉。
+   - **`attach-decides-by-default` 删除。** attach 的修复策略缩写后，“不停下问用户、按第 5 步顺序取第一个不需授权的补救”这条规则已不在技能里（新版 0/3）。
+7. **方法审查**（第三份外部意见，2026-11-22，协调会话的决定，同一委托）。外部意见说 doctor 只查程序违规、不查方法缺陷，大的方法修正都来自专门的跨账本评审与圆桌，而 lenses.md 的“不做研究选择、不判经济有效性”让审计回避方法判断。本会话没有重跑它在旧账本上的计数（复杂度只增、几乎不删），只核对了它要用的产品名字都存在（`research status/state/history`、`hypothesis compare`、`changed_duties`、`trade_pairs` 的 `removed_net`/`matched_delta_net`、可检测差异、`Change of approach.`）。采纳：
+   - lenses.md 行为工作流的范围句改为“判断方法及产品对它的支持是否成立；从不挑候选、不说策略赚钱”；
+   - 全面审计用产品读命令与版本源码 diff 纵向读每条线的历史（不对活动账本写临时 SQL），报告六种形态：头部读数变好而最差子期或去掉最好合约后不动；`changed_duties` 在换思路后绕回同样的职责；复杂度只增、没有删减或消融；收益集中在被删掉的交易；改进落在可检测差异以内；机制预测只是改动的机械后果；
+   - 形态背后的产品缺口（缺读数或缺拒绝）记为发现，不写成技能文字；
+   - 新用例 `line-history-method` 量这一段（读数见下）。
+
+## 评测读数（2026-11-22）
+
+命令：`env -u ANTHROPIC_API_KEY claude plugin eval .agents --case <case> --runs 3 --ablation with-without --no-publish --trust-plugin -j 3`，判官为运行器默认的 haiku；低于门槛或贴线的用例再用 `claude -p --model sonnet --setting-sources '' --tools ''` 逐题重判存下的回答。旧版为 `48851741e` 的 `.agents`，新版为本 PR。格式：带技能通过数 / 不带技能通过数（每臂 3 次）。
+
+| 用例 | 旧版 | 新版 | sonnet 重判（新版） | 处理 |
+|---|---|---|---|---|
+| attach-evidence-plan | 3/0 | 3/0 | | 留 |
+| attach-live-diagnosis | 2/0 | 3/0 | | 留 |
+| attach-not-full-audit | 3/0 | 3/0 | | 留 |
+| attach-decides-by-default | 3/0 | 0/0 | | 删（规则删了） |
+| audits-own-session-refused | 3/0 | 3/0 | | 留 |
+| codex-subagents-found | 3/0 | 3/0 | | 留 |
+| converge-before-exempting | 1/0 | 1/0 | 0/0 | 留，红（旧版 sonnet 重判也是 0/0，各次挂在不同的题上；本次未改它的规则） |
+| convergence-claim | 3/0 | 3/0 | | 留 |
+| diagnosis-does-not-reproduce | 1/0 | 2/1 | 3/0 | 留（判据改为只禁活动账本） |
+| finding-needs-proof | 3/1 | 3/2 | 3/0 | 留（Q5 改为写进索引） |
+| focused-questions-are-audit | 3/0 | 3/0 | | 留 |
+| help-call-not-defect | 2/0 | 2/0 | | 留 |
+| page-states-run-not-read | 2/0 | 2/0 | | 留 |
+| record-immutable | 3/0 | 3/0 | | 留 |
+| reviewers-get-no-conclusions | 3/0 | 3/0 | | 留 |
+| structure-deliberate-and-check | 3/0 | 2/0 | | 留 |
+| user-first-miss | 3/0 | USER_FIRST | | USER_FIRST_ACTION |
+| gate-partial-state | — | 2/0 | 3/0 | 新增，留 |
+| line-history-method | — | 2/1 | 2/0 | 新增，留 |
+| cost-claim-two-sizes | — | 3/3（改写后 3/3） | | 新增后删 |
+| duplicate-across-trust-boundary | — | 0/0 | 1/3 | 新增后删 |
+| session-graph-isolated、index-row-closing、cost-class-measured-only、credential-carriers-off-limits | 各 3/0 | — | | 删（规则移出技能） |
+| trigger-positive | — | 触发 3/3，不带 0/3 | | 留 |
+| trigger-negative | — | 3/3 未触发 | | 留 |
+| research-round/reviewer-reads-terms-by-command（`eval-cases.py` 按 `--help` 选出） | — | 3/0 | | 不受影响 |
+
+## 未完成
+
+- `skill_heat` 删除的 PR 被名字检查（`skill-names` 规则 2）挡住：`skill_heat.py` 是 `session_meta`、`parent_thread_id`、`tool_use`、`custom_tool_call`、`function_call` 这些外部会话格式名字在非 Markdown 文件里的最后一处，而 `hosts.md` 与 `codex-subagents-found` 仍引用它们，正是 `skill-continuous-audit.zh.md` 写明的已知误报。通过它要么给检查加豁免（改审计检查，按 AGENTS.md 属用户授权），要么把这些名字在技能与评测里改为不加反引号；交用户决定。
 
 ## 评审意见与处理（独立子代理，2026-11-22）
 
@@ -90,3 +131,5 @@
 | SKILL.md 复述 AGENTS.md 的凭据规则 | 删去，留 `ledger review` 一句 |
 | 端到端流程里 Live 准入要凭据 | 改为研究侧准入，不用凭据、不启动运行 |
 | “按设计”措辞与有意保留表的关系 | 照评审改写并注明 |
+
+评审没有看第 7 条（方法审查）；它在实现后由协调会话按同一委托加入。
