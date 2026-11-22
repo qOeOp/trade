@@ -1,4 +1,4 @@
-"""Command line: check, compare and serve research graphs (the check uses jsonschema)."""
+"""Command line: check and serve research graphs (the check uses jsonschema)."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import compare, contract
+from . import contract
 
 
 def loopback(host: str | None) -> bool:
@@ -28,10 +28,6 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("check", help="check a graph against research-graph@4")
     command.add_argument("graph")
-    command = sub.add_parser("compare", help="compare two graphs of one line; Markdown on stdout")
-    command.add_argument("a", help="normally the ledger graph")
-    command.add_argument("b", help="normally the session graph")
-    command.add_argument("--until", help="ignore candidates, runs and events after this time (ISO 8601)")
     command = sub.add_parser("serve", help="serve a ledger's research graph as a page that follows the ledger")
     command.add_argument("--ledger", required=True, help="ledger profile the product reads (a reader-only profile)")
     command.add_argument("--market", help="market profile the Runs page's daily bars are read from (default: the active one)")
@@ -58,22 +54,18 @@ def main(argv: list[str] | None = None) -> int:
         found = contract.check_graph(json.loads(Path(args.graph).read_text()))
         print("\n".join(found) if found else f"{args.graph}: {contract.GRAPH_FORMAT} ok")
         return 1 if found else 0
-    if args.command == "serve":
-        from . import serve
-        if args.dev_assets and not (loopback(args.host) and urlsplit(args.dev_assets).scheme == "http"
-                                    and loopback(urlsplit(args.dev_assets).hostname)):
-            parser.error("--dev-assets takes an http URL on loopback, and needs --host on loopback")
-        product = Path(args.product)
-        build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
-                               check=True).stdout.strip()
-        version = tomllib.loads((product / "pyproject.toml").read_text())["project"]["version"]
-        serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
-                    args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research,
-                    args.setup, live_socket=args.live_socket, live_router=args.live_router, version=version,
-                    dev_assets=args.dev_assets)
-        return 0
-    diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
-    print(compare.markdown(diff))
+    from . import serve
+    if args.dev_assets and not (loopback(args.host) and urlsplit(args.dev_assets).scheme == "http"
+                                and loopback(urlsplit(args.dev_assets).hostname)):
+        parser.error("--dev-assets takes an http URL on loopback, and needs --host on loopback")
+    product = Path(args.product)
+    build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
+                           check=True).stdout.strip()
+    version = tomllib.loads((product / "pyproject.toml").read_text())["project"]["version"]
+    serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
+                args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research,
+                args.setup, live_socket=args.live_socket, live_router=args.live_router, version=version,
+                dev_assets=args.dev_assets)
     return 0
 
 

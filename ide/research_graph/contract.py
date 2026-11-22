@@ -32,9 +32,3 @@ def check_graph(graph: dict) -> list[str]:
     return found
 
 
-def load_graph(path: str | Path) -> dict:
-    graph = json.loads(Path(path).read_text())
-    found = check_graph(graph)
-    if found:
-        raise ValueError(f"{path} breaks {GRAPH_FORMAT}:\n" + "\n".join(found[:20]))
-    return graph
