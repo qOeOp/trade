@@ -10,6 +10,7 @@ import contextlib
 import fcntl
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import traceback
@@ -38,6 +39,9 @@ from .release_host import (
 from .notices import Notices
 from .services import Follow, drift, settled
 from .source import GitSource, SourceUnreachable
+
+
+KINDS = (WEB, AGENT, PAPER, LIVE)  # the release containers of a version, pruned alike
 
 
 def source_line(error: BaseException, outside: str | None = None) -> str | None:
@@ -476,13 +480,28 @@ class Release:
             active = {self.host.disk_route(), paper_host.disk_route()}
             runtimes = {paper_host.runtime(name) for name in paper_host.managed(PAPER)}
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT, PAPER, LIVE)}
+            failed = {prefix + sha for sha in revisions for prefix in KINDS}
+            # A failed version older than the routed one can no longer be chosen (GitSource.choose): neither its
+            # marker nor its newest container is needed any more.
+            routed = revision(self.host.disk_route())
+            old = {sha for sha in revisions if sha != routed and self.github.ancestor(sha, routed)}
             # A Live controller and its directory survive while its Web does: a return by hand needs both.
             kept = {revision(name) for name in self.host.managed(WEB)}
             active |= {LIVE + sha for sha in kept}
             runtimes |= self.live.runtimes()  # read before its directories are pruned
-            self.cleaned = self.host.prune((WEB, AGENT, PAPER, LIVE), active, failed, runtimes)
+            self.cleaned = self.host.prune(KINDS, active, failed, runtimes,
+                                           frozenset(prefix + sha for sha in old for prefix in KINDS))
             self.live.prune(kept)
+            remaining = {revision(name, prefix) for prefix in KINDS for name in self.host.managed(prefix)}
+            for sha in sorted(old - remaining):  # a running one, or one routed, stays with its marker
+                (self.failed / sha).unlink()
+                self.cleaned.append(f"failed/{sha}")
+            if old - remaining:
+                sync_directory(self.failed)
+            # Paper's own markers, which no version writes since 0.3.1 (one marker per version, in failed/).
+            if (self.state / "paper-failed").is_dir():
+                shutil.rmtree(self.state / "paper-failed")
+                self.cleaned.append("paper-failed/")
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
 

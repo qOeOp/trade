@@ -39,7 +39,7 @@ IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
 SERVICE_REF = re.compile(r"ghcr\.io/qoeop/trade-service@sha256:[0-9a-f]{64}\Z")
 RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
 DOCKER_API_REF = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}\Z")  # pinned in deploy/compose.yaml
-KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
+KEPT_RELEASES = 2  # per kind of container: the routed version and the previous good one, to return to by hand
 # A release needs this much MemAvailable before it starts a candidate (its Web's cap plus 512 MiB). Paper admission
 # keeps the same amount free after a new run's limit (paper/runs.py): starting a run never takes the host below it.
 RELEASE_MEMORY_MIB = 2048
@@ -174,7 +174,11 @@ EXTRACTOR = "trade-release-control-extract"
 # files they name. The release recreates each long-lived service from its own version's files, passing only the image
 # variables (deploy/services.py; docs/plans/release-moves-ledger-mirror-20261116.zh.md).
 COMPOSE = ("compose.yaml", "remote/compose.yaml", "remote/cd.compose.yaml", "remote/paper-cd.compose.yaml")
-DEFINITION = (*COMPOSE, "remote/Caddyfile", "remote/oauth2-proxy.cfg")
+# What install-release.sh installs where the release service cannot write (/opt, /etc), by each version's copy.
+INSTALLED = (("remote/trade-release-tick", Path("/opt/trade-release/trade-release-tick")),
+             ("remote/trade-release.service", Path("/etc/systemd/system/trade-release.service")),
+             ("remote/trade-release.timer", Path("/etc/systemd/system/trade-release.timer")))
+DEFINITION = (*COMPOSE, "remote/Caddyfile", "remote/oauth2-proxy.cfg", *(name for name, _ in INSTALLED))
 # The compose services of the service image: each one, its container, and whether its health check says the image
 # works (market-import's says whether the data lags, so it is only seen running).
 FOLLOWERS = (("ledger", LEDGER, True), ("market-import", MARKET_IMPORT, False))
@@ -410,6 +414,13 @@ class DockerHost:
             sync_directory(root)
             print(f"Read the compose definition of {sha} from its service image", flush=True)
         return [str(root / name) for name in COMPOSE]
+
+    def installed(self, service: str, sha: str) -> list[str]:
+        """The launcher and units install-release.sh put on the host that differ from version `sha`'s own copies.
+        Read only: the release service cannot write /opt or /etc, so the owner reinstalls them."""
+        self.definition(service, sha)
+        return [str(path) for name, path in INSTALLED
+                if not path.is_file() or path.read_bytes() != (self.CODE / name).read_bytes()]
 
     def recreate(self, service: str, name: str, image: str, healthy: bool, files: list[str], env: dict[str, str],
                  pull: bool = False) -> None:
@@ -737,10 +748,11 @@ class DockerHost:
                 raise RuntimeError("public API authentication boundary is not healthy")
 
     def prune(self, prefixes: tuple[str, ...], active: set[str], failed: set[str],
-              runtimes: set[str] | None = None) -> list[str]:
+              runtimes: set[str] | None = None, stale: frozenset[str] = frozenset()) -> list[str]:
         """Bound what releases leave behind, and name what it removed. Never a running or active container.
 
-        A failed candidate does not use up a place meant for a good release; the newest one stays to be read.
+        A failed candidate does not use up a place meant for a good release; the newest one stays to be read, unless
+        it is `stale` (a version older than the routed one).
         Paper and Live runs this host cannot enumerate pin runtime images by digest and pull a missing one
         again (runtime/image.py resolve), so a runtime image goes only when no container uses it, no kept
         release names it (`runtimes`; None keeps them all) and the registry still serves its digest.
@@ -754,8 +766,8 @@ class DockerHost:
                 rows.append((created, name, running))
             rows.sort(reverse=True)
             good = [row for row in rows if row[1] not in failed]
-            bad = [row for row in rows if row[1] in failed]
-            for _, name, running in good[KEPT_RELEASES:] + bad[1:]:
+            bad = [row for row in rows if row[1] in failed and row[1] not in stale]
+            for _, name, running in good[KEPT_RELEASES:] + bad[1:] + [row for row in rows if row[1] in stale]:
                 if not running and name not in active:
                     self.docker("rm", name)
                     removed.append(name)

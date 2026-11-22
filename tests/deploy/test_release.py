@@ -17,6 +17,7 @@ from urllib.error import HTTPError
 from deploy.live_host import LIVE, LiveBusy
 from deploy.notices import Notices
 from deploy import release
+from deploy import release_host
 from deploy import services
 from deploy.release import Release, failure_summary
 from deploy.services import FOLLOW_RETRY_SECONDS
@@ -631,8 +632,10 @@ class FakeDocker(DockerHost):
             return json.dumps(self.rows[args[-1]])
         if args[0] == "images":
             return "\n".join(self.images)
-        if args[:2] == ("image", "rm") or args[0] == "rm":
-            return ""
+        if args[:2] == ("image", "rm"):
+            return f"Untagged: {args[2]}"
+        if args[0] == "rm":
+            return args[1]
         raise AssertionError(args)
 
     def removed(self):
@@ -725,7 +728,8 @@ class PruneTests(unittest.TestCase):
                 for prefix in (WEB, AGENT, PAPER) for index, letter in enumerate("0123")}
         host = FakeDocker(rows, [], [])
         host.prune((WEB, AGENT, PAPER), set(), set())
-        self.assertEqual(sorted(host.removed()), sorted(prefix + "0" * 40 for prefix in (WEB, AGENT, PAPER)))
+        self.assertEqual(sorted(host.removed()), sorted(prefix + letter * 40 for prefix in (WEB, AGENT, PAPER)
+                                                        for letter in "0123"[:4 - KEPT_RELEASES]))
 
     def test_leaves_names_it_does_not_manage(self):
         rows = {name: ["2026-11-01T00:00:00Z", False] for name in
@@ -757,7 +761,40 @@ class PruneTests(unittest.TestCase):
         rows = self.rows()  # 0 is the oldest; the three newest failed.
         host = FakeDocker(rows, [], [])
         host.prune((WEB,), {self.NAMES[3]}, set(self.NAMES[4:]))
-        self.assertEqual(sorted(host.removed()), sorted([self.NAMES[0], self.NAMES[4], self.NAMES[5]]))
+        self.assertEqual(sorted(host.removed()), sorted([*self.NAMES[:4 - KEPT_RELEASES], self.NAMES[4], self.NAMES[5]]))
+
+    def test_a_failed_candidate_older_than_the_routed_version_goes_entirely(self):
+        host = FakeDocker(self.rows(), [], [])
+        removed = host.prune((WEB,), {self.NAMES[3]}, set(self.NAMES[4:]), set(), frozenset({self.NAMES[6]}))
+        self.assertEqual(sorted(removed), sorted(self.NAMES[index] for index in (0, 1, 4, 6)),
+                         "the routed version and the previous good one stay, and the newest failed one not older")
+
+    def test_markers_of_failed_versions_older_than_the_routed_one_go_with_their_containers(self):
+        # Doctor 20261122-34: failed/ and paper-failed/ only grew, and the newest failed container of a version long
+        # superseded stayed for good.
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
+            root = Path(directory)
+            for sha in (B, C, D):
+                (root / "failed").mkdir(exist_ok=True)
+                (root / "failed" / sha).write_text("")
+            (root / "paper-failed").mkdir()
+            (root / "paper-failed" / B).write_text("")
+            host = Mock(state=root)
+            host.disk_route.return_value = WEB + A
+            host.prune.return_value = [WEB + B]
+            host.managed.side_effect = lambda prefix, running_only=False: [WEB + D] if prefix == WEB else []
+            paper.return_value.host.disk_route.return_value = PAPER + A
+            paper.return_value.host.managed.return_value = []
+            github = Mock()
+            github.ancestor.side_effect = lambda before, after: after == A and before in (B, D)  # C is newer
+            checked = Release(host, github, live=IdleLive(host))
+            checked.prune()
+            self.assertEqual(host.prune.call_args.args[4], frozenset(prefix + sha for sha in (B, D)
+                                                                     for prefix in (WEB, AGENT, PAPER, LIVE)))
+            self.assertEqual(sorted(path.name for path in (root / "failed").iterdir()), [C, D],
+                             "a newer failed version stays blocked; one whose container stays keeps its marker")
+            self.assertFalse((root / "paper-failed").exists(), "no version writes it")
+            self.assertEqual(checked.cleaned, [WEB + B, f"failed/{B}", "paper-failed/"])
 
     def test_failed_records_name_the_containers_of_their_kind(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
@@ -785,7 +822,8 @@ class PruneTests(unittest.TestCase):
             paper.return_value.host.disk_route.return_value = PAPER + A
             release = Release(host, Mock(), live=IdleLive(host))
             release.prune()
-            host.prune.assert_called_once_with((WEB, AGENT, PAPER, LIVE), {WEB + A, PAPER + A}, set(), set())
+            host.prune.assert_called_once_with((WEB, AGENT, PAPER, LIVE), {WEB + A, PAPER + A}, set(), set(),
+                                               frozenset())
             host.prune.side_effect = RuntimeError("docker rm failed")
             release.prune()
 
@@ -819,7 +857,7 @@ class PruneTests(unittest.TestCase):
             live = Mock()
             live.runtimes.return_value = {"ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}
             Release(host, Mock(), live=live).prune()
-            prefixes, active, failed, runtimes = host.prune.call_args.args
+            prefixes, active, failed, runtimes, _ = host.prune.call_args.args
             self.assertEqual(runtimes, live.runtimes.return_value)
             self.assertEqual(prefixes, (WEB, AGENT, PAPER, LIVE))
             self.assertEqual(active, {WEB + B, PAPER + A, LIVE + B, LIVE + C})
@@ -1741,6 +1779,7 @@ class SettledHost:
             name = container.removeprefix("trade-ide-").removesuffix("-1")
             self.services[container] = running(wanted()[name]["image"], BEFORE, name)
         self.routed, self.about = WEB + A, {"status": 200, "version": "0.5.0"}
+        self.unlike = []  # DockerHost.installed: what install-release.sh installed unlike the version's copies
 
     def disk_route(self):
         return WEB + A
@@ -1773,6 +1812,10 @@ class SettledHost:
     def probe(self, name, path, routed=False):
         assert (name, path, routed) == (WEB + A, "/api/about", True)
         return self.about
+
+    def installed(self, service, sha):
+        assert (service, sha) == (TARGET["service"], A)
+        return self.unlike
 
 
 class SettledTests(unittest.TestCase):
@@ -1840,6 +1883,38 @@ class SettledTests(unittest.TestCase):
                 self.assertEqual(key, f"settled:{A}:diverged")
                 self.assertIn(said, text)
                 self.assertIn("v0.5.0 is routed, but 1 of 8 services do not match its admitted record", text)
+
+    def test_a_launcher_or_unit_unlike_the_versions_copy_is_named_beside_the_live_notice(self):
+        # Doctor 20261122-34: the release service cannot write /opt or /etc, and nothing said a version changed them.
+        self.host.unlike = ["/etc/systemd/system/trade-release.service"]
+        facts = self.settled()
+        self.assertEqual(sorted(facts), [f"settled:{A}", f"settled:{A}:installed"])
+        self.assertIn("The installed /etc/systemd/system/trade-release.service differ from v0.5.0's own copies",
+                      facts[f"settled:{A}:installed"])
+        self.assertIn("install-release.sh control", facts[f"settled:{A}:installed"])
+
+    def test_installed_compares_the_launcher_and_units_with_the_versions_copies(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        installed = tuple((name, root / "host" / Path(name).name) for name, _ in release_host.INSTALLED)
+
+        class Copies(DockerHost):
+            CODE = root / "control" / A / "deploy"
+
+            def definition(self, service, sha):
+                return []
+
+        for name, path in installed:
+            (Copies.CODE / name).parent.mkdir(parents=True, exist_ok=True)
+            (Copies.CODE / name).write_text(f"# {name}\n")
+            path.parent.mkdir(exist_ok=True)
+            path.write_text(f"# {name}\n")
+        host = Copies(Config(state=root))
+        with patch.object(release_host, "INSTALLED", installed):
+            self.assertEqual(host.installed(TARGET["service"], A), [])
+            installed[0][1].write_text("# an older launcher\n")
+            installed[2][1].unlink()
+            self.assertEqual(host.installed(TARGET["service"], A), [str(installed[0][1]), str(installed[2][1])])
 
     def test_an_unread_version_names_the_revision_and_a_newer_admitted_version_says_nothing(self):
         self.host.about = {"status": 502}
