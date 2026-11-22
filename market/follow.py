@@ -38,7 +38,7 @@ WHOLE_MARKET = frozenset({"DATA_TESTS_FAILED"})
 # kind; for bars that is the kind. MONTH_EXISTS is a concurrent manual import that took the month, except for bars,
 # where it is a stored month the sources now contradict.
 
-LAG_DAYS = 3  # still missing this many days after it closed: poll it daily and report it lagging
+LAG_DAYS = 3  # still missing this many days after it closed: report it lagging and poll it daily (bars hourly)
 GIVE_UP_DAYS = 40  # a month this long closed and not out is not coming (before the listing): passed over, a hole
 WAKE = day_time(0, 30)  # the daily round, UTC
 HOURLY = timedelta(hours=1)
@@ -531,8 +531,10 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
     for kind in MONTHLY:
         for symbol, entry in kinds[kind].items():
             entry["skipped"] = [f"{month:%Y-%m}" for month in memory.skipped.get((kind, symbol), ())]
-    hourly = listing is None or any(entry["state"] == "waiting" for entries in kinds.values()
-                                    for entry in entries.values())
+    # The bar import waits for the newest closed day's archives however far behind it is (_bars_ready), and Binance
+    # publishes them hours after the metrics: bars behind keep the rounds hourly, else they never import.
+    hourly = listing is None or kinds["bars"][BARS]["state"] == "lagging" or any(
+        entry["state"] == "waiting" for entries in kinds.values() for entry in entries.values())
     status["next_round"] = (now + HOURLY if hourly else
                             datetime.combine(today + timedelta(days=1), WAKE, tzinfo=UTC)).isoformat()
     return status
