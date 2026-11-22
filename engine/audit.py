@@ -622,10 +622,9 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
             last = piece.get("last_bar_ns") if isinstance(piece, dict) else None
             name = piece.get("instrument_id") or symbol if isinstance(piece, dict) else symbol
             if last is None or int(last) + 1_000_000 < until - DATA_END_TOLERANCE_NS:
-                found.append(finding("DATA_ENDS_WITHOUT_TERMINATION",
-                                     f"{name}: its last bar closes at {_ns_utc(int(last)) if last else 'no bar'}, "
-                                     f"{'the termination' if until < window.end_ns else 'the window end'} "
-                                     f"is {_ns_utc(until)}"))
+                ended = f"its last bar closes at {_ns_utc(int(last))}" if last is not None else "the input holds no bar of it"
+                found.append(finding("DATA_ENDS_WITHOUT_TERMINATION", f"{name}: {ended}, "
+                                     f"{'the termination' if until < window.end_ns else 'the window end'} is {_ns_utc(until)}"))
 
 
     priced = {(item["instrument_id"], item["ts_event"]) for item in lifecycle if item["type"] == "InstrumentClose"}
