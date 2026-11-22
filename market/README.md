@@ -3,7 +3,7 @@
 Binance USD-M perpetual market data, from public sources only, in a market directory of plain Parquet
 files. A replay cites one market day, the last day of market data it reads; the exporter turns that market day into the
 Nautilus Catalogs the runner reads. The tables are on the site's database page
-(`docs/rd/design-ledger.mdx`, Market directory); the decisions and measurements they rest on are below.
+([`docs/rd/design-ledger.zh.mdx`](../docs/rd/design-ledger.zh.mdx), 市场目录); the decisions and measurements they rest on are below.
 
 | Module | Holds |
 |---|---|
@@ -53,8 +53,8 @@ imported it; `market follow` keeps each such contract current, so a manual `mark
 holds the latest day back only until the follower's next round. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
 shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. That fingerprint
 covers what a replay reads (`registration.export_fingerprint`): the data files' bytes, a receipt's assumed fees and
-episodes and the membership in the window, not the market day, the terms' observation time or a receipt's wording. The
-export cache key includes the path, size and modification time of every file an export reads.
+episodes and the membership in the window, not the market day, the terms' observation time or a receipt's wording; the
+export cache key is under [Decisions and measurements](#decisions-and-measurements).
 
 On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
 market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
@@ -183,7 +183,7 @@ an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggr
 is the maximum daily p99, not a pooled monthly percentile. Validate suitability for each contract,
 period and intended liquidation use against observed BBO and matched native replay evidence;
 report missing evidence without automatically dropping contracts or shortening the window. See
-research-start's `references/readiness.md` for the boundary. `market coverage` gives each contract's
+research-start's [`readiness.md`](../.agents/skills/research-start/references/readiness.md) for the boundary. `market coverage` gives each contract's
 quote months and their rows, its first and last stored quote in the interval and the parts of the interval no file
 covers.
 The historical four-day probe reported inferred BTCUSDT mid deviations within 0.7 bps at p99;
@@ -330,7 +330,7 @@ refused on a market profile (`LEDGER_UNKNOWN`); `--help` states the full contrac
   assumptions recorded in the receipt or are derived.
 - The pinned Nautilus has no Python writer for `FundingRateUpdate`: the exporter writes the Catalog's
   own layout for it, which `ParquetDataCatalog.query` reads; status and close events go through the
-  Catalog's writers. The runner checks the engine consumed exactly the exported counts. Recheck both
+  Catalog's writers, and the runner's count check ([`engine/README.md`](../engine/README.md)) covers both. Recheck them
   on a Nautilus upgrade.
 - The daily warm-up is derived while streaming, not from the whole history at once (measured with 20,000-minute
   chunks on BTCUSDT, 934,560 minutes: 18.5 MB of growth instead of 145 MB, the same 2.5 s). The export
