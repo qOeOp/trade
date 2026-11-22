@@ -57,8 +57,8 @@ research session that its transcript cannot show ([attach.md](references/attach.
    only the path that failed; an eval with invented facts does not stand in for the real state.
 4. **Probe, then claim.** A claim stands only on a probe of the current `origin/main`, run again
    right before writing: a defect on a minimal reproduction or an exact file:line chain from
-   input to wrong output; a cost on measurements at two or more sizes, read as a growth rate,
-   not one timing; a duplication on the measured span both copies share; residue on its search
+   input to wrong output; a cost on one fixture measured at two or more sizes, read as a growth
+   rate, not one timing or timings of different inputs; a duplication on the measured span both copies share; residue on its search
    and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Each finding
    also names its session call and time, or the external norm with URL. Label the rest
    unverified or drop it. Rank by measured cost and recurrence; keep expected savings apart.

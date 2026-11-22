@@ -105,8 +105,7 @@ For each branch, exception and rule of the touched mechanism, and each touched c
 test, ask:
 1. What concrete risk does it guard? Do its branches follow from that risk or list past cases? For
    a test, would its failure mean the product is broken?
-2. What other check covers that risk? Similar code is a duplicate only when both copies guard the
-   same risk for the same consumer; the same check on each side of a trust boundary is two checks.
+2. What other check covers that risk?
 3. What did evidence matching its responsibility show: protection, ceremony or an unreached path?
 
 Match evidence to the responsibility: native probes, reports, ledger audits and isolated tests for
