@@ -76,7 +76,13 @@ without value; fired usefully; silent but uniquely protective; silent with no di
 Explain every missed risk or removal proposal. A stated reason (doc, comment, design page) is a
 claim to test, not an exemption: check whether a candidate that should be refused (wrong, partial
 or adversarial) passes the gate. That test is also how a shape the index keeps on purpose is
-rechecked (Structure).
+rechecked (Structure). Test the reverse too: when the product or an agent declares a candidate
+falsified, short of its targets or invalid, ask whether the mechanism failed or the test made an
+artifact (segment boundaries, a whole-period rule dropping partial periods, a template or scaffold
+defect, a risk budget far from the target it missed, one data defect). For a claimed confirmation,
+ask whether a plainer mechanical cause gives the same numbers (fewer trades, a few removed losers,
+one instrument or quarter). A false verdict path is a product or skill finding; the doctor still
+picks no candidate and changes no target.
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
@@ -97,7 +103,12 @@ alone does not verify a consumer.
   reaches the views and actions the research skills hand to them, against a published usability
   norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
   Count a task's steps where that decides a finding; the source alone does not show what a page
-  draws (Assignment).
+  draws (Assignment). Beyond whether controls work, ask what a researcher must see, and whether each
+  answer is on screen together rather than split across panels or folds: what changed against the
+  parent or control and whether it is better; which year, instrument, side or exit carries the
+  result and what drawdown each year took; how far it is from buy-and-hold. A figure the product
+  computes and no page shows is a finding. Judge pages at realistic density: a temporary ledger from
+  the end-to-end run with many versions, instruments and history cells.
 - Residue: start from what main removed or renamed since the last full audit's checkout (`git log`),
   then search code, tests, skills, evals, blueprints, READMEs, `deploy/`, `docs-site/` and `ide/`,
   dot paths and ignored files included, for what it left: code nothing consumes (always-empty or
