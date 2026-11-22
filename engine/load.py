@@ -338,6 +338,21 @@ def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | N
     return tuple(found)
 
 
+def derived_piece(piece) -> bool:
+    """engine.derived_piece: an exported contract whose episode the exporter derived from where its stored trades end
+    (no evidence bundle): the contract's one piece, no listing clock or source, one CLOSE status (no price) at the
+    close of its last exported bar, or with no bar in the window."""
+    episode = piece.get("episode") if isinstance(piece, dict) else None
+    if (not isinstance(episode, dict) or piece.get("index") is not None or episode.get("sources") != []
+            or episode.get("start_ns") != 0 or not isinstance(episode.get("events"), list)
+            or len(episode["events"]) != 1):
+        return False
+    event, last = episode["events"][0], piece.get("last_bar_ns")
+    return (isinstance(event, dict) and event.get("type") == "InstrumentStatus" and event.get("action") == "CLOSE"
+            and event.get("instrument_id") == piece.get("instrument_id") == episode.get("instrument_id")
+            and type(event.get("ts_event")) is int and (last is None or event["ts_event"] == last + 1_000_000))
+
+
 def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, int], ...]]:
     """engine.entry_windows: each exported instrument's entry intervals from trusted input receipts.
 
@@ -371,7 +386,7 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
             if not isinstance(instrument, str) or not instrument or instrument in allowed:
                 raise ValueError(f"{symbol}: exported instrument is missing or repeats")
             if episode is not None:
-                if (not coverage["input_identity"].get("lifecycle_bundle")
+                if (not (coverage["input_identity"].get("lifecycle_bundle") or derived_piece(piece))
                         or not isinstance(episode, dict) or episode["instrument_id"] != instrument
                         or type(episode["start_ns"]) is not int):
                     raise ValueError(f"{symbol}: episode is not the trusted exported instrument")
@@ -499,17 +514,25 @@ def _native_counts(summary: dict) -> dict[str, dict[str, int]]:
 def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     """engine.lifecycle_events: the window's terminations (InstrumentClose, InstrumentStatus CLOSE) by clock.
 
-    Without a lifecycle bundle every native count must be zero. With one, the receipt's window and
-    market day equal the summary's, each counted instance has exactly one exported episode whose
-    counts equal the native counts, and every event in the window is a native event.
+    Without a lifecycle bundle every native count must be zero except a derived piece's (engine.derived_piece).
+    With a bundle or a derived piece, the receipt's window and market day equal the summary's, each counted instance
+    has exactly one exported episode whose counts equal the native counts, and every event in the window is a native
+    event.
     """
     native = _native_counts(summary)
     identity = coverage.get("input_identity") if isinstance(coverage, dict) else None
-    if not isinstance(identity, dict) or not identity.get("lifecycle_bundle"):
-        nonzero = sorted(instrument for instrument, values in native.items() if any(values.values()))
+    bundle = isinstance(identity, dict) and bool(identity.get("lifecycle_bundle"))
+    receipts = coverage["export_receipts"] if isinstance(coverage, dict) and isinstance(
+        coverage.get("export_receipts"), dict) else {}
+    derived = {piece["instrument_id"] for receipt in receipts.values() if isinstance(receipt, dict)
+               for piece in receipt.get("pieces") or () if derived_piece(piece)}
+    if not bundle:
+        nonzero = sorted(instrument for instrument, values in native.items()
+                         if any(values.values()) and instrument not in derived)
         if nonzero:
             raise Refusal("LIFECYCLE_BUNDLE_MISSING", f"lifecycle events without a lifecycle bundle: {nonzero}")
-        return ()
+        if not derived:
+            return ()
     config = coverage["effective_config"] if isinstance(coverage.get("effective_config"), dict) else {}
     try:  # unvalidated JSON: a value that is not a string fails parse_window, as the except below records
         window = parse_window(config.get("start"), None, config.get("end"))  # type: ignore[arg-type]
@@ -517,10 +540,9 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     except (Refusal, TypeError, AttributeError) as exc:
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", f"the receipt or summary window does not parse: {exc}") from exc
     if (coverage.get("format") != COVERAGE_FORMAT or (window.start_ns, window.end_ns) != (stated.start_ns, stated.end_ns)
-            or identity.get("market_day") != summary.get("market_day")):
+            or not isinstance(identity, dict) or identity.get("market_day") != summary.get("market_day")):
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", "the coverage receipt's format, window or market day differs "
                                                      "from the native summary")
-    receipts = coverage["export_receipts"] if isinstance(coverage.get("export_receipts"), dict) else {}
     represented: dict[str, dict] = {}
     for symbol, receipt in receipts.items():
         if not isinstance(receipt, dict) or not isinstance(receipt.get("pieces"), list):
@@ -529,6 +551,8 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
             episode = piece.get("episode") if isinstance(piece, dict) else None
             if episode is None:
                 continue
+            if not bundle and not derived_piece(piece):
+                raise Refusal("LIFECYCLE_BUNDLE_MISSING", f"{symbol}: an episode without a lifecycle bundle")
             instrument = piece.get("instrument_id")
             if not isinstance(episode, dict) or episode.get("instrument_id") != instrument or instrument in represented:
                 raise Refusal("LIFECYCLE_COUNT_MISMATCH", f"{symbol}: the episode is not the one instance {instrument}")

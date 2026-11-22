@@ -347,6 +347,36 @@ class ImportTests(unittest.TestCase):
                        files, True, root)
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
+    def test_a_contract_whose_trades_stopped_ends_there_without_a_bundle(self):
+        from engine import run
+        from engine.load import derived_piece, read_market
+        day, iid = self.market_days[MAR], "CCCUSDT-PERP.BINANCE"
+        start, end = ns(FEB), ns(date(2025, 2, 15))
+        done = export.export_catalogs(self.profile, day, ["CCCUSDT", "BTCUSDT"], start, end, fresh=True)
+        self.addCleanup(shutil.rmtree, done["root"], True)
+        piece, = done["receipts"]["CCCUSDT"]["pieces"]
+        self.assertEqual((piece["index"], piece["catalog_dir"], piece["instrument_id"]), (None, "", iid))
+        self.assertEqual(piece["episode"], lifecycle.derived_episode("CCCUSDT", iid, DELISTED * 1_000_000))
+        self.assertEqual((piece["counts"]["instrument_status"], piece["counts"]["instrument_close"],
+                          piece["last_bar_ns"]), (1, 0, DELISTED * 1_000_000 - 1_000_000))
+        self.assertTrue(derived_piece(piece))
+        self.assertIsNone(done["receipts"]["BTCUSDT"]["pieces"][0]["episode"])  # it trades on
+        rows = read_market(Path(done["root"]), ["CCCUSDT"], day, start, end)
+        last = list(run.market_events(rows, start, end))[-1]
+        self.assertEqual((type(last).__name__, last.action.name, last.ts_event),
+                         ("InstrumentStatus", "CLOSE", DELISTED * 1_000_000))
+        # A window that ends by the stop gets no termination; one after it gets the termination and no bar.
+        self.assertEqual(history.data_end_stops(files.open_market(self.profile, "reader"), day, ["CCCUSDT"],
+                                                DELISTED), {})
+        after = export.export_catalogs(self.profile, day, ["CCCUSDT"], ns(date(2025, 2, 20)), ns(date(2025, 2, 25)),
+                                       fresh=True)
+        self.addCleanup(shutil.rmtree, after["root"], True)
+        piece, = after["receipts"]["CCCUSDT"]["pieces"]
+        self.assertEqual((piece["last_bar_ns"], piece["counts"]["last"], piece["counts"]["instrument_status"]),
+                         (None, 0, 0))
+        self.assertTrue(derived_piece(piece))
+        self.assertFalse(derived_piece({**piece, "episode": {**piece["episode"], "sources": ["notice.txt"]}}))
+
 
 def stamps(market: dict) -> dict:
     """Every file of a market directory with its identity."""

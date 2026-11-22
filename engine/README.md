@@ -70,7 +70,8 @@ The runner takes the strategy reference, the inputs, the window and the account,
 
 The export holds the stored one-minute LAST bars, one MARK price update per one-minute MARK bar,
 funding updates, every complete daily LAST bar before `--end` and, with a lifecycle bundle, the window's
-native `InstrumentStatus` (PRE_CLOSE, CLOSE) and `InstrumentClose` events. The runner checks that
+native `InstrumentStatus` (PRE_CLOSE, CLOSE) and `InstrumentClose` events; a contract whose stored trades stopped
+and that no bundle lists gets one CLOSE status at its last traded minute's close (market `history.data_end_stops`). The runner checks that
 the engine consumed exactly the exported counts. There is no second matching or account engine.
 
 A source declares `WARMUP = {period: bars}` (`warmup.py`), keyed by Binance kline period (1, 3, 5, 15, 30
@@ -436,14 +437,16 @@ with findings (the result is written) and 2 without auditing when a report or th
 missing or the summary is unreadable. It reads the coverage receipt `input-coverage.json` from the
 report directory's parent: the entry-membership audit requires it even without lifecycle events;
 missing membership must not become unrestricted permission. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
-exported episodes and checks them against the native counts; before each termination without a
+exported episodes and checks them against the native counts (an episode needs the lifecycle bundle unless it is a
+derived stop, `load.derived_piece`: the contract's one piece, one CLOSE status at the close of its last exported bar); before each termination without a
 settlement price (a CLOSE status with no `InstrumentClose`) every native position of the contract
 must be flat and every order filled or ended (`POSITION_OPEN_AT_TERMINATION`,
 `ORDER_OPEN_AT_TERMINATION`, one finding per order); an order created at or after any termination is
 `LATE_ORDER_EVENT` (the engine's own `EXPIRATION-` orders at a settlement excepted). A settlement price
 is the engine's own settlement and reconciles like any fill; a CLOSE status at or before it closes
 the market. A contract whose bars stop more than 60 minutes before the window's end and before its
-termination (or without one) is `DATA_ENDS_WITHOUT_TERMINATION`. Every finding starts with a code of
+termination (or without one) is `DATA_ENDS_WITHOUT_TERMINATION`; one terminated at or before the window's start
+has no bar to check. Every finding starts with a code of
 `audit.FINDINGS` followed by its locating detail; the ledger rebuilds the same events with the same
 function at ingest.
 

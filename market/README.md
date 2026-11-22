@@ -13,7 +13,7 @@ Nautilus Catalogs the runner reads. The tables are on the site's database page
 | `instrument.py` | the terms snapshot of a market day and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
 | `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, what the importers share (`import_contracts`) |
-| `history.py` | what an export takes from each contract's whole stored history (daily warm-up, price grid divisors, first and last bars), one read of each bar month file for all the exported contracts |
+| `history.py` | what an export takes from each contract's whole stored history (daily warm-up, price grid divisors, first and last bars), one read of each bar month file for all the exported contracts, and where a contract's stored trades stop (`data_end_stops`) |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a market day, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `metrics_facts`, `diagnose_coverage`) |
@@ -294,7 +294,11 @@ the pieces) and one Catalog per piece with the stored 1-minute LAST bars, one MA
 the window's end, and the piece's lifecycle events. Without a lifecycle the one piece is the contract
 itself (`SYMBOL-PERP.BINANCE`, Catalog in the contract directory); with a lifecycle bundle each
 episode is piece n (`SYMBOL-E<n>-PERP.BINANCE`, Catalog in `episode-<n>/`), holding only the minutes
-complete inside it. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
+complete inside it. A contract no bundle lists whose last traded minute (LAST volume above zero) of everything stored
+through the market day closes before the window's end and at least 7 days before the market day's end stops there
+(`history.data_end_stops`, docs/rd W.3.2.2): its one piece stays the contract and carries a derived episode
+(`lifecycle.derived_episode`: one InstrumentStatus CLOSE at that close, no price, `start_ns` 0, no `sources`), and
+nothing after the stop is exported. The export cache key holds these stops, which depend on data after the window. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
 written at the precision their prices need (Binance mark prices carry 8 decimals).
 
 Input preparation follows the declared execution environment: bars does not read or convert stored
