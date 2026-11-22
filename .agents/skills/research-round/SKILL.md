@@ -56,7 +56,7 @@ del(.native_economics)), orders: [.reports.orders[] | del(.commissions)], order_
 the names of the api/causal/activity/readiness items, whose meaning it reads in research-round: the
 brief explains no item and carries no earlier verdict or the author's view. Its brief says it reads
 no host or session memory, which carries earlier sessions' conclusions. It keeps the review
-bound to the precheck trial, checks only those four and records `source review`, never with status `no_opportunity` (code counts it as passed); use a new reviewer
+bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). Candidates of one batch that differ only in numeric
 constants may share one reviewer, which records one four-item review per candidate on its own
 precheck. Api, causal and readiness are source properties,
@@ -65,8 +65,9 @@ not only the diff's, against the pinned image, whether or not the precheck ran i
 `inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
 `nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
 (below). Activity: the precheck filled orders on every order path the change adds or
-alters; while one never ran, activity is `unresolved` until a precheck on a window where it runs, or
-a probe on a `ledger temp` ledger, shows it. Readiness: no decision before
+alters; while one never ran, activity is `unresolved` and the review `failed` until a later
+precheck on a window where it runs (a probe on a `ledger temp` ledger can find one) has a passed review:
+that review lifts the failure. Readiness: no decision before
 each indicator has converged on its warm-up history, not research-start's input-coverage check.
 Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
 explore` records an explore trial in the active ledger, which counts as exposure to its data, and is

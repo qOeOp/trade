@@ -176,7 +176,7 @@ class ResearchGraphTests(unittest.TestCase):
         notes = {
             "api": {"status": "passed", "note": "API inspected.\n\n- Orders use the pinned API.\n- Parameters match."},
             "causal": {"status": "failed", "note": "Found later.\n\nThe input arrives after submission."},
-            "readiness": {"status": "no_opportunity", "note": "This capture does not reach the funding boundary."},
+            "readiness": {"status": "unresolved", "note": "This capture does not reach the funding boundary."},
         }
         body = self.world.review_body(precheck_id, "failed", **notes)
         precheck.record_review(self.world.profile, body, "reviewer-g")
@@ -216,7 +216,7 @@ class ResearchGraphTests(unittest.TestCase):
         event = next(e for e in found["events"] if e["kind"] == "eligibility_change" and e["ref"] == f"source review {old}")
         self.assertIn("without economic evidence by it: none", event["text"],
                       "the graph names the runs availability counts the review against, not every run of the source")
-        self.assertIn(f"not counted for [{trial_id}]: zero-fill, zero-position activity failure resolved", event["text"])
+        self.assertIn(f"not counted for [{trial_id}]: activity unresolved, or failed without fills or positions, resolved", event["text"])
         gate, = found["line"]["gates"]
         self.assertEqual(gate["code"], "INTERPRETATION_REQUIRED", "a research run without an interpretation holds the next registration")
         self.assertIn(str(trial_id), gate["message"])

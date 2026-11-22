@@ -183,8 +183,8 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
 
     `records` are precheck.review_records already read for this call; `scope` {review_ids} counts only the named
     reviews (the facts fixed when a run was sealed: the reviews its registration cited, which existed
-    before it). Resolved zero-activity failures are derived only from this filtered set, using the same
-    three conditions as line selection."""
+    before it). Resolved activity failures (review_activity.resolved) are derived only from this filtered set, as
+    in line selection."""
     reviews, ignored, eligible = [], [], []
     for record in records if records is not None else precheck.review_records(conn, run["source_sha256"]):
         if record["source_sha256"] != run["source_sha256"] or record["image_digest"] != run["image_digest"]:
@@ -195,8 +195,9 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
         eligible.append(record)
     for record in eligible:
         if review_activity.resolved(conn, record, eligible):
-            ignored.append({"review_id": record["review_id"], "reason": "zero-fill, zero-position activity failure "
-                            "resolved by a later traded precheck with passed reviews and no failed review"})
+            ignored.append({"review_id": record["review_id"], "reason": "activity unresolved, or failed without "
+                            "fills or positions, resolved by a later traded precheck with passed reviews and no "
+                            "failed review"})
             continue
         reviews.append({"review_id": record["review_id"], "trial_id": record["trial_id"], "verdict": record["verdict"],
                         "reviewer": record["reviewer"], "created_at": record["created_at"]})
