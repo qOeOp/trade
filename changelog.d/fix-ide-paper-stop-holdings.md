@@ -1,0 +1,1 @@
+- IDE Paper (re-judge G-36): the desktop `Stop paper?` dialog lists the run's open positions with their unrealised P&L as the listing last has them, or says `Currently flat`.
