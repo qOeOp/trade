@@ -157,6 +157,21 @@ def stops_held(cache, position_id, order=None) -> Decimal:
                 and (order is None or found.client_order_id != order.client_order_id)), Decimal(0))
 
 
+def unclosed(cache, scope) -> list:
+    """The orders in `scope` that are not closed. Every Cache.orders(**scope) call builds each order the run ever
+    sent, so checking each entry against it made a replay's time grow with the square of its orders (doctor
+    20261121-02). The open, in-flight and emulated indexes hold every unclosed order except one still INITIALIZED
+    (queued to the risk engine). The unfiltered counts are the index sizes, so comparing them with those indexes
+    costs no scan of the closed orders; when they show such an order, the IDs in `scope` without the closed ones."""
+    every = {*cache.client_order_ids_open(), *cache.client_order_ids_inflight(), *cache.client_order_ids_emulated()}
+    if len(every) == cache.orders_total_count() - cache.orders_closed_count():
+        ids = {*cache.client_order_ids_open(**scope), *cache.client_order_ids_inflight(**scope),
+               *cache.client_order_ids_emulated(**scope)}
+    else:
+        ids = set(cache.client_order_ids(**scope)) - set(cache.client_order_ids_closed(**scope))
+    return [cache.order(identity) for identity in ids]
+
+
 def exposure(cache, order) -> Decimal | None:
     """Rule 2's exposure in USDT for the entry `order`: the notional value of its strategy's open positions on the
     contract at their average open price and of its other open entries at their limit or trigger price, both sides
@@ -167,8 +182,8 @@ def exposure(cache, order) -> Decimal | None:
     scope = {"instrument_id": order.instrument_id, "strategy_id": order.strategy_id}
     values = [instrument.notional_value(position.quantity, Price(position.avg_px_open, instrument.price_precision))
               for position in cache.positions_open(**scope)]
-    values += [instrument.notional_value(found.leaves_qty, entry_price(found)) for found in cache.orders(**scope)
-               if not found.is_closed and not found.is_reduce_only and found.client_order_id != order.client_order_id]
+    values += [instrument.notional_value(found.leaves_qty, entry_price(found)) for found in unclosed(cache, scope)
+               if not found.is_reduce_only and found.client_order_id != order.client_order_id]
     values.append(instrument.notional_value(order.quantity, entry_price(order)))
     if any(str(value.currency) != "USDT" for value in values):
         return None
