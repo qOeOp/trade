@@ -76,9 +76,10 @@ research session that its transcript cannot show ([attach.md](references/attach.
 6. **Report decisions.** Record per [record.md](references/record.md): an index row for each
    verified finding, authority recommendation or open evidence gap, and a record file only for an
    audit or a diagnosis of several rows. Update existing rows rather than recording each symptom
-   anew. A finding the user pointed out first takes source `user` with the lenses.md workstream
-   that should have caught it, by its name there; one verified from a `from-bot` issue takes
-   `user-bot` the same way, with the issue number.
+   anew. A row someone must fix, other than `authority`, also gets an `agent-finding` issue as
+   the index header says. A finding the user pointed out first takes source `user` with the
+   lenses.md workstream that should have caught it, by its name there; one verified from the user
+   bot's issue takes `user-bot` the same way, with the issue number.
 
 ## Convergence
 
