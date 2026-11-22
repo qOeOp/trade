@@ -11,7 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
 
-from research_graph import compare, contract, layout  # noqa: E402
+from research_graph import contract, layout  # noqa: E402
 from research_graph import render as render_web  # noqa: E402
 
 GRAPH = {
@@ -185,26 +185,3 @@ class WebRenderTests(unittest.TestCase):
         with mock.patch.object(render_web.shutil, "which", return_value=None), \
                 self.assertRaisesRegex(RuntimeError, "stale"):
             render_web.built_page()
-
-
-class CompareTests(unittest.TestCase):
-    def test_differences_up_to_the_cutoff_are_listed(self):
-        session = copy.deepcopy(GRAPH)
-        session["source"] = "session"
-        session["candidates"][2]["parent"] = "root@1"
-        session["candidates"][1]["trials"][1]["annual_return"] = 0.2504
-        session["candidates"][1]["trials"][1]["max_drawdown"] = 0.12
-        session["candidates"][1]["predictions"] = []
-        session["candidates"][1]["source"] = "class A:\n    pass  # edited\n"
-        session["candidates"][0]["source"] = None
-        session["candidates"].append({"id": "late@1", "parent": "a@1", "created_at": "2026-01-02T00:00:00Z"})
-        diff = compare.compare(GRAPH, session, "2026-01-01T23:00:00Z")
-        self.assertEqual(diff["only_b"], [], "a candidate after the cutoff is out of scope")
-        self.assertEqual(diff["parent"], [{"id": "b@1", "a": "a@1", "b": "root@1"}])
-        self.assertEqual([(d["measure"], d["b"]) for d in diff["measures"]], [("max_drawdown", 0.12)],
-                         "a reading within the tolerance is not a difference")
-        self.assertEqual(diff["predictions"], [{"id": "a@1", "a": {"held": 1}, "b": {}}])
-        self.assertEqual(diff["source"], ["a@1"], "a source one graph lacks is coverage, not a difference")
-        self.assertEqual(diff["fields"]["source"]["only_a"], ["root@1"])
-        self.assertEqual(diff["events"]["a"], diff["events"]["b"])
-        self.assertIn("## Parent differs (1)", compare.markdown(diff))

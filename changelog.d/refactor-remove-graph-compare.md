@@ -1,0 +1,1 @@
+- Breaking: `ide.py compare` is removed with product-doctor's ledger fidelity test, its only user.

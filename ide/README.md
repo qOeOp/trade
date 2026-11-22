@@ -2,13 +2,11 @@
 
 The trade IDE: a local page onto the research. Its first view is the research graph.
 
-Draws one research line as a graph and compares graphs built from different sources (product-doctor's
-fidelity test). Checking, layout and comparison use the standard library; building the page needs
-node and npm:
+Draws one research line as a graph. Checking and layout use the standard library; building the page
+needs node and npm:
 
 ```bash
 python3 ide/ide.py check GRAPH.json
-python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
 uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE] [--dev-assets=URL]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--host=127.0.0.1] [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
@@ -171,11 +169,10 @@ The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.m
 
 | Stage | Input → output | Owns | Module |
 |---|---|---|---|
-| Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` (a session graph for product-doctor's fidelity test is built by an agent) |
+| Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` |
 | Contract | `graph.json` → problems | the shape of a graph | `research_graph/contract.py`, `schema/graph.schema.json` |
 | Layout | `graph.json` → `view.json` | what to draw and where, in research units | `research_graph/layout.py` |
 | Render | `view.json` → page | pixels, colours, labels, interaction | `research_graph/render.py`, `web/` |
-| Compare | two `graph.json` → differences | which facts differ | `research_graph/compare.py` |
 
 Stages hand over only through these documents, so each can be replaced alone.
 
