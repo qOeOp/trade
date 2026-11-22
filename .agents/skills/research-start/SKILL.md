@@ -65,7 +65,9 @@ select`); its development period follows from the date and the start's contracts
   validation, stating the holdout's earlier searches (`holdout_prior_trials`, and outside this
   ledger: the three earlier ledger generations searched 2024-10 to 2026-10 about 3,100 times,
   which this ledger does not count) and the date of the forward read, after which only Paper and
-  later data are unseen, and run `line close`.
+  later data are unseen, and run `line close`. When the user then picks a candidate or asks which
+  to validate, invoke `research-round` and follow its validation; never offer a candidate the
+  closing history test falsified.
 
 ## Offer lines and wait
 
