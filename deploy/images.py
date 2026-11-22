@@ -17,7 +17,7 @@ import platform
 import sys
 import tempfile
 
-from .release import GitSource
+from .source import GitSource
 from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, Registry, sync_directory
 
 

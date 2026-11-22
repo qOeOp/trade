@@ -21,7 +21,6 @@ MAX_LINES = 800
 # module shrinks and remove the entry once the module is under MAX_LINES; never raise one or add one: split instead.
 OVERSIZED = {
     "cli/research_commands.py": 973,
-    "deploy/release.py": 875,
     "engine/audit.py": 1099,
     "engine/paper.py": 1244,
     "engine/run.py": 945,

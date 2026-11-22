@@ -33,13 +33,14 @@ UNHEALTHY = {"ledger": "its check cannot read the research ledger",
 
 
 class Notices:
-    """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that
-    failed; a routed Web that does not answer, or whose overview, Agent or Paper controller is not healthy behind
-    it; a ledger or market-import container that is unhealthy, was killed out of memory or restarted; a Paper run
-    that stopped and could not resume, or that is held with a position no working stop protects (paper.serve
-    unprotected) or that ended by itself (a refusal, a runner exit, a stop the user did not ask for); a research
-    ledger whose publish has failed for LEDGER_LAG_SECONDS or whose origin history changed elsewhere; and docker-api
-    or a compose service that does not follow the active version (deploy/release.py `drift`).
+    """Failures outside Live, sent to the chat the Live page bound (deploy/telegram.py): a release tick that failed;
+    an admitted version that waits for the host (deploy/release.py Release.waits); a routed Web that does not
+    answer, or whose overview, Agent or Paper controller is not healthy behind it; a ledger or market-import
+    container that is unhealthy, was killed out of memory or restarted; a Paper run that stopped and could not
+    resume, or that is held with a position no working stop protects (paper.serve unprotected) or that ended by
+    itself (a refusal, a runner exit, a stop the user did not ask for); a research ledger whose publish has failed
+    for LEDGER_LAG_SECONDS or whose origin history changed elsewhere; and docker-api or a compose service that does
+    not follow the active version (deploy/release.py `drift`).
 
     Each kind the tick observed replaces that kind's facts; one it could not observe keeps what was sent. A fact
     is sent when it first appears and again only after it has cleared. Without a saved token nothing is sent

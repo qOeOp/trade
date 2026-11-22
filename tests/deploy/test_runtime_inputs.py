@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from deploy.release import GitSource
+from deploy.source import GitSource
 from deploy.runtime_inputs import DOCKERFILE, project
 
 

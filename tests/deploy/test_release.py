@@ -14,8 +14,10 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
+from deploy.notices import Notices
 from deploy import release
-from deploy.release import FOLLOW_RETRY_SECONDS, GitSource, Release, failure_summary
+from deploy.release import FOLLOW_RETRY_SECONDS, Release, failure_summary
+from deploy.source import GitSource
 from deploy.paper_host import CONTROLLER_PROBE, PAPER, PaperHost
 from deploy.paper_host import route_config as paper_route
 from deploy.paper_release import PaperRelease
@@ -422,6 +424,55 @@ class JointReleaseTests(unittest.TestCase):
                 self.assertFalse(self.release.failed.exists())
 
 
+class GenerationTests(unittest.TestCase):
+    """Doctor 20261122-30: a version whose code does not read the host ledger's schema generation warmed for 30
+    minutes, rolled back and wrote failed/<revision>; the owner's ledger move could never release it."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = Host(Path(temporary.name))
+        self.github = Mock()
+        self.github.agent_changed.return_value = True
+        self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
+        self.controller = self.release.paper().host
+
+    def test_a_version_that_does_not_read_the_host_ledger_waits_before_its_journal(self):
+        self.controller.unread = {"research": "2"}
+        self.release.apply(TARGET)
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
+        self.assertNotIn(WEB + B, self.host.containers)
+        self.assertNotIn(PAPER + B, self.controller.running)
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists(), "a host condition, not a failed version")
+        [(key, text)] = self.release.waits.items()
+        self.assertEqual(key, f"wait:generation:{B}:research")
+        self.assertIn("the research database (its code reads generation 2)", text)
+        self.assertIn("A version that needs a new ledger generation", text)
+        self.controller.unread = {}  # the owner moved the host to the new generation
+        self.release.apply(TARGET)
+        self.assertEqual(self.host.disk, WEB + B)
+
+    def test_the_tick_sends_the_wait_once_and_clears_it_when_the_version_releases(self):
+        sent = []
+        notices = Notices(self.host.state, call=lambda token, method, body: sent.append(body["text"]),
+                                  log=lambda line: None)
+        notices._token = lambda: ("token", 1)
+        waits = [{"wait:generation:x:research": "waits"}, {"wait:generation:x:research": "waits"}, {}]
+
+        def tick(self):
+            self.waits = waits.pop(0)
+            return False
+
+        self.host.condition = Mock(return_value=None)
+        with patch.object(Release, "tick", tick), patch.object(release, "drift", return_value={}), \
+                patch.object(Notices, "watch"):
+            for _ in range(3):
+                release.tick(self.host, notices)
+        self.assertEqual(sent, ["waits"], "sent once while it lasts")
+        self.assertEqual(notices.found["wait"], {})
+
+
 class InstallTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -535,6 +586,45 @@ class ProtectedTests(unittest.TestCase):
         self.assertEqual(sorted(self.host(services).protected()), sorted(services))
         with self.assertRaises(RuntimeError):  # the ledger and docker-api stay required
             self.host(["trade-ide-docker-api-1"]).protected()
+
+
+class GenerationCheckTests(unittest.TestCase):
+    """PaperHost.generations runs the candidate's own read-only `ledger service check` on each database."""
+
+    def host(self, answers):
+        host = PaperHost(Config(state=Path("/nonexistent")))
+        host.runs = []
+
+        def docker(*args, check=True, timeout=120, env=None):
+            if args[0] == "inspect":
+                return "1000:1000"  # the ledger's service identity (PaperHost.common)
+            assert args[0] == "run"
+            host.runs.append(args)
+            answer = answers[args[-1]]
+            if answer is not None:
+                raise release.DockerFailure("run", 1, "Traceback?\n" + json.dumps(answer, indent=2) + "\n")
+            return json.dumps({"action": "check", "running": True, "ledger_commit": "c"})
+
+        host.docker = docker
+        return host
+
+    def test_each_database_the_version_refuses_as_another_generation_is_named(self):
+        mismatch = {"code": "SCHEMA_MISMATCH", "message": "research schema version 1, this code expects 2",
+                    "expected": "2", "next_actions": []}
+        host = self.host({"research": mismatch, "paper": None})
+        self.assertEqual(host.generations(TARGET["service"]), {"research": "2"})
+        for run in host.runs:
+            self.assertIn("--read-only", run)
+            self.assertEqual(run[run.index(TARGET["service"]):][:6],
+                             (TARGET["service"], "python", "-m", "cli.main", "ledger", "service"))
+        self.assertEqual([run[-1] for run in host.runs], ["research", "paper"])
+        self.assertEqual(self.host({"research": None, "paper": None}).generations(TARGET["service"]), {})
+
+    def test_any_other_failure_of_the_check_fails_the_tick(self):
+        for answer in ({"code": "LEDGER_UNREACHABLE", "message": "no answer", "expected": None}, "not json"):
+            with self.subTest(answer=answer):
+                with self.assertRaises(release.DockerFailure):
+                    self.host({"research": answer, "paper": None}).generations(TARGET["service"])
 
 
 class PruneTests(unittest.TestCase):
