@@ -1,0 +1,1 @@
+- Removed: product-doctor's skill-usage heat map (`skill_heat.py`, its page, its test and `docs/plans/doctor/skill-heat.jsonl`); a full audit no longer runs it.
