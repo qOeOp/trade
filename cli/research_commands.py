@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import contextlib
-from datetime import date, timedelta
 import hashlib
 from importlib.resources import files
 import os
@@ -310,15 +309,6 @@ def _market_facts(market: dict):
     return facts
 
 
-def _market_days(market: dict) -> tuple[date, date]:
-    """(the market's first day, the day after its latest complete day) at the newest day."""
-    from registration import seams
-    source = seams.current.market(market)
-    first_day, latest = source.days(source.resolve_day(None))
-    return first_day, latest + timedelta(days=1)
-
-
-
 def line_list(args):
     from report import graph
     return graph.line_list(_research(args), args.at, args.all, args.readings)
@@ -355,7 +345,7 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
     stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
     backup as behind until a sync succeeds."""
     from report import history as report_history
-    closed = lines.close_line(profile, line, summary, _market_days(market), report_history.qualified)
+    closed = lines.close_line(profile, line, summary, report_history.market_days(market), report_history.qualified)
     if profile.backup_root is None:
         return {**closed, "backup": None}
     try:
@@ -422,7 +412,7 @@ def research_runs(args):
 
 def research_history(args):
     from report import history
-    return history.research_history(_research(args), args.at, args.line)
+    return history.research_history(_research(args), profiles.market(args.market), args.at, args.line)
 
 
 def research_unchanged(args):
@@ -826,7 +816,8 @@ COMMANDS = [
          option("--limit", type=_count, help="keep the first N runs (default: all)"), AT),
     command(research_history, "research", "history", "a line's closing history test, by year", (
         "the line's research and history trials, their runs, captures and stored facts, the source reviews and its "
-        "targets at --at (reader); no market",
+        "targets at --at (reader); the market's first and latest complete days at its newest day (the segments the "
+        "test plans), read only when there is a line to read",
         "nothing",
         "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
         "rows [{source_sha256, candidate (ID@N), run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
@@ -852,12 +843,13 @@ COMMANDS = [
         "at most the target and their median annual return at least the target; the holdout when its drawdown is at "
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
         "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
-        "needs every reading it is defined on: a whole veto year whose run is invalid or missing or lacks a reading, "
+        "needs every reading it is defined on: a veto year the test plans (one with something to trade on the "
+        "market) without a history run yet, a whole veto year whose run is invalid or missing or lacks a reading, "
         "a part veto year without a passed run (a passed one is read in no summary), a control without a run, a holdout without a countable reading and a line without targets are named in "
         "missing, and with anything missing meets_targets and judged_on are null, whatever the holdout's own verdict. "
         "A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
-        "LINE_UNKNOWN"), LEDGER,
+        "LINE_UNKNOWN; MARKET_DAY_UNRESOLVED (the market)"), LEDGER, MARKET,
          option("--line", help="one research line (default: every line with history trials)"), AT),
     command(research_unchanged, "research", "unchanged", "whether a line's graph is the same at two ledger commits", (
         "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",

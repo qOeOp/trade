@@ -58,6 +58,8 @@ class FakeMarket:
         self.market_days, self.timeframe, self.exports = market_days, timeframe, 0
 
     def resolve_day(self, at):
+        if at is None:  # the head: the newest day, as market.resolve_day resolves it
+            return max(self.market_days)
         if at not in self.market_days:
             raise refuse("MARKET_DAY_UNRESOLVED", f"no market day {at!r}", missing=(str(at),))
         return at

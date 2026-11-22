@@ -321,7 +321,7 @@ class Product:
 
     def history(self, commit: str) -> dict:
         """Every line's closing history test (the History page's heatmap), as `research history` reads it."""
-        return self.run("research", "history", f"--ledger={self.ledger}", f"--at={commit}")
+        return self.run("research", "history", f"--ledger={self.ledger}", f"--at={commit}", *([f"--market={self.market}"] if self.market else []))
 
     def readings(self, commit: str) -> dict:
         """Every line with its recommendation as its graph's summary reads it, without drawing a graph (the phone)."""
