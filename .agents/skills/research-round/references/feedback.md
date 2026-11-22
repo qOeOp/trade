@@ -54,7 +54,8 @@ tells them apart. Then weigh two or three approaches inside this line,
 never one an earlier `Change of approach.` judgment chose unless you name it and the new evidence. First list the
 duties no version of the line has changed (`duties` in `research graph --line LINE --without-comparisons
 --without-counts`) and the recommended header's `default` duties: at least one approach changes one of them, or say
-in one line why none can act on the bottleneck. Each
+in one line why none can act on the bottleneck. A rule an earlier version added whose effect no
+comparison separated on its own is a candidate for removal: deleting it is one change like any other. Each
 changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
 undistinguished does not mean no better) and keeps the control's contracts and inputs
