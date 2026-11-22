@@ -222,10 +222,15 @@ def _check_prediction(body: Mapping, root: bool) -> None:
                 raise refuse("PREDICTION_INVALID", f"{where} has no slice and no reason", missing=(where,))
             if item["measure"] is not None and item["measure"] not in every:
                 raise refuse("PREDICTION_INVALID", f"{where} names measure {item['measure']} outside the catalogue",
-                             missing=(where,))
-        elif item["slice"] not in catalogue or item["measure"] not in catalogue[item["slice"]]:
+                             missing=(where,), expected="null or a catalogue measure: " + ", ".join(sorted(every)))
+        elif item["slice"] not in catalogue:
+            raise refuse("PREDICTION_INVALID", f"{where} names slice {item['slice']}, which is not in the measure "
+                                               "catalogue", missing=(where,),
+                         expected="null or a catalogue slice: " + ", ".join(sorted(catalogue)))
+        elif item["measure"] not in catalogue[item["slice"]]:
             raise refuse("PREDICTION_INVALID", f"{where} names {item['slice']}/{item['measure']}, which is not in the "
-                                               "measure catalogue", missing=(where,))
+                                               "measure catalogue", missing=(where,),
+                         expected=f"a measure of {item['slice']}: " + ", ".join(sorted(catalogue[item["slice"]])))
         predicted.add(item["duty"])
     unpredicted = sorted(changed - predicted)
     if unpredicted:
@@ -454,23 +459,31 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
+def _check_plan(conn: db.LedgerConnection, plan: Mapping) -> tuple[list[dict], dict | None, dict[str, bytes]]:
+    """The checks of a registration `plan` (validate's) that read only its body and its grid candidates' published
+    sources: the comparison design, the grid, the changed duties, the predictions and the header lines; _check_grid's
+    result. register runs them before the market export and the image probe, which take half a minute."""
+    body = plan["body"]
+    if plan["control_trial_id"] is not None or plan["comparison"] is not None:  # nothing to test without a control
+        validate_design(plan["comparison"])
+    points, parent, sources = _check_grid(conn, plan["grid"])
+    _check_duties(body, parent is None)
+    _check_prediction(body, parent is None)
+    _check_header(body, parent, sources)
+    return points, parent, sources
+
+
 def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, binding: bool, line: Mapping,
              exclude: int | None = None) -> list[dict]:
     """Every check of a registration `plan` {body, control_trial_id, comparison, retry_of, grid (references),
     prechecks (review_id by reference)} against its execution identity and its line's record; the grid points
     {candidate, source_sha256, review_id, precheck_trial}. Read only. `exclude` is the registration being bound:
     its earlier attempts are not exposures of the grid."""
-    body = plan["body"]
-    if plan["control_trial_id"] is not None or plan["comparison"] is not None:  # nothing to test without a control
-        validate_design(plan["comparison"])
-    absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
+    points, parent, _ = _check_plan(conn, plan)
+    absent = [bundle for bundle in plan["body"]["sources"] if not _bundle_exists(conn, bundle)]
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
     chain = _retry_chain(conn, plan.get("retry_of"))
-    points, parent, sources = _check_grid(conn, plan["grid"])
-    _check_duties(body, parent is None)
-    _check_prediction(body, parent is None)
-    _check_header(body, parent, sources)
     _check_lineage(conn, plan, parent, execution, binding)
     _check_window(execution, line)
     for point in points:
@@ -585,6 +598,8 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
         lines.require_not_closing(conn, held["line_id"])
+        _check_plan(conn, {"body": body, "control_trial_id": body["control_trial_id"],
+                           "comparison": body["comparison"], "grid": body["grid"]})
         identity = seams.current.resolve_runtime(runtime_ref)
         parsed = runner.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_day"], parsed["window"],
