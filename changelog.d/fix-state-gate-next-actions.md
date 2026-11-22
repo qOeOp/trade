@@ -1,0 +1,1 @@
+- `research state` on a line gives `next_actions`, the repair steps its gates call for (for `INTERPRETATION_REQUIRED`, the `judgment add --kind interpretation` step; for `MARKET_DAY_UNRESOLVED`, importing the market up to the line's day), and an empty list without a gate; before, the key was there only without a line.
