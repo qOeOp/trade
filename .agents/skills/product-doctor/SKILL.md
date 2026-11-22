@@ -11,23 +11,18 @@ research conclusions and experiment selection belong to `research-round`.
 
 ## Boundaries
 
-- Read only: transcripts, the checkout, CI logs, commands whose `--help` `writes` line names
-  nothing in the ledger or market (`research state` also pulls the main runtime image, moving the
-  local `main` tag), plus a temporary ledger and an IDE of the audit's own for page states
-  ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Never write the ledger or the
-  market (`replay reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
-  (passwords) or fetch the home page of an IDE the audit did not start (paper token): `ledger review` gives the backup head.
-  Read no research data key.
-- AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
-  its rules.
-  Diagnosis grants no implementation authority, except an attach session's fixes
-  ([attach.md](references/attach.md#diagnoses)).
+- Read the checkout, transcripts, CI logs and the output of commands whose `--help` `writes` line
+  names nothing in the active ledger or market (`research state` also pulls the main runtime image,
+  moving the local `main` tag). Probes that write run only on a temporary ledger (`ledger temp`), a
+  temporary market and an IDE of the audit's own; `ledger review` gives the backup head. AGENTS.md
+  owns credentials, authority and implementation boundaries; a diagnosis grants none of the
+  authority it reserves to the user.
 - A full audit runs in a fresh session, on either host, that shares no context with the round: not
   the research session or its sub-agents, nor a session that attached to it or discussed it. When
   this session is one of those, stop before step 1 and give the user the steps: end the research
   session; open a new session; hand it the transcript paths (main and sub-agents), the ledger commit
-  range and the checkout commit, any evidence directory and diagnoses an attach session kept, and no
-  other account of the round; invoke this skill there. The audit reads the transcript files
+  range and the checkout commit, any attach evidence directory and diagnoses, and no other account
+  of the round; invoke this skill there. The audit reads the transcript files
   ([hosts.md](references/hosts.md)), never excerpts or the research session's own summary. Focused
   diagnosis inside a research session is unaffected; focused questions that together cover the
   session are a full audit.
@@ -35,8 +30,9 @@ research conclusions and experiment selection belong to `research-round`.
 ## Scope
 
 Focused diagnosis uses steps 3–5 for one question: read only related calls, code and consumers;
-report evidence, attribution or remaining uncertainty, and the next action. Use all steps and
-Convergence only when the task calls for overall product or session quality. Failure, delay or unresolved attribution alone does not expand the scope.
+report evidence, attribution or remaining uncertainty, and the next action. Use all steps only when
+the task calls for overall product or session quality. Failure, delay or unresolved attribution
+alone does not expand the scope.
 
 Attach mode keeps, read-only and from another session on either host, the evidence of a running
 research session that its transcript cannot show ([attach.md](references/attach.md)).
@@ -44,32 +40,28 @@ research session that its transcript cannot show ([attach.md](references/attach.
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read open items and misses in `docs/plans/doctor/index.zh.md` (a full audit reruns the proofs
-   [record.md](references/record.md) names). Judge current product
-   behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
-   it with the session's checkout before calling anything a defect: a fix the session lacked is
-   not a new finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp
-   timeline including sub-agent sessions ([hosts.md](references/hosts.md)). A full audit also runs
-   [skill_heat.py](assets/skill_heat.py) (call in its docstring): it merges every transcript still on
-   disk into `docs/plans/doctor/skill-heat.jsonl`, which the record's PR carries, and draws a /tmp
-   page of how often sessions used each skill paragraph's identifiers for the whole-product
-   workstream. Heat picks removal candidates; it decides nothing.
+   commits; read the open rows of `docs/plans/doctor/index.zh.md` (a full audit reruns the proofs
+   its header names). Judge current product behavior on a checkout at the current `origin/main`
+   (after `git fetch origin main`), use its current names in findings, and compare it with the
+   session's checkout before calling anything a defect: a fix the session lacked is not a new
+   finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp timeline
+   including sub-agent sessions ([hosts.md](references/hosts.md)).
 2. **Assign coverage.** Use the three workstreams in [lenses.md](references/lenses.md), each with
-   a fresh read-only sub-agent. Give it the evidence paths, checkout and its questions, without
-   authoring context or your conclusions, attach's diagnoses included. Split a workstream only for
-   distinct unresolved risks; keep every coverage responsibility assigned, including whole-product
-   review beyond the session.
-   A ledger fidelity test, when the audit needs one, follows [fidelity.md](references/fidelity.md).
+   a fresh read-only sub-agent, and give every item of its full-audit list to one of them. Give
+   each the evidence paths, checkout and its questions, without authoring context or your
+   conclusions, attach's diagnoses included. Split a workstream only for distinct unresolved risks.
 3. **Verify the chain.** Trace product output through its actual consumer, interpretation and
    subsequent decision. Check population, units, assumptions and evidence scope; successful
    execution or rule compliance alone does not establish a sound inference or useful next step.
    Verify a repair at every consumer of the fact it changes (grep the verdict or field), not
    only the path that failed; an eval with invented facts does not stand in for the real state.
-4. **Prove and rank.** Each finding needs its session call/time (or violated external norm with
-   URL, or for residue only its search) and proof on the current product: file/line, read-only query, CI log or native rerun.
-   Recheck high-priority findings yourself. Recheck every finding against main's head right
-   before writing; drop what it already fixes. Label unproved claims unverified or drop them.
-   Rank by observed cost and recurrence, separating measured impact from expected savings.
+4. **Probe, then claim.** A claim stands only on a probe of the current `origin/main`, run again
+   right before writing: a defect on a minimal reproduction or an exact file:line chain from
+   input to wrong output; a cost on one fixture measured at two or more sizes, read as a growth
+   rate, not one timing or timings of different inputs; a duplication on the measured span both copies share; residue on its search
+   and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Each finding
+   also names its session call and time, or the external norm with URL. Label the rest
+   unverified or drop it. Rank by measured cost and recurrence; keep expected savings apart.
 5. **Choose a converging remedy.** Assign `fix`, `remove`, `skill`, `authority`, `measure` or
    `none`. Read every branch, exception and rule of the refusal, check or skill section the remedy
    would touch, then prefer in order: `none` when the Agent handled or can handle the case with
@@ -81,11 +73,14 @@ research session that its transcript cannot show ([attach.md](references/attach.
    test or CI check can find, the addition is that check (an `authority` item). State why each
    earlier option does not fit, the net change in mechanisms, branches, rules and skill words, and
    why any growth was unavoidable.
-6. **Report decisions.** Use [record.md](references/record.md) for verified findings, authority
-   recommendations and open evidence gaps. Update existing items rather than recording each
-   symptom anew; record user-first misses and the coverage responsibility that missed them.
+6. **Report decisions.** Record per [record.md](references/record.md): an index row for each
+   verified finding, authority recommendation or open evidence gap, and a record file only for an
+   audit or a diagnosis of several rows. Update existing rows rather than recording each symptom
+   anew. A finding the user pointed out first takes source `user` with the lenses.md workstream
+   that should have caught it, by its name there; one verified from a `from-bot` issue takes
+   `user-bot` the same way, with the issue number.
 
 ## Convergence
 
-Verify that repairs hold and consumers make better-supported decisions before claiming improvement.
-Finding counts, smaller text or fewer reviewers alone establish neither convergence nor research value.
+Claim improvement only when repairs hold and consumers make better-supported decisions; finding
+counts, smaller text or fewer reviewers alone establish neither.

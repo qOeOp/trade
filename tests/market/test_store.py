@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from market import coverage, export, files, follow, instrument, lifecycle, read, series, sources, store, universe
+from market import coverage, export, files, follow, history, instrument, lifecycle, read, series, sources, store, universe
 from shared.errors import Refusal
 from registration import inputs
 from shared import clock
@@ -197,7 +197,7 @@ class ImportTests(unittest.TestCase):
                                  "2025-03-03T00:00:00Z", None)
         market = files.open_market(self.profile, "reader")
         minutes_ = coverage.read_bars(market, market_day, "BTCUSDT", "LAST", day, day + DAY)
-        daily = export.daily_bars(market, market_day, "BTCUSDT", 0, None, day + DAY)
+        daily = history.daily_bars(market, market_day, "BTCUSDT", 0, None, day + DAY)
         self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
                          (minutes_["ts_open"].tolist(), None))
         self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
@@ -276,7 +276,7 @@ class ImportTests(unittest.TestCase):
         os.utime(stored, ns=(moment, moment))
         market = files.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
         whole = coverage.read_bars(market, self.market_days[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
-        streamed = export.daily_bars(market, self.market_days[MAR], "BTCUSDT", 0, None, end // 10**6)
+        streamed = history.daily_bars(market, self.market_days[MAR], "BTCUSDT", 0, None, end // 10**6)
         derived = series.derive_bars(whole)
         keep = derived["ts_open"] + DAY <= end // 10**6
         self.assertEqual({k: v.tolist() for k, v in streamed.items()}, {k: v[keep].tolist() for k, v in derived.items()})

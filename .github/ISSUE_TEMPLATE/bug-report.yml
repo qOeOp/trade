@@ -1,0 +1,36 @@
+name: Bug report
+description: The product did something other than its documentation or contract says.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Issues are public and indexed. Leave out credentials, tokens, `.env` or `dolt/service.json` contents,
+        and Live or Paper execution records. Report a vulnerability privately (SECURITY.md), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: "`python -m cli.main --version`, or the IDE's About."
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: What you did
+      description: The page or command, with its arguments, and when.
+    validations:
+      required: true
+  - type: textarea
+    id: seen
+    attributes:
+      label: What you saw
+      description: The output or refusal code (a minimal excerpt), or a screenshot.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: And where that is stated (a doc, a command's help, a skill), if you know.
+    validations:
+      required: true

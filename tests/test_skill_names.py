@@ -18,7 +18,7 @@ _spec.loader.exec_module(names)
 class CommandLineCallTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tree, cls.runners, cls.runner_options = names.command_tree()
+        cls.tree, cls.runners, cls.runner_options, cls.required = names.command_tree()
         cls.runner = sorted(cls.runners)[0]
         noun, verb = cls.runner.split()
         cls.plain = next(f"{n} {v}" for n, verbs in sorted(cls.tree.items()) for v in sorted(verbs)
@@ -44,6 +44,20 @@ class CommandLineCallTests(unittest.TestCase):
                              ("python -m cli.main nosuchnoun verb", "no command")):
             with self.subTest(span=span):
                 self.assertIn(reason, self.check(span) or "")
+
+    def test_a_call_with_values_must_pass_every_required_option(self):
+        call, need = next((call, needs[0]) for call, needs in sorted(self.required.items()) if len(needs) == 1)
+        noun, verb = call.split()
+        other = sorted(o for o in self.tree[noun][verb] if o.startswith("--") and o != "--help" and o not in need)[0]
+        given = sorted(need)[0]
+        for span in (f"{call} {other} VALUE", f"python -m cli.main {call}"):
+            with self.subTest(span=span):
+                self.assertIn(f"requires {' or '.join(sorted(need))}",
+                              names.check_call(span, self.tree, self.runners, self.runner_options, self.required) or "")
+        for span in (f"{call} {given} VALUE {other} VALUE", f"{call} {other}", f"{call} --help", call):
+            with self.subTest(span=span):
+                self.assertIsNone(names.check_call(span, self.tree, self.runners, self.runner_options, self.required),
+                                  "naming a command or one of its options is not a call")
 
     def test_prose_record_ids_and_placeholders_are_not_calls(self):
         noun = self.runner.split()[0]
@@ -91,6 +105,15 @@ class RepositoryTests(unittest.TestCase):
                          [[".agents/evals/x/case/prompt.md:1", "closing_order_tags"],
                           [".agents/skills/x/SKILL.md:1", "closing_order_tags"]])
 
+    def test_only_listed_external_transcript_fields_outlive_their_last_code_occurrence(self):
+        external = sorted(names.EXTERNAL)[0]
+        base = self.commit({"tools/reader.py": f"FIELDS = ('{external}', 'unlisted_field')\n",
+                            ".agents/skills/x/SKILL.md": f"Find `{external}` and `unlisted_field` in each line.\n"})
+        self.commit({"tools/reader.py": None})
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual([line.split(": ")[1] for line in result.stdout.splitlines()], ["unlisted_field"])
+
     def test_a_rename_that_updates_the_skill_or_moves_the_name_passes(self):
         base = self.commit({"report/analysis.py": "TAGS = 'closing_order_tags'\n",
                             ".agents/skills/x/SKILL.md": "Read `closing_order_tags`.\n"})
@@ -119,6 +142,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual([line.split(": ")[1] for line in result.stdout.splitlines()],
                          ["templates/gone.md", "references/gone.md"])
+
+    def test_a_fenced_call_missing_a_required_option_is_refused(self):
+        tree, _, _, required = names.command_tree()
+        call, need = next((call, needs[0]) for call, needs in sorted(required.items()) if len(needs) == 1)
+        block = f"```bash\nuv run --frozen python -m cli.main {call} \\\n```\n"
+        self.commit({".agents/skills/x/SKILL.md": block})
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"requires {' or '.join(sorted(need))}", result.stdout)
+        self.commit({".agents/skills/x/SKILL.md": block.replace("\\\n```", f"\\\n  {sorted(need)[0]} VALUE\n```")})
+        self.assertEqual(self.run_check().returncode, 0, self.run_check().stdout)
 
     def test_package_docs_name_only_paths_and_names_the_repository_holds(self):
         live = ("Run `report/measures.py`'s `report.measures.basket_path` (`basket_path`) into `summary.json`; GET "

@@ -61,7 +61,8 @@ after a repair (Codex: `fork_turns: "none"`). Candidates of one batch that diffe
 constants may share one reviewer, which records one four-item review per candidate on its own
 precheck. Api, causal and readiness are source properties,
 activity this precheck's; each guards one risk. The api item covers every native call in the source,
-not only the diff's, against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
+not only the diff's, against the pinned image, whether or not the precheck ran it, and fails a
+container that grows without bound or work per input that grows with the history. Nautilus is compiled: `__doc__` and
 `inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
 `nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
 (below). Activity: the precheck filled orders on every order path the change adds or
