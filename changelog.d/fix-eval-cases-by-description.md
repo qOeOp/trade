@@ -1,0 +1,1 @@
+- `.agents/README.md` also asks a skill change to run the eval cases whose `description` states a rule it changes or removes: `eval-cases.py` matches backticked names only and missed 31 of the 41 existing cases recent skill PRs edited themselves.
