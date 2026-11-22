@@ -221,7 +221,7 @@ docker-api runs the digest in `compose.yaml` (the default of `TRADE_DOCKER_API_I
 release sets), and no pull moves it. A change to `docker-api/` takes two pull requests:
 the change, then, after its `main` build, the digest of `ghcr.io/qoeop/trade-docker-api:sha-<commit>` in `compose.yaml`.
 The next version moves it on a workstation (`deploy/update.sh`) and on the release host
-([remote/README.md](remote/README.md#ledger-mirror-and-market-import)).
+([remote/README.md](remote/README.md#compose-services)).
 Reverting that line goes back to the previous proxy. A `main` build warns while the source is ahead of the pin.
 
 Each restart takes seconds; what it interrupts decides when to make it:

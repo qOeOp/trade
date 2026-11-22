@@ -17,7 +17,8 @@ import sys
 import tempfile
 
 from .source import GitSource
-from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, Registry, sync_directory
+from .registry import Registry
+from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE, sync_directory
 
 
 # Field, env key and pattern.

@@ -11,6 +11,7 @@ from .release_host import (
     DOCKER_API_NETWORK,
     DockerFailure,
     LEDGER,
+    PAPER_ROUTER,
     UNPRIVILEGED,
     Config,
     DockerHost,
@@ -42,7 +43,6 @@ except Exception as e:
 print(json.dumps(out))
 """
 PAPER = "trade-release-paper-"
-PAPER_ROUTER = "trade-ide-paper-router-1"
 CONTROLLERS = "trade-ide_trade-paper-controller"
 # The databases a version reads on the host's ledger service, each by its profile in CONTROLLERS.
 DATABASES = ("research", "paper")
