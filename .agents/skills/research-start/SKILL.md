@@ -157,7 +157,11 @@ kept only as evidence or split into changes of this line's source; the user choo
   is not permission. Otherwise combine the pause request/instructions and the blocking choice in
   one question and end the turn. On an unanswered continuation, a Goal the user resumed included,
   keep that question pending, restate it once and do no work depending on its answer; with none
-  left, end the turn blocked, using the host's notification if it has one, never empty turns. Apply only Goal state changes allowed by the host's
+  left, end the turn blocked, using the host's notification if it has one, never empty turns. While
+  replays or subagents you started run in the background and nothing else can go on, end the turn to
+  wait for their completion notice (with the host's `blocked` state or wait tool, if it has one); never
+  poll their status or output, and end a continuation that comes before the notice without reading
+  either. Apply only Goal state changes allowed by the host's
   permissions and thresholds (including `blocked`), then end the turn. Do not complete/recreate
   the Goal or add polling loops to evade those limits. Report a pause only after it succeeds.
   Never state an approval that no user message gives.
