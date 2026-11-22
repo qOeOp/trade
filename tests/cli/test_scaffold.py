@@ -4,8 +4,10 @@ round to the instrument's terms. No ledger."""
 
 from __future__ import annotations
 
+import ast
 from decimal import Decimal
 import hashlib
+import re
 from pathlib import Path
 import unittest
 
@@ -31,7 +33,7 @@ class ScaffoldTests(unittest.TestCase):
     def setUp(self):
         root = tempdir(self.addCleanup, prefix="scaffold-")
         made = research_commands.candidate_new(str(root / "work"), "fresh", "Fresh")
-        source = Path(made["output"]) / "strategy.py"
+        source = self.source = Path(made["output"]) / "strategy.py"
         self.loaded = load_strategy(source, "Fresh", hashlib.sha256(source.read_bytes()).hexdigest())
         self.engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.OFF,
                                                                                print_config=False)))
@@ -46,6 +48,13 @@ class ScaffoldTests(unittest.TestCase):
             strategy_path=f"engine.run:{run._runner_class(self.loaded).__name__}",
             config_path="engine.run:StrategyInputs", config=inputs.__dict__))
         return strategy_runtime.STRATEGIES[inputs.instrument_id]
+
+    def test_the_module_docstring_is_the_header_to_fill_in(self):
+        header = ast.get_docstring(ast.parse(self.source.read_bytes()), clean=False)
+        self.assertTrue(header.lstrip().startswith("<Strategy name>: "), header[:80])
+        self.assertNotIn("```", header)
+        self.assertEqual(len([line for line in header.splitlines() if re.match(r"[A-I][1-5] .*: <stance> \|", line)]),
+                         27, "one fillable line per duty")
 
     def test_the_sizing_helpers_read_quote_equity_and_refuse_quantities_below_the_terms(self):
         run.add_venue(self.engine, fees())
