@@ -161,10 +161,13 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   it is submitted (rule 5 of `engine/order_rules.py`: Binance's 600 s plus Live's send margin). A
   breach is not sent and the run is refused; naming `bracket`, `submit_order_list`,
   `add_exec_algorithm` or `close_all_positions` anywhere in the file is refused at load.
-- Keep one stop per position, submitted on the entry's first fill, and a target or partial exit as
-  its own reduce-only order. Nautilus's simulated venue (replay, Paper) resizes every accepted
-  reduce-only order of a position to its quantity whenever a fill changes it; Binance does not, so a
-  stop per fill breaches the rule above and a later fill can outgrow the stop in Live. To move a
+- Keep one stop per position, submitted for the position's quantity on the entry's first fill, and a
+  target or partial exit as its own reduce-only order. On the stop's `OrderAccepted` and on each
+  later fill of its position, replace it when it holds less than the position. Nautilus's simulated
+  venue (replay, Paper) resizes an accepted reduce-only order to its position after a fill, but not
+  one still submitted: when an entry fills in parts at one timestamp, the stop sent on the first
+  part is accepted after the last and keeps the first part's quantity (`UNPROTECTED_POSITION`).
+  Binance resizes nothing, and a stop per fill breaches the rule above. To move a
   stop, or replace one smaller than its position, cancel it and submit the new one for the position
   on its `OrderCanceled`: submitted first, the new one would hold more than the position. A rejected
   cancel leaves the old stop working; close with a reduce-only order when the new one is rejected or
