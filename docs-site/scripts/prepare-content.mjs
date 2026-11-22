@@ -27,42 +27,11 @@ for (const [slug, source, englishTitle, chineseTitle] of entries) {
 await writeFile(join(outputRoot, 'meta.json'), JSON.stringify({ title: 'Research Chain' }));
 await writeFile(join(outputRoot, 'meta.zh.json'), JSON.stringify({ title: '研发长链' }));
 // Definition index for <Ref> hover previews, built from the chapter sources; a dangling ref or a duplicate id fails here.
-const map = JSON.parse(await readFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), 'utf8'));
-const index = await buildRdIndex(entries, join(repositoryRoot, 'docs'), map.titles);
+const index = await buildRdIndex(entries, join(repositoryRoot, 'docs'));
 await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-index.json'), JSON.stringify(index));
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-groups.json'), JSON.stringify(groups));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
-// Chapter maps: functions (X.1), components (X.1.1) and capabilities (X.1.1.1) are the chapter's anchored
-// sections in page order; map.json adds only what a page does not state: each capability's kind, the links
-// between capabilities and the titles of components anchored without a heading (read by the index above).
-const chapters = [];
-const tree = new Map();
-for (const [path, { kind, title, slug, where }] of Object.entries(index.zh)) {
-  if (kind === 'table') continue;
-  const depth = path.split('.').length;
-  const parentPath = path.slice(0, path.lastIndexOf('.'));
-  if (depth === 2 && !tree.has(parentPath)) {
-    chapters.push({ prefix: parentPath, slug, functions: [] });
-    tree.set(parentPath, chapters.at(-1));
-  }
-  const parent = tree.get(parentPath);
-  if (!parent) throw new Error(`${path} has no enclosing section ${parentPath}`);
-  if (depth === 2) {
-    const fn = { path, label: where.split(' ')[0], title, components: [] };
-    parent.functions.push(fn);
-    tree.set(path, fn);
-  } else if (depth === 3) {
-    const component = { path, title, caps: [] };
-    parent.components.push(component);
-    tree.set(path, component);
-  } else if (!map.kinds[path]) throw new Error(`Capability ${path} has no kind in docs/rd/map.json`);
-  else parent.caps.push({ path, title, kind: map.kinds[path] });
-}
-for (const path of Object.keys(map.kinds)) {
-  if (index.zh[path]?.kind !== 'capability') throw new Error(`Map capability ${path} has no chapter section`);
-}
-await writeFile(join(siteRoot, 'lib', 'generated', 'rd-map.json'), JSON.stringify({ chapters, links: map.links }));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
 // The trade IDE's faces (ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's

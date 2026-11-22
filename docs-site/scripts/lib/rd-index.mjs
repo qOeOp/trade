@@ -136,7 +136,7 @@ function readRegion(lines) {
 }
 
 /** Builds { zh, en } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
-export async function buildRdIndex(entries, docsRoot, titles) {
+export async function buildRdIndex(entries, docsRoot, titles = {}) {
   const index = { zh: {}, en: {} };
   const pending = { zh: [], en: [] };
   const refs = [];
