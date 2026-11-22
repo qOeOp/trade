@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import urllib.error
+import urllib.parse
 
 from deploy import generation
 from deploy.generation import ARCHIVE, JOURNAL, MOUNTED, VOLUME, Generation, OriginUnreadable
@@ -23,7 +24,7 @@ A, B = "a" * 40, "b" * 40
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64
 TARGET = {"revision": B, "service": SERVICE}
 BASE = "https://doltremoteapi.dolthub.com/owner/research"
-ORIGIN = BASE + "-g2"
+HEAD = "h" * 32
 
 
 def fill(data: Path) -> Path:
@@ -46,6 +47,8 @@ class Docker:
         self.volumes = {VOLUME}
         self.fail: str | None = None
         self.seconds = 0  # the longest each command may take, summed
+        self.line = "v0.6"  # the version's line
+        self.where = {"remote": BASE, "lines": ["v0.5"], "head": HEAD}  # where the host's mirror is
 
     def __call__(self, *args, timeout=120, **_):
         self.calls.append(args)
@@ -71,7 +74,9 @@ class Docker:
             generation.main(command)
             return ""
         if args[0] == "run" and generation.ORIGIN in args:
-            return json.dumps({"origin": ORIGIN, "research": 2, "paper": 1})
+            return json.dumps({"line": self.line, "research": 2, "paper": 1})
+        if args[0] == "run" and generation.WHERE in args:
+            return json.dumps(self.where)
         return ""
 
 
@@ -82,6 +87,7 @@ class Host:
         self.composed: list[tuple] = []
         self.compose_fail = False
         self.pulled: set[str] = set()  # images present; compose runs with --pull never
+        self.renames = True
 
     def pull(self, reference, pattern, sha=None):
         self.docker.seconds += 600
@@ -106,6 +112,11 @@ class Host:
         self.composed.append(args)
         self.docker.seconds += timeout
         self.docker.containers.add({"ledger": LEDGER, "market-import": MARKET_IMPORT}[args[-1]])
+        where = self.docker.where
+        if args[-1] == "ledger" and where["remote"] == BASE + "-g2" and self.renames:
+            self.docker.where = {**where, "remote": BASE, "lines": []}  # the version's mirror renamed its origin
+        elif args[-1] == "ledger" and where["remote"] == BASE and where["lines"] != [self.docker.line]:
+            self.docker.where = {**where, "lines": [self.docker.line]}  # a new generation's mirror of its line
         return ""
 
     def probe(self, web, path, routed=False):
@@ -122,6 +133,9 @@ class Paper:
 
     def generations(self, service):
         return self.unread
+
+    def common(self):
+        return []
 
     def disk_route(self):
         return PAPER + A
@@ -174,17 +188,22 @@ class GenerationTests(unittest.TestCase):
         self.release.github.approved.return_value = TARGET
         self.generation = Generation(self.release)
         self.published = ("data", "2")
+        self.held = True  # whether the repository's branch v0.5 holds the mirror's head
         sleep = patch.object(generation.time, "sleep")
         sleep.start()
         self.addCleanup(sleep.stop)
 
     def due(self) -> bool:
+        unread = self.paper.unread
+
         def after_start(service):
             # The version reads the ledger once the cutover started it.
-            return {} if any(call[-1] == "ledger" for call in self.host.composed) else {"research": "2"}
+            started = any(call[-1] == "ledger" for call in self.host.composed)
+            return {} if started or not unread else dict(unread)
 
         self.paper.generations = after_start
-        with patch.object(generation, "probe", side_effect=lambda origin: self.published):
+        with patch.object(generation, "probe", side_effect=lambda origin, line: self.published), \
+                patch.object(generation, "contains", side_effect=lambda origin, line, head: self.held):
             return self.generation.due(TARGET, A)
 
     def journal(self) -> dict | None:
@@ -197,16 +216,97 @@ class GenerationTests(unittest.TestCase):
         self.assertTrue((self.data / "dolt/service.json").exists())
         self.assertEqual(self.host.composed, [])
 
-    def test_a_version_that_reads_the_host_ledger_changes_nothing(self):
+    def test_a_version_of_the_host_ledger_s_line_changes_nothing(self):
         self.paper.unread = {}
+        self.docker.line = "v0.5"
         self.assertFalse(self.generation.due(TARGET, A))
         self.assertUntouched()
         self.assertEqual(self.release.waits, {})
 
+    def test_another_line_starts_a_new_generation_even_with_the_same_schema(self):
+        self.paper.generations = lambda service: {}
+        with patch.object(generation, "probe", return_value=self.published) as probe:
+            self.assertTrue(self.generation.due(TARGET, A))
+        probe.assert_called_once_with(BASE, "v0.6")
+        self.assertEqual((self.journal()["kind"], self.journal()["line"], self.journal()["phase"]),
+                         ("cutover", "v0.6", "archived"))
+
+    def test_a_schema_change_within_the_line_waits_and_changes_nothing(self):
+        self.docker.line = "v0.5"
+        self.assertTrue(self.generation.due(TARGET, A))
+        self.assertUntouched()
+        self.assertIn("a schema change needs a new line", self.release.waits[f"wait:generation:{B}:schema"])
+
+    def test_a_mirror_that_has_not_fetched_its_line_waits(self):
+        self.paper.unread = {}
+        self.docker.where = {"remote": BASE, "lines": [], "head": HEAD}
+        self.assertTrue(self.generation.due(TARGET, A))
+        self.assertUntouched()
+        self.assertIn(f"wait:generation:{B}:mirror", self.release.waits)
+
+    def test_a_mirror_of_another_repository_fails_the_tick_and_changes_nothing(self):
+        self.paper.unread = {}
+        self.docker.where = {"remote": "https://doltremoteapi.dolthub.com/someone/else-g2", "lines": ["main"],
+                             "head": HEAD}
+        with self.assertRaisesRegex(RuntimeError, "not to .*owner/research"):
+            self.generation.due(TARGET, A)
+        self.assertUntouched()
+
+    def test_the_v0_5_mirror_moves_only_once_v0_5_holds_its_head(self):
+        self.docker.line = "v0.5"
+        self.docker.where = {"remote": BASE + "-g2", "lines": ["main"], "head": HEAD}
+        self.paper.unread = {}
+        self.held = False
+        self.assertTrue(self.due())
+        self.assertUntouched()
+        self.assertIn(f"does not hold the mirror's head {HEAD}", self.release.waits[f"wait:generation:{B}:published"])
+        self.held = True
+        self.assertTrue(self.due())
+        self.assertEqual(self.journal(), {"kind": "move", "line": "v0.5", "revision": B, "service": SERVICE,
+                                          "phase": "started", "market": "stopped"})
+        self.assertEqual([call[-1] for call in self.host.composed], ["ledger"], "the version's ledger alone")
+        self.assertEqual(self.docker.where["remote"], BASE)
+        self.assertFalse([call for call in self.docker.calls if call[0] in ("stop", "rm") or "deploy.generation" in call],
+                         "nothing is archived")
+        self.assertIn(VOLUME, self.docker.volumes, "the volume holds the host's Paper database too")
+        self.assertTrue((self.data / "dolt/service.json").exists())
+        self.assertEqual(self.live.inspected, [WEB + B], "the same hold as a cutover")
+        self.assertTrue(self.generation.done(), "a rollback's version would refuse the moved mirror")
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "done")
+        self.assertFalse([call for call in self.docker.calls if "deploy.generation" in call], "no archive is pruned")
+        self.docker.line = "v0.6"  # 0.6.0 itself on a v0.5 mirror of that repository: a new generation
+        self.docker.where = {"remote": BASE + "-g2", "lines": ["main"], "head": HEAD}
+        self.assertEqual(generation.place(self.docker.where, {"origin": BASE, "line": "v0.6"}), "cutover")
+
+    def test_a_move_waits_when_the_mirror_synced_past_the_line_before_the_hold(self):
+        self.docker.line = "v0.5"
+        before = {"remote": BASE + "-g2", "lines": ["main"], "head": HEAD}
+        self.paper.unread = {}
+        newer = "n" * 32
+        reads = [before, {**before, "head": newer}]
+        with patch.object(self.generation, "where", side_effect=lambda service: reads.pop(0)), \
+                patch.object(generation, "probe", side_effect=lambda origin, line: self.published), \
+                patch.object(generation, "contains", side_effect=lambda origin, line, head: head == HEAD):
+            self.assertTrue(self.generation.due(TARGET, A))
+        self.assertEqual(reads, [], "read again inside the hold")
+        self.assertUntouched()
+        self.assertIn(f"does not hold the mirror's head {newer}", self.release.waits[f"wait:generation:{B}:published"])
+        self.assertEqual(self.paper.frozen[-1:], [None], "Paper's writes are never left paused")
+
+    def test_a_mirror_that_did_not_move_fails_the_tick_and_keeps_the_journal(self):
+        self.docker.line = "v0.5"
+        self.docker.where = {"remote": BASE + "-g2", "lines": ["main"], "head": HEAD}
+        self.paper.unread = {}
+        self.host.renames = False
+        with self.assertRaisesRegex(RuntimeError, "does not follow the research repository"):
+            self.due()
+        self.assertEqual(self.journal()["phase"], "archived")
+
     def test_it_waits_with_one_notice_while_any_condition_is_unmet(self):
         cases = {
             "paper": lambda: setattr(self.docker, "runners", ["trade-paper-7-runner"]),
-            "published": lambda: setattr(self, "published", ("empty", None)),
+            "published": lambda: setattr(self, "published", ("other", None)),
             "live": lambda: setattr(self.live, "busy", True),
             "origin": lambda: setattr(self.host, "config", Config(state=self.host.state, data=self.data)),
         }
@@ -221,11 +321,19 @@ class GenerationTests(unittest.TestCase):
                 self.assertEqual(self.paper.frozen[-1:], [None] if self.paper.frozen else [],
                                  "Paper's writes are never left paused")
         self.setUp()
-        self.published = ("data", "1")  # an earlier generation's ledger under that name: not this version's
+        self.published = ("data", "1")  # another schema generation's ledger on that line: not this version's
         self.assertTrue(self.due())
         self.assertUntouched()
         self.setUp()
         with patch.object(generation, "probe", side_effect=OriginUnreadable("DoltHub answered HTTP 503")):
+            self.assertTrue(self.generation.due(TARGET, A))
+        self.assertUntouched()
+        self.assertIn("HTTP 503", self.release.waits[f"wait:generation:{B}:dolthub"])
+        self.setUp()
+        self.docker.line = "v0.5"
+        self.paper.unread = {}
+        self.docker.where = {"remote": BASE + "-g2", "lines": ["main"], "head": HEAD}
+        with patch.object(generation, "contains", side_effect=OriginUnreadable("DoltHub answered HTTP 503")):
             self.assertTrue(self.generation.due(TARGET, A))
         self.assertUntouched()
         self.assertIn("HTTP 503", self.release.waits[f"wait:generation:{B}:dolthub"])
@@ -332,22 +440,42 @@ class GenerationTests(unittest.TestCase):
     def test_a_ledger_the_version_still_does_not_read_fails_the_tick_and_keeps_the_journal(self):
         self.paper.generations = lambda service: {"research": "2"}
         with patch.object(generation, "probe", return_value=self.published):
-            self.generation.cut(TARGET, A)
+            self.generation.cut(TARGET, A, {"origin": BASE, "line": "v0.6", "research": 2})
         with self.assertRaisesRegex(RuntimeError, "not the version's schema generation"):
             self.generation.resume(B)
         self.assertEqual(self.journal()["phase"], "archived")
 
     def test_a_journal_of_another_shape_is_refused(self):
-        (self.host.state / JOURNAL).write_text(json.dumps({"revision": B, "phase": "archiving"}))
-        with self.assertRaisesRegex(RuntimeError, "not in this control's format"):
-            self.generation.resume(B)
-        self.assertFalse(self.generation.done())
+        whole = {"kind": "cutover", "line": "v0.6", "revision": B, "service": SERVICE,
+                 "archive": "20261123T000000Z-" + B[:12], "phase": "archiving", "market": "stopped"}
+        for value in ({"revision": B, "phase": "archiving"}, {**whole, "kind": "other"}, {**whole, "archive": None},
+                      {**whole, "kind": "move"}, {**whole, "line": "main"},
+                      {key: value for key, value in whole.items() if key != "archive"}):
+            with self.subTest(value=value):
+                (self.host.state / JOURNAL).write_text(json.dumps(value))
+                with self.assertRaisesRegex(RuntimeError, "not in this control's format"):
+                    self.generation.resume(B)
+                self.assertFalse(self.generation.done())
+
+    def test_a_newer_control_takes_over_a_cutover_of_its_own_line_only(self):
+        self.docker.fail = "--workdir"
+        with self.assertRaises(RuntimeError):
+            self.due()
+        newer = {"revision": "c" * 40, "service": SERVICE}
+        self.release.github.approved.return_value = newer
+        self.docker.line = "v0.7"
+        with self.assertRaisesRegex(RuntimeError, "pending for another line"):
+            self.generation.resume(newer["revision"])
+        self.assertEqual(self.journal()["revision"], B)
+        self.docker.line = "v0.6"
+        self.assertTrue(self.generation.resume(newer["revision"]))
+        self.assertEqual((self.journal()["revision"], self.journal()["phase"]), (newer["revision"], "archived"))
 
 
 class ProbeTests(unittest.TestCase):
     def answer(self, value=None, status=200, error=None):
         def opener(request, timeout):
-            self.assertTrue(request.full_url.startswith(generation.API + "owner/research-g2/main?q="))
+            self.assertTrue(request.full_url.startswith(generation.API + "owner/research/v0.6?q="))
             if error is not None:
                 raise error
             body = io.BytesIO(json.dumps(value).encode())
@@ -358,12 +486,12 @@ class ProbeTests(unittest.TestCase):
 
     def test_a_repository_holds_a_ledger_holds_none_or_does_not_exist(self):
         ok = {"query_execution_status": "Success", "rows": [{"version": "2"}]}
-        self.assertEqual(generation.probe(ORIGIN, self.answer(ok)), ("data", "2"))
+        self.assertEqual(generation.probe(BASE, "v0.6", self.answer(ok)), ("data", "2"))
         missing = {"query_execution_status": "Error", "query_execution_message": "no such repository"}
-        self.assertEqual(generation.probe(ORIGIN, self.answer(missing, 400)), ("absent", None))
-        for message in generation.NO_LEDGER:
+        self.assertEqual(generation.probe(BASE, "v0.6", self.answer(missing, 400)), ("absent", None))
+        for message, state in ((generation.NO_BRANCH, "empty"), (generation.NO_TABLE, "other")):
             empty = {"query_execution_status": "Error", "query_execution_message": message}
-            self.assertEqual(generation.probe(ORIGIN, self.answer(empty)), ("empty", None))
+            self.assertEqual(generation.probe(BASE, "v0.6", self.answer(empty)), (state, None))
 
     def test_any_other_answer_is_unreadable_never_an_empty_repository(self):
         for value in ({"query_execution_status": "Error", "query_execution_message": "query error: timeout"},
@@ -371,15 +499,53 @@ class ProbeTests(unittest.TestCase):
                       {"query_execution_status": "Success", "rows": [{"other": "2"}]},
                       {"query_execution_status": "Running"}, {}):
             with self.subTest(value=value), self.assertRaises(OriginUnreadable):
-                generation.probe(ORIGIN, self.answer(value))
+                generation.probe(BASE, "v0.6", self.answer(value))
 
     def test_no_answer_is_unreadable_never_a_guess(self):
         with self.assertRaises(OriginUnreadable):
-            generation.probe(ORIGIN, self.answer(error=OSError("unreachable")))
+            generation.probe(BASE, "v0.6", self.answer(error=OSError("unreachable")))
         def html(request, timeout):
             raise urllib.error.HTTPError(request.full_url, 502, "", {}, io.BytesIO(b"<html>"))
         with self.assertRaisesRegex(OriginUnreadable, "502"):
-            generation.probe(ORIGIN, html)
+            generation.probe(BASE, "v0.6", html)
+
+
+class ContainsTests(unittest.TestCase):
+    def answer(self, value):
+        def opener(request, timeout):
+            self.assertTrue(request.full_url.startswith(generation.API + "owner/research/v0.5?q="))
+            self.assertIn(HEAD, urllib.parse.unquote(request.full_url))
+            return io.BytesIO(json.dumps(value).encode())
+        return opener
+
+    def test_a_branch_holds_a_commit_or_not_and_anything_else_is_unreadable(self):
+        for n, held in (("1", True), ("0", False), (1, True)):
+            value = {"query_execution_status": "Success", "rows": [{"n": n}]}
+            self.assertIs(generation.contains(BASE, "v0.5", HEAD, self.answer(value)), held)
+        missing = {"query_execution_status": "Error", "query_execution_message": "query error: branch not found"}
+        self.assertFalse(generation.contains(BASE, "v0.5", HEAD, self.answer(missing)))
+        for value in ({"query_execution_status": "Error", "query_execution_message": "no such repository"},
+                      {"query_execution_status": "Success", "rows": [{"n": "2"}]},
+                      {"query_execution_status": "Success", "rows": []}):
+            with self.subTest(value=value), self.assertRaises(OriginUnreadable):
+                generation.contains(BASE, "v0.5", HEAD, self.answer(value))
+        with self.assertRaisesRegex(RuntimeError, "not a Dolt commit"):
+            generation.contains(BASE, "v0.5", "x' OR '1'='1", self.answer({}))
+
+
+class VersionTests(unittest.TestCase):
+    def test_the_version_s_line_comes_from_its_code_and_the_base_is_the_repository_itself(self):
+        docker = Mock(return_value=json.dumps({"line": "v0.5", "research": 2, "paper": 1}))
+        self.assertEqual(generation.version(docker, SERVICE, BASE),
+                         {"line": "v0.5", "research": 2, "paper": 1, "origin": BASE})
+        for base, text in ((BASE + "-g2", "repository of one generation"), ("file:///tmp/r", "DoltHub repository"),
+                           (BASE + "/x", "DoltHub repository")):
+            with self.subTest(base=base), self.assertRaisesRegex(RuntimeError, text):
+                generation.version(docker, SERVICE, base)
+        for line in (None, "main", "v0", "v01"):
+            docker.return_value = json.dumps({"line": line, "research": 2, "paper": 1})
+            with self.subTest(line=line), self.assertRaisesRegex(RuntimeError, "publishes no version line"):
+                generation.version(docker, SERVICE, BASE)
 
 
 class ArchiveTests(unittest.TestCase):

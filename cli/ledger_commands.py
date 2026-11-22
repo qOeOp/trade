@@ -213,22 +213,21 @@ def _ledger_init(args):
 
 
 def _ledger_service(args):
-    from ledger import publish, service
+    from ledger import service
     if args.action == "check":
         return service.check(db.profile(args.ledger, holds=None))  # each database its own schema
     if args.action == "run":
         if not (args.service_root and args.data_dir and args.backup_root):
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
-        origin = publish.research_origin(args.research_origin) if args.research_origin else args.research_origin
-        return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials, origin,
+        return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials, args.research_origin,
                            args.port, args.readers, args.setup, args.controllers)
     return ledger_service(db.profile(args.ledger, holds=None), args.action)  # a profile of either content
 
 
 def ledger_mirror(args):
-    from ledger import publish, replica
-    return replica.run(args.service_root, args.data_dir, args.backup_root, publish.research_origin(args.research_origin),
-                       args.port, args.readers, args.controllers, args.http_host, args.http_port, args.hosts)
+    from ledger import replica
+    return replica.run(args.service_root, args.data_dir, args.backup_root, args.research_origin, args.port,
+                       args.readers, args.controllers, args.http_host, args.http_port, args.hosts)
 
 
 def ledger_sync(args):
@@ -321,7 +320,7 @@ COMMANDS = [
          option("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)"),
          option("--backup-root", type=Path, help="run: the directory holding each database's backup"),
          option("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key"),
-         option("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to; a DoltHub repository is read as <repository>-g<N>, N this version's schema generation"),
+         option("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to; the ledger is the repository's branch of this version's line (v0.<minor>, from 1.0 v<major>)"),
          option("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)"),
          option("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                 "containers that only read"),
@@ -342,8 +341,8 @@ COMMANDS = [
              ("readers", "a directory for the reader-only service.json of containers that only read"),
              ("controllers", "a private directory for the Paper controller's service and profile files"))),
          option("--research-origin", required=True,
-                help="the public DoltHub repository the research mirror follows, read as <repository>-g<N>, N this "
-                     "version's schema generation (file:// for isolated verification)"),
+                help="the public DoltHub repository whose branch of this version's line (v0.<minor>, from 1.0 "
+                     "v<major>) the research mirror follows (file:// for isolated verification)"),
          option("--port", type=int, default=13330, help="the Dolt port to listen on (default: 13330)"),
          option("--http-host", default="127.0.0.1", help="address of the internal sync API (default: 127.0.0.1)"),
          option("--http-port", type=int, default=8769, help="port of the internal sync API (default: 8769)"),

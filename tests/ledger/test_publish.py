@@ -55,12 +55,13 @@ class PublishTests(unittest.TestCase):
         home = tempdir(self.addCleanup, prefix="cl-", dir="/tmp")
         environment = {**os.environ, "DOLT_ROOT_PATH": str(home)}
         server.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
-        subprocess.run([BINARY, "clone", self.url, str(home / "c")], env=environment, check=True, capture_output=True)
+        subprocess.run([BINARY, "clone", "--branch", publish.LINE, self.url, str(home / "c")], env=environment, check=True,
+                       capture_output=True)
         return home / "c", environment
 
     def remote_head(self) -> str:
         copy, environment = self.clone()
-        return subprocess.run([BINARY, "sql", "-r", "csv", "-q", "SELECT hash FROM dolt_branches WHERE name = 'main'"],
+        return subprocess.run([BINARY, "sql", "-r", "csv", "-q", f"SELECT hash FROM dolt_branches WHERE name = '{publish.LINE}'"],
                               cwd=copy, env=environment, check=True, capture_output=True, text=True).stdout.split()[-1]
 
     def command(self, *argv) -> dict:
@@ -88,7 +89,7 @@ class PublishTests(unittest.TestCase):
 
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
-                          ("push", "origin", "main")):
+                          ("push", "origin", publish.LINE)):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         changed = self.remote_head()
         strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "after the remote changed")
@@ -265,7 +266,7 @@ class PublishTests(unittest.TestCase):
         publish.publish(self.profile)
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
-                          ("push", "origin", "main")):
+                          ("push", "origin", publish.LINE)):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         self.write("second")
         self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_REJECTED")

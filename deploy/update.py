@@ -12,8 +12,9 @@ now runs the definition, and then removes what nothing uses: replay containers l
 anonymous volumes, and images no container runs that the definition, the env file or a non-`pr-` tag does not name:
 this repository's and nameless (dangling) ones. `--check` reports and changes nothing.
 
-Before `up -d`, a version whose code reads another ledger schema generation starts a new data generation here
-(`Cutover`, deploy/generation.py).
+Before `up -d`, a version of another line than this ledger starts a new data generation here (`Cutover`,
+deploy/generation.py); the first 0.5.3 update moves the v0.5 ledger from 0.5.2's repository of its generation to the
+research repository's branch v0.5.
 """
 
 import argparse
@@ -26,7 +27,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.error
 import urllib.request
 
 from . import generation
@@ -39,7 +39,6 @@ PROJECT = "trade-ide"
 LEDGER = f"{PROJECT}-ledger-1"
 NETWORK = f"{PROJECT}_default"
 CONTROLLERS = f"{PROJECT}_trade-paper-controller"  # what ledger writes for Paper: its profiles and service file
-TOKEN = "TRADE_DOLTHUB_TOKEN_FILE"  # optional: a DoltHub API token, with which an update creates a new repository
 SERVICES = ("ide", "ledger", "market-import", "paper", "docker-api")
 VERSIONED = ("ide", "ledger", "market-import", "paper")  # docker-api moves with its pin, not the revision
 REPOSITORIES = tuple(f"ghcr.io/qoeop/trade-{name}" for name in ("ide", "service", "runtime", "docker-api"))
@@ -201,108 +200,111 @@ def kept_references(docker: Docker, base: list[str], values: dict[str, str]) -> 
     return [*values.values(), *docker(*base, "config", "--images").split(), "ghcr.io/qoeop/trade-runtime:main"]
 
 
-def create_repository(origin: str, token: Path, opener=urllib.request.urlopen) -> None:
-    """Create DoltHub repository `origin`, empty and public, with the API token in file `token` (read here only,
-    never printed). Without the file the update stops before it changes anything and names the repository."""
-    owner, name = origin.removeprefix(generation.HOST).split("/")
-    if not token.is_file():
-        raise RuntimeError(
-            f"the new data generation's DoltHub repository {owner}/{name} does not exist. Create it, empty and public, "
-            f"on dolthub.com, or put a DoltHub API token in {token} ({TOKEN} in the env file names another file) so "
-            "an update creates it; then update again. Nothing was changed")
-    body = json.dumps({"ownerName": owner, "repoName": name, "visibility": "public",
-                       "description": "The public research ledger of one data generation"}).encode()
-    request = urllib.request.Request(f"{generation.API}database", data=body, method="POST", headers={
-        "authorization": f"token {token.read_text().strip()}", "Content-Type": "application/json",
-        "User-Agent": "trade-deploy"})
-    try:
-        with opener(request, timeout=30):
-            pass
-    except urllib.error.HTTPError as error:
-        error.close()
-        raise RuntimeError(f"DoltHub refused to create {owner}/{name} (HTTP {error.code}); nothing was changed") \
-            from None
-    except OSError as error:
-        raise RuntimeError(f"DoltHub did not answer ({type(error).__name__}); nothing was changed") from None
-    print(f"Created the public DoltHub repository {owner}/{name}", flush=True)
-
-
 class Cutover:
     """A new data generation on this workstation (deploy/generation.py; docs/plans/data-generation-in-release-
-    20261123.zh.md): when the admitted version's own `ledger service check` refuses this ledger with SCHEMA_MISMATCH,
-    publish what the old ledger holds, make sure its new DoltHub repository exists, stop the project, archive the
-    ledger's data under $TRADE_DATA/archive/, start the ledger alone (its first start makes and publishes the new
-    ledger, or clones the one already published), put market.json back and keep only this archive. The journal
-    $TRADE_DATA/deploy/generation.json lets the next update finish an interrupted cutover from its step."""
+    20261123.zh.md, docs/plans/version-line-branches-20261123.zh.md): when the admitted version is of another line
+    than this ledger, publish what the old ledger holds, check the research repository, stop the project, archive the
+    ledger's data under $TRADE_DATA/archive/, start the ledger alone (its first start makes and publishes the line's
+    ledger as the repository's branch of that line, or fetches the one already published), put market.json back and
+    keep only this archive. The journal $TRADE_DATA/deploy/generation.json lets the next update finish an interrupted
+    cutover from its step. A move (deploy/generation.py) publishes the old ledger, then starts the version's ledger,
+    which renames its origin, and publishes it as v0.5."""
 
     def __init__(self, docker: Docker, env: Path, data: Path, sha: str, service: str, opener=urllib.request.urlopen):
         self.docker, self.env, self.data, self.sha, self.service, self.opener = docker, env, data, sha, service, opener
         self.journal = data / "deploy" / generation.JOURNAL
+        self.wanted: dict = {}
 
     def pending(self) -> dict | None:
         """The journal of a cutover an earlier update left."""
         if not self.journal.exists():
             return None
         value = json.loads(self.journal.read_text())
-        if (not isinstance(value, dict) or set(value) != {"revision", "archive", "phase"}
-                or value["phase"] not in generation.PHASES[:2] or not generation.ARCHIVE_NAME.fullmatch(value["archive"])):
+        if (not isinstance(value, dict) or set(value) != {"revision", "line", "archive", "phase"}
+                or value["phase"] not in generation.PHASES[:2] or not generation.ARCHIVE_NAME.fullmatch(value["archive"])
+                or not isinstance(value["line"], str) or not generation.LINE.fullmatch(value["line"])):
             raise RuntimeError(f"{self.journal} is not a cutover journal this version writes; left as it is")
+        self.docker("pull", "--quiet", self.service)
+        line = generation.version(self.docker, self.service, read_env(self.env).get("TRADE_RESEARCH_ORIGIN") or "")[
+            "line"]
+        if line != value["line"]:  # its archive is that line's ledger, which this version would not start
+            raise RuntimeError(f"a data generation cutover to {value['line']} is pending, but version {self.sha} "
+                               f"publishes its ledger as {line}; update to a version of {value['line']} to finish it")
         return value
 
-    def unread(self, running: dict[str, dict]) -> dict[str, str]:
-        """The databases this ledger holds that the version's code does not read (its schema generation, "" when
-        the refusal names none). The check runs read-only in a container of the version's service image with
-        Paper's profiles, as on the release host (deploy/paper_host.py generations)."""
-        item = running.get("ledger")
-        if item is None:
-            return {}  # a first start: there is nothing to compare
-        if item["state"] != "running":
-            raise RuntimeError("the ledger is not running, so its schema generation cannot be compared with the "
-                               f"version's; start it (docker start {LEDGER}) and update again")
-        user = self.docker("inspect", "--format", "{{.Config.User}}", LEDGER).strip()
-        self.docker("pull", "--quiet", self.service)
-        found = {}
-        for database in DATABASES:
-            result = self.docker.result(
-                "run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=16777216", "--user", user,
+    def reading(self, user: str) -> list[str]:
+        """`docker run` arguments of a read-only container of the version's service image with Paper's profiles (the
+        research reader among them), as on the release host (deploy/paper_host.py generations)."""
+        return ["run", "--rm", "--init", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=16777216", "--user", user,
                 "--network", NETWORK, "--env", "TRADE_DOLT_HOST=ledger", "--env",
                 "TRADE_LEDGER_HOME=/run/trade/paper-profiles", "--env", "HOME=/tmp", "--mount",
                 f"type=volume,src={CONTROLLERS},dst=/run/trade/paper-profiles,readonly", "--mount",
-                f"type=volume,src={CONTROLLERS},dst={self.data / 'dolt'},readonly", self.service, "python", "-m",
-                "cli.main", "ledger", "service", "check", "--ledger", database)
+                f"type=volume,src={CONTROLLERS},dst={self.data / 'dolt'},readonly"]
+
+    def assess(self, running: dict[str, dict], check: bool = False) -> tuple[dict[str, str], str]:
+        """What the version does with this ledger (generation.place: "same", "cutover" or "move"; "first" without
+        one) and the databases its code does not read (their schema generation, "" when the refusal names none). Both
+        are read by the version's own code, read-only, in containers of its service image."""
+        item = running.get("ledger")
+        if item is None:
+            if (self.data / "dolt" / "service.json").exists():  # only whether it exists: it holds passwords
+                raise RuntimeError(f"the ledger has data ({self.data / 'dolt'}) but no container, so its line cannot "
+                                   "be compared with the version's; start it (docker compose up -d ledger with the "
+                                   "current definition) and update again")
+            return {}, "first"  # a first start: there is nothing to compare
+        if item["state"] != "running":
+            raise RuntimeError("the ledger is not running, so its line cannot be compared with the version's; start "
+                               f"it (docker start {LEDGER}) and update again")
+        user = self.docker("inspect", "--format", "{{.Config.User}}", LEDGER).strip()
+        self.docker("pull", "--quiet", self.service)
+        named = read_env(self.env).get("TRADE_RESEARCH_ORIGIN")
+        # Unnamed: the repository the ledger publishes to, without 0.5.2's generation suffix; named below once checked.
+        base = named or generation.GENERATION.sub("", self.where(user).get("remote") or "")
+        if not base:
+            raise RuntimeError(f"{self.env} names no TRADE_RESEARCH_ORIGIN and the ledger publishes nowhere; name the "
+                               "DoltHub repository of the research ledger there and update again")
+        self.wanted = generation.version(self.docker, self.service, base)
+        found = {}
+        for database in DATABASES:
+            result = self.docker.result(*self.reading(user), self.service, "python", "-m", "cli.main", "ledger",
+                                        "service", "check", "--ledger", database)
             if result.returncode:
                 refusal = printed_refusal(result.stderr)
                 if refusal is None or refusal["code"] != "SCHEMA_MISMATCH":
                     raise RuntimeError(f"the version's ledger check of {database} failed: {result.stderr[-400:]}")
                 expected = refusal.get("expected")
                 found[database] = expected if isinstance(expected, str) else ""
-        if not found:
-            self.same_origin()
-        return found
+        how = generation.place(self.where(user), self.wanted)
+        if how == "unpublished" and check:
+            print("The ledger has not published to its line since its origin was renamed: an update publishes it")
+        elif how == "unpublished":  # a ledger that has not published to its line since its origin was renamed
+            self.publish()
+            how = generation.place(self.where(user), self.wanted)
+            if how == "unpublished":
+                raise RuntimeError("the ledger has not published to its line; publish it (`ledger publish`) and "
+                                   "update again")
+        if found and how != "cutover":
+            raise RuntimeError(f"version {self.sha} reads another schema generation of {' and '.join(sorted(found))} "
+                               f"within this ledger's line {self.wanted['line']}; a schema change needs a new line (a "
+                               "new minor version before 1.0). Nothing was changed")
+        if not named and not check:
+            write_env(self.env, {"TRADE_RESEARCH_ORIGIN": base})  # once: every line is a branch of it
+        return found, how
 
-    def same_origin(self) -> None:
-        """Refuse a ledger the version reads that publishes elsewhere than the version's repository for this
-        generation: the release host would wait for that repository forever. The running ledger answers from its
-        own profile (`ledger service status`), as its publish does."""
-        base = read_env(self.env).get("TRADE_RESEARCH_ORIGIN")
-        if not base:
-            return
-        result = self.docker.result("exec", LEDGER, "python", "-m", "cli.main", "ledger", "service", "status",
-                                    "--ledger", "research")
+    def where(self, user: str) -> dict:
+        """Where the ledger publishes (ledger/publish.py where), read by the version's own code."""
+        result = self.docker.result(*self.reading(user), "--entrypoint", "python", self.service, "-c",
+                                    generation.WHERE)
         try:
-            stored = json.loads(result.stdout).get("remote") if result.returncode == 0 else None
+            value = json.loads(result.stdout) if result.returncode == 0 else None
         except ValueError:
-            stored = None
-        if not isinstance(stored, str):
+            value = None
+        if not isinstance(value, dict):
             raise RuntimeError(f"the ledger did not say where it publishes: {result.stderr.strip()[-300:]}")
-        wanted = generation.version(self.docker, self.service, base)["origin"]
-        if stored != wanted:
-            raise RuntimeError(f"this ledger publishes to {stored}, but the version's repository for its generation is "
-                               f"{wanted} (TRADE_RESEARCH_ORIGIN {base}), where the release host waits for it; "
-                               "nothing was changed. Report it: moving a ledger's public copy is the user's decision")
+        return value
 
     def publish(self) -> str | None:
-        """Push what the old ledger holds to its own DoltHub repository; the repository, or None when it failed."""
+        """Push what the ledger holds to its repository; the repository, or None when it failed."""
         result = self.docker.result("exec", LEDGER, "python", "-m", "cli.main", "ledger", "publish", "--ledger",
                                     "research")
         try:
@@ -310,43 +312,66 @@ class Cutover:
         except ValueError:
             remote = None
         if not isinstance(remote, str):
-            print(f"update: the old ledger's publish failed: {result.stderr.strip()[-300:]}", flush=True)
+            print(f"update: the ledger's publish failed: {result.stderr.strip()[-300:]}", flush=True)
             return None
-        print(f"Published the old ledger to {remote}", flush=True)
+        print(f"Published the ledger to {remote}", flush=True)
         return remote
+
+    def move(self, check: bool) -> None:
+        """Before anything changes: publish what the old ledger holds to its repository of one generation, whose
+        `main` the move leaves as it is."""
+        print(f"Version {self.sha} moves this ledger to {self.wanted['line']} of {self.wanted['origin']}", flush=True)
+        if check:
+            print("An update would publish the ledger, start the version's ledger (it renames its origin) and "
+                  f"publish it as {self.wanted['line']}")
+            return
+        if self.publish() is None:
+            raise RuntimeError("the ledger's publish failed, so its old public copy may lack what this ledger holds; "
+                               "fix the publish (the ledger's log, `ledger publish`) and update again; nothing was "
+                               "changed")
+
+    def moved(self, base: list[str]) -> None:
+        """Start the version's ledger (it renames its origin) and publish it as its line."""
+        self.docker(*base, "up", "--detach", "--wait", "--wait-timeout", "1800", "ledger")
+        remote = self.publish()
+        if remote != self.wanted["origin"]:
+            raise RuntimeError(f"the moved ledger published to {remote}, not {self.wanted['origin']}; its own "
+                               "publish rounds retry, and the next update checks again")
+        print(f"The ledger now publishes as {self.wanted['line']} of {remote}", flush=True)
 
     def begin(self, found: dict[str, str], check: bool) -> dict | None:
         """Everything the cutover needs before it changes anything; its journal, or None with --check."""
-        values = read_env(self.env)
-        named = " and ".join(f"{database} (the version reads generation {expected or '?'})"
-                             for database, expected in sorted(found.items()))
-        print(f"Version {self.sha} does not read this ledger's {named}: it starts a new data generation", flush=True)
+        line = self.wanted["line"]
+        named = "".join(f"; it does not read this ledger's {database} (the version reads generation {expected or '?'})"
+                        for database, expected in sorted(found.items()))
+        print(f"Version {self.sha} publishes its ledger as {line}{named}: it starts a new data generation", flush=True)
         if check:
             print("An update would publish the old ledger, archive it under "
-                  f"{self.data / generation.ARCHIVE} and start the new generation's ledger")
+                  f"{self.data / generation.ARCHIVE} and start the line's ledger")
             return None
-        published = self.publish()
-        if published is None:
-            # The old generation's public copy must hold all of it before its local copy is archived and, a
-            # generation later, removed.
+        if self.publish() is None:
+            # The old line's public copy must hold all of it before its local copy is archived and, a generation
+            # later, removed.
             raise RuntimeError("the old ledger's publish failed, so its public copy may lack what this ledger holds; "
                                "fix the publish (the ledger's log, `ledger publish`) and update again; nothing was "
                                "changed")
-        base = values.get("TRADE_RESEARCH_ORIGIN") or published
-        wanted = generation.version(self.docker, self.service, base)
-        state, held = generation.probe(wanted["origin"], self.opener)
-        if state == "data" and held != str(wanted["research"]):
-            raise RuntimeError(f"{wanted['origin']} holds a ledger of schema generation {held}, not "
-                               f"{wanted['research']}; nothing was changed")
+        origin = self.wanted["origin"]
+        state, held = generation.probe(origin, line, self.opener)
         if state == "absent":
-            token = Path(values.get(TOKEN) or self.data / "dolthub-token")
-            create_repository(wanted["origin"], token, self.opener)
-        print(f"The new generation's ledger: {wanted['origin']}"
-              + (" (cloned: it is already published)" if state == "data" else " (made and published here)"),
+            raise RuntimeError(f"the research repository {origin.removeprefix(generation.HOST)} does not exist on "
+                               "DoltHub; create it once on dolthub.com (public), then update again; nothing was "
+                               "changed")
+        if state == "other":
+            raise RuntimeError(f"{line} of {origin} holds no research ledger, so the line's ledger cannot start "
+                               "there; nothing was changed. Report it: that branch is the owner's to look at")
+        if state == "data" and held != str(self.wanted["research"]):
+            raise RuntimeError(f"{line} of {origin} holds a ledger of schema generation {held}, not "
+                               f"{self.wanted['research']}; nothing was changed")
+        print(f"The line's ledger: {line} of {origin}"
+              + (" (fetched: it is already published)" if state == "data" else " (made and published here)"),
               flush=True)
-        if not values.get("TRADE_RESEARCH_ORIGIN"):
-            write_env(self.env, {"TRADE_RESEARCH_ORIGIN": base})  # once: every generation is named after it
-        journal = {"revision": self.sha, "archive": generation.archive_name(self.sha), "phase": "archiving"}
+        journal = {"revision": self.sha, "line": line, "archive": generation.archive_name(self.sha),
+                   "phase": "archiving"}
         self.journal.parent.mkdir(parents=True, exist_ok=True)
         write_file(self.journal, json.dumps(journal) + "\n")
         return journal
@@ -408,12 +433,14 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
         print(f"Admitted on {branch}: {sha} ({architecture})", flush=True)
         cutover = Cutover(docker, args.env, Path(data), sha, values["TRADE_SERVICE_IMAGE"])
         pending = cutover.pending()
-        found = {} if pending else cutover.unread(running)
+        found, how = ({}, "pending") if pending else cutover.assess(running, args.check)
         if args.check:
             if pending:
                 print(f"A data generation cutover is pending at its {pending['phase']} step; an update finishes it")
-            elif found:
+            elif how == "cutover":
                 cutover.begin(found, check=True)
+            elif how == "move":
+                cutover.move(check=True)
             env = Path(state) / "env"
             env.write_text(args.env.read_text())
             write_env(env, values)
@@ -432,7 +459,9 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
         return ancestors.get(before, False)
 
     # Everything a cutover checks comes before the first write: a refusal leaves the env file naming the old images.
-    journal = pending or (cutover.begin(found, check=False) if found else None)
+    journal = pending or (cutover.begin(found, check=False) if how == "cutover" else None)
+    if how == "move":
+        cutover.move(check=False)
     target = root / sha
     target.mkdir(parents=True, exist_ok=True)
     write_file(target / "compose.yaml", text)
@@ -441,6 +470,9 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
     base = compose(args.env, target / "compose.yaml")
     if journal is not None:
         cutover.run(journal, base)
+        running = services(docker)
+    elif how == "move":
+        cutover.moved(base)
         running = services(docker)
     steps = plan(hashes(docker, base), running)
     print("\n".join(report(running, sha, ancestor, steps)), flush=True)

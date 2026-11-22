@@ -1,6 +1,6 @@
 """If this fails, the Dolt service compose runs (`ledger service run`) no longer comes up as it should:
-on first start it bootstraps the ledger from its public copy (here a local file remote) into empty
-directories only, with every branch, root reachable from beyond localhost, the accounts `ledger
+on first start it bootstraps the ledger from its public copy's branch of this version's line (here a local file
+remote) into empty directories only, with no other line's branch or data, root reachable from beyond localhost, the accounts `ledger
 init` makes, a socketless service.json and the ledger profile, the separate Paper database beside it, never a
 market; a bootstrap that fails or is
 refused leaves nothing it made; every later start checks the service before serving and first removes
@@ -33,8 +33,8 @@ from tests.helpers import refused, tempdir
 class RunTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        """One source service whose research ledger is published to a file remote, with a candidate and a
-        second branch."""
+        """One source service whose research ledger is published to a file remote as its line, with a candidate,
+        and another line's branch beside it."""
         cls.source = Service()
         try:
             cls.remotes = Path(tempfile.mkdtemp(prefix="or-", dir="/tmp"))
@@ -43,13 +43,17 @@ class RunTests(unittest.TestCase):
             cls.origin = (cls.remotes / "research").as_uri()
             conn = server.connect_root(server.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
-                cursor.execute("CALL DOLT_BRANCH('legacy-x')")
+                cursor.execute("CALL DOLT_BRANCH('other-line')")
+                cursor.execute("CALL DOLT_CHECKOUT('other-line')")
+                cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'only on another line')")
+                cursor.execute("SELECT DOLT_HASHOF('other-line')")
+                (cls.other,), = cursor.fetchall()
             conn.close()
             publish.set_remote(ledger, cls.origin)
-            publish.publish(ledger)
+            cls.published = publish.publish(ledger)["head"]
             conn = server.connect_root(server.service_config(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
-                cursor.execute("CALL DOLT_PUSH('origin', 'legacy-x')")
+                cursor.execute("CALL DOLT_PUSH('origin', 'other-line:v0.0')")
             conn.close()
         except BaseException:
             cls.tearDownClass()
@@ -114,8 +118,11 @@ class RunTests(unittest.TestCase):
             self.assertEqual(cursor.fetchall(), ((self.origin,),), "the public copy stays the origin")
         with research.cursor() as cursor:
             cursor.execute("SELECT name FROM dolt_branches ORDER BY name")
-            self.assertEqual([name for (name,) in cursor.fetchall()], ["legacy-x", "main"],
-                             "every remote branch becomes a local one")
+            self.assertEqual([name for (name,) in cursor.fetchall()], ["main"], "the line's branch as main, alone")
+            cursor.execute("SELECT name FROM dolt_remote_branches ORDER BY name")
+            self.assertEqual([name for (name,) in cursor.fetchall()], [publish.TRACKING])
+            with self.assertRaises(pymysql.MySQLError, msg="another line's commits are never fetched"):
+                cursor.execute("CALL DOLT_BRANCH('probe', %s)", (self.other,))
             cursor.execute("SELECT host FROM mysql.user WHERE user = 'root' ORDER BY host")
             self.assertEqual([host for (host,) in cursor.fetchall()], ["%", "localhost"])
             cursor.execute("SELECT host, permissions FROM dolt_branch_control WHERE user = 'root' ORDER BY host")
@@ -236,6 +243,78 @@ class RunTests(unittest.TestCase):
         process, _ = self.start()
         self.assertIsNone(process.poll(), "the next start bootstraps again")
 
+    def test_a_copy_without_this_line_starts_a_new_ledger_beside_the_other_lines(self):
+        origin = self.remotes / f"lines-{self.port}"
+        shutil.copytree(self.remotes / "research", origin)
+        self.addCleanup(shutil.rmtree, origin, True)
+        with patch.object(publish, "LINE", "v9.9"), patch.object(publish, "TRACKING", "remotes/origin/v9.9"), \
+                patch.object(publish, "BRANCHES", "refs/heads/v9.9:refs/remotes/origin/v9.9"), \
+                patch.object(publish, "PUSHED", "main:v9.9"):
+            self.assertEqual(refused(service.start, self.service_root, self.data, self.backups, None, origin.as_uri(),
+                                     self.port, BINARY, None, self.log).code, "BOOTSTRAP_FAILED",
+                             "a mirror never makes a ledger")
+            self.start(origin=origin.as_uri())
+            profile = db.load_profile("research")
+            with db.read_as_of(profile) as conn:
+                self.assertEqual(conn.rows("SELECT COUNT(*) FROM candidate"), [(0,)], "a new, empty ledger")
+                head = conn.resolved_commit
+            self.assertFalse(publish.unpublished(profile))
+        environment = {**os.environ, "DOLT_ROOT_PATH": str(self.service_root / "home"),
+                       "DOLT_DISABLE_EVENT_FLUSH": "true"}
+        copy = self.root / "lines"
+        subprocess.run([BINARY, "clone", origin.as_uri(), str(copy)], env=environment, check=True, capture_output=True)
+        branches = subprocess.run([BINARY, "sql", "-r", "csv", "-q", "SELECT name, hash FROM dolt_remote_branches "
+                                   "ORDER BY name"], cwd=copy, env=environment, check=True, capture_output=True,
+                                  text=True).stdout.split()
+        self.assertEqual(branches[1:], sorted([f"remotes/origin/{publish.LINE},{self.published}",
+                                               f"remotes/origin/v0.0,{self.other}", f"remotes/origin/v9.9,{head}"]),
+                         "the new line is a new branch; the other lines stay as they were")
+
+    def test_a_ledger_of_0_5_2_s_repository_per_generation_names_the_repository_at_its_next_start(self):
+        moved = self.remotes / f"moved-{self.port}"
+        shutil.copytree(self.remotes / "research", moved)
+        self.addCleanup(shutil.rmtree, moved, True)
+        generation = moved.as_uri() + "-g2"
+        shutil.copytree(self.remotes / "research", moved.parent / (moved.name + "-g2"))
+        self.addCleanup(shutil.rmtree, moved.parent / (moved.name + "-g2"), True)
+        process, config = self.start(origin=generation)
+        server.stop(process)
+
+        def origin() -> str | None:
+            conn = server.connect_root(config, database="research")
+            try:
+                with conn.cursor() as cursor:
+                    return server.origin(cursor)
+            finally:
+                conn.close()
+
+        with patch.object(service, "MOVED_LINE", "v9.9"):
+            process, _ = self.start(origin=moved.as_uri())
+            self.assertEqual(origin(), generation, "only the v0.5 ledger moves")
+            server.stop(process)
+        process, _ = self.start(origin=self.origin)
+        self.assertEqual(origin(), generation, "never to another repository")
+        server.stop(process)
+        with patch.object(service, "MOVED_LINE", publish.LINE):
+            process, _ = self.start(origin=moved.as_uri())
+            self.assertEqual(origin(), moved.as_uri())
+            server.stop(process)
+            process, _ = self.start(origin=moved.as_uri())
+            self.assertEqual(origin(), moved.as_uri(), "once")
+            conn = server.connect_root(config, database="research")
+            try:
+                with conn.cursor() as cursor:  # a start stopped between Dolt's remove and add
+                    cursor.execute("CALL DOLT_REMOTE('remove', %s)", (server.REMOTE,))
+            finally:
+                conn.close()
+            server.stop(process)
+            process, _ = self.start(origin=moved.as_uri())
+            self.assertEqual(origin(), moved.as_uri(), "the next start finishes the move")
+        profile = db.load_profile("research")
+        self.assertEqual(publish.where(profile)["lines"], [], "the old repository's tracking branch went with it")
+        self.assertEqual(publish.publish(profile)["remote"], moved.as_uri())
+        self.assertEqual(publish.where(profile)["lines"], [publish.LINE])
+
     def test_an_empty_copy_starts_a_new_ledger_published_there(self):
         origin = self.remotes / f"new-{self.port}"
         origin.mkdir()
@@ -338,7 +417,8 @@ class RunTests(unittest.TestCase):
         other = self.root / "other"
         subprocess.run([BINARY, "remote", "add", "other", other.as_uri()], cwd=work, env=environment, check=True,
                        capture_output=True)
-        subprocess.run([BINARY, "push", "other", "main"], cwd=work, env=environment, check=True, capture_output=True)
+        subprocess.run([BINARY, "push", "other", f"main:{publish.LINE}"], cwd=work, env=environment, check=True,
+                       capture_output=True)
         caught = refused(self.start, origin=other.as_uri())
         self.assertEqual(caught.code, "BOOTSTRAP_FAILED")
         self.assertIn("does not hold a research ledger", caught.message)
@@ -349,7 +429,7 @@ class RunTests(unittest.TestCase):
         work = self.root / "copy"
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
         server.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
-        subprocess.run([BINARY, "clone", self.origin, str(work)], env=environment, check=True,
+        subprocess.run([BINARY, "clone", "--branch", publish.LINE, self.origin, str(work)], env=environment, check=True,
                        capture_output=True)
         subprocess.run([BINARY, "sql", "-q", "UPDATE ledger_schema SET version = 99"], cwd=work, env=environment,
                        check=True, capture_output=True)
@@ -358,7 +438,8 @@ class RunTests(unittest.TestCase):
         newer = self.root / "newer"
         subprocess.run([BINARY, "remote", "add", "newer", newer.as_uri()], cwd=work, env=environment, check=True,
                        capture_output=True)
-        subprocess.run([BINARY, "push", "newer", "main"], cwd=work, env=environment, check=True, capture_output=True)
+        subprocess.run([BINARY, "push", "newer", f"{publish.LINE}:{publish.LINE}"], cwd=work, env=environment,
+                       check=True, capture_output=True)
         self.assertEqual(refused(self.start, origin=newer.as_uri()).code, "SERVICE_CHECK_FAILED")
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
         self.assertEqual(list(profiles.home().glob("*.json")), [])

@@ -16,6 +16,7 @@ from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
 from deploy.notices import Notices
+from deploy import generation
 from deploy import release
 from deploy import release_host
 from deploy import services
@@ -88,9 +89,13 @@ class IdleLive:
         pass
 
 
+BASE = "https://doltremoteapi.dolthub.com/owner/research"
+
+
 class Host:
     def __init__(self, state):
         self.state = state
+        self.config = Config(state=state)  # names no TRADE_RESEARCH_ORIGIN: nothing to compare a version's line with
         self.routes = state / DockerHost.ROUTES
         self.disk = self.live = WEB + A
         self.containers = {WEB + A: True, AGENT + D: True}
@@ -443,20 +448,29 @@ class GenerationTests(unittest.TestCase):
         self.github.agent_changed.return_value = True
         self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
         self.controller = self.release.paper().host
+        self.host.config = Config(state=self.host.state, research_origin=BASE)
+        self.host.docker = Mock()  # only the faked version() below reads it
+        self.wanted = {"origin": BASE, "line": "v0.6", "research": 2, "paper": 1}
+        self.where = {"remote": BASE, "lines": ["v0.5"], "head": "h" * 32}
+        for patched in (patch.object(generation, "version", side_effect=lambda *_: self.wanted),
+                        patch.object(release.Generation, "where", side_effect=lambda *_: self.where)):
+            patched.start()
+            self.addCleanup(patched.stop)
 
-    def test_a_version_that_does_not_read_the_host_ledger_cuts_over_before_its_journal(self):
+    def test_a_version_of_another_line_cuts_over_before_its_journal(self):
         """The cutover (deploy/generation.py, tests/deploy/test_generation.py) runs instead of the release; the
-        release follows on a later tick, once the version reads the host's ledger."""
+        release follows on a later tick, once the host's ledger is on the version's line."""
         self.controller.unread = {"research": "2"}
         with patch.object(release.Generation, "cut") as cut:
             self.release.apply(TARGET)
-        cut.assert_called_once_with(TARGET, A)
+        cut.assert_called_once_with(TARGET, A, self.wanted)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(WEB + B, self.host.containers)
         self.assertNotIn(PAPER + B, self.controller.running)
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists(), "a host condition, not a failed version")
         self.controller.unread = {}  # the host holds the new generation
+        self.where = {**self.where, "lines": ["v0.6"]}
         with patch.object(release.Generation, "cut") as cut:
             self.release.apply(TARGET)
         cut.assert_not_called()
@@ -471,15 +485,17 @@ class GenerationTests(unittest.TestCase):
 
         self.host.on_warm = cannot_read
         self.host.fail = "observe"
+        self.where = {**self.where, "lines": ["v0.6"]}
         with self.assertRaisesRegex(RuntimeError, "SCHEMA_MISMATCH"):
             self.release.apply(TARGET)  # control: without a cutover the rollback checks the previous Web
         self.assertTrue(self.release.transaction.exists())
         self.setUp()
         self.host.on_warm = cannot_read
         self.host.fail = "observe"
+        self.where = {**self.where, "lines": ["v0.6"]}
         (self.host.state / "generation.json").write_text(json.dumps(
-            {"revision": B, "service": TARGET["service"], "archive": "20261123T000000Z-" + B[:12], "phase": "done",
-             "market": "running"}))
+            {"kind": "cutover", "line": "v0.6", "revision": B, "service": TARGET["service"],
+             "archive": "20261123T000000Z-" + B[:12], "phase": "done", "market": "running"}))
         with self.assertRaisesRegex(RuntimeError, "failed after switch"):
             self.release.apply(TARGET)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))

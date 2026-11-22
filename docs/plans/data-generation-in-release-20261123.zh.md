@@ -1,5 +1,9 @@
 # 数据代际随版本发布自动切换（2026-11-23）
 
+> 同日修订：仓库与分支的安排、切换的触发和建库由
+> [`version-line-branches-20261123.zh.md`](version-line-branches-20261123.zh.md) 取代：只有一个研究仓库，每个版本线
+> 一个分支，升线（即使 schema 没变）就换代，不再有 `<基名>-g<N>`、API token 和建库。下文其余的切换步骤照旧。
+
 依据：用户 2026-11-23 的决定（下列“用户决定”逐条记录，是本设计的授权）。在此之前，换一代账本是
 `deploy/remote/README.md` “Starting a new data generation” 的 6 步手工清单：工作站建 DoltHub 仓库与新账本，服务器归档
 旧数据、改 `TRADE_RESEARCH_ORIGIN`、从版本的 checkout 起服务。本记录把它换成代码：任何版本的发布，所有者只做一件事，

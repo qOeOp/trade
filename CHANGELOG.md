@@ -16,12 +16,15 @@ its checks pass. It then waits until `main-ready` admits the commit carrying tha
 release `vX.Y.Z` on it, with the version's section as notes, which creates the tag. The bump pull request needs the
 `RELEASE_TOKEN` secret ([`release.yml`](.github/workflows/release.yml) says why and which token).
 
-A version whose ledger schema generation (`SCHEMA_VERSION` or `PAPER_SCHEMA_VERSION` in `ledger/db.py`) differs from
-the newest release's starts a new data generation: each deployment archives its ledger and starts a new one when it
-reaches that version ([`deploy/README.md`](deploy/README.md#updating), [`deploy/remote/README.md`](deploy/remote/README.md#a-version-that-starts-a-new-data-generation)).
-Its number says so: the workflow refuses it unless it raises the minor version before 1.0 (0.5.1 to 0.6.0, not 0.5.2)
-and the major version from 1.0 (`.github/scripts/release-generation.py`). Starting the workflow for such a version is
-also the owner's authority for that new ledger.
+A version's line is `v0.<minor>` before 1.0 and `v<major>` from 1.0; the line is raised exactly when the previous
+version's ledger can no longer be used, and patch versions share their line. A version of a new line starts a new
+data generation, even when its schema did not change: each deployment archives its ledger and starts the line's new
+ledger, published as the line's branch of the one research repository, when it reaches that version
+([`deploy/README.md`](deploy/README.md#updating), [`deploy/remote/README.md`](deploy/remote/README.md#a-version-that-starts-a-new-data-generation)).
+So a version whose ledger schema generation (`SCHEMA_VERSION` or `PAPER_SCHEMA_VERSION` in `ledger/db.py`) differs
+from the newest release's must raise the line: the workflow refuses a patch version that changes it
+(`.github/scripts/release-generation.py`). Starting the workflow for a new line is also the owner's authority for its
+new ledger.
 
 A commit that changes only documentation builds no image and is never admitted, so its tag never reaches the host:
 when the version was raised earlier and the bump changes only this file, the workflow releases the newest commit at

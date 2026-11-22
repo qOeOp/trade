@@ -1,18 +1,25 @@
-"""A new data generation, started by the version that needs it (docs/plans/data-generation-in-release-20261123.zh.md).
+"""A new data generation, started by the version whose line needs it (docs/plans/data-generation-in-release-20261123.zh.md,
+docs/plans/version-line-branches-20261123.zh.md).
 
-A version whose ledger schema generations differ from what the host's ledger service holds (its own `ledger service
-check` refuses with SCHEMA_MISMATCH) starts a new generation where it is deployed: the ledger's data is archived and the
-ledger starts empty, so its first start makes (a workstation) or mirrors (the release host) that version's ledger. Its
-DoltHub repository is `<TRADE_RESEARCH_ORIGIN>-g<N>` (ledger/publish.py research_origin), so no setting changes.
+The research repository (TRADE_RESEARCH_ORIGIN) keeps one branch per version line (`v0.<minor>` before 1.0, `v<major>`
+from 1.0; ledger/publish.py LINE): a line is one ledger. A version of another line than the host's ledger is on starts
+a new generation where it is deployed, even when its schema did not change: the ledger's data is archived and the
+ledger starts empty, so its first start makes (a workstation) or mirrors (the release host) that line's ledger, from
+or as that line's branch. A schema change within a line is refused (the release workflow never lets one be released).
 
-What both deployments share lives here: the version's own origin and generation (`version`), whether that DoltHub
-repository holds its ledger (`probe`, through DoltHub's public SQL API, no credential), and the archive, run in a
-container of the version's service image (`archiver`, `pruner`; `python -m deploy.generation`), since the release
-service may not write the data directory itself. Archiving renames within `$TRADE_DATA` (one file system: `os.rename`
-only, never a copy) into `$TRADE_DATA/archive/<UTC time>-<revision>/`. A workstation keeps the volume of Dolt's data
-as a tgz (its writer ledger lives there); the release host removes its volume, a mirror of the old generation's DoltHub
-repository that a clone gives back. Only the newest archive stays: the others go once the new generation runs. The
-market directory has no generation and stays.
+What both deployments share lives here: the version's own line and generations (`version`), where the host's ledger
+publishes and which line it is on (`WHERE`, read in a container of the version's image), what to do about it
+(`place`), whether the repository's branch of a line holds a ledger or a commit (`probe`, `contains`, through
+DoltHub's public SQL API, no credential), and the archive, run in a container of the version's service image
+(`archiver`, `pruner`; `python -m deploy.generation`), since the release service may not write the data directory
+itself. Archiving renames within `$TRADE_DATA` (one file system: `os.rename` only, never a copy) into
+`$TRADE_DATA/archive/<UTC time>-<revision>/`. A workstation keeps the volume of Dolt's data as a tgz (its writer ledger
+lives there); the release host removes its volume, a mirror of the old line's branch that a fetch gives back. Only the
+newest archive stays: the others go once the new generation runs. The market directory has no generation and stays.
+
+`move` is the one-time move of the v0.5 ledger from `<TRADE_RESEARCH_ORIGIN>-g2` (0.5.2's repository per generation)
+to the repository's branch v0.5: the version's ledger renames its origin at start (ledger/service.py), which a
+deployment starts only once the move is safe. To be removed in the next line.
 
 `Generation` is the release host's part (deploy/release.py Release.apply); deploy/update.py is the workstation's.
 """
@@ -45,17 +52,27 @@ MOVED = (("dolt", "dolt"), ("dolt/paper", "dolt-paper"), ("ledgers", "ledgers"),
 JOURNAL = "generation.json"
 # A cutover's steps: the data is being archived; it is archived and the ledger is being started; the new generation
 # runs and older archives are being removed; done (kept until a version's Web release commits, deploy/release.py).
-# The release host takes one step per tick, so a tick stays within trade-release.service's TimeoutStartSec.
+# The release host takes one step per tick, so a tick stays within trade-release.service's TimeoutStartSec. A move
+# starts at "archived" (nothing is archived) and removes no archive.
 PHASES = ("archiving", "archived", "started", "done")
-# DoltHub's answers (2026-11-23, read from public repositories): a repository without the table or without a main
-# branch holds no ledger yet; any other error is not an answer about the ledger.
-NO_LEDGER = ("query error: table not found: ledger_schema", "query error: branch not found")
+KINDS = ("cutover", "move")
+# DoltHub's answers (2026-11-23, read from public repositories): no such branch holds no ledger yet; a branch without
+# the table holds something else; any other error is not an answer about the ledger.
+NO_BRANCH = "query error: branch not found"
+NO_TABLE = "query error: table not found: ledger_schema"
 ARCHIVE_SECONDS = 600  # the release host's archive only renames
 API = "https://www.dolthub.com/api/v1alpha1/"
 HOST = "https://doltremoteapi.dolthub.com/"
-# Run in the version's service image: the repository and generations of that version's code.
-ORIGIN = ("import json,sys\nfrom ledger import db, publish\nprint(json.dumps({'origin': publish.research_origin("
-          "sys.argv[1]), 'research': db.SCHEMA_VERSION, 'paper': db.PAPER_SCHEMA_VERSION}))")
+REPOSITORY = re.compile(re.escape(HOST) + r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\Z")
+LINE = re.compile(r"v(0\.[0-9]+|[1-9][0-9]*)\Z")
+COMMIT = re.compile(r"[0-9a-v]{32}\Z")
+GENERATION = re.compile(r"-g[0-9]+\Z")  # 0.5.2's repository per generation: <TRADE_RESEARCH_ORIGIN>-g<N>
+MOVED_LINE = "v0.5"  # the line whose ledger moves from such a repository (ledger/service.py MOVED_LINE)
+# Run in the version's service image: the line and generations of that version's code.
+ORIGIN = ("import json\nfrom ledger import db, publish\nprint(json.dumps({'line': getattr(publish, 'LINE', None), "
+          "'research': db.SCHEMA_VERSION, 'paper': db.PAPER_SCHEMA_VERSION}))")
+# Run in the version's service image with the reader's profile: where the host's ledger publishes (publish.where).
+WHERE = ("import json\nfrom ledger import db, publish\nprint(json.dumps(publish.where(db.load_profile('research'))))")
 MOUNTED = "/run/trade/dolt-data"  # where the archive container mounts VOLUME
 
 
@@ -68,22 +85,46 @@ def archive_name(sha: str, now: datetime | None = None) -> str:
 
 
 def version(docker, service: str, base: str) -> dict:
-    """The DoltHub repository the version of service image `service` uses for `base` and its two schema generations,
-    from its own code (`docker(*args)` returns what the command printed)."""
-    value = json.loads(docker("run", "--rm", "--network", "none", "--read-only", "--entrypoint", "python", service,
-                              "-c", ORIGIN, base))
-    if not isinstance(value.get("origin"), str) or not value["origin"].startswith(HOST):
+    """The research repository `base` (TRADE_RESEARCH_ORIGIN), the line the version of service image `service` publishes
+    its ledger as and its two schema generations, from its own code (`docker(*args)` returns what the command
+    printed). A version without a line (before 0.5.3) is refused: it would publish `main` to the repository, whose
+    `main` holds another line's data."""
+    if not REPOSITORY.fullmatch(base):
         raise RuntimeError("TRADE_RESEARCH_ORIGIN does not name a DoltHub repository")
-    return value
+    if GENERATION.search(base):
+        raise RuntimeError(f"TRADE_RESEARCH_ORIGIN {base} names a repository of one generation (0.5.2's "
+                           "<repository>-g<N>); name the research repository itself")
+    value = json.loads(docker("run", "--rm", "--network", "none", "--read-only", "--entrypoint", "python", service,
+                              "-c", ORIGIN))
+    if not isinstance(value.get("line"), str) or not LINE.fullmatch(value["line"]):
+        raise RuntimeError("the version publishes no version line (it is older than 0.5.3); this deployment does not "
+                           "move to it")
+    return {**value, "origin": base}
 
 
-def probe(origin: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
-    """Whether DoltHub repository `origin` holds a research ledger on main: ("data", its schema version), ("empty",
-    None) when it exists without one, or ("absent", None). Public repositories answer without a credential. Only
-    those explicit answers count: OriginUnreadable for any other (a wrong guess of "empty" would skip creating the
-    repository, and the ledger's first start would fail)."""
-    query = urllib.parse.quote("SELECT version FROM ledger_schema WHERE singleton = 1")
-    request = urllib.request.Request(f"{API}{origin.removeprefix(HOST)}/main?q={query}",
+def place(where: dict, wanted: dict) -> str:
+    """What the version `wanted` (version()) does with the host's ledger, which publishes as `where` says
+    (publish.where): "same" (its line: nothing), "cutover" (another line: a new generation), "move" (the v0.5 ledger
+    in 0.5.2's repository of its generation) or "unpublished" (its origin is the repository but it has not published
+    or fetched yet: ask again after it has). Any other origin raises: moving a ledger's public copy is the user's."""
+    remote, lines, base, line = where.get("remote"), where.get("lines"), wanted["origin"], wanted["line"]
+    if not isinstance(lines, list) or not all(isinstance(item, str) for item in lines):
+        raise RuntimeError("the ledger did not say which line it is on")
+    if remote == base:
+        if not lines:
+            return "unpublished"
+        if len(lines) > 1:
+            raise RuntimeError(f"the ledger tracks several branches of {base} ({', '.join(lines)}); left as it is")
+        return "same" if lines == [line] else "cutover"
+    if isinstance(remote, str) and remote.startswith(base) and GENERATION.fullmatch(remote[len(base):]):
+        return "move" if line == MOVED_LINE else "cutover"
+    raise RuntimeError(f"the ledger publishes to {remote}, not to {base} (TRADE_RESEARCH_ORIGIN); nothing was changed. "
+                       "Report it: moving a ledger's public copy is the user's decision")
+
+
+def _query(origin: str, ref: str, sql: str, opener) -> dict:
+    """DoltHub's public SQL API's answer about branch or commit `ref` of repository `origin`."""
+    request = urllib.request.Request(f"{API}{origin.removeprefix(HOST)}/{ref}?q={urllib.parse.quote(sql)}",
                                      headers={"User-Agent": "trade-deploy"})
     try:
         with opener(request, timeout=30) as response:
@@ -99,6 +140,21 @@ def probe(origin: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
         raise OriginUnreadable(f"DoltHub did not answer ({type(error).__name__})") from None
     if not isinstance(value, dict):
         raise OriginUnreadable("DoltHub's answer is not an object")
+    return value
+
+
+def _unread(value: dict) -> OriginUnreadable:
+    return OriginUnreadable(f"DoltHub answered {str(value.get('query_execution_status'))[:40]}: "
+                            f"{str(value.get('query_execution_message'))[:200]}")
+
+
+def probe(origin: str, line: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
+    """Whether DoltHub repository `origin`'s branch `line` holds a research ledger: ("data", its schema version),
+    ("empty", None) when the repository exists without that branch, ("other", None) when the branch holds no ledger,
+    or ("absent", None) without the repository. Public repositories answer without a credential. Only those explicit
+    answers count: OriginUnreadable for any other (a wrong "empty" would make a second ledger, which the line's
+    branch then refuses)."""
+    value = _query(origin, line, "SELECT version FROM ledger_schema WHERE singleton = 1", opener)
     status, message, rows = (value.get("query_execution_status"), value.get("query_execution_message"),
                              value.get("rows"))
     if (status == "Success" and isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
@@ -106,9 +162,26 @@ def probe(origin: str, opener=urllib.request.urlopen) -> tuple[str, str | None]:
         return "data", str(rows[0]["version"])
     if status == "Error" and message == "no such repository":
         return "absent", None
-    if status == "Error" and message in NO_LEDGER:
+    if status == "Error" and message == NO_BRANCH:
         return "empty", None
-    raise OriginUnreadable(f"DoltHub answered {str(status)[:40]}: {str(message)[:200]}")
+    if status == "Error" and message == NO_TABLE:
+        return "other", None
+    raise _unread(value)
+
+
+def contains(origin: str, line: str, head: str, opener=urllib.request.urlopen) -> bool:
+    """Whether DoltHub repository `origin`'s branch `line` holds commit `head` (False without that branch)."""
+    if not COMMIT.fullmatch(head):
+        raise RuntimeError(f"{head!r} is not a Dolt commit")
+    value = _query(origin, line, f"SELECT COUNT(*) AS n FROM dolt_log WHERE commit_hash = '{head}'", opener)
+    status, message, rows = (value.get("query_execution_status"), value.get("query_execution_message"),
+                             value.get("rows"))
+    if status == "Success" and isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) \
+            and str(rows[0].get("n")) in ("0", "1"):
+        return str(rows[0]["n"]) == "1"
+    if status == "Error" and message == NO_BRANCH:
+        return False
+    raise _unread(value)
 
 
 def archiver(data: Path, name: str, service: str, volume: bool) -> list[str]:
@@ -168,11 +241,13 @@ def prune(data: Path, name: str) -> list[str]:
 
 class Generation:
     """The release host's cutover (deploy/release.py Release.apply). It waits, with one notice, until the new
-    generation's public copy holds that version's ledger (a workstation published it), no Paper runner runs, no
-    Paper operation is in progress and Live is idle inside its account lock; then, with Paper's writes paused, it
-    stops the ledger and market import and archives. Each later tick takes the next step from its journal (JOURNAL
+    line's branch of the public repository holds that version's ledger (a workstation published it), no Paper runner
+    runs, no Paper operation is in progress and Live is idle inside its account lock; then, with Paper's writes paused,
+    it stops the ledger and market import and archives. Each later tick takes the next step from its journal (JOURNAL
     in the release state) before anything else: start both from the version's own definition and check that the
-    version reads the new ledger; then remove older archives. The release itself follows on the tick after."""
+    version reads the new ledger; then remove older archives. The release itself follows on the tick after.
+    A move (the module's docstring) waits until the repository's branch v0.5 holds the mirror's head, then, in the same
+    hold, starts the version's ledger (which renames its origin) without archiving anything."""
 
     def __init__(self, release):
         self.release, self.host = release, release.host
@@ -181,8 +256,11 @@ class Generation:
     def read(self) -> dict | None:
         if not self.journal.exists():
             return None
-        value = read_journal(self.journal, frozenset({"revision", "service", "archive", "phase", "market"}))
-        if value["phase"] not in PHASES or not ARCHIVE_NAME.fullmatch(value["archive"]):
+        value = read_journal(self.journal, frozenset({"kind", "line", "revision", "service", "phase", "market"}),
+                             frozenset({"archive"}))
+        archived = value["kind"] == "cutover" and ARCHIVE_NAME.fullmatch(value.get("archive", ""))
+        if (value["phase"] not in PHASES or not LINE.fullmatch(value["line"])
+                or not (archived or (value["kind"] == "move" and "archive" not in value))):
             raise RuntimeError(JOURNAL_FORMAT)
         return value
 
@@ -191,7 +269,8 @@ class Generation:
         return value
 
     def done(self) -> bool:
-        """The host holds a new generation that the routed version may not read: a rollback cannot check it."""
+        """The host holds a new generation (or a moved mirror) that the routed version may not read: a rollback
+        cannot check it."""
         try:
             value = self.read()
         except RuntimeError:
@@ -214,48 +293,105 @@ class Generation:
             "marked failed; every tick checks again (deploy/remote/README.md, A version that starts a new data "
             "generation).")
 
-    def due(self, target: dict, owner: str) -> bool:
-        """Whether version `target` reads another schema generation than the host's ledger service holds; if so it
-        cuts over when it may, and the release waits for the next tick either way."""
-        found = self.release.paper().host.generations(target["service"])
-        if not found:
-            return False
-        named = " and ".join(f"{database} (it reads generation {generation or '?'})"
-                             for database, generation in sorted(found.items()))
-        print(f"Version {target['revision']} does not read the host's {named}", flush=True)
-        self.cut(target, owner)
-        return True
+    def where(self, service: str) -> dict:
+        """Where the host's ledger publishes (publish.where), read by the version's own code with the research
+        reader's profile, in the container shape of its schema check (paper_host generations)."""
+        paper = self.release.paper().host
+        return json.loads(self.host.docker("run", "--rm", "--init", "--read-only", "--tmpfs",
+                                           "/tmp:rw,nosuid,size=16777216", *paper.common(), "--env", "HOME=/tmp",
+                                           "--entrypoint", "python", service, "-c", WHERE, timeout=180))
 
-    def cut(self, target: dict, owner: str) -> None:
+    def due(self, target: dict, owner: str) -> bool:
+        """Whether version `target` is of another line than the host's ledger (or must move it); if so it cuts over
+        (or moves) when it may, and the release waits for the next tick either way."""
         sha, service = target["revision"], target["service"]
+        found = self.release.paper().host.generations(service)
         base = self.host.config.research_origin
         if not base:
+            if not found:
+                return False
             self.wait(sha, "origin", "/etc/trade/remote.env names no TRADE_RESEARCH_ORIGIN, the DoltHub repository "
-                                     "whose generations this host mirrors.")
-            return
+                                     "this host mirrors.")
+            return True
         wanted = version(self.host.docker, service, base)
+        where = self.where(service)
+        how = place(where, wanted)
+        if found and how != "cutover":
+            named = " and ".join(sorted(found))
+            self.wait(sha, "schema", f"it reads another schema generation of {named} within the host's line "
+                                     f"{wanted['line']}; a schema change needs a new line (a new minor version before "
+                                     "1.0), so this version cannot be deployed here.")
+            return True
+        if how == "same":
+            return False
+        if how == "unpublished":
+            self.wait(sha, "mirror", "the mirror has not fetched its line yet.")
+            return True
+        print(f"Version {target['revision']} publishes its ledger as {wanted['line']} of {base}; the host's ledger "
+              f"is on {', '.join(where['lines']) or '?'} of {where['remote']}: {how}", flush=True)
+        if how == "move":
+            self.move(target, owner, wanted, where)
+        else:
+            self.cut(target, owner, wanted)
+        return True
+
+    def move(self, target: dict, owner: str, wanted: dict, where: dict) -> None:
+        sha, service = target["revision"], target["service"]
+        if busy := self.runners():
+            self.wait(sha, "paper", f"{len(busy)} Paper run(s) still run ({', '.join(busy)}). Stop them on the "
+                                    "Paper page.")
+            return
+        if not self.held(sha, wanted, where["head"]):
+            return
+        self.release.github.ensure(target)
+        self.release.live.prepare(owner, target)
+
+        def start(held_lock) -> None:
+            if not self.held(sha, wanted, self.where(service)["head"]):  # the mirror synced on meanwhile
+                return
+            journal = self.write({"kind": "move", "line": wanted["line"], "revision": sha, "service": service,
+                                  "phase": "archived", "market": "stopped"})
+            print(f"Moving the mirror from {where['remote']} to {wanted['line']} of {wanted['origin']}", flush=True)
+            self.step(journal, held_lock)
+
+        self.hold(sha, WEB + owner, WEB + sha, service, start)
+
+    def held(self, sha: str, wanted: dict, head: str) -> bool:
+        """Whether the line's branch of the research repository holds the mirror's head; otherwise wait."""
+        try:
+            held = contains(wanted["origin"], wanted["line"], head)
+        except OriginUnreadable as error:
+            self.wait(sha, "dolthub", f"{error} about {wanted['origin']}.")
+            return False
+        if not held:
+            self.wait(sha, "published", f"{wanted['line']} of {wanted['origin']} does not hold the mirror's head "
+                                        f"{head} yet. A workstation's deploy/update.sh moves its ledger there.")
+        return held
+
+    def cut(self, target: dict, owner: str, wanted: dict) -> None:
+        sha, service = target["revision"], target["service"]
         if busy := self.runners():
             self.wait(sha, "paper", f"{len(busy)} Paper run(s) still run ({', '.join(busy)}); their containers mount "
                                     "the Paper directory the cutover archives. Stop them on the Paper page.")
             return
         try:
-            state, held = probe(wanted["origin"])
+            state, held = probe(wanted["origin"], wanted["line"])
         except OriginUnreadable as error:
             self.wait(sha, "dolthub", f"{error} about {wanted['origin']}.")
             return
         if state != "data" or held != str(wanted["research"]):
-            self.wait(sha, "published", f"its public ledger {wanted['origin']} holds no generation "
-                                        f"{wanted['research']} ledger yet. A workstation's deploy/update.sh makes and "
-                                        "publishes it.")
+            self.wait(sha, "published", f"{wanted['line']} of its public repository {wanted['origin']} holds no "
+                                        f"generation {wanted['research']} ledger yet. A workstation's "
+                                        "deploy/update.sh makes and publishes it.")
             return
         self.release.github.ensure(target)
         self.release.live.prepare(owner, target)
 
         def start(held_lock) -> None:
             market = "running" if self.host.follower(MARKET_IMPORT) is not None else "stopped"
-            journal = self.write({"revision": sha, "service": service, "archive": archive_name(sha),
-                                  "phase": "archiving", "market": market})
-            print(f"Starting data generation {wanted['research']} from {wanted['origin']}; archiving into "
+            journal = self.write({"kind": "cutover", "line": wanted["line"], "revision": sha, "service": service,
+                                  "archive": archive_name(sha), "phase": "archiving", "market": market})
+            print(f"Starting line {wanted['line']} from {wanted['origin']}; archiving into "
                   f"{self.host.config.data / ARCHIVE / journal['archive']}", flush=True)
             self.step(journal, held_lock)
 
@@ -292,8 +428,11 @@ class Generation:
             target = self.release.github.approved()
             if target["revision"] != control or target["service"] is None:
                 raise RuntimeError("a data generation cutover is pending for another version; left for the operator")
+            if version(self.host.docker, target["service"], self.host.config.research_origin)["line"] \
+                    != journal["line"]:
+                raise RuntimeError("a data generation cutover is pending for another line; left for the operator")
             journal = self.write({**journal, "revision": control, "service": target["service"]})
-        print(f"Continuing the data generation cutover from its {journal['phase']} step", flush=True)
+        print(f"Continuing the data generation {journal['kind']} from its {journal['phase']} step", flush=True)
         if journal["phase"] == "archiving":  # it stops services: the same hold as the first pass
             routed = self.host.disk_route()
             self.hold(journal["revision"], routed, routed, None, lambda held: self.step(journal, held))
@@ -309,7 +448,7 @@ class Generation:
         return True
 
     def step(self, journal: dict, held) -> None:
-        """One step of the cutover from the journal's phase; each can run again after an interruption."""
+        """One step of the cutover (or move) from the journal's phase; each can run again after an interruption."""
         sha, service, data = journal["revision"], journal["service"], self.host.config.data
         if journal["phase"] == "archiving":
             for name in (MARKET_IMPORT, LEDGER):
@@ -320,7 +459,7 @@ class Generation:
             held()
             self.host.docker(*archiver(data, journal["archive"], service, False), timeout=ARCHIVE_SECONDS)
             if VOLUME in self.host.docker("volume", "ls", "--format", "{{.Name}}").splitlines():
-                self.host.docker("volume", "rm", VOLUME)  # a mirror: the old generation's repository holds it
+                self.host.docker("volume", "rm", VOLUME)  # a mirror: the old line's branch holds it
             self.write({**journal, "phase": "archived"})
             print(f"Archived the ledger's data in {data / ARCHIVE / journal['archive']}; the next tick starts the "
                   "new generation's ledger", flush=True)
@@ -331,21 +470,26 @@ class Generation:
             # the admitted image read at the handover may be gone by now.
             self.host.pull(service, SERVICE_REF, sha)
             # No --force-recreate: a ledger a resumed cutover finds already started is waited for, never restarted
-            # in the middle of its first start.
+            # in the middle of its first start. A move recreates the ledger: its image changed.
             self.host.compose(files, "up", "--detach", "--no-deps", "--pull", "never", "--wait", "--wait-timeout",
                               str(FOLLOW_WAIT_SECONDS), "ledger", env=env, timeout=FOLLOW_WAIT_SECONDS + 180)
             if journal["market"] == "running":
                 self.host.compose(files, "up", "--detach", "--no-deps", "--pull", "never", "market-import", env=env)
             if self.release.paper().host.generations(service):
                 raise RuntimeError("the new data generation's ledger is not the version's schema generation")
+            if journal["kind"] == "move" \
+                    and self.where(service)["remote"] != self.host.config.research_origin:
+                raise RuntimeError("the moved mirror does not follow the research repository")
             self.write({**journal, "phase": "started"})
-            print(f"Data generation started for {sha}; the next tick removes older archives", flush=True)
+            print(f"Data generation {journal['kind']} started for {sha}"
+                  + ("; the next tick removes older archives" if journal["kind"] == "cutover" else ""), flush=True)
         elif journal["phase"] == "started":
-            removed = self.host.docker(*pruner(data, journal["archive"], service), timeout=1800)
+            removed = (self.host.docker(*pruner(data, journal["archive"], service), timeout=1800)
+                       if journal["kind"] == "cutover" else "")
             self.write({**journal, "phase": "done"})
-            print(f"Data generation cutover done; archived in {data / ARCHIVE / journal['archive']}"
+            print(f"Data generation {journal['kind']} done"
+                  + (f"; archived in {data / ARCHIVE / journal['archive']}" if "archive" in journal else "")
                   + (f", removed older archives {removed}" if removed else ""), flush=True)
-
 
 def main(argv: list[str]) -> None:
     """Inside the version's service image (archiver, pruner): `archive DATA NAME [VOLUME]` or `prune DATA NAME`."""

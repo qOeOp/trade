@@ -2,10 +2,12 @@
 
 Usage: python .github/scripts/release-generation.py X.Y.Z [REF]
 
-A version whose ledger schema generations (`SCHEMA_VERSION` and `PAPER_SCHEMA_VERSION` in ledger/db.py at REF,
-default HEAD) differ from the newest release tag's starts a new data generation: every deployment archives its ledger
-and starts a new one when it reaches that version. Such a version must say so in its number: until 1.0 it raises the
-minor version (0.5.1 -> 0.6.0, never 0.5.2), from 1.0 the major version. Any other version may raise any part.
+A version's line (until 1.0 its minor version, from 1.0 its major one; shared/version.py) names its ledger: a new line
+starts a new data generation on every deployment, even with the same schema
+(docs/plans/version-line-branches-20261123.zh.md). So a version whose ledger schema generations (`SCHEMA_VERSION` and
+`PAPER_SCHEMA_VERSION` in ledger/db.py at REF, default HEAD) differ from the newest release tag's must raise the line:
+until 1.0 the minor version (0.5.1 -> 0.6.0, never 0.5.2), from 1.0 the major version. Any other version may raise any
+part.
 """
 
 import ast
