@@ -446,17 +446,23 @@ class Generation:
 
         self.hold(sha, WEB + owner, WEB + sha, service, start)
 
-    def hold(self, sha: str, owner: str, live: str, service: str | None, body) -> None:
+    def hold(self, sha: str, owner: str, live: str, service: str | None, body, resumed: bool = False) -> None:
         """Run `body(held)` with Paper's writes paused, no Paper operation or runner left and Live idle inside its
-        account lock (`live` names the Web whose Live configuration inspects it); otherwise wait with a notice."""
+        account lock (`live` names the Web whose Live configuration inspects it); otherwise wait with a notice. A
+        `resumed` archive stopped the ledger itself, after it read that no Paper operation was in progress: with the
+        ledger down Paper's lock and listing cannot be read and no operation can begin, so it goes on without them
+        (the user, 2026-11-23, qOeOp/trade#3493)."""
         paper = self.release.paper().host
         controller = paper.disk_route()
         paper.switch(controller, "all")  # new Paper writes wait; normalize below, or recover() after a crash
         try:
-            with paper.barrier(paper.inspect(controller)["image"]) as drained:
-                drained()  # a lifecycle operation that passed before the freeze has finished
-            time.sleep(PAPER_LISTING_SECONDS)
-            if Follow(self.release, None).paper_quiet(owner) is None or self.runners():
+            quiet = resumed and self.host.follower(LEDGER) is None
+            if not quiet:
+                with paper.barrier(paper.inspect(controller)["image"]) as drained:
+                    drained()  # a lifecycle operation that passed before the freeze has finished
+                time.sleep(PAPER_LISTING_SECONDS)
+                quiet = Follow(self.release, None).paper_quiet(owner) is not None
+            if not quiet or self.runners():
                 self.wait(sha, "paper", "a Paper operation is in progress.")
                 return
             with self.release.live.barrier(live, service, idle=True) as held_lock:
@@ -484,7 +490,8 @@ class Generation:
         print(f"Continuing the data generation {journal['kind']} from its {journal['phase']} step", flush=True)
         if journal["phase"] == "archiving":  # it stops services: the same hold as the first pass
             routed = self.host.disk_route()
-            self.hold(journal["revision"], routed, routed, None, lambda held: self.step(journal, held))
+            self.hold(journal["revision"], routed, routed, None, lambda held: self.step(journal, held),
+                      resumed=True)
         elif journal["phase"] == "archived":
             paper = self.release.paper().host
             paper.switch(paper.disk_route(), "all")

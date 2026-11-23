@@ -134,8 +134,9 @@ directory has no generation and stays as it is. The tick after the cutover relea
 then the routed earlier version cannot read the new ledger.
 
 `/var/lib/trade-release/generation.json` records the cutover's step. Every tick takes the next step before it
-recovers or releases anything, never archiving twice; a tick that would archive again after a crash waits for the
-same Paper and Live conditions first. Once the new ledger runs the journal stays until a version's Web release
+recovers or releases anything, never archiving twice; a tick that would archive again after a crash or a failure (a full disk, say) waits
+for the same Paper and Live conditions first; with the ledger already stopped, all but Paper's lock and run list,
+which it cannot read then and which were clear before it stopped the ledger. Once the new ledger runs the journal stays until a version's Web release
 commits: until then a failed release rolls back to the earlier version without waiting for it to answer healthy,
 since it cannot read the new ledger. Watch it with `journalctl -u trade-release.service` (`Starting line`,
 `Archived the ledger's data`, `Data generation cutover started`, `Data generation cutover done`) and the notices.

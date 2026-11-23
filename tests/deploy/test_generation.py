@@ -45,6 +45,7 @@ class Docker:
         self.data, self.volume, self.calls = data, volume, []
         self.runners: list[str] = []
         self.containers = {LEDGER, MARKET_IMPORT}
+        self.stopped: set[str] = set()
         self.volumes = {VOLUME}
         self.fail: str | None = None
         self.seconds = 0  # the longest each command may take, summed
@@ -64,7 +65,11 @@ class Docker:
         if args[:2] == ("volume", "rm"):
             self.volumes.discard(args[2])
             return ""
+        if args[0] == "stop":
+            self.stopped.add(args[-1])
+            return ""
         if args[0] == "rm":
+            self.stopped.discard(args[1])
             self.containers.discard(args[1])
             return ""
         if args[0] == "run" and "deploy.generation" in args:
@@ -88,6 +93,7 @@ class Host:
         self.composed: list[tuple] = []
         self.compose_fail = False
         self.pulled: set[str] = set()  # images present; compose runs with --pull never
+        self.starting = 0  # Paper runs being started
         self.moves = True  # whether the version's mirror tracks main once it starts
 
     def pull(self, reference, pattern, sha=None):
@@ -99,7 +105,7 @@ class Host:
         return name in self.docker.containers
 
     def follower(self, name):
-        return {"image": SERVICE} if name in self.docker.containers and name == MARKET_IMPORT else None
+        return {"image": SERVICE} if name in self.docker.containers - self.docker.stopped else None
 
     def definition(self, service, sha):
         return ["compose.yaml"]
@@ -112,7 +118,9 @@ class Host:
             raise RuntimeError("No such image")  # pruned since the handover read the definition
         self.composed.append(args)
         self.docker.seconds += timeout
-        self.docker.containers.add({"ledger": LEDGER, "market-import": MARKET_IMPORT}[args[-1]])
+        started = {"ledger": LEDGER, "market-import": MARKET_IMPORT}[args[-1]]
+        self.docker.containers.add(started)
+        self.docker.stopped.discard(started)
         where = self.docker.where
         if args[-1] == "ledger" and where["tracked"] == ["v0.5"]:
             if self.moves:  # the version's mirror dropped v0.5 and fetched main with its line's tag
@@ -122,7 +130,9 @@ class Host:
         return ""
 
     def probe(self, web, path, routed=False):
-        return {"status": 200, "starting": 0, "runs": []}
+        if path == "/api/paper/runs" and self.follower(LEDGER) is None:
+            raise RuntimeError("the Paper database does not answer")
+        return {"status": 200, "starting": self.starting, "runs": []}
 
     def disk_route(self):
         return WEB + A
@@ -132,6 +142,7 @@ class Paper:
     def __init__(self):
         self.unread: dict[str, str] = {"research": "2"}
         self.frozen: list[str] = []
+        self.ledger = lambda: True  # whether the ledger service runs: the barrier locks in its Paper database
 
     def generations(self, service):
         return self.unread
@@ -153,6 +164,8 @@ class Paper:
 
     @contextmanager
     def barrier(self, service):
+        if not self.ledger():
+            raise RuntimeError("Paper lifecycle barrier was lost or did not become ready")
         yield lambda: None
 
 
@@ -183,6 +196,7 @@ class GenerationTests(unittest.TestCase):
         self.docker = Docker(self.data, self.volume)
         self.host = Host(root / "state", self.data, self.docker)
         self.paper = Paper()
+        self.paper.ledger = lambda: self.host.follower(LEDGER) is not None
         self.live = Live()
         paper_release = SimpleNamespace(host=self.paper)
         self.release = SimpleNamespace(host=self.host, waits={}, github=Mock(), live=self.live,
@@ -456,6 +470,50 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(len([call for call in self.docker.calls if call[0] == "stop"]), stops + 1,
                          "an archived step is never redone")
         self.assertEqual(list((self.data / "ledgers").iterdir()), [])
+
+    def test_a_resumed_archive_without_a_ledger_waits_while_live_or_a_runner_is_busy(self):
+        for reason in ("live", "paper"):
+            with self.subTest(reason=reason):
+                self.setUp()
+                self.docker.fail = "--workdir"
+                with self.assertRaises(RuntimeError):
+                    self.due()
+                self.assertNotIn(LEDGER, self.docker.containers)
+                calls = len(self.docker.calls)
+                if reason == "live":
+                    self.live.busy = True
+                else:
+                    self.docker.runners = ["trade-paper-7-runner"]
+                self.assertTrue(self.generation.resume(B))
+                self.assertEqual(self.journal()["phase"], "archiving")
+                self.assertFalse([call for call in self.docker.calls[calls:] if call[0] in ("stop", "rm", "run")])
+                self.assertIn(f"wait:generation:{B}:{reason}", self.release.waits)
+                self.assertEqual(self.paper.frozen[-2:], ["all", None], "Paper's writes wait meanwhile, and only then")
+
+    def test_a_cutover_stopped_before_the_ledger_is_removed_goes_on(self):
+        self.docker.fail = "rm"
+        with self.assertRaises(RuntimeError):
+            self.due()
+        self.assertIn(LEDGER, self.docker.containers & self.docker.stopped)
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "archived")
+
+    def test_a_resumed_archive_with_a_ledger_still_asks_paper(self):
+        self.docker.fail = "--workdir"
+        with self.assertRaises(RuntimeError):
+            self.due()
+        self.docker.containers.add(LEDGER)  # an operator started it again
+        self.docker.stopped.clear()
+        self.host.starting = 1
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "archiving")
+        self.assertIn(f"wait:generation:{B}:paper", self.release.waits)
+
+    def test_the_first_pass_never_skips_the_paper_check(self):
+        self.docker.stopped.add(LEDGER)
+        with self.assertRaisesRegex(RuntimeError, "barrier"):
+            self.due()
+        self.assertUntouched()
 
     def test_a_resumed_archive_waits_while_live_or_paper_is_busy(self):
         for reason in ("live", "paper"):
