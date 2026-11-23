@@ -40,8 +40,8 @@ research session that its transcript cannot show ([attach.md](references/attach.
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read the open rows of `docs/plans/doctor/index.zh.md` (a full audit reruns the proofs
-   its header names). Judge current product behavior on a checkout at the current `origin/main`
+   commits; list the `agent-finding` issues, open and closed (a full audit reruns the
+   proofs of those closed as completed without a held comment, and reads the fixed rows the index header links). Judge current product behavior on a checkout at the current `origin/main`
    (after `git fetch origin main`), use its current names in findings, and compare it with the
    session's checkout before calling anything a defect: a fix the session lacked is not a new
    finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp timeline
@@ -73,13 +73,12 @@ research session that its transcript cannot show ([attach.md](references/attach.
    test or CI check can find, the addition is that check (an `authority` item). State why each
    earlier option does not fit, the net change in mechanisms, branches, rules and skill words, and
    why any growth was unavoidable.
-6. **Report decisions.** Record per [record.md](references/record.md): an index row for each
-   verified finding, authority recommendation or open evidence gap, and a record file only for an
-   audit or a diagnosis of several rows. Update existing rows rather than recording each symptom
-   anew. A row someone must fix, other than `authority`, also gets an `agent-finding` issue as
-   the index header says. A finding the user pointed out first takes source `user` with the
-   lenses.md workstream that should have caught it, by its name there; one verified from the user
-   bot's issue takes `user-bot` the same way, with the issue number.
+6. **Report decisions.** Record per [record.md](references/record.md): an `agent-finding` issue for
+   each verified finding, authority recommendation or open evidence gap, asking the user about the
+   authority ones; a record file only for what it names. Update existing issues rather than recording
+   each symptom anew. A finding the user pointed out first takes source `user` with the lenses.md
+   workstream that should have caught it, by its name there; one verified from the user bot's issue
+   takes `user-bot` the same way.
 
 ## Convergence
 
