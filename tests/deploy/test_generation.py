@@ -31,7 +31,8 @@ def fill(data: Path) -> Path:
     """A ledger service's data as a host holds it, and the Dolt volume's files; returns the volume."""
     for path, text in (("dolt/service.json", "{}"), ("dolt/cfg/config.yaml", "x"), ("dolt/paper/7/run.json", "{}"),
                        ("ledgers/research.json", "{}"), ("ledgers/market.json", "{}"), ("dolt-backups/research/b", "b"),
-                       ("market/bar/2020-01.parquet", "bars"), ("volume/research/.dolt/noms", "chunks")):
+                       ("market/bar/2020-01.parquet", "bars"), ("volume/research/.dolt/noms", "chunks"),
+                       ("volume/paper/.dolt/noms", "runs")):
         (data / path).parent.mkdir(parents=True, exist_ok=True)
         (data / path).write_text(text)
     return data / "volume"
@@ -385,10 +386,10 @@ class GenerationTests(unittest.TestCase):
         self.assertTrue((archive / "ledgers/market.json").is_file())
         self.assertTrue((archive / "dolt-backups/research/b").is_file())
         self.assertTrue((self.data / "market/bar/2020-01.parquet").is_file(), "the market has no generation")
-        self.assertFalse((archive / generation.VOLUME_TGZ).exists(),
-                         "the host's volume mirrors the old generation's DoltHub repository: never copied")
+        with tarfile.open(archive / generation.VOLUME_TGZ) as kept:
+            self.assertIn("./paper/.dolt/noms", kept.getnames(), "the volume holds the host's only live Paper database")
+            self.assertNotIn("./research/.dolt/noms", kept.getnames(), "a mirror of the old line's branch: never copied")
         self.assertNotIn(VOLUME, self.docker.volumes)
-        self.assertNotIn(MOUNTED, [item for call in self.docker.calls for item in call])
         self.assertFalse(older.exists(), "only the newest archive stays")
         self.assertTrue(manual.exists())
         steps = [call[:2] for call in self.docker.calls if call[0] in ("stop", "rm")]
@@ -409,6 +410,23 @@ class GenerationTests(unittest.TestCase):
             self.assertLessEqual(self.docker.seconds, minutes * 60 / 2,
                                  "the rest of a tick (preparing, Live's inspection) needs the other half")
         self.assertEqual(self.journal()["phase"], "done")
+
+    def test_the_volume_stays_until_its_paper_database_is_archived(self):
+        with patch.object(generation.tarfile, "open", side_effect=OSError("no space left")), self.assertRaises(OSError):
+            self.due()
+        self.assertIn(VOLUME, self.docker.volumes)
+        self.assertEqual(self.journal()["phase"], "archiving")
+        self.assertTrue(self.generation.resume(B))
+        self.assertEqual(self.journal()["phase"], "archived")
+        self.assertNotIn(VOLUME, self.docker.volumes)
+        with tarfile.open(self.data / ARCHIVE / self.journal()["archive"] / generation.VOLUME_TGZ) as kept:
+            self.assertIn("./paper/.dolt/noms", kept.getnames())
+
+    def test_a_volume_already_removed_is_not_mounted_again(self):
+        self.docker.volumes.clear()
+        self.assertTrue(self.due())
+        self.assertNotIn(f"type=volume,src={VOLUME},dst={MOUNTED},readonly",
+                         [item for call in self.docker.calls for item in call], "Docker would create it, empty")
 
     def test_market_import_that_was_stopped_stays_stopped(self):
         self.docker.containers.discard(MARKET_IMPORT)
