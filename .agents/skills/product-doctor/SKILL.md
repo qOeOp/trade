@@ -15,7 +15,7 @@ Research conclusions and experiment choice belong to `research-round`.
   the active ledger or market (`research state` also moves the local `main` runtime tag). Probes that
   write use a temporary ledger (`ledger temp`), a temporary market and an IDE of the audit's own.
   AGENTS.md owns authority and credentials; a diagnosis grants none, picks no candidate and changes
-  no target. Outside literature goes through `research-sources`, with only calls that need no key.
+  no target. Outside literature goes through `research-sources`, its keys included.
 - A full audit, or focused questions that together cover a session, runs in a fresh session sharing
   no context with the work audited (not the research session, its sub-agents, or one that attached or
   discussed it). Otherwise stop and give the user the steps: end the research session; open a new
@@ -25,7 +25,7 @@ Research conclusions and experiment choice belong to `research-round`.
 
 ## Focused diagnosis
 
-One question: steps 3, 4 and 6 only. Examine what answers it and stop.
+One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answers it and stop.
 
 ## Full audit
 
@@ -42,7 +42,7 @@ One question: steps 3, 4 and 6 only. Examine what answers it and stop.
    whose control must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`,
    a rate, not one time (`--help` says the forms; run as
    `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`).
-   Only `shown` proves; otherwise say unverified. Evidence names no credential.
+   Only `shown` proves; otherwise say unverified. A help call or a script alone is not a defect. Evidence names no credential.
 4. **Examined means exercised.** Where the real dependency (network, container, browser, host, account)
    was out of reach, the subject is *not examined*, with what stopped it; a stand-in, a passing unit
    test or reading the code does not examine it, unless the lens asks for a fake. Any such subject
@@ -54,7 +54,7 @@ One question: steps 3, 4 and 6 only. Examine what answers it and stop.
 6. **Refute.** A fresh sub-agent gets each claim without your proof and tries to break it:
    confirmed, by design, false or undecided. Confirmed reaches an issue; keep its count, and the
    overturned ones, in the report. Say how a real case reaches the trigger; a hand-damaged file alone is minor.
-7. **Remedy.** In order: none; restate the mechanism so special cases merge; remove; add, only for a
+7. **Remedy.** In order, saying why each earlier one does not fit: none; restate the mechanism so special cases merge; remove; add, only for a
    wrong output, a trust boundary or recurrence. Net mechanisms, rules and words must be stated.
    Changing a refusal or audit is an `authority` item:
    ask the user.
