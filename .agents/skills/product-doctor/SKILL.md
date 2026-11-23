@@ -48,12 +48,9 @@ One question: steps 3, 4 and 6 only. Examine what answers it and stop.
    test or reading the code does not examine it, unless the lens asks for a fake. Any such subject
    makes the audit partial: never `pass`, `clean` or `full`.
 5. **Challenge quiet choices.** Each full audit takes several choices that raised no alarm. A fresh
-   sub-agent designs from the need and the hard bounds (AGENTS.md authority, Nautilus ownership,
-   outside facts) before reading the code. The rule, document or comment that states the choice is
-   what is challenged, not a bound. Another defends the present; a run on a scratch copy measures
-   both. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot tell.
-   Keep needs a run showing what is lost without it. The `docs/plans/doctor/index.zh.md` list is
-   challenged only when its stated reason fails.
+   sub-agent designs from the need before reading the code; a run on a scratch copy measures the
+   difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot
+   tell. The `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
 6. **Refute.** A fresh sub-agent gets each claim without your proof and tries to break it:
    confirmed, by design, false or undecided. Confirmed reaches an issue; keep its count, and the
    overturned ones, in the report. Say how a real case reaches the trigger; a hand-damaged file alone is minor.
