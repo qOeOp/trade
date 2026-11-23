@@ -539,7 +539,7 @@ class LaterImportTests(unittest.TestCase):
                 ("coin delivering, gone", [seen_coin, row(new, "PERPETUAL_DELIVERING", "COIN")], None, (True, True, True)),
                 ("never seen", [], item(*equity, new), (False, False, False))):
             with self.subTest(label):
-                self.assertEqual(tuple(store._classified("XUSDT", seen, now, at)["eligible"] for at in (FEB, MAR, APR)),
+                self.assertEqual(tuple(universe.contract_in_month("XUSDT", seen, now, at)["eligible"] for at in (FEB, MAR, APR)),
                                  expected)
 
     def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001", absent: int | None = None):

@@ -135,16 +135,6 @@ def _same_terms(stored: dict | None, terms: dict) -> bool:
                     for name in instrument.TERMS))
 
 
-def _item_of(symbol: str, row: dict) -> dict | None:
-    """The classification input of a stored terms row: None for inferred terms (no exchange metadata)."""
-    if row["classification"] is None:
-        return None
-    found = json.loads(row["classification"])
-    quote = found.get("quote_asset") or ""
-    return {"symbol": symbol, "contract_type": found.get("contract_type"), "underlying_type": found.get("underlying_type"),
-            "base_asset": symbol[:-len(quote)] if quote and symbol.endswith(quote) else symbol}
-
-
 # One contract, prepared in a worker process
 
 def prepare(job: dict) -> dict:
@@ -414,7 +404,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
         {item["symbol"] for item in listed} | set(sources.archive_symbols()))
     seen = _terms_history(market)
     stored_terms = {symbol: rows[-1] for symbol, rows in seen.items()}
-    classified = {symbol: _classified(symbol, seen.get(symbol, []), by_symbol.get(symbol), month)
+    classified = {symbol: universe.contract_in_month(symbol, seen.get(symbol, []), by_symbol.get(symbol), month)
                   for symbol in candidates}
     excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
     eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
@@ -641,33 +631,6 @@ def _terms_history(market: files.Market) -> dict[str, list[dict]]:
         for row in batch.to_pylist():
             found.setdefault(row["symbol"], []).append(row)
     return {symbol: sorted(rows, key=lambda row: row["observed_at"]) for symbol, rows in found.items()}
-
-
-def _classified(symbol: str, seen: list[dict], item: dict | None, month: date) -> dict:
-    """The classification of the contract that bears `symbol` in `month` (universe.classify_contract's). A contract
-    keeps that of its earliest stored observation: later rows are recorded and never reclassify it (a delisting contract
-    is reported SETTLING without a contract type). But a symbol can be given to another contract. One listed after
-    that observation is another: it is classified by exchangeInfo from its month on, and its first month is imported
-    only when both contracts are eligible. Once exchangeInfo no longer states it, a later row naming another underlying
-    type stands for it from the month of that row. A symbol never seen is classified by today's exchangeInfo."""
-    if not seen:
-        return universe.classify_contract(symbol, item)
-    first = universe.classify_contract(symbol, _item_of(symbol, seen[0]))
-    start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
-    if item is not None and item["contract_type"]:
-        onboard = item["onboard_date"]
-        if onboard is None or onboard <= seen[0]["observed_at"] or end <= onboard:
-            return first
-        other = universe.classify_contract(symbol, item)
-        return other if onboard <= start or first["eligible"] else first
-    if first["eligible"]:
-        underlying = (_item_of(symbol, seen[0]) or {}).get("underlying_type", "COIN")
-        for row in seen[1:]:
-            stated = _item_of(symbol, row)
-            if (row["observed_at"] < end and stated is not None and stated["contract_type"]
-                    and stated["underlying_type"] != underlying):
-                return universe.classify_contract(symbol, stated)
-    return first
 
 
 def trading_days(market: files.Market, symbols: list[str], low: date, high: date) -> dict[str, set[date]]:
