@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a research session's first question to the user is checked option by option along the consumer path (can the option register now on the pinned market day, does `research state` gate it); findings are reported by measured cost with one id per root cause, and the user-first item names the workstream that missed it.
+description: Rule check — with the skill, a research session's first question to the user is checked option by option along the consumer path (can the option register now on the pinned market day, does `research state` gate it); findings are reported by measured cost with one issue per root cause, and the user-first item names the workstream that missed it.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -19,6 +19,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - 上一条线开着时的 `replay explore`（trial 231，`CAND_A@3`）：这次回放已暴露来源，挡住它的首次研究登记（`registration add` 的拒绝码是 `SOURCE_ALREADY_EXPOSED`）。`CAND_B@1` 在 `candidate list` 里 `attempts` 为空，只有一次 5 天预检（`exposure_exemption.trading_days` 为 5），可以引用它登记。
 - 第 1 轮提问前 `research state`：`gates` 只有 `RESEARCH_LINE_REQUIRED`（没有开着的线）。
 - 用户选了 A；第 3 轮 `registration add` 被 `SOURCE_ALREADY_EXPOSED` 拒；第 4–11 轮 Agent 自己在源码里找可改之处；第 12 轮用户说「是不是 A 根本登不了，你问之前没查？」；第 13 轮重新提问，用户选 C。按转录时间戳，从首问到第一条线能跑回放用了 41 分钟，其中第 4–11 轮占 23 分钟。
-- 两天前另一场会话的首问选项也全部不能立即登记，索引里记为 `20261020-07`（原因：提问前没有按产品输出逐项核对选项；修法：提问前逐项核对），状态 `fixed abc1234`。昨天这场会话的检出已包含 `abc1234`。
+- 两天前另一场会话的首问选项也全部不能立即登记，记在 issue #3777（原因：提问前没有按产品输出逐项核对选项；修法：提问前逐项核对），由 `abc1234` 关闭为 completed。昨天这场会话的检出已包含 `abc1234`。
 
 请按诊断流程给出发现与记录写法。
