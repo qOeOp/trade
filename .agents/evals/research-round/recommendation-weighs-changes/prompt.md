@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a recommendation's subjects name every candidate of the comparison table while its body weighs only the recommended version and the candidates whose evidence or availability changed since the previous recommendation, citing that recommendation for the rest instead of restating every candidate.
+description: Rule check — with the skill, a recommendation's subject is the recommended candidate while its body weighs only the recommended version and the candidates whose evidence or availability changed since the previous recommendation, citing that recommendation for the rest instead of restating every candidate.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
