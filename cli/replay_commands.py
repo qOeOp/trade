@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cli.common import (AT, CANDIDATE_HELP, LEDGER, MARKET, MARKET_DAY, RUNTIME_DEFAULT_HELP, command,
+from cli.common import (AT, CANDIDATE_HELP, LEDGER, MARKET, MARKET_DAY, RUNTIME_DEFAULT_HELP, RUNTIME_HELP, command,
                         market_day, option)
 from ledger import db
 from registration.precheck import PRECHECK_MAX_DAYS
@@ -148,7 +148,8 @@ COMMANDS = [
                 "contract's warm-up or lifecycle gave it a strategy instance) is no exposure."),
     command(replay_run, "replay", "run", "a sealed research or validation replay (runner arguments as registered)", (
         "the candidate and the registration (writer, head); the market at --market-day (default: the research "
-        "registration's market day, else head), exported fresh; the runtime image; "
+        "registration's market day, else head), exported fresh; the runtime image (default: the research "
+        "registration's); "
         "the checkout's HEAD (with --validation it must contain origin/main)",
         "the trial naming its research or validation registration, its start receipt and execution capture, one "
         "run row and, when passed, its reading, daily returns and cycles; a "
@@ -166,7 +167,8 @@ COMMANDS = [
         "research run, its closing has begun: it has a history trial); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
          LEDGER, MARKET, market_day(default="the research registration's market day, else head"),
-         option("--candidate", required=True, help=CANDIDATE_HELP), RUNTIME,
+         option("--candidate", required=True, help=CANDIDATE_HELP),
+         option("--runtime", help=RUNTIME_HELP + " (default: the research registration's image, else the main tag)"),
          option("--registration", type=int, help="research registration ID (or --validation)"),
          option("--validation", type=int, help="validation registration ID (or --registration)"),
          option("--output", help="new directory under the temporary root that keeps the run's native reports as a "

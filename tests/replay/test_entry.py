@@ -322,7 +322,7 @@ class SealedReplayTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         cls.refs, cls.registration_of = [], {}
         for tags in (range(1, 6), range(6, 11), range(11, 14), range(14, 15), range(15, 16), range(16, 18),
-                     range(18, 19)):
+                     range(18, 19), range(19, 20)):
             registration_id, refs = registered_grid(world, [f"g{index}" for index in tags])
             cls.refs += refs
             cls.registration_of.update(dict.fromkeys(refs, registration_id))
@@ -417,6 +417,20 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(stored["status"], "passed")
         self.assertEqual(self.rows("SELECT CAST(market_day AS CHAR) FROM trial WHERE trial_id = %s",
                                    (stored["trial_id"],)), [(MARKET_DAY,)])
+
+    def test_a_research_replay_without_a_runtime_runs_the_registered_image(self):
+        image_ref = self.rows("SELECT image_ref FROM research_registration WHERE registration_id = %s",
+                              (self.registration_of[self.refs[18]],))[0][0]
+        resolved, resolve = [], registration_seams.current.resolve_runtime
+
+        def recorded(reference):
+            resolved.append(reference)
+            return resolve(reference)
+
+        with registration_seams.use(resolve_runtime=recorded):
+            stored = self.run_ref(self.refs[18], runtime=None)
+        self.assertEqual(stored["status"], "passed")
+        self.assertEqual(resolved, [image_ref], "a tag that moved since registration is not resolved instead")
 
     def test_a_kept_directory_must_be_new_and_temporary_before_any_trial(self):
         (trials_before,), = self.rows("SELECT COUNT(*) FROM trial")

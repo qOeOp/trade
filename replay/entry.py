@@ -483,8 +483,8 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
 def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime: str | None, runner_argv: list[str],
         registration: int | None = None, validation: int | None = None, output: Path | None = None) -> dict:
     """A sealed research (`registration`) or validation replay of a published candidate, stored as a run;
-    `output` (new, under the temporary root) keeps its working directory as a cache. Without `at`, a research
-    replay reads the market day its registration pins."""
+    `output` (new, under the temporary root) keeps its working directory as a cache. Without `at` or `runtime`, a
+    research replay reads the market day or runs the runtime image its registration pins."""
     if (registration is None) == (validation is None):
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
                      expected="registration xor validation")
@@ -497,8 +497,10 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
         registration_runner.require_current(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
         revision = strategies.read_candidate(conn, strategy)
-        if registration is not None and at is None:
-            at = str(register.load_registration(conn, registration)["execution"]["market_day"])
+        if registration is not None and (at is None or runtime is None):
+            registered = register.load_registration(conn, registration)["execution"]
+            at = str(registered["market_day"]) if at is None else at
+            runtime = registered["image_ref"] if runtime is None else runtime
     exported = None
     try:
         _, exported = _export(market, at, runner_argv, True, ledger)
