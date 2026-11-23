@@ -21,11 +21,12 @@ deleted; index links to it become permalinks at its last commit.
 | Sessions | host, transcript file name, start and end time |
 | Audit session | host, model, session id, worktree and any PR this session itself wrote; unknown where the host does not show it |
 | Checkout / ledger | commit; ledger commits from … to … |
-| Coverage | each item of the full-audit list (lenses.md, Assignment) with its workstream, other examined paths and explicit gaps |
+| Coverage | `doctor.py report`'s title, its not-exercised line and coverage table, the workstream of each item, other examined paths |
 | Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
 | Net change | mechanisms, branches, rules and skill words the proposals add and remove; why any growth was unavoidable |
 
 ## Findings
+The `doctor.py report` finding table and its last line; claims the independent rerun overturned, of how many; then:
 | id | Finding | Probe (current product) | Session or norm; consumer and decision | Action | Cost |
 
 ## Removal list

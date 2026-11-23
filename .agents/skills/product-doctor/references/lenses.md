@@ -10,19 +10,37 @@
 
 ## Assignment
 
-A full audit exercises, not only reads, each of these on the current product, and reports
-coverage and anything unexamined:
-- the research flow end to end on a temporary ledger and market, for one contract and for a
-  pool, kept small (short windows): `line select` through `line close`, then Paper and
-  `paper compare`, then Live's research-side admission refusals against that ledger, without a
-  credential or a run;
-- every admission gate and eligibility check with partial and missing states (a run or segment
-  never started, failed or cut short), not only the passing and failing ones;
-- the cost of each long path (replay, import, reports, ledger reads) at two or more input sizes;
-- fault paths through the existing fault fixtures (live loopback, fake Docker);
-- each IDE page in a real browser on its own `ide/ide.py serve` over a temporary ledger, never the
-  user's running IDE: with no records and with records, offline (no `--paper`) and after a reload;
-- one state read through every consumer (ledger, report, CLI, IDE), which must agree.
+A full audit exercises, not only reads, each item below on the current product, by commands recorded
+with `doctor.py run` (SKILL.md step 2). The brackets name the subjects an item needs: `any` takes a
+subject of the audit's choosing, and a `rotating` item is chosen each time, at least one of them, the
+one longest unexamined in earlier records' coverage. Reading code covers none of them.
+
+- **flow** [single pool]: the research flow end to end on a temporary ledger and market, for one
+  contract and for a pool, kept small (short windows): `line select` through `line close`, then Paper
+  and `paper compare`, then Live's research-side admission refusals against that ledger, without a
+  credential or a run.
+- **gates** [empty failed partial]: every admission gate and eligibility check with a run or segment
+  never started, failed, or cut short, not only the passing and failing ones; for each retry or
+  supersession chain, an attempt after one that passed.
+- **cost** [replay import reports ledger]: each long path at three or more sizes (`doctor.py cost`).
+- **faults** [live docker]: fault paths through the existing fault fixtures (live loopback, fake Docker).
+- **interrupt** [any]: an operation with several side effects (release, cutover, recovery, import)
+  stopped after each one and resumed, on fakes only. A fake must lose what the stopped step took away:
+  one that always answers hides a step that waits on what it stopped.
+- **pages** [empty records offline reload]: each IDE page in a real browser on its own `ide/ide.py
+  serve` over a temporary ledger, never the user's running IDE: with no records, with records, offline
+  (no `--paper`) and after a reload. The artifact is the page's rendered text; find how the page is
+  reached in its code, since an unknown address can draw the first page.
+- **consumers** [ledger report cli ide]: one state read through every consumer, which must agree.
+- **fixed** [any]: the index's `fixed` rows (`doctor.py recheck`).
+- **unchanged** [any]: a module the last audits' findings and the recent commits leave alone.
+- **recovery** [rotating]: backup restore and ledger rebuild on temporary copies.
+- **security** [rotating]: trust boundaries, dependencies and what each process may reach; no
+  credential is read.
+- **governance** [rotating]: CI gates and rulesets against what they claim, leftover branches and
+  worktrees, rules no check or reader holds.
+- **operation** [rotating]: what an operator learns, and when, as a service degrades or fills its disk.
+- **usability** [rotating]: keyboard, contrast and narrow screens.
 
 ## Behavior and decision evidence
 
