@@ -41,7 +41,7 @@ import pymysql.constants.CR
 
 from ledger import server
 from shared.errors import Refusal
-from shared import paths, profiles as profile_directory
+from shared import paths, profiles as profile_directory, version as product
 from shared.refusals import refuse
 
 
@@ -53,6 +53,14 @@ PAPER_SCHEMA = Path(__file__).with_name("paper.sql")
 # What a database holds: its schema file and generation.
 SCHEMAS = {"research": (SCHEMA, SCHEMA_VERSION), "paper": (PAPER_SCHEMA, PAPER_SCHEMA_VERSION)}
 BRANCH = "main"  # the one branch of a research ledger
+
+
+def line_tag() -> str:
+    """The tag a new research ledger's first commit carries: this version's line (read when a ledger is made, since an
+    installed package carries no pyproject.toml)."""
+    return product.tag(product.line(product.product_version()))
+
+
 DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
@@ -260,8 +268,11 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
 
 
 def ledger_schema(cursor, holds: str = "research") -> None:
-    """The tables of a new database holding `holds`, on the selected database, committed."""
+    """The tables of a new database holding `holds`, on the selected database, committed. A research ledger's first
+    commit (Dolt's own, made with the database) gets the tag of this version's line (shared/version.py)."""
     schema, version = SCHEMAS[holds]
+    if holds == "research":
+        cursor.execute("CALL DOLT_TAG(%s, 'HEAD')", (line_tag(),))
     for statement in _statements(schema.read_text(encoding="utf-8")):
         cursor.execute(statement)
     cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (version,))

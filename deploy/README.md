@@ -71,11 +71,13 @@ the private half never leaves the service. Pressing **Set up public ledger** pub
 then finishes by itself. If you interrupted it, or it gave up after 6 hours, the services it had started keep waiting:
 finish on the page, then run `up -d` again to start paper.
 
-One repository holds every ledger, one branch per version line: `v0.<minor>` before 1.0, `v<major>` from 1.0 (the
-line is raised exactly when the previous version's ledger can no longer be used; patch versions share their line's
-branch). The ledger is that repository's branch of its version's line: a first start fetches only that branch into the
-local `main`, and every publish pushes `main` to it (Updating, below). An empty repository, or one without the line's
-branch, starts a new ledger, which its first publish adds as that branch. To skip the page, name the repository before
+One repository holds the ledger: its `main` is always the ledger in use, and the local `main` is pushed as `main`.
+A ledger belongs to a version line, `v0.<minor>` before 1.0, `v<major>` from 1.0 (the line is raised exactly when the
+previous version's ledger can no longer be used; patch versions keep `main`), named by the tag `line/<line>` on its
+first commit. An earlier line's ledger is kept as the branch of that line's name, made when the next line starts
+(Updating, below), and never rewritten or deleted after. A first start fetches only `main` into the local `main`, and every publish
+pushes `main` (and, the first time, the line's tag). An empty repository starts a new ledger, which its first publish
+puts on `main`. To skip the page, name the repository before
 `up -d` with
 `TRADE_RESEARCH_ORIGIN=https://doltremoteapi.dolthub.com/OWNER/REPOSITORY` in `.env`, and put a copy of a `dolt login`
 `~/.dolt` at `$D/dolthub` (`TRADE_DOLTHUB` names another directory). A key directory holding anything is never written.
@@ -205,43 +207,51 @@ has no Live control. The IDE's status bar says "Behind vX.Y.Z" while a newer ver
 (read from GitHub at most hourly); `.env` and the services move only when you run the command. The release host
 refuses it: its release tick moves it ([remote/README.md](remote/README.md)).
 
-A version of another line (a new minor version before 1.0, a new major one from 1.0) starts a new data generation,
+A version of a later line (a new minor version before 1.0, a new major one from 1.0) starts a new data generation,
 even when its schema did not change, and the update does it before `up -d`
 ([design](../docs/plans/data-generation-in-release-20261123.zh.md),
-[lines](../docs/plans/version-line-branches-20261123.zh.md)). The version's own code says which line it publishes as,
-and, read-only against the running ledger (a stopped ledger is refused: start it first; a ledger directory without its
-container too), where the ledger publishes and which line's branch it tracks, and whether it reads the ledger's schema
-(`ledger service check`). A version of the same line that does not read it is refused (a schema change needs a new
-line; the release workflow never releases one), and so is a ledger publishing anywhere but `TRADE_RESEARCH_ORIGIN`.
-An `.env` that does not name it takes the repository the ledger publishes to (without 0.5.2's `-g<N>`) and names it
-once the checks pass. Then the update publishes what the old ledger holds to its line's branch (a failed publish
-stops it before anything changes: that copy is the old line's record) and reads the new line's branch on DoltHub: a
-ledger of the version's schema there is fetched, no branch (or an empty repository) means the ledger is made here; a
-branch of that name that holds no ledger stops the update, for the owner to look at. A repository that does not
-exist stops the update before it changes anything: create it once on dolthub.com, public;
-no update creates one. It then stops the project, archives the ledger's data into `$TRADE_DATA/archive/<UTC time>-<revision>/` (the contents of
-`dolt`, `dolt/paper`, `ledgers` and `dolt-backups` by rename, the `trade-dolt-data` volume as a tgz before it removes
-the volume), and starts the ledger alone: its first start makes the new ledger and publishes it as the line's branch (or fetches
-that branch, when another workstation published it first). It puts `market.json` back into `ledgers`, removes every older archive
-it made, and the update goes on as above. The market directory has no generation and stays.
-`$TRADE_DATA/deploy/generation.json` records the step and the line: an interrupted cutover is finished by the next
-update of that line, from that step (a version of another line is refused). `--check` says whether the version starts a new generation and changes nothing. Every refusal comes before the
-env file names the new images. The release host waits for this publication before its own cutover
+[main](../docs/plans/main-is-the-ledger-in-use-20261123.zh.md)). The version's own code says which line it publishes
+as, and, read-only against the running ledger (a stopped ledger is refused: start it first; a ledger directory without
+its container too), where the ledger publishes, which branches it tracks and which line its `main` is, and whether it
+reads the ledger's schema (`ledger service check`). A version of the same line that does not read it is refused (a
+schema change needs a new line; the release workflow never releases one), and so are a version of an earlier line, a
+ledger publishing anywhere but `TRADE_RESEARCH_ORIGIN` and a ledger without a line tag. An `.env` that does not name
+it takes the repository the ledger publishes to and names it once the checks pass. Then the update publishes what the
+old ledger holds to `main` (a failed publish stops it before anything changes) and reads `main` on DoltHub: it must
+hold this ledger's line (archived as that line's branch at the new ledger's first start) or already the version's line
+of the version's schema (fetched); an empty repository means the ledger is made here. Anything else on `main` stops
+the update, for the owner to look at, and so does a repository that does not exist: create it once on dolthub.com,
+public; no update creates one. It then stops every service but the ledger and publishes once more (a ledger stopped
+since an interrupted update starts again for it first; a failed publish stops the update here), stops the project, archives the ledger's data into
+`$TRADE_DATA/archive/<UTC time>-<revision>/` (the contents of `dolt`, `dolt/paper`, `ledgers` and `dolt-backups` by
+rename, the `trade-dolt-data` volume as a tgz before it removes the volume), and starts the ledger alone. Its first
+start reads `main`: when it holds the earlier line, it pushes `main`'s head as the branch of that line's name (never
+forced: a branch of that name holding other history stops it, `main` unchanged), fetches that branch back and checks
+its head, and only then makes the new ledger, pushes its line tag and force-pushes it to `main` in place of the old
+line's, checking that `main` now holds its head. The owner starting the release workflow for the version is the
+authority for that rewrite. When another workstation already put the line's ledger on `main`, it fetches that instead.
+The update puts `market.json` back into `ledgers`, removes every older archive it made, and goes on as above. The
+market directory has no generation and stays. `$TRADE_DATA/deploy/generation.json` records the step and the line: an
+interrupted cutover is finished by the next update of that line, from that step (a version of another line is
+refused), and an interrupted first start resumes, since pushing the archive branch again changes nothing. `--check`
+says whether the version starts a new generation and changes nothing. Every refusal comes before the env file names the
+new images. The release host waits for this publication before its own cutover
 ([remote/README.md](remote/README.md#a-version-that-starts-a-new-data-generation)).
 
-The first update to 0.5.3 or later moves the v0.5 ledger, which 0.5.2 published to `<TRADE_RESEARCH_ORIGIN>-g2`, to
-the repository's branch `v0.5`: it publishes the ledger to `-g2` once more (a failed publish stops it before anything
-changes), names the new images, starts the version's ledger alone (`up --wait ledger`; at that start the ledger names
-`TRADE_RESEARCH_ORIGIN` its origin, logged once) and publishes it, which pushes `main` as `v0.5`, before the other
-services move. It archives nothing; an interrupted move is finished by the next update (a ledger whose origin is the
-repository but that has not published yet publishes first). `-g2` and the repository's `main` (the previous
-generation, 0.5.0 and 0.5.1) stay as they are: nothing is deleted or forced on DoltHub. An update with an older
-`deploy/update.py` (before 0.5.3) cannot follow 0.5.3; run `deploy/update.sh` from a current checkout. An update to a
-version before 0.5.3 is refused: it would publish `main` to the repository, whose `main` holds the previous
-generation.
+The first update to 0.5.4 or later moves the v0.5 ledger, which 0.5.3 published as the repository's branch `v0.5`,
+onto `main`, which holds the previous generation (0.5.0 and 0.5.1, schema generation 1, no line tag): it publishes the
+ledger once more with 0.5.3 (a failed publish stops it before anything changes), names the new images, starts the
+version's ledger alone (`up --wait ledger`) and publishes it, which, in a scratch Dolt directory beside the ledger's
+data, pushes `main`'s head as the branch `v0.4` and checks it, tags the ledger's first commit `line/v0.5`, pushes the
+tag, force-pushes the ledger to `main`, checks that `main` holds its head, and only then deletes the branch `v0.5`
+(kept when `main` does not hold its head). The update waits until the ledger tracks `main` alone (up to 30 minutes:
+the ledger's own publish round may be holding the move) before the other services move. It archives nothing; an
+interrupted move is finished by the next publish, from its step. A `main` that is neither the previous generation nor
+this ledger stops it, with nothing pushed. An update to a version before 0.5.4 is refused: it would publish the ledger
+as its line's branch again. `<TRADE_RESEARCH_ORIGIN>-g2` is not touched.
 
-DoltHub shows a repository's default branch first; it stays `main` until the owner changes it in the repository's
-settings on dolthub.com (DoltHub's API has no call for it, and nothing here needs it: every reader names its line).
+DoltHub shows a repository's default branch first: `main`, the ledger in use. Keep it so; the earlier lines' branches
+are listed beside it.
 
 Every other compose command on the workstation uses the same definition, project and env file, so no service is
 created from a checkout, a worktree or a deleted directory (`--no-deps` keeps one service's recreate from recreating

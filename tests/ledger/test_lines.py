@@ -243,7 +243,8 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual((closed["line"], closed["line_id"], closed["replayed"]), ("ema-trend", first["line_id"], False))
         self.assertEqual(self.service.sql(self.profile, "SELECT line_id, summary FROM line_close"),
                          [(first["line_id"], summary.decode().strip())])
-        self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_tags"), [(0,)])
+        self.assertEqual(self.service.sql(self.profile, "SELECT tag_name FROM dolt_tags"), [(db.line_tag(),)],
+                         "closing a line tags nothing; the one tag is the ledger's version line")
         self.assertEqual(lines.read_line(self.conn, "ema-trend")["summary"], summary.decode().strip())
         self.assertEqual(open_names(self.conn), ["ema-trend-wider"])
         self.assertEqual(lines.open_line(self.conn)["line_id"], second["line_id"])

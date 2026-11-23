@@ -3,6 +3,8 @@
 > 同日修订：仓库与分支的安排、切换的触发和建库由
 > [`version-line-branches-20261123.zh.md`](version-line-branches-20261123.zh.md) 取代：只有一个研究仓库，每个版本线
 > 一个分支，升线（即使 schema 没变）就换代，不再有 `<基名>-g<N>`、API token 和建库。下文其余的切换步骤照旧。
+> 其中“每个版本线一个分支”又由 [`main-is-the-ledger-in-use-20261123.zh.md`](main-is-the-ledger-in-use-20261123.zh.md)
+> 取代：`main` 始终是在用的账本，旧线在升线时归档为同名分支。
 
 依据：用户 2026-11-23 的决定（下列“用户决定”逐条记录，是本设计的授权）。在此之前，换一代账本是
 `deploy/remote/README.md` “Starting a new data generation” 的 6 步手工清单：工作站建 DoltHub 仓库与新账本，服务器归档

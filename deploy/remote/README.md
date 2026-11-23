@@ -90,15 +90,18 @@ admitted version ([Release control code](#release-control-code)).
 
 ### A version that starts a new data generation
 
-`TRADE_RESEARCH_ORIGIN` names one DoltHub repository with one branch per version line (`v0.<minor>` before 1.0,
-`v<major>` from 1.0; patch versions share their line's branch): a version mirrors its line's branch and fetches no
-other ([lines](../../docs/plans/version-line-branches-20261123.zh.md)), so the env file stays as it is. Before its
-journal, a release asks, with the candidate's own code, read-only, in containers of its service image with the Paper
-controller's profiles: which line it publishes as, where the mirror follows and which line's branch it tracks, and
-whether its `ledger service check` refuses the research mirror or the Paper database with `SCHEMA_MISMATCH`. A
-candidate of another line starts a new data generation on this host, even when its schema did not change. One of the
-mirror's line that does not read it waits (a schema change needs a new line; the release workflow never releases
-one), and so does a mirror that has not fetched its line yet; a mirror of any other repository fails the tick. Any
+`TRADE_RESEARCH_ORIGIN` names one DoltHub repository whose `main` is always the ledger in use; an earlier version
+line's ledger (`v0.<minor>` before 1.0, `v<major>` from 1.0; patch versions keep `main`) is kept as the branch of
+that line's name, and a ledger's line is the tag `line/<line>` on its first commit
+([main](../../docs/plans/main-is-the-ledger-in-use-20261123.zh.md)). The mirror fetches `main` alone, so the env file
+stays as it is. Before its journal, a release asks, with the candidate's own code, read-only, in containers of its
+service image with the Paper controller's profiles: which line it publishes as, where the mirror follows, which
+branches it tracks and which line it holds, and whether its `ledger service check` refuses the research mirror or the
+Paper database with `SCHEMA_MISMATCH`. A candidate of a later line starts a new data generation on this host, even
+when its schema did not change; one of an earlier line, a candidate before 0.5.4 and a mirror without a line tag fail
+the tick. One of the mirror's line that does not read it waits (a schema change needs a new line; the release workflow
+never releases one), and so does a mirror that has not fetched `main` yet; a mirror of any other repository fails the
+tick. Any
 other failure fails the tick before the journal, as a pull does. Nobody moves the host by hand: the owner starting the
 `release` workflow for that version is the authority for its new ledger
 ([design](../../docs/plans/data-generation-in-release-20261123.zh.md)). A workstation makes and publishes the new
@@ -107,8 +110,9 @@ line's ledger when its own update reaches the version ([Updating](../README.md#u
 The release waits, changing nothing and marking nothing failed, with one Telegram notice ([Notices](#notices)) that
 says why, until all of these hold; every tick checks again:
 
-- the line's branch of the repository holds that version's ledger (read through DoltHub's public API, no
-  credential): until a workstation published it;
+- `main` of the repository holds a ledger of that version's line and schema generation, and the branch named after
+  the mirror's line holds the mirror's head (both read through DoltHub's public API, no credential): until a
+  workstation archived the old line and put the new one on `main`;
 - no Paper runner container runs, since their containers bind mount the run directories the cutover moves: stop the
   runs on the Paper page;
 - after Paper's writes are paused and admitted lifecycle operations finished, no Paper operation is in progress;
@@ -118,10 +122,11 @@ Then the tick stops `ledger` and `market-import`, removes the ledger's container
 version's service image with no network, what the ledger service left: the contents of `$TRADE_DATA/dolt` (the
 `paper` directory itself stays, emptied: the Paper controller and docker-api bind mount it), `ledgers` and
 `dolt-backups`, renamed into `$TRADE_DATA/archive/<UTC time>-<revision>/` (one file system: a rename, never a copy),
-and removes the `trade-dolt-data` volume, which only mirrors the old line's branch (and holds the Paper database,
+and removes the `trade-dolt-data` volume, which only mirrors the old line (kept on DoltHub as its branch; the
+volume also holds the Paper database,
 whose backup the archive keeps). The next tick starts the ledger from the version's own compose definition and waits
-for its health check (the mirror's first start fetches the new line's branch alone and makes an empty Paper
-database), starts market import again if it ran, and checks that
+for its health check (the mirror's first start fetches `main` alone, with no history of the old line, and makes an
+empty Paper database), starts market import again if it ran, and checks that
 the version reads the new ledger. The tick after removes every other archive it named, so only the previous
 generation's stays. Each of these ticks pauses Paper's writes while it works, and the tick that archives holds the
 same conditions as above; one step per tick keeps each tick within the release unit's start timeout. The market
@@ -135,16 +140,17 @@ commits: until then a failed release rolls back to the earlier version without w
 since it cannot read the new ledger. Watch it with `journalctl -u trade-release.service` (`Starting line`,
 `Archived the ledger's data`, `Data generation cutover started`, `Data generation cutover done`) and the notices.
 
-The first release of 0.5.3 or later moves the v0.5 mirror, which follows `<TRADE_RESEARCH_ORIGIN>-g2` (0.5.2's
-repository of its generation), to the repository's branch `v0.5`, archiving nothing: the volume keeps the mirror and
-the Paper database. It waits, as above, until that branch holds the mirror's head (a workstation's update moves its
-ledger there first; read through DoltHub's public API), no Paper runner runs and Live is idle; then, holding the same
-conditions, it reads the mirror's head again and checks that branch once more, starts the version's ledger from its definition, which at its start names `TRADE_RESEARCH_ORIGIN` its
-origin (logged once), checks that the mirror now follows the repository, and the next tick marks the move done
-(`Moving the mirror`, `Data generation move started`, `Data generation move done`). The same journal records it and
-the same rollback applies: the earlier version refuses the moved mirror, so the mirror and Paper stay down until a
-version of 0.5.3 or later is released. `-g2` stays on DoltHub as it is. A journal 0.5.2 left unfinished is not read: the
-tick fails on it, for the operator.
+The first release of 0.5.4 or later moves the v0.5 mirror, which follows the repository's branch `v0.5` (0.5.3
+published the ledger there), onto `main`, archiving nothing: the volume keeps the mirror and the Paper database. It
+waits, as above, until `main` holds the v0.5 ledger (tagged `line/v0.5`, schema generation 2) and the mirror's head (a
+workstation's first 0.5.4 update moves its ledger there first, keeping the previous generation as the branch `v0.4`;
+read through DoltHub's public API), no Paper runner runs and Live is idle; then, holding the same conditions, it reads
+the mirror's head again and checks `main` once more, starts the version's ledger from its definition, whose start
+drops every tracked branch but `main` and fetches `main` and its line tag, and the next tick marks the move done once
+the mirror tracks `main` alone (`Moving the mirror`, `Data generation move started`, `Data generation move done`). The
+same journal records it and the same rollback applies. Between the workstation's move, which deletes the branch `v0.5`
+once `main` holds it, and this release, a 0.5.3 mirror's syncs fail and it keeps its head; a rollback to 0.5.3 after the
+move does the same until a version of 0.5.4 or later is released again.
 
 ### Compose services
 
@@ -345,8 +351,8 @@ not a tested capacity result; do not change an existing deployment's cap without
    `ledger mirror` bootstraps the public research origin without a DoltHub publishing key and creates a
    separate, empty `paper` execution database (`ledger/paper.sql`); the Paper controller gets that database's
    accounts and the mirror's reader, never the service administrator. `TRADE_RESEARCH_ORIGIN` must name a research ledger already
-   published from a workstation ([First start](../README.md#first-start)): the mirror fetches only its version's
-   line's branch of it (`v0.<minor>`, from 1.0 `v<major>`). The mirror never publishes. The
+   published from a workstation ([First start](../README.md#first-start)): the mirror fetches only its `main`, the
+   ledger in use. The mirror never publishes. The
    Agent chat runs inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider
    settings and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
 5. Start the ledger, the Docker API proxy, OAuth2 Proxy and `edge`. Relative compose paths are resolved against

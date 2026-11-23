@@ -91,7 +91,7 @@ class ReplicaTests(unittest.TestCase):
         with db.connect(self.execution, "reader") as conn:
             self.assertEqual(paper.read_source(conn, copied["source_sha256"])["source"], source("child"))
 
-    def test_a_sync_fetches_its_line_only(self):
+    def test_a_sync_fetches_main_only(self):
         conn = server.connect_root(server.service_config(self.research.service_root), database=self.research.database)
         with conn.cursor() as cursor:
             cursor.execute("CALL DOLT_BRANCH('other-line')")
@@ -100,6 +100,7 @@ class ReplicaTests(unittest.TestCase):
             cursor.execute("SELECT DOLT_HASHOF('other-line')")
             (other,), = cursor.fetchall()
             cursor.execute("CALL DOLT_PUSH('origin', 'other-line:v0.0')")
+            cursor.execute("CALL DOLT_BRANCH('-d', '-r', 'origin/v0.0')")  # an archived line: the ledger tracks main
         conn.close()
         strategies.publish_candidate(self.research, source("line"), "line", "Fixture", "on the line")
         publish.publish(self.research)
@@ -112,12 +113,66 @@ class ReplicaTests(unittest.TestCase):
                 self.assertEqual([name for (name,) in cursor.fetchall()], [publish.TRACKING])
                 cursor.execute("SELECT name FROM dolt_branches")
                 self.assertEqual([name for (name,) in cursor.fetchall()], ["main"])
-                with self.assertRaises(pymysql.MySQLError, msg="another line's commits are never fetched"):
+                with self.assertRaises(pymysql.MySQLError, msg="an archived line's commits are never fetched"):
                     cursor.execute("CALL DOLT_BRANCH('probe', %s)", (other,))
         finally:
             mirror.close()
         self.assertEqual(publish.where(self.mirror), {  # what the release host reads, with the reader alone
-            "remote": self.origin, "lines": [publish.LINE], "head": replica.status(self.mirror)["ledger_commit"]})
+            "remote": self.origin, "tracked": ["main"], "line": publish.LINE,
+            "head": replica.status(self.mirror)["ledger_commit"]})
+
+    def restart(self):
+        server.stop(self.process)
+        with patch.object(service, "LISTEN", "127.0.0.1"):
+            self.process, self.mirror = replica.start(
+                self.root / "s", self.root / "data", self.root / "backup", self.origin,
+                server.known_service(self.root / "s")["port"], self.root / "readers", self.root / "controllers",
+                BINARY, log := tempfile.TemporaryFile())  # noqa: SIM115
+        self.addCleanup(log.close)
+        self.addCleanup(server.stop, self.process)
+
+    def test_a_mirror_that_followed_its_line_s_branch_follows_main_from_its_next_start(self):
+        """0.5.3's mirror tracked origin's v0.5; once main holds its head, a 0.5.4 start leaves it tracking main
+        alone, with the line's tag, and its syncs fast-forward from there."""
+        conn = server.connect_root(server.service_config(self.research.service_root), database=self.research.database)
+        with conn.cursor() as cursor:
+            cursor.execute("CALL DOLT_PUSH('origin', 'main:v0.5')")
+            cursor.execute("CALL DOLT_BRANCH('-d', '-r', 'origin/v0.5')")
+        conn.close()
+        mirror = server.admin(self.mirror)
+        try:
+            with mirror.cursor() as cursor:
+                cursor.execute("CALL DOLT_FETCH('origin', 'refs/heads/v0.5:refs/remotes/origin/v0.5')")
+                cursor.execute("CALL DOLT_BRANCH('-d', '-r', 'origin/main')")
+                cursor.execute("CALL DOLT_TAG('-d', %s)", (publish.TAG,))  # 0.5.3's ledger had no line tag
+        finally:
+            mirror.close()
+        self.assertEqual(publish.where(self.mirror) | {"head": None},
+                         {"remote": self.origin, "tracked": ["v0.5"], "line": None, "head": None})
+        strategies.publish_candidate(self.research, source("moved"), "moved", "Fixture", "after the move")
+        published = publish.publish(self.research)["head"]
+        self.restart()
+        self.assertEqual(publish.where(self.mirror) | {"head": None},
+                         {"remote": self.origin, "tracked": ["main"], "line": publish.LINE, "head": None})
+        self.assertEqual(replica.sync(self.mirror)["ledger_commit"], published)
+
+    def test_a_mirror_of_an_earlier_line_keeps_its_head_when_main_is_replaced(self):
+        """After a new line forces main, the old version's mirror cannot fast-forward: it keeps what it has until its
+        own cutover mirrors main afresh."""
+        before = replica.status(self.mirror)["ledger_commit"]
+        replaced = Service()
+        self.addCleanup(replaced.close)
+        other = replaced.ledger("replaced")
+        publish.set_remote(other, self.origin)
+        with patch.object(publish, "LINE", "v9"), patch.object(publish, "TAG", "line/v9"):
+            conn = server.connect_root(server.service_config(other.service_root), database=other.database)
+            with conn.cursor() as cursor:
+                cursor.execute("CALL DOLT_TAG('-d', %s)", (db.line_tag(),))
+                cursor.execute("CALL DOLT_TAG('line/v9', (SELECT commit_hash FROM dolt_log WHERE commit_order = 1))")
+            conn.close()
+            publish.replace(other)
+        self.assertEqual(refused(replica.sync, self.mirror).code, "REPLICA_SYNC_FAILED")
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
 
     def test_failed_fetch_preserves_visible_research_and_execution(self):
         before = replica.status(self.mirror)["ledger_commit"]
@@ -195,7 +250,7 @@ class ReplicaTests(unittest.TestCase):
 
         def lost_reply(cursor, statement, arguments=()):
             result = original(cursor, statement, arguments)
-            if statement == f"CALL DOLT_MERGE('--ff-only', '{replica.ORIGIN_LINE}')":
+            if statement == f"CALL DOLT_MERGE('--ff-only', '{replica.ORIGIN_MAIN}')":
                 raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
             return result
 

@@ -32,11 +32,17 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(first_run.origin_of(text), "https://doltremoteapi.dolthub.com/o-1/r_2", text)
         self.assertTrue(publish.DOLTHUB.fullmatch(first_run.origin_of("o/r")))
 
-    def test_the_ledger_is_this_version_s_line_of_the_one_repository(self):
+    def test_the_ledger_on_main_names_this_version_s_line_by_its_tag(self):
         self.assertEqual(publish.LINE, version.line(version.product_version()))
-        self.assertEqual((publish.PUSHED, publish.BRANCHES), (f"main:{publish.LINE}",
-                                                              f"refs/heads/{publish.LINE}:refs/remotes/origin/"
-                                                              f"{publish.LINE}"))
+        self.assertEqual((publish.PUSHED, publish.BRANCHES, publish.TAG, db.line_tag()),
+                         ("main:main", "refs/heads/main:refs/remotes/origin/main", f"line/{publish.LINE}",
+                          f"line/{publish.LINE}"))
+        self.assertLess(version.order("v0.9"), version.order("v0.10"))
+        self.assertLess(version.order("v0.10"), version.order("v1"))
+        self.assertLess(version.order("v1"), version.order("v2"))
+        for name in ("v0", "v0.5.1", "0.5", "v01", "main", ""):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                version.order(name)
         for number, line in (("0.5.2", "v0.5"), ("0.5.3", "v0.5"), ("0.6.0", "v0.6"), ("0.10.1", "v0.10"),
                              ("1.0.0", "v1"), ("1.4.2", "v1"), ("2.0.0", "v2")):
             self.assertEqual(version.line(number), line, number)
