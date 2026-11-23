@@ -497,32 +497,25 @@ def deflated_range(facts: Mapping, testing: Mapping | None) -> dict | None:
             for name in ("effective_trials", "trials_with_sweeps")}
 
 
-def _compared(conn: db.LedgerConnection, record: Mapping, checker: Mapping, records: list) -> tuple:
-    """(identities, the line's identity, passed runs with and without economic evidence, `candidates`) of the
-    comparison table, read before any run's measures, so a recommendation's check (compared_candidates) reads none."""
-    identities = _identities(conn)
-    current = line_identity(conn, record["line_id"], identities)
-    own = set(lines.line_trials(conn, record["line_id"])["trials"])
-    passed, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
-    candidates = sorted({row["candidate"] for row in passed if _same(identities[row["trial_id"]], current)
-                         and (row["trial_id"] in own or row["candidate"] == record["start"])})
-    return identities, current, passed, without, candidates
-
-
 def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list,
                      testing: Mapping | None = None) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
     its execution identity (_identities), the table measures of its report and whether another run of
     the same identity dominates it on the dominance measures. `non_dominated` is null for a run missing one.
-    `execution_identity` is the line's (line_identity) and `candidates` (_compared) the candidates with a run of it among the line's own trials (line_trials), and the line's start
-    with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
+    `execution_identity` is the line's (line_identity) and `candidates` the candidates with a run of it among the line's own trials (line_trials), and the line's start
+    with a run of it; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. With the
     line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
     else null. Each run shows its worst development year and its return without the best one (DEV_YEAR_COLUMNS),
     null for a window of one year or less. Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
-    identities, current, passed, without, candidates = _compared(conn, record, checker, records)
+    identities = _identities(conn)
+    current = line_identity(conn, record["line_id"], identities)
+    own = set(lines.line_trials(conn, record["line_id"])["trials"])
+    passed, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
+    candidates = sorted({row["candidate"] for row in passed if _same(identities[row["trial_id"]], current)
+                         and (row["trial_id"] in own or row["candidate"] == record["start"])})
     read = {trial_id: (measures.derive_measures(facts, market=measures.market_for(facts), wanted=TABLE_MEASURES),
                        deflated_range(facts, testing),
                        splits.dev_years(facts))
@@ -648,14 +641,6 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
     return {"ledger_commit": commit, "line": line, "by": by, "runs_listed": len(listed),
             "without_economic_evidence": len(without), "groups": [described[number] for number in sorted(described)],
             "lines": stated, "runs": [item for item, _ in kept]}
-
-
-def compared_candidates(profile, line: str, at: str) -> list[str]:
-    """The `candidates` of the line's comparison table at `at` (what a recommendation must name), without its
-    measures."""
-    checker = availability.check_identity()
-    with db.read_as_of(db.profile(profile), at) as conn:
-        return _compared(conn, lines.read_line(conn, line), checker, precheck.review_records(conn))[-1]
 
 
 # The research state

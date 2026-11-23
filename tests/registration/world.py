@@ -315,11 +315,8 @@ class World:
         return db.write(self.conn, "ingest_fixture", {"trial_id": trial_id}, "run", insert)["record"]["trial_id"]
 
     def judge(self, kind: str, subjects=None) -> int:
-        from report import status
         return judgments.add_judgment(self.profile, kind, self.line["line"], db.head_commit(self.conn),
-                                      f"{kind} fixture", subjects=subjects,
-                                      compared=lambda line, at: status.compared_candidates(self.profile, line, at))[
-            "judgment_id"]
+                                      f"{kind} fixture", subjects=subjects)["judgment_id"]
 
     def seq(self) -> int:
         return self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0]

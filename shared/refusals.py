@@ -198,8 +198,6 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "APPROACH_CHOOSER_MISSING": ("Say `chosen by the Agent` or `chosen by the user` in the body "
                                  "(research-round feedback.md).",),
     "OP_ID_CONFLICT": ("Use a new operation ID, or omit it to derive one from the content.",),
-    "RECOMMENDATION_INCOMPLETE": ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
-                                  "each candidate the message lists.",),
     # Witness
     "NOT_REGISTRATION_COMMIT": ("Pass the commit that added the validation registration (`ledger witness`).",),
     "WITNESS_INVALID": ("Run `ledger witness` again to request a new token.",),

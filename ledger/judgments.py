@@ -6,14 +6,12 @@ research registrations. It cites records and never copies their facts; it is app
 newer judgment of the same kind on the same line supersedes it at most once. A search_exposure body
 starts with `Evaluated variants: K`, the variants it assessed without a replay, which the line's
 multiple-testing reading adds to its trial count (report.status.sweeps). The review cadence is
-the product's (registration.REVIEW_EVERY), never a judgment. A recommendation names, among its
-candidate subjects, every candidate with a run of the line's execution identity in its comparison
-table at the commit it is based on.
+the product's (registration.REVIEW_EVERY), never a judgment.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import re
 
 from ledger import db, lines, strategies
@@ -98,14 +96,8 @@ def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> b
 
 
 def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on_commit: str, body: str,
-                 subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None, *,
-                 compared: Callable[[str, str], list[str]] | None = None) -> dict:
-    """Append one judgment and its subjects in one write; the same payload again is a replay.
-
-    `compared(line, commit)` is report.compared_candidates: the `candidates` of the line's
-    comparison table at a commit, which a recommendation must all name (required for one)."""
-    if kind == "recommendation" and compared is None:
-        raise ValueError("a recommendation needs the comparison table (compared=)")
+                 subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None) -> dict:
+    """Append one judgment and its subjects in one write; the same payload again is a replay."""
     if kind == "search_exposure":
         declared_variants(body)
     check_decision_opening(kind, body)
@@ -130,25 +122,8 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on
                 raise refuse("COMMIT_BEFORE_LINE", f"{commit} is older than line {name} ({line_commit})")
             return [_check_subject(c, subject) for subject in normalized]
 
-        # The table is a function of the fixed commit and takes minutes: inside the transaction any other
-        # write landing meanwhile would roll this one back. A replay needs no table.
-        candidates: list[str] = []
-        op_id = op_id or db.derive_op_id("add_judgment", payload)
-        if kind == "recommendation" and not conn.rows("SELECT 1 FROM judgment WHERE op_id = %s", (op_id,)):
-            assert compared is not None
-            checked_subjects(conn)  # a bad line, commit or subject is refused as itself, not by the table's read
-            candidates = compared(name, commit)
-
         def insert(c, op):
             rows = checked_subjects(c)
-            if kind == "recommendation":
-                named = {subject["candidate"] for subject in normalized if "candidate" in subject}
-                missing = [ref for ref in candidates if ref not in named]
-                if missing:
-                    raise refuse("RECOMMENDATION_INCOMPLETE", "the recommendation does not name every candidate of "
-                                                              f"the line's execution identity in the comparison table at "
-                                                              f"{commit}: " + ", ".join(missing),
-                                 missing=tuple(missing))
             if supersedes is not None:
                 old = c.one("SELECT kind, line_id FROM judgment WHERE judgment_id = %s", (supersedes,))
                 if (old is None or old["kind"] != kind or old["line_id"] != line_id

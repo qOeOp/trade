@@ -1,8 +1,7 @@
 """The trial counts of `research status` (user decision 2026-10-20): reproductions and trials the
 product stopped before the strategy ran are listed apart and left out of the multiple-testing
 counts; the multiple-testing reading of a line (trials on its contracts over overlapping windows,
-their mean correlation and effective number); its comparison table, split by execution identity,
-and the recommendation that names every candidate of the line's identity in it. A throwaway ledger
+their mean correlation and effective number); its comparison table, split by execution identity. A throwaway ledger
 with the stand-in runtime; never the active ledger."""
 
 from __future__ import annotations
@@ -517,16 +516,9 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         self.assertEqual((named["research_attempts"], named["audit_passed_research_runs"]), (1, 1),
                          "the other lines' attempts are not this line's")
 
-    def test_a_recommendation_names_the_lines_own_candidates_and_its_start(self):
-        world = self.world
-        compared = lambda line, at: status.compared_candidates(world.profile, line, at)
-        head = db.head_commit(world.conn)
-        caught = refused(judgments.add_judgment, world.profile, "recommendation", self.started, head,
-                         "the start left out", subjects=[{"role": "recommended", "candidate": self.follows}],
-                         compared=compared)
-        self.assertEqual((caught.code, caught.missing), ("RECOMMENDATION_INCOMPLETE", (self.mine,)))
-        judgments.add_judgment(world.profile, "recommendation", self.other, head, "names its own alone",
-                               subjects=[{"role": "recommended", "candidate": self.theirs}], compared=compared)
+    def test_the_table_lists_the_lines_own_candidates_and_its_start(self):
+        self.assertEqual(self.table(self.started)["candidates"], sorted([self.follows, self.mine]))
+        self.assertEqual(self.table(self.other)["candidates"], [self.theirs])
 
 
 OTHER_DIGEST = "sha256:" + "c" * 64
@@ -591,16 +583,10 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertEqual(table["execution_identity"], third, "the line's latest trial sets its identity")
         self.assertEqual(table["candidates"], [self.third])
 
-    def test_b_a_recommendation_names_the_candidates_of_the_lines_identity_at_its_commit(self):
-        world = self.world
-        self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.before), sorted(self.refs))
-        self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.selected), [],
-                         "a line without a trial of its own has no identity yet")
-        caught = refused(judgments.add_judgment, world.profile, "recommendation", world.line["line"], self.before,
-                         "old image", subjects=[{"role": "recommended", "candidate": self.third}],
-                         compared=lambda line, at: status.compared_candidates(world.profile, line, at))
-        self.assertEqual((caught.code, caught.missing),
-                         ("RECOMMENDATION_INCOMPLETE", tuple(sorted(self.refs))))
+    def test_b_the_table_lists_the_candidates_of_the_lines_identity_at_its_commit(self):
+        for at, expected in ((self.before, sorted(self.refs)), (self.selected, [])):
+            with self.subTest(at=at):
+                self.assertEqual(status.research_status(self.world.profile, at=at)["comparison"]["candidates"], expected)
 
     def test_c_the_unreviewed_trials_are_those_of_the_lines_identity_and_the_count_keeps_every_one(self):
         empty = status.research_state(self.world.profile, at=self.selected)
