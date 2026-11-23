@@ -412,12 +412,10 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     by_symbol = {item["symbol"]: item for item in listed}
     candidates = scope if scope is not None else sorted(
         {item["symbol"] for item in listed} | set(sources.archive_symbols()))
-    first_seen, stored_terms = _terms_rows(market)
-    # A contract keeps the classification of its earliest stored observation (later rows are recorded and
-    # never reclassify it); a contract never seen is classified by today's exchangeInfo.
-    classified = {symbol: universe.classify_contract(
-        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol))
-        for symbol in candidates}
+    seen = _terms_history(market)
+    stored_terms = {symbol: rows[-1] for symbol, rows in seen.items()}
+    classified = {symbol: _classified(symbol, seen.get(symbol, []), by_symbol.get(symbol), month)
+                  for symbol in candidates}
     excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
     eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
     log(f"{label}: {len(eligible)} eligible contracts, {len(excluded)} excluded")
@@ -636,19 +634,40 @@ def _compare_funding(symbol: str, stored: dict[int, Decimal], reread: list[tuple
                      f"{slots[:5]}", missing=(label, symbol))
 
 
-def _terms_rows(market: files.Market) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Each contract's earliest stored terms row (the observation its universe classification comes from) and
-    its latest."""
-    earliest: dict[str, dict] = {}
-    latest: dict[str, dict] = {}
+def _terms_history(market: files.Market) -> dict[str, list[dict]]:
+    """Each contract's stored terms rows, the earliest observed first."""
+    found: dict[str, list[dict]] = {}
     for batch in files.scan(market, None, "instrument"):
         for row in batch.to_pylist():
-            symbol = row["symbol"]
-            if symbol not in earliest or row["observed_at"] < earliest[symbol]["observed_at"]:
-                earliest[symbol] = row
-            if symbol not in latest or row["observed_at"] > latest[symbol]["observed_at"]:
-                latest[symbol] = row
-    return earliest, latest
+            found.setdefault(row["symbol"], []).append(row)
+    return {symbol: sorted(rows, key=lambda row: row["observed_at"]) for symbol, rows in found.items()}
+
+
+def _classified(symbol: str, seen: list[dict], item: dict | None, month: date) -> dict:
+    """The classification of the contract that bears `symbol` in `month` (universe.classify_contract's). A contract
+    keeps that of its earliest stored observation: later rows are recorded and never reclassify it (a delisting contract
+    is reported SETTLING without a contract type). But a symbol can be given to another contract. One listed after
+    that observation is another: it is classified by exchangeInfo from its month on, and its first month is imported
+    only when both contracts are eligible. Once exchangeInfo no longer states it, a later row naming another underlying
+    type stands for it from the month of that row. A symbol never seen is classified by today's exchangeInfo."""
+    if not seen:
+        return universe.classify_contract(symbol, item)
+    first = universe.classify_contract(symbol, _item_of(symbol, seen[0]))
+    start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
+    if item is not None and item["contract_type"]:
+        onboard = item["onboard_date"]
+        if onboard is None or onboard <= seen[0]["observed_at"] or end <= onboard:
+            return first
+        other = universe.classify_contract(symbol, item)
+        return other if onboard <= start or first["eligible"] else first
+    if first["eligible"]:
+        underlying = (_item_of(symbol, seen[0]) or {}).get("underlying_type", "COIN")
+        for row in seen[1:]:
+            stated = _item_of(symbol, row)
+            if (row["observed_at"] < end and stated is not None and stated["contract_type"]
+                    and stated["underlying_type"] != underlying):
+                return universe.classify_contract(symbol, stated)
+    return first
 
 
 def trading_days(market: files.Market, symbols: list[str], low: date, high: date) -> dict[str, set[date]]:
@@ -695,12 +714,10 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
             raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} has stored members before the second imported month",
                          missing=(f"{month:%Y-%m}",))
         return [], []
-    rows, _ = _terms_rows(market)
-    classifications = [universe.classify_contract(symbol, _item_of(symbol, row))
-                       for symbol, row in sorted(rows.items())]
-    look_back = month - timedelta(days=universe.LISTED_DAYS)
-    days = trading_days(market, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
-    computed = set(universe.monthly_universe(classifications, days, month))
+    # Only eligible contracts' bars are imported: a symbol holding them in the look-back is one.
+    symbols = sorted(_terms_history(market))
+    days = trading_days(market, symbols, month - timedelta(days=universe.LISTED_DAYS), month)
+    computed = set(universe.monthly_universe([{"symbol": symbol, "eligible": True} for symbol in symbols], days, month))
     if stored and computed != stored:
         raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} recomputes to other members than stored: "
                      + ", ".join(sorted(computed ^ stored)),
