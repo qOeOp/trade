@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a full audit whose auditor already has suspects dispatches the three workstreams as fresh reviewers given evidence paths and questions, without the auditor's suspects.
+description: Rule check — with the skill, a full audit whose auditor already has suspects gives each fresh sub-agent one perspective and one object with evidence paths, without the auditor's suspects.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

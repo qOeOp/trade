@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-这是一次 product-doctor 诊断，正在看数据与用量这一块。昨天的研究会话（4 小时，trial 300–340）里有这些：
+这是一次 product-doctor 诊断，正在看会话的用量。昨天的研究会话（4 小时，trial 300–340）里有这些：
 
 - 6 次 `--help`：`replay run`、`registration add`、`ledger sql`、`replay report`、`research state`、`candidate list` 各一次，都在第一次用这个命令之前，合计约 9000 tokens。之后这些命令的调用都成功。
 - 2 个 `/tmp` 脚本：一个把 `replay report --tables` 的 JSON 转成逐月表，一个比较两次运行的回撤。两个都跑成功了，结果用在下一步判断里。
