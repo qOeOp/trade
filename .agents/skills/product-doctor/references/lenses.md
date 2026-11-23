@@ -40,6 +40,7 @@ subjects (`any`: one object of the audit's choosing; `rotating`: at least the on
   duplicated work.
 - **burden** [rotating]: what the user was asked, made to decode or wait for.
 - **governance** [rotating]: rules nothing holds, copies that disagree, rules whose reason has gone.
+- **unchanged** [any]: an object the last audits' findings and the recent commits leave alone.
 - **fixed** [any]: `doctor.py recheck` on closed issues and the rows the index header links.
 - **self** [rotating]: what the user found first, rerun claims overturned, lenses that ran and found
   nothing for several audits (say so).
