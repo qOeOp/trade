@@ -1,5 +1,9 @@
 # 一个研究仓库，每个版本线一个分支（2026-11-23）
 
+> 同日修订：分支安排由 [`main-is-the-ledger-in-use-20261123.zh.md`](main-is-the-ledger-in-use-20261123.zh.md)
+> 取代：仓库的 `main` 始终是在用的账本，升线时先把 `main` 推成以旧线命名的归档分支并核对，再强推新线账本到
+> `main`；线由根提交上的标签 `line/<线>` 表示。下文的单分支取数、无 token 与建库规则照旧。
+
 依据：所有者 2026-11-23 的决定（下列逐条记录，是本设计的授权），取代
 [`data-generation-in-release-20261123.zh.md`](data-generation-in-release-20261123.zh.md) 里“每一代一个 DoltHub 仓库
 `<基名>-g<N>`、用 API token 建库”的部分；那份记录里的切换步骤（归档、只起 ledger、服务器每 tick 一步、宽松回滚）照旧。

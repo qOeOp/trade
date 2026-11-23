@@ -6,11 +6,14 @@ service.json it bootstraps, and only into an empty service directory, an empty d
 profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothing is touched):
 
 - the DoltHub key is installed first (none is DOLTHUB_CREDENTIALS, before anything is downloaded);
-- `research` is made from its public copy's branch of this version's line (publish.LINE), which stays its
-  `origin`: only that branch is fetched, into the local `main` (`dolt init`, a fetch of one refspec, `reset --hard`;
-  a clone would copy every other line's data too). An active or isolated service whose copy holds no data or no
-  branch of the line yet makes a new ledger instead, with that copy as `origin`, and publishes it as the line's
-  branch before anything else can write;
+- `research` is made from its public copy's `main`, the ledger in use, which stays its `origin`: only that branch is
+  fetched, into the local `main` (`dolt init`, a fetch of one refspec, `reset --hard`; a clone would copy every
+  archived line's data too). It must be a ledger of this version's line (its line tag, publish.LINE). An active or
+  isolated service whose copy holds no `main` yet makes a new ledger instead, with that copy as `origin`, and
+  publishes it before anything else can write. One whose `main` holds the ledger of an earlier line starts this
+  line (docs/plans/main-is-the-ledger-in-use-20261123.zh.md): it pushes that `main` to the branch named after its
+  line and checks it (publish.archive, never forced), then makes a new ledger and puts it on `main` in its place
+  (publish.replace, the one forced push). A mirror only ever copies a `main` of its own line;
 - its schema version is checked before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
@@ -34,11 +37,6 @@ Every start of a writable service (not a mirror, which makes its own) also makes
 research ledger.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
 exiting (`ledger.first_run`); a later start is unchanged.
-A later start whose research ledger publishes to `<origin>-g<N>`, the repository of one generation in 0.5.2,
-names `origin` its origin instead (once, logged): the one-time move of the v0.5 ledger to its line's branch
-(docs/plans/version-line-branches-20261123.zh.md). The deployment starts this only once the move is safe (a
-workstation's update publishes the old copy first; the release host waits until `origin`'s line holds the mirror's
-head). To be removed in the next line.
 
 While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it: commands that
 change the ledger only commit locally, so these rounds (and `ledger publish`) are what publishes, and the public copy
@@ -52,7 +50,6 @@ from __future__ import annotations
 from collections.abc import Callable
 import os
 from pathlib import Path
-import re
 import secrets
 import shutil
 import signal
@@ -63,6 +60,7 @@ import pymysql
 
 from ledger import admin, db, first_run, publish, server
 from shared import paths, profiles
+from shared.version import order
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -71,8 +69,6 @@ LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the ho
 LEDGER = "research"  # the profile and database name
 PAPER = "paper"  # the Paper database's profile and database name, on the same service
 PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a push follows
-GENERATION = re.compile(r"-g[0-9]+\Z")  # what 0.5.2 added to TRADE_RESEARCH_ORIGIN: one repository per generation
-MOVED_LINE = "v0.5"  # the one line whose ledger the move takes from such a repository
 
 
 def _launch(binary: str, service_root: Path, log) -> subprocess.Popen:
@@ -130,9 +126,9 @@ def _refuse_unless_empty(service_root: Path, data_dir: Path) -> None:
 def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
               origin: str | None, port: int, binary: str, kind: str | None, log,
               say: Callable[[str], None] = first_run.log) -> tuple[subprocess.Popen, dict]:
-    """The new service with `research` made from origin's branch of this version's line (or new, when a publishing
-    service finds `origin` without it), its accounts, service.json and profile; returns the running server and the
-    configuration. `say` hears each step."""
+    """The new service with `research` made from origin's `main` (or new, when a publishing service finds `origin`
+    without one or with an earlier line's), its accounts, service.json and profile; returns the running server and
+    the configuration. `say` hears each step."""
     _refuse_unless_empty(service_root, data_dir)
     if not origin:
         raise refuse("USAGE_ERROR", "a first start needs --research-origin, the DoltHub repository of this ledger "
@@ -158,12 +154,8 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         if kind is not None:
             assert credentials is not None  # checked before any directory was created
             publish.install_key(service_root, credentials)
-        say(f"reading {origin} ({publish.LINE})")
-        fetched = _fetch_line(binary, data_dir / LEDGER, environment, origin)
-        new = fetched is not None and kind is not None and any(text in fetched for text in publish.UNPUBLISHED)
-        if fetched is not None and not new:
-            raise refuse("BOOTSTRAP_FAILED", f"fetching {publish.LINE} of {origin} failed: {fetched[-300:]}",
-                         missing=(origin,))
+        say(f"reading main of {origin}")
+        new, replacing = _from_main(binary, data_dir / LEDGER, environment, origin, kind, say)
         if new:
             shutil.rmtree(data_dir / LEDGER)
         server.write_config(service_root, data_dir, LISTEN, port, auto_gc=True)
@@ -214,8 +206,9 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                                 backup_root=backup_root / LEDGER)
         profiles.private_write(profile, made.as_json())
         if new:
-            say(f"publishing the new ledger to {origin}")
-            publish.publish(made)  # a key or repository that cannot take it stops here, with nothing lost
+            say(f"publishing the new ledger to {origin}" + (" in place of the earlier line's" if replacing else ""))
+            # A key or repository that cannot take it stops here, with nothing lost.
+            (publish.replace if replacing else publish.publish)(made)
         say("bootstrapped")
         return process, config
     except BaseException:
@@ -227,38 +220,31 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         raise
 
 
-def _fetch_line(binary: str, directory: Path, environment: dict, origin: str) -> str | None:
-    """Make `directory` a Dolt database whose `main` is origin's branch publish.LINE, fetching only that branch; None,
-    or what the failed step printed (the database stays for the caller to remove). `init` makes a commit of its own:
-    the collection drops it and main's reflog with it, and the second reset records the bootstrap as main's first
-    move (ledger/replica.py _history), as a clone did (Dolt 2.7.2)."""
-    directory.mkdir(mode=0o700)
-    for arguments in (("init",), ("remote", "add", server.REMOTE, origin), ("fetch", server.REMOTE, publish.BRANCHES),
-                      ("reset", "--hard", publish.TRACKING), ("gc",), ("reset", "--hard", publish.TRACKING)):
-        done = subprocess.run([binary, *arguments], cwd=directory, env=environment, capture_output=True, text=True)
-        if done.returncode:
-            return (done.stderr.strip() or done.stdout.strip())
-    return None
-
-
-def _move_origin(config: dict, origin: str | None) -> None:
-    """Name `origin` the research ledger's origin when it publishes to `<origin>-g<N>` (the module's docstring)."""
-    if not origin or publish.LINE != MOVED_LINE:
-        return
-    conn = server.connect_root(config)
+def _from_main(binary: str, directory: Path, environment: dict, origin: str, kind: str | None,
+               say: Callable[[str], None]) -> tuple[bool, bool]:
+    """Read origin's `main` into `directory` (publish.read_main): a ledger of this line stays there as the ledger
+    (False, False); a publishing service makes a new one when origin has no `main` (True, False) or, after archiving
+    it under its line's name, when `main` holds an earlier line's (True, True). Anything else is BOOTSTRAP_FAILED.
+    The collection drops `init`'s own commit and main's reflog with it, and the second reset records the bootstrap as
+    main's first move (ledger/replica.py _history), as a clone did (Dolt 2.7.2)."""
     try:
-        with conn.cursor() as cursor:
-            cursor.execute(f"USE `{LEDGER}`")
-            stored = server.origin(cursor)
-            if stored is not None:
-                if not stored.startswith(origin) or not GENERATION.fullmatch(stored[len(origin):]):
-                    return
-                cursor.execute("CALL DOLT_REMOTE('remove', %s)", (server.REMOTE,))  # its tracking branches go with it
-            # Dolt cannot rename a remote: a start stopped between the two calls left no origin, added here.
-            cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (server.REMOTE, origin))
-    finally:
-        conn.close()
-    first_run.log(f"moved the research ledger's origin from {stored} to {origin} ({publish.LINE})")
+        main = publish.read_main(binary, directory, environment, origin)
+        if main is not None and main["line"] == publish.LINE:
+            for arguments in (("gc",), ("reset", "--hard", publish.TRACKING)):
+                publish.dolt_cli(binary, directory, environment, *arguments)
+            return False, False
+        if kind is None or (main is not None and (
+                main["line"] is None or order(main["line"]) >= order(publish.LINE))):
+            found = "no main" if main is None else f"main of line {main['line'] or 'unknown (no line tag)'}"
+            raise refuse("BOOTSTRAP_FAILED", f"{origin} holds {found}, not a ledger of line {publish.LINE}",
+                         missing=(origin,))
+        if main is not None:
+            say(f"archiving line {main['line']} of {origin} as its branch {main['line']}")
+            publish.archive(binary, directory, environment, main["line"], main["head"])
+        return True, main is not None
+    except publish.DoltFailed as failed:
+        raise refuse("BOOTSTRAP_FAILED", f"reading main of {origin} failed: {str(failed)[-300:]}",
+                     missing=(origin,)) from failed
 
 
 def _check_service(service_root: Path, config: dict) -> None:
@@ -353,8 +339,6 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
     try:
         server.wait_ready(config, lambda: process.poll() is None, seconds=60)
         _check_service(service_root, config)
-        if LEDGER in config.get("databases", {}):
-            _move_origin(config, origin)
     except BaseException:
         server.stop(process)
         raise

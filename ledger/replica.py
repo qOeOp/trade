@@ -7,7 +7,8 @@ including sync, invoke the CLI. This is not isolation against a compromised life
 
 A sync validates an immutable commit before fast-forwarding main. The existing origin is the authority;
 HTTP cannot choose a URL, branch or database. The replica is a local cache of published research, never a
-publishing peer or the Paper execution database.
+publishing peer or the Paper execution database. It follows origin's `main`, the ledger in use, and tracks no other
+branch: a start drops the tracking branch of any other (0.5.3's mirror followed `v0.5`) and fetches `main` again.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from shared.refusals import refuse
 
 HISTORY = 10
 SYNC_EVERY = 60  # seconds between the mirror's own syncs from its origin; the page's Sync DoltHub starts one at once
-ORIGIN_LINE = f"{server.REMOTE}/{publish.LINE}"  # origin's branch of this version's line, as fetched
+ORIGIN_MAIN = f"{server.REMOTE}/{db.BRANCH}"  # origin's main, as fetched
 
 
 def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers: Path,
@@ -43,6 +44,7 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
         research = db.load_profile("research")
         if status(research)["origin"] != origin:
             raise refuse("REMOTE_MISMATCH", "the configured origin differs from this mirror's origin")
+        _main_only(research)
         try:
             config = service.paper_database(root, backups, binary)
         except Refusal as exc:
@@ -56,6 +58,40 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
     except BaseException:
         server.stop(process)
         raise
+
+
+def _line_tag(cursor) -> None:
+    """Fetch this line's tag when the mirror has none on its history: a fetch brings the tags of the history it
+    downloads, not one on a commit the mirror already held (0.5.3's mirror, whose ledger was tagged later; Dolt 2.7.2,
+    measured). A repository without the tag leaves it to a later sync."""
+    if publish.cursor_line(cursor) is None:
+        try:
+            server.cursor_rows(cursor, "CALL DOLT_FETCH(%s, %s)", (server.REMOTE, f"refs/tags/{publish.TAG}:"
+                                                                                  f"refs/tags/{publish.TAG}"))
+        except pymysql.MySQLError as exc:
+            if not any(text in str(exc.args[-1]) for text in publish.UNPUBLISHED):
+                raise
+
+
+def _main_only(profile: db.LedgerProfile) -> None:
+    """Drop the tracking branch of every branch of origin but `main` and, when one was dropped, fetch `main` and this
+    line's tag before serving; a fetch that fails is left to the syncs."""
+    raw = server.admin(profile)
+    try:
+        with raw.cursor() as cursor:
+            other = [name for (name,) in server.cursor_rows(cursor, "SELECT name FROM dolt_remote_branches")
+                     if name != publish.TRACKING]
+            for name in other:
+                server.cursor_rows(cursor, "CALL DOLT_BRANCH('-d', '-r', %s)", (name.removeprefix("remotes/"),))
+            if other:
+                try:
+                    server.cursor_rows(cursor, "CALL DOLT_FETCH(%s, %s)", (server.REMOTE, publish.BRANCHES))
+                    _line_tag(cursor)
+                except pymysql.MySQLError as exc:
+                    print(f"mirror: fetching {db.BRANCH} failed: {str(exc.args[-1])[:300]}", file=sys.stderr,
+                          flush=True)
+    finally:
+        raw.close()
 
 
 def _open(profile: db.LedgerProfile):
@@ -117,7 +153,8 @@ def sync(profile: db.LedgerProfile) -> dict:
                     raise refuse("DIRTY_WORKING_SET", "the replica has local changes; they are retained")
                 before = _head(cursor)
                 server.cursor_rows(cursor, "CALL DOLT_FETCH(%s, %s)", (server.REMOTE, publish.BRANCHES))
-                target = _head(cursor, ORIGIN_LINE)
+                _line_tag(cursor)
+                target = _head(cursor, ORIGIN_MAIN)
                 # A revision database reads fetched commits without changing the visible head.
                 cursor.execute(f"USE `{profile.database}/{target}`")
                 if server.cursor_rows(cursor, "SELECT version FROM ledger_schema WHERE singleton = 1") != [
@@ -125,7 +162,7 @@ def sync(profile: db.LedgerProfile) -> dict:
                     raise refuse("REPLICA_INVALID", "the published schema is not readable by this product")
                 cursor.execute(f"USE `{profile.database}/{db.BRANCH}`")
                 validated = True
-                server.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_LINE}')")
+                server.cursor_rows(cursor, f"CALL DOLT_MERGE('--ff-only', '{ORIGIN_MAIN}')")
                 head = _head(cursor)
                 return {"database": profile.database, "origin": origin, "previous_commit": before,
                         "ledger_commit": head, "changed": head != before}

@@ -450,8 +450,8 @@ class GenerationTests(unittest.TestCase):
         self.controller = self.release.paper().host
         self.host.config = Config(state=self.host.state, research_origin=BASE)
         self.host.docker = Mock()  # only the faked version() below reads it
-        self.wanted = {"origin": BASE, "line": "v0.6", "research": 2, "paper": 1}
-        self.where = {"remote": BASE, "lines": ["v0.5"], "head": "h" * 32}
+        self.wanted = {"origin": BASE, "line": "v0.6", "main": True, "research": 2, "paper": 1}
+        self.where = {"remote": BASE, "tracked": ["main"], "line": "v0.5", "head": "h" * 32}
         for patched in (patch.object(generation, "version", side_effect=lambda *_: self.wanted),
                         patch.object(release.Generation, "where", side_effect=lambda *_: self.where)):
             patched.start()
@@ -463,14 +463,14 @@ class GenerationTests(unittest.TestCase):
         self.controller.unread = {"research": "2"}
         with patch.object(release.Generation, "cut") as cut:
             self.release.apply(TARGET)
-        cut.assert_called_once_with(TARGET, A, self.wanted)
+        cut.assert_called_once_with(TARGET, A, self.wanted, self.where)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(WEB + B, self.host.containers)
         self.assertNotIn(PAPER + B, self.controller.running)
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists(), "a host condition, not a failed version")
         self.controller.unread = {}  # the host holds the new generation
-        self.where = {**self.where, "lines": ["v0.6"]}
+        self.where = {**self.where, "line": "v0.6"}
         with patch.object(release.Generation, "cut") as cut:
             self.release.apply(TARGET)
         cut.assert_not_called()
@@ -485,14 +485,14 @@ class GenerationTests(unittest.TestCase):
 
         self.host.on_warm = cannot_read
         self.host.fail = "observe"
-        self.where = {**self.where, "lines": ["v0.6"]}
+        self.where = {**self.where, "line": "v0.6"}
         with self.assertRaisesRegex(RuntimeError, "SCHEMA_MISMATCH"):
             self.release.apply(TARGET)  # control: without a cutover the rollback checks the previous Web
         self.assertTrue(self.release.transaction.exists())
         self.setUp()
         self.host.on_warm = cannot_read
         self.host.fail = "observe"
-        self.where = {**self.where, "lines": ["v0.6"]}
+        self.where = {**self.where, "line": "v0.6"}
         (self.host.state / "generation.json").write_text(json.dumps(
             {"kind": "cutover", "line": "v0.6", "revision": B, "service": TARGET["service"],
              "archive": "20261123T000000Z-" + B[:12], "phase": "done", "market": "running"}))

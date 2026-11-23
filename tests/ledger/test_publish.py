@@ -55,13 +55,13 @@ class PublishTests(unittest.TestCase):
         home = tempdir(self.addCleanup, prefix="cl-", dir="/tmp")
         environment = {**os.environ, "DOLT_ROOT_PATH": str(home)}
         server.dolt_home(home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
-        subprocess.run([BINARY, "clone", "--branch", publish.LINE, self.url, str(home / "c")], env=environment, check=True,
+        subprocess.run([BINARY, "clone", "--branch", db.BRANCH, self.url, str(home / "c")], env=environment, check=True,
                        capture_output=True)
         return home / "c", environment
 
     def remote_head(self) -> str:
         copy, environment = self.clone()
-        return subprocess.run([BINARY, "sql", "-r", "csv", "-q", f"SELECT hash FROM dolt_branches WHERE name = '{publish.LINE}'"],
+        return subprocess.run([BINARY, "sql", "-r", "csv", "-q", f"SELECT hash FROM dolt_branches WHERE name = '{db.BRANCH}'"],
                               cwd=copy, env=environment, check=True, capture_output=True, text=True).stdout.split()[-1]
 
     def command(self, *argv) -> dict:
@@ -89,7 +89,7 @@ class PublishTests(unittest.TestCase):
 
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
-                          ("push", "origin", publish.LINE)):
+                          ("push", "origin", db.BRANCH)):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         changed = self.remote_head()
         strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "after the remote changed")
@@ -266,7 +266,7 @@ class PublishTests(unittest.TestCase):
         publish.publish(self.profile)
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
-                          ("push", "origin", publish.LINE)):
+                          ("push", "origin", db.BRANCH)):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
         self.write("second")
         self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_REJECTED")
@@ -324,3 +324,175 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn("ledger service stop", failed()[1])
         publish.install_key(service, user / ".dolt")
         self.assertFalse(publish._key_after_start(self.profile), "an unchanged key is not installed again")
+
+
+    def test_the_first_publication_carries_the_line_tag_and_a_ledger_of_another_line_is_not_published(self):
+        publish.set_remote(self.profile, self.url)
+        publish.publish(self.profile)
+        copy, environment = self.clone()
+        tags = subprocess.run([BINARY, "sql", "-r", "csv", "-q", "SELECT tag_name FROM dolt_tags"], cwd=copy,
+                              env=environment, check=True, capture_output=True, text=True).stdout.split()[1:]
+        self.assertEqual(tags, [publish.TAG])
+        self.assertEqual(publish.where(self.profile)["line"], publish.LINE)
+        strategies.publish_candidate(self.profile, source("other-line"), "other", "Fixture", "a write")
+        with patch.object(publish, "LINE", "v9"), patch.object(publish, "TAG", "line/v9"):
+            self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_FAILED")
+        self.assertNotEqual(self.remote_head(), self.head(), "nothing was pushed")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class OntoMainTests(unittest.TestCase):
+    """The one-time move of a v0.5 ledger that 0.5.3 published as origin's branch `v0.5` onto `main`, which holds the
+    previous generation (schema generation 1, no line tag), with real pushes to a file remote."""
+
+    def setUp(self):
+        self.moved = patch.object(publish, "MOVED_LINE", publish.LINE)
+        self.moved.start()
+        self.addCleanup(self.moved.stop)
+        self.service = Service()
+        self.addCleanup(self.service.close)
+        self.profile = self.service.ledger("moving")
+        self.remote = tempdir(self.addCleanup, prefix="rm-", dir="/tmp")
+        self.url = self.remote.as_uri()
+        self.home = tempdir(self.addCleanup, prefix="hm-", dir="/tmp")
+        self.environment = {**os.environ, "DOLT_ROOT_PATH": str(self.home), "DOLT_DISABLE_EVENT_FLUSH": "true"}
+        server.dolt_home(self.home, {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
+        self.previous = self.generation(1)
+        self.shape_0_5_3()
+
+    def dolt(self, cwd: Path, *arguments: str) -> str:
+        return subprocess.run([BINARY, *arguments], cwd=cwd, env=self.environment, check=True, capture_output=True,
+                              text=True).stdout
+
+    def generation(self, schema: int, branch: str = "main") -> str:
+        """A ledger of the previous generation (no line tag) pushed as origin's `branch`; its head."""
+        work = self.home / f"gen-{schema}-{branch}"
+        work.mkdir()
+        self.dolt(work, "init")
+        self.dolt(work, "sql", "-q", "CREATE TABLE ledger_schema (singleton INT PRIMARY KEY, version INT); "
+                                     f"INSERT INTO ledger_schema VALUES (1, {schema})")
+        self.dolt(work, "commit", "-Am", "schema")
+        self.dolt(work, "commit", "--allow-empty", "-m", "a trial of the previous generation")
+        self.dolt(work, "remote", "add", "origin", self.url)
+        self.dolt(work, "push", "origin", f"main:{branch}")
+        return self.dolt(work, "sql", "-r", "csv", "-q", "SELECT DOLT_HASHOF('main')").split()[-1]
+
+    def shape_0_5_3(self) -> None:
+        """The ledger as 0.5.3 left it: no line tag, published as `v0.5` and tracking that branch alone."""
+        self.service.sql(self.profile, "CALL DOLT_TAG('-d', %s)", (publish.TAG,))
+        self.service.sql(self.profile, "CALL DOLT_REMOTE('add', 'origin', %s)", (self.url,))
+        self.service.sql(self.profile, "CALL DOLT_PUSH('origin', %s)", (f"main:{publish.LINE}",))
+        strategies.publish_candidate(self.profile, source("unpublished"), "later", "Fixture", "after 0.5.3's publish")
+
+    def head(self) -> str:
+        return self.service.sql(self.profile, "SELECT DOLT_HASHOF('main')")[0][0]
+
+    def root(self) -> str:
+        return self.service.sql(self.profile, "SELECT commit_hash FROM dolt_log WHERE commit_order = 1")[0][0]
+
+    def remote_refs(self) -> dict:
+        """origin's branches (name: head) and tags (name: commit), from a full clone."""
+        copy = self.home / f"read-{len(list(self.home.glob('read-*')))}"
+        subprocess.run([BINARY, "clone", self.url, str(copy)], env=self.environment, check=True, capture_output=True)
+
+        def rows(statement: str) -> dict:
+            return dict(line.split(",") for line in self.dolt(copy, "sql", "-r", "csv", "-q", statement).split()[1:])
+
+        return {"branches": {name.removeprefix("remotes/origin/"): head for name, head in
+                             rows("SELECT name, hash FROM dolt_remote_branches").items()},
+                "tags": rows("SELECT tag_name, tag_hash FROM dolt_tags")}
+
+    def test_main_is_archived_as_v0_4_then_holds_the_ledger_and_v0_5_goes(self):
+        before = self.remote_refs()["branches"]
+        self.assertEqual(set(before), {"main", publish.LINE})
+        self.assertEqual(publish.where(self.profile) | {"head": None, "remote": None},
+                         {"remote": None, "head": None, "tracked": [publish.LINE], "line": None})
+        result = publish.publish(self.profile)
+        self.assertEqual(result["head"], self.head())
+        after = self.remote_refs()
+        self.assertEqual(after["branches"], {"main": self.head(), "v0.4": self.previous},
+                         "the previous generation kept as v0.4, the ledger on main, v0.5 gone")
+        self.assertEqual(after["tags"], {publish.TAG: self.root()})
+        self.assertEqual(publish.where(self.profile) | {"remote": None},
+                         {"remote": None, "head": self.head(), "tracked": ["main"], "line": publish.LINE})
+        self.assertFalse((Path(self.profile.service_root) / "line-archive").exists(), "the scratch copy is gone")
+        strategies.publish_candidate(self.profile, source("after"), "after", "Fixture", "after the move")
+        self.assertEqual(publish.publish(self.profile)["head"], self.head(), "then publishes as usual")
+        self.assertEqual(self.remote_refs()["branches"]["v0.4"], self.previous)
+
+    def test_an_interrupted_move_resumes_and_v0_5_goes_only_once_main_holds_its_head(self):
+        original = publish._push
+
+        def lost(cursor, profile, url, ref, force=False):
+            if ref == f":{publish.MOVED_LINE}":
+                raise publish.refuse("PUBLISH_FAILED", "the connection dropped")
+            return original(cursor, profile, url, ref, force)
+
+        with patch.object(publish, "_push", side_effect=lost):
+            self.assertEqual(refused(publish.publish, self.profile).code, "PUBLISH_FAILED")
+        self.assertEqual(self.remote_refs()["branches"], {"main": self.head(), "v0.4": self.previous,
+                                                          publish.LINE: self.published_v0_5()})
+        # Something lands on v0.5 that main lacks: it stays.
+        copy = self.home / "writer"
+        subprocess.run([BINARY, "clone", "--branch", publish.LINE, self.url, str(copy)], env=self.environment,
+                       check=True, capture_output=True)
+        self.dolt(copy, "commit", "--allow-empty", "-m", "only on v0.5")
+        self.dolt(copy, "push", "origin", publish.LINE)
+        held = self.remote_refs()["branches"][publish.LINE]
+        caught = refused(publish.publish, self.profile)
+        self.assertEqual(caught.code, "PUBLISH_FAILED")
+        self.assertIn("stays", caught.message)
+        self.assertEqual(self.remote_refs()["branches"][publish.LINE], held)
+        # Once main holds it, the move finishes.
+        self.dolt(copy, "merge", "--no-ff", "-m", "both", "origin/main")
+        self.dolt(copy, "push", "origin", publish.LINE)
+        self.dolt(copy, "push", "origin", f"{publish.LINE}:main")
+        self.service.sql(self.profile, "CALL DOLT_FETCH('origin', 'refs/heads/main:refs/remotes/origin/main')")
+        self.service.sql(self.profile, "CALL DOLT_MERGE('--ff-only', 'origin/main')")
+        publish.publish(self.profile)
+        self.assertEqual(self.remote_refs()["branches"], {"main": self.head(), "v0.4": self.previous})
+
+    def published_v0_5(self) -> str:
+        return self.service.sql(self.profile, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
+                                (f"remotes/origin/{publish.LINE}",))[0][0]
+
+    def test_an_archive_branch_that_does_not_show_main_s_head_stops_the_move_before_main_changes(self):
+        original = publish.dolt_cli
+
+        def unheard(binary, directory, environment, *arguments):
+            if arguments[0] == "push":  # the branch ends up at another commit than main's head (its parent)
+                head = arguments[2].split(":")[0]
+                (parent,), = publish._cli_rows(binary, directory, environment, "SELECT parent_hash FROM "
+                                               f"dolt_commit_ancestors WHERE commit_hash = '{head}'")
+                arguments = (*arguments[:2], f"{parent}:{arguments[2].split(':')[1]}")
+            return original(binary, directory, environment, *arguments)
+
+        before = self.remote_refs()["branches"]
+        with patch.object(publish, "dolt_cli", side_effect=unheard):
+            caught = refused(publish.publish, self.profile)
+        self.assertEqual(caught.code, "PUBLISH_FAILED")
+        after = self.remote_refs()["branches"]
+        self.assertEqual(after["main"], before["main"], "main is never forced without its archive")
+        self.assertNotEqual(after["v0.4"], self.previous)
+
+    def test_main_that_is_not_the_previous_generation_is_left_alone(self):
+        remote = tempdir(self.addCleanup, prefix="rm-", dir="/tmp")
+        self.service.sql(self.profile, "CALL DOLT_REMOTE('remove', 'origin')")
+        self.url = remote.as_uri()
+        self.service.sql(self.profile, "CALL DOLT_REMOTE('add', 'origin', %s)", (self.url,))
+        self.generation(2)  # untagged, but not the previous generation's schema
+        self.service.sql(self.profile, "CALL DOLT_PUSH('origin', %s)", (f"main:{publish.LINE}",))
+        before = self.remote_refs()["branches"]
+        caught = refused(publish.publish, self.profile)
+        self.assertEqual(caught.code, "PUBLISH_FAILED")
+        self.assertIn("neither this ledger nor the previous generation", caught.message)
+        self.assertEqual(self.remote_refs()["branches"], before, "nothing pushed, archived or deleted")
+
+    def test_an_archive_branch_holding_other_history_is_never_rewritten_and_main_stays(self):
+        other = self.generation(1, "v0.4")
+        before = self.remote_refs()["branches"]
+        self.assertEqual(before["v0.4"], other)
+        caught = refused(publish.publish, self.profile)
+        self.assertEqual(caught.code, "PUBLISH_FAILED")
+        self.assertEqual(self.remote_refs()["branches"], before, "main, v0.4 and v0.5 as they were")
+        self.assertEqual(publish.where(self.profile)["tracked"], [publish.LINE])

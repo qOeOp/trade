@@ -19,7 +19,8 @@ release `vX.Y.Z` on it, with the version's section as notes, which creates the t
 A version's line is `v0.<minor>` before 1.0 and `v<major>` from 1.0; the line is raised exactly when the previous
 version's ledger can no longer be used, and patch versions share their line. A version of a new line starts a new
 data generation, even when its schema did not change: each deployment archives its ledger and starts the line's new
-ledger, published as the line's branch of the one research repository, when it reaches that version
+ledger, published as `main` of the one research repository after the old line's ledger is kept there as the branch
+of its line's name, when it reaches that version
 ([`deploy/README.md`](deploy/README.md#updating), [`deploy/remote/README.md`](deploy/remote/README.md#a-version-that-starts-a-new-data-generation)).
 So a version whose ledger schema generation (`SCHEMA_VERSION` or `PAPER_SCHEMA_VERSION` in `ledger/db.py`) differs
 from the newest release's must raise the line: the workflow refuses a patch version that changes it

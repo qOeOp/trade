@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import urllib.error
+import urllib.parse
 
 from deploy import generation
 from deploy.update import (LEDGER, Cutover, Docker, main, paper_busy, plan, read_env, relation, removable,
@@ -120,10 +121,10 @@ PUBLISH = ("exec", LEDGER, "python", "-m", "cli.main", "ledger", "publish", "--l
 
 
 class Workstation(Fake):
-    """Docker on a workstation whose ledger publishes as v0.5 of the research repository, the version (v0.6 unless a
-    test says otherwise) being admitted: the version's checks, where the ledger publishes, its publish, the archive (run
-    on the temporary data with the version's own code) and compose. A ledger's start renames an origin of 0.5.2's
-    repository per generation to the repository (ledger/service.py), and its publish pushes its line."""
+    """Docker on a workstation whose ledger is of line v0.5 on main of the research repository, the version (v0.6
+    unless a test says otherwise) being admitted: the version's checks, where the ledger publishes, its publish, the
+    archive (run on the temporary data with the version's own code) and compose. A ledger 0.5.3 left tracks `v0.5`;
+    once the version's ledger runs, its publish moves it onto main (ledger/publish.py onto_main)."""
 
     def __init__(self, data: Path, volume: Path):
         super().__init__({})
@@ -131,9 +132,11 @@ class Workstation(Fake):
         self.unread: set[str] = set()
         self.published = True
         self.line = "v0.6"  # the version's line
-        self.stored, self.lines = BASE, ["v0.5"]  # where the running ledger publishes, and its line
+        self.stored, self.tracked, self.ledger_line = BASE, ["main"], "v0.5"  # where and what the running ledger is
         self.volumes = {generation.VOLUME}
-        self.renames = True  # the started ledger renames an origin of one generation (0.5.3 and later)
+        self.started = False  # whether the version's ledger runs
+        self.moves = True  # whether its publish moves a ledger 0.5.3 left onto main
+        self.main = True  # whether the version publishes on main (0.5.4 and later)
 
     def __call__(self, *args: str, check: bool = True) -> str:
         self.calls.append(args)
@@ -142,7 +145,7 @@ class Workstation(Fake):
         if args[:2] == ("volume", "rm"):
             self.volumes.discard(args[2])
         if args[0] == "inspect":
-            return "1000:1000\n"
+            return "healthy\n" if "{{.State.Health.Status}}" in args else "1000:1000\n"
         if args[0] == "run" and "deploy.generation" in args:
             command = [str(self.volume) if item == generation.MOUNTED else item
                        for item in args[args.index("deploy.generation") + 1:]]
@@ -150,20 +153,21 @@ class Workstation(Fake):
                 return " ".join(generation.prune(Path(command[1]), command[2]))
             generation.main(command)
         if args[0] == "run" and generation.ORIGIN in args:
-            return json.dumps({"line": self.line, "research": 2, "paper": 1})
-        if args[0] == "compose" and args[-1] == "ledger" and "up" in args and self.renames \
-                and self.stored == f"{BASE}-g2":
-            self.stored, self.lines = BASE, []  # the version's ledger renamed its origin at start
+            return json.dumps({"line": self.line, "main": self.main, "research": 2, "paper": 1})
+        if args[0] == "compose" and args[-1] == "ledger" and "up" in args:
+            self.started = True
         return ""
 
     def result(self, *args: str):
         self.calls.append(args)
         if generation.WHERE in args:
             return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps(
-                {"remote": self.stored, "lines": self.lines, "head": HEAD}))
+                {"remote": self.stored, "tracked": self.tracked, "line": self.ledger_line, "head": HEAD}))
         if args[0] == "exec":
-            if self.published and self.stored == BASE and not self.lines:
-                self.lines = [self.line]
+            if self.published and self.started and self.moves and self.tracked == ["v0.5"]:
+                self.tracked, self.ledger_line = ["main"], "v0.5"
+            elif self.published and not self.tracked:
+                self.tracked = ["main"]
             return SimpleNamespace(returncode=0 if self.published else 1, stderr="PUBLISH_FAILED",
                                    stdout=json.dumps({"remote": self.stored}) if self.published else "")
         database = args[-1]
@@ -172,15 +176,18 @@ class Workstation(Fake):
 
 
 class DoltHub:
-    """DoltHub's API: the state of the research repository's branch of a line, and every request made."""
+    """DoltHub's API on the research repository's main: its state, the line tag on its history, every request."""
 
-    def __init__(self, state: str):
-        self.state, self.requests = state, []
+    def __init__(self, state: str, line: str | None = "v0.5", schema: str = "2"):
+        self.state, self.line, self.schema, self.requests = state, line, schema, []
 
     def __call__(self, request, timeout):
         self.requests.append(request)
+        query = urllib.parse.unquote(request.full_url.split("?q=", 1)[1])
         if self.state == "data":
-            return io.BytesIO(json.dumps({"query_execution_status": "Success", "rows": [{"version": "2"}]}).encode())
+            rows = ([{"tag_name": f"line/{self.line}", "tag_hash": "t" * 32}] if self.line else []) \
+                if "dolt_tags" in query else [{"n": "1"}] if "dolt_log" in query else [{"version": self.schema}]
+            return io.BytesIO(json.dumps({"query_execution_status": "Success", "rows": rows}).encode())
         message = {"absent": "no such repository", "empty": generation.NO_BRANCH, "other": generation.NO_TABLE}.get(
             self.state, "query error: something else")
         raise urllib.error.HTTPError(request.full_url, 400, "", {}, io.BytesIO(json.dumps(
@@ -188,8 +195,8 @@ class DoltHub:
 
 
 class CutoverTests(unittest.TestCase):
-    """A version of another line starts a new data generation on the workstation, and the first 0.5.3 update moves
-    the v0.5 ledger (deploy/update.py Cutover; docs/plans/version-line-branches-20261123.zh.md)."""
+    """A version of a later line starts a new data generation on the workstation, and the first 0.5.4 update moves
+    the v0.5 ledger onto main (deploy/update.py Cutover; docs/plans/main-is-the-ledger-in-use-20261123.zh.md)."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -199,19 +206,27 @@ class CutoverTests(unittest.TestCase):
         self.env = self.data / ".env"
         self.env.write_text(f"TRADE_DATA={self.data}\nTRADE_RESEARCH_ORIGIN={BASE}\n")
         self.docker = Workstation(self.data, self.volume)
-        self.hub = DoltHub("empty")
-        self.cutover = Cutover(self.docker, self.env, self.data, ADMITTED, SERVICE, opener=self.hub)
+        self.hub = DoltHub("data")
+        self.now = 0.0
+        self.cutover = Cutover(self.docker, self.env, self.data, ADMITTED, SERVICE, opener=self.hub,
+                               sleep=self.sleep, clock=lambda: self.now)
         self.running = {"ledger": {"state": "running"}}
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
 
     def stopped(self) -> bool:
         return any(call[-1:] == ("stop",) for call in self.docker.calls)
 
-    def test_another_line_is_a_new_generation_even_with_the_same_schema(self):
+    def test_a_later_line_is_a_new_generation_even_with_the_same_schema(self):
         self.assertEqual(self.cutover.assess(self.running), ({}, "cutover"))
         self.docker.unread = {"research"}
         self.assertEqual(self.cutover.assess(self.running), ({"research": "2"}, "cutover"))
         self.docker.unread, self.docker.line = set(), "v0.5"
         self.assertEqual(self.cutover.assess(self.running), ({}, "same"))
+        self.docker.line = "v0.4"
+        with self.assertRaisesRegex(RuntimeError, "does not go back a line"):
+            self.cutover.assess(self.running)
         self.assertFalse(self.stopped())
 
     def test_a_schema_change_within_a_line_is_refused(self):
@@ -235,10 +250,10 @@ class CutoverTests(unittest.TestCase):
 
     def test_an_unnamed_repository_is_the_one_the_ledger_publishes_to_named_once_checked(self):
         self.env.write_text(f"TRADE_DATA={self.data}\n")
-        self.docker.line, self.docker.stored, self.docker.lines = "v0.5", f"{BASE}-g2", ["main"]
+        self.docker.line, self.docker.tracked, self.docker.ledger_line = "v0.5", ["v0.5"], None
         self.assertEqual(self.cutover.assess(self.running, check=True), ({}, "move"))
         self.assertNotIn("TRADE_RESEARCH_ORIGIN", read_env(self.env), "--check changes nothing")
-        self.assertEqual(self.cutover.wanted["origin"], BASE, "without 0.5.2's generation suffix")
+        self.assertEqual(self.cutover.wanted["origin"], BASE)
         self.assertEqual(self.cutover.assess(self.running), ({}, "move"))
         self.assertEqual(read_env(self.env)["TRADE_RESEARCH_ORIGIN"], BASE)
         self.env.write_text(f"TRADE_DATA={self.data}\n")
@@ -247,32 +262,32 @@ class CutoverTests(unittest.TestCase):
             self.cutover.assess(self.running)
         self.assertNotIn("TRADE_RESEARCH_ORIGIN", read_env(self.env))
 
-    def test_a_ledger_publishing_elsewhere_or_tracking_several_lines_is_refused(self):
-        for stored, lines, text in ((f"{BASE}-other", ["main"], "publishes to .*-other, not to"),
-                                    ("https://doltremoteapi.dolthub.com/someone/else-g2", ["main"], "not to"),
-                                    (BASE, ["v0.5", "v0.4"], "several branches")):
-            with self.subTest(stored=stored, lines=lines):
-                self.docker.stored, self.docker.lines = stored, lines
+    def test_a_ledger_publishing_elsewhere_tracking_other_branches_or_without_a_line_is_refused(self):
+        for stored, tracked, line, text in ((f"{BASE}-other", ["main"], "v0.5", "publishes to .*-other, not to"),
+                                            (f"{BASE}-g2", ["main"], "v0.5", "not to"),
+                                            (BASE, ["main", "v0.4"], "v0.5", "does not move onto main"),
+                                            (BASE, ["v0.5"], None, "does not move onto main"),
+                                            (BASE, ["main"], None, "no line tag")):
+            with self.subTest(stored=stored, tracked=tracked, line=line):
+                self.docker.stored, self.docker.tracked, self.docker.ledger_line = stored, tracked, line
                 with self.assertRaisesRegex(RuntimeError, text):
                     self.cutover.assess(self.running)
         self.assertFalse(self.stopped())
 
-    def test_a_ledger_not_yet_published_to_its_line_publishes_first(self):
-        self.docker.line, self.docker.lines = "v0.5", []
+    def test_a_ledger_not_yet_published_publishes_first(self):
+        self.docker.line, self.docker.tracked = "v0.5", []
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(self.cutover.assess(self.running, check=True)[1], "unpublished")
         self.assertNotIn(PUBLISH, self.docker.calls, "--check publishes nothing")
         self.assertEqual(self.cutover.assess(self.running), ({}, "same"))
         self.assertIn(PUBLISH, self.docker.calls)
-        self.docker.lines, self.docker.published = [], False
-        with self.assertRaisesRegex(RuntimeError, "has not published to its line"):
+        self.docker.tracked, self.docker.published = [], False
+        with self.assertRaisesRegex(RuntimeError, "has not published to main"):
             self.cutover.assess(self.running)
 
-    def test_the_v0_5_ledger_of_0_5_2_moves_only_into_v0_5(self):
-        self.docker.stored, self.docker.lines = f"{BASE}-g2", ["main"]
-        self.assertEqual(self.cutover.assess(self.running)[1], "cutover", "v0.6 starts its own ledger")
-        self.docker.line = "v0.5"
+    def test_the_v0_5_ledger_0_5_3_left_moves_onto_main(self):
+        self.docker.line, self.docker.tracked, self.docker.ledger_line = "v0.5", ["v0.5"], None
         self.assertEqual(self.cutover.assess(self.running)[1], "move")
         self.docker.published = False
         with self.assertRaisesRegex(RuntimeError, "publish failed"):
@@ -281,27 +296,45 @@ class CutoverTests(unittest.TestCase):
         self.docker.calls.clear()
         self.cutover.move(check=False)
         self.assertFalse(self.stopped())
+        self.assertEqual(self.docker.tracked, ["v0.5"], "the old ledger publishes as it did")
         self.cutover.moved(["compose"])
         up = self.docker.calls.index(("compose", "up", "--detach", "--wait", "--wait-timeout", "1800", "ledger"))
         publishes = [index for index, call in enumerate(self.docker.calls) if call == PUBLISH]
         self.assertEqual(len(publishes), 2)
         self.assertLess(publishes[0], up, "the old copy is complete before the version's ledger starts")
-        self.assertGreater(publishes[1], up, "then the moved ledger publishes its line")
-        self.assertEqual((self.docker.stored, self.docker.lines), (BASE, ["v0.5"]))
+        self.assertGreater(publishes[1], up, "then the version's ledger moves onto main")
+        self.assertEqual((self.docker.tracked, self.docker.ledger_line), (["main"], "v0.5"))
         self.assertEqual(self.cutover.assess(self.running), ({}, "same"), "the next update has nothing to do")
-        self.docker.stored = f"{BASE}-g2"  # a ledger that did not rename its origin
-        self.docker.lines, self.docker.renames = ["main"], False
-        with self.assertRaisesRegex(RuntimeError, "published to .*-g2, not"):
-            self.cutover.moved(["compose"])
+        self.assertEqual(self.hub.requests, [], "a move asks DoltHub nothing: the ledger's own publish checks")
 
-    def test_a_version_without_a_line_or_a_base_of_one_generation_is_refused(self):
-        self.docker.line = None
-        with self.assertRaisesRegex(RuntimeError, "publishes no version line"):
-            self.cutover.assess(self.running)
-        self.docker.line = "v0.6"
-        self.env.write_text(f"TRADE_DATA={self.data}\nTRADE_RESEARCH_ORIGIN={BASE}-g2\n")
-        with self.assertRaisesRegex(RuntimeError, "names a repository of one generation"):
-            self.cutover.assess(self.running)
+    def test_a_move_waits_for_the_ledger_s_own_rounds_and_then_gives_up_loudly(self):
+        self.docker.line, self.docker.tracked, self.docker.ledger_line = "v0.5", ["v0.5"], None
+        self.cutover.assess(self.running)
+        self.docker.moves = False  # a publish round of the ledger holds the move
+        rounds = iter(range(5))
+
+        def later(seconds):
+            self.sleep(seconds)
+            if next(rounds) == 3:
+                self.docker.tracked, self.docker.ledger_line = ["main"], "v0.5"
+
+        self.cutover.sleep = later
+        self.cutover.moved(["compose"])
+        self.assertEqual(self.now, 4 * 20)
+        self.docker.tracked, self.docker.ledger_line, self.now = ["v0.5"], None, 0.0
+        self.cutover.sleep = self.sleep
+        with self.assertRaisesRegex(RuntimeError, "is not on main yet"):
+            self.cutover.moved(["compose"])
+        self.assertGreaterEqual(self.now, 1800)
+
+    def test_a_version_older_than_0_5_4_is_refused(self):
+        for line in (None, "v0.5", "v0.6"):
+            with self.subTest(line=line):
+                self.docker.line, self.docker.main = line, False  # 0.5.3 published its ledger as its line's branch
+                with self.assertRaisesRegex(RuntimeError, "older than 0.5.4"):
+                    self.cutover.assess(self.running)
+        self.assertFalse(self.stopped())
+        self.assertFalse([call for call in self.docker.calls if call[0] == "exec"], "not even a publish")
 
     def test_a_new_generation_archives_the_ledger_and_starts_it_alone_first(self):
         older = self.data / generation.ARCHIVE / ("20260101T000000Z-" + "c" * 12)
@@ -309,9 +342,12 @@ class CutoverTests(unittest.TestCase):
         journal = self.cutover.begin(self.cutover.assess(self.running)[0], check=False)
         self.assertEqual(journal["phase"], "archiving")
         self.assertFalse(self.stopped(), "nothing changes before the journal")
-        [request] = self.hub.requests
-        self.assertTrue(request.full_url.startswith(generation.API + "owner/research/v0.6?q="))
-        self.cutover.run(journal, ["compose", "-p", "trade-ide"])
+        self.assertTrue(all(request.full_url.startswith(generation.API + "owner/research/main?q=")
+                            for request in self.hub.requests), "main is asked about, read-only")
+        self.assertEqual({request.get_method() for request in self.hub.requests}, {"GET"})
+        self.docker.calls.clear()
+        with patch("deploy.update.services", return_value=self.running):
+            self.cutover.run(journal, ["compose", "-p", "trade-ide"])
         archive = self.data / generation.ARCHIVE / journal["archive"]
         self.assertTrue((archive / "dolt/service.json").is_file())
         self.assertTrue((archive / generation.VOLUME_TGZ).is_file())
@@ -323,38 +359,67 @@ class CutoverTests(unittest.TestCase):
         self.assertFalse(self.cutover.journal.exists())
         ups = [call for call in self.docker.calls if "up" in call]
         self.assertEqual([call[-1] for call in ups], ["ledger"], "the ledger alone, before market.json is back")
-        self.assertTrue(self.docker.calls.index(PUBLISH) < self.docker.calls.index(
-            ("compose", "-p", "trade-ide", "stop")), "the old ledger publishes before it stops")
+        others = self.docker.calls.index(("compose", "-p", "trade-ide", "stop", "ide", "market-import", "paper",
+                                          "docker-api"))
+        self.assertLess(others, self.docker.calls.index(PUBLISH), "nothing else writes when it publishes last")
+        self.assertLess(self.docker.calls.index(PUBLISH), self.docker.calls.index(("compose", "-p", "trade-ide",
+                                                                                   "stop")),
+                        "the old ledger publishes before it stops")
 
-    def test_a_missing_repository_is_refused_and_never_created(self):
+    def test_a_failed_last_publish_stops_the_cutover_before_the_ledger_stops(self):
         self.cutover.assess(self.running)
-        self.hub.state = "absent"
-        with self.assertRaisesRegex(RuntimeError, "owner/research does not exist on DoltHub; create it once"):
-            self.cutover.begin({}, check=False)
-        self.assertEqual({request.get_method() for request in self.hub.requests}, {"GET"})
+        journal = self.cutover.begin({}, check=False)
+        self.docker.published = False
+        with patch("deploy.update.services", return_value=self.running), \
+                self.assertRaisesRegex(RuntimeError, "after the other services stopped failed"):
+            self.cutover.run(journal, ["compose"])
+        self.assertFalse(self.stopped(), "the ledger still runs")
+        self.assertTrue((self.data / "dolt/service.json").is_file(), "nothing archived")
+        self.docker.published = True
+        with patch("deploy.update.services", return_value={}):  # a ledger this step removed after publishing
+            self.cutover.run(journal, ["compose"])
         self.assertFalse(self.cutover.journal.exists())
-        self.assertFalse(self.stopped())
 
-    def test_refusals_before_anything_changes(self):
+    def test_a_resumed_cutover_starts_a_stopped_old_ledger_to_publish_before_archiving(self):
         self.cutover.assess(self.running)
-        self.hub.state = "data"
-        self.cutover.wanted = {**self.cutover.wanted, "research": 3}
-        with self.assertRaisesRegex(RuntimeError, "schema generation 2, not 3"):
-            self.cutover.begin({"research": "3"}, check=False)
-        self.cutover.wanted = {**self.cutover.wanted, "research": 2}
+        journal = self.cutover.begin({}, check=False)
+        self.docker.calls.clear()
+        with patch("deploy.update.services", return_value={"ledger": {"state": "exited"}}):
+            self.cutover.run(journal, ["compose"])
+        start = self.docker.calls.index(("start", LEDGER))
+        self.assertLess(start, self.docker.calls.index(PUBLISH))
+        self.assertLess(self.docker.calls.index(PUBLISH), self.docker.calls.index(("compose", "stop")))
+        self.cutover.journal.write_text(json.dumps(journal))
+        self.docker.published = False
+        with patch("deploy.update.services", return_value={"ledger": {"state": "exited"}}), \
+                self.assertRaisesRegex(RuntimeError, "after the other services stopped failed"):
+            self.cutover.run(journal, ["compose"])
+
+    def test_what_main_holds_decides_before_anything_changes(self):
+        self.cutover.assess(self.running)
+        for hub, text in ((DoltHub("absent"), "does not exist on DoltHub; create it once"),
+                          (DoltHub("other"), "holds no research ledger"),
+                          (DoltHub("data", "v0.4"), "neither this ledger's v0.5 nor the version's v0.6"),
+                          (DoltHub("data", None), "unknown \\(no line tag\\)"),
+                          (DoltHub("data", "v0.6", "3"), "schema generation 3, not 2")):
+            with self.subTest(state=hub.state, line=hub.line):
+                self.cutover.opener = hub
+                with self.assertRaisesRegex(RuntimeError, text):
+                    self.cutover.begin({}, check=False)
+        self.cutover.opener = DoltHub("unknown")
+        with self.assertRaises(generation.OriginUnreadable):
+            self.cutover.begin({}, check=False)
+        for hub in (DoltHub("data", "v0.5"), DoltHub("data", "v0.6"), DoltHub("empty")):
+            with self.subTest(fine=hub.state, line=hub.line):
+                self.cutover.opener = hub
+                self.assertEqual(self.cutover.begin({}, check=False)["phase"], "archiving")
+                self.cutover.journal.unlink()
         self.docker.published = False
         requests = len(self.hub.requests)
         for found in ({}, {"paper": "2"}, {"research": "2"}):
             with self.subTest(found=found), self.assertRaisesRegex(RuntimeError, "publish failed"):
                 self.cutover.begin(found, check=False)
         self.assertEqual(len(self.hub.requests), requests, "a failed publish refuses before anything else")
-        self.docker.published = True
-        self.hub.state = "other"  # a branch of that name holding something else
-        with self.assertRaisesRegex(RuntimeError, "holds no research ledger"):
-            self.cutover.begin({}, check=False)
-        self.hub.state = "unknown"  # DoltHub answers something that is neither a branch nor its absence
-        with self.assertRaises(generation.OriginUnreadable):
-            self.cutover.begin({}, check=False)
         self.assertIsNone(self.cutover.begin({}, check=True))
         self.assertFalse(self.cutover.journal.exists())
         self.assertFalse(self.stopped())
@@ -383,7 +448,7 @@ class CutoverTests(unittest.TestCase):
             self.cutover.pending()
         self.assertEqual(json.loads(self.cutover.journal.read_text()), journal, "left as it is")
         self.cutover.journal.write_text(json.dumps({key: value for key, value in journal.items() if key != "line"}))
-        with self.assertRaisesRegex(RuntimeError, "not a cutover journal"):  # 0.5.2's journal names no line
+        with self.assertRaisesRegex(RuntimeError, "not a cutover journal"):
             self.cutover.pending()
 
 
@@ -413,25 +478,24 @@ class MainTests(unittest.TestCase):
             self.assertFalse((data / "deploy" / ADMITTED).exists())
             self.assertFalse([call for call in docker.calls if call[0] == "compose"])
 
-    def test_the_first_0_5_3_update_moves_the_ledger_then_moves_the_services(self):
+    def test_the_first_0_5_4_update_moves_the_ledger_onto_main_then_moves_the_services(self):
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory)
             docker = Workstation(data, fill(data))
-            docker.line, docker.stored, docker.lines = "v0.5", f"{BASE}-g2", ["main"]
+            docker.line, docker.tracked, docker.ledger_line = "v0.5", ["v0.5"], None
             (data / ".env").write_text(f"TRADE_DATA={data}\nTRADE_RESEARCH_ORIGIN={BASE}\nTRADE_SERVICE_IMAGE=old\n")
-            hub = DoltHub("empty")
+            hub = DoltHub("data", None)
             self.update(data, docker, hub)
             self.assertEqual(read_env(data / ".env")["TRADE_SERVICE_IMAGE"], SERVICE)
-            self.assertEqual((docker.stored, docker.lines), (BASE, ["v0.5"]))
-            self.assertEqual(hub.requests, [], "a move asks DoltHub nothing: the ledger's own publish checks")
+            self.assertEqual((docker.tracked, docker.ledger_line), (["main"], "v0.5"))
+            self.assertEqual(hub.requests, [])
             composed = [call for call in docker.calls if call[0] == "compose"]
             self.assertFalse([call for call in composed if call[-1] == "stop"], "nothing is archived")
             ledger = next(index for index, call in enumerate(docker.calls) if call[0] == "compose"
                           and call[-1] == "ledger")
             everything = next(index for index, call in enumerate(docker.calls) if call[0] == "compose"
                               and call[-2:] == ("up", "-d"))
-            self.assertLess(ledger, everything, "the moved ledger publishes before the other services move")
-            self.assertEqual(read_env(data / ".env")["TRADE_RESEARCH_ORIGIN"], BASE)
+            self.assertLess(ledger, everything, "the moved ledger is on main before the other services move")
 
 
 def fill(data: Path) -> Path:
