@@ -178,8 +178,7 @@ class UnchangedTests(unittest.TestCase):
 
     def judge(self, line: str) -> None:
         judgments.add_judgment(self.world.profile, "interpretation", line, self.head(), "fixture",
-                               subjects=[{"role": "about", "trial_id": self.child["trial_id"]}],
-                               compared=lambda name, at: status.compared_candidates(self.world.profile, name, at))
+                               subjects=[{"role": "about", "trial_id": self.child["trial_id"]}])
 
     def test_only_this_line_s_judgment_is_a_change(self):
         since = self.head()

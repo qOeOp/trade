@@ -1,5 +1,5 @@
 """Judgments: cited subjects, an exact basis commit on the line, single supersession, known kinds
-only, and a recommendation that names every candidate of the comparison table."""
+only."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class JudgmentTests(unittest.TestCase):
     def add(self, kind="interpretation", **overrides):
         arguments = {"kind": kind, "line": self.line, "based_on_commit": self.head, "body": "see trial",
                      "subjects": [{"role": "about", "trial_id": self.trial["trial_id"]}],
-                     "compared": lambda line, at: [], **overrides}
+                     **overrides}
         return judgments.add_judgment(self.profile, **arguments)
 
     def code(self, **overrides) -> str:
@@ -140,46 +140,18 @@ class JudgmentTests(unittest.TestCase):
                 self.assertEqual(self.code(kind=kind, body=body), "DECISION_OPENING_INVALID")
         self.assertEqual(self.code(kind="priority", body="Change of approach. Exits next."), "APPROACH_CHOOSER_MISSING")
 
-    def test_a_recommendation_names_every_candidate_of_the_comparison_table(self):
-        strategies.publish_candidate(self.profile, source("b"), "b", "Fixture", "another root")
-        table = []
-
-        def compared(line, at):
-            table.append((line, at))
-            return ["a@1", "b@1"]
-
-        exc = None
-        caught = refused(self.add, "recommendation", body="only a", compared=compared,
-                         subjects=[{"role": "recommended", "candidate": "a@1"}])
-        exc = caught
-        self.assertEqual((exc.code, exc.missing), ("RECOMMENDATION_INCOMPLETE", ("b@1",)))
-        self.assertEqual(table, [(self.line, self.head)], "the table at the commit the recommendation reads")
-        written = self.add("recommendation", body="a over b", compared=compared,
-                           subjects=[{"role": "recommended", "candidate": "a@1"}, {"role": "about", "candidate": "b@1"}])
-        self.assertFalse(written["replayed"])
-
     def test_an_oversized_body_is_refused_with_the_cause_in_the_message(self):
         caught = refused(self.add, body="x" * 70_000)
         self.assertEqual(caught.code, "DOLT_SQL_ERROR")
         self.assertIn("too large for column", caught.message)
         self.assertLess(len(caught.message), 400)
 
-    def test_a_write_landing_during_the_comparison_does_not_roll_a_recommendation_back(self):
+    def test_a_recommendation_may_name_the_recommended_candidate_alone(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}]
-
-        def compared(line, at):
-            self.add(body="another session wrote while the table was read")
-            return ["a@1"]
-
-        written = self.add("recommendation", body="survives the other write", compared=compared, subjects=subjects)
-        self.assertFalse(written["replayed"])
-
-        def unread(line, at):
-            raise AssertionError("the table is read only for a new recommendation with a valid line, commit and subjects")
-
-        again = self.add("recommendation", body="survives the other write", compared=unread, subjects=subjects)
+        written = self.add("recommendation", body="a alone", subjects=subjects)
+        again = self.add("recommendation", body="a alone", subjects=subjects)
         self.assertEqual((again["judgment_id"], again["replayed"]), (written["judgment_id"], True))
-        self.assertEqual(self.code(kind="recommendation", body="too old", compared=unread, subjects=subjects,
+        self.assertEqual(self.code(kind="recommendation", body="too old", subjects=subjects,
                                    based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
-        self.assertEqual(self.code(kind="recommendation", body="no such", compared=unread,
+        self.assertEqual(self.code(kind="recommendation", body="no such",
                                    subjects=[{"role": "recommended", "candidate": "nobody@1"}]), "SUBJECT_UNKNOWN")

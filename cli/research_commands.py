@@ -278,10 +278,8 @@ def judgment_add(args):
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise refuse("JUDGMENT_BODY_UNREADABLE", f"{args.body} is not UTF-8", missing=(args.body,)) from exc
-    from report import status
     return judgments.add_judgment(profile, args.kind, args.line, args.based_on, text,
-                                  [_subject(item) for item in args.subjects or ()], args.supersedes, args.op_id,
-                                  compared=lambda line_name, at: status.compared_candidates(profile, line_name, at))
+                                  [_subject(item) for item in args.subjects or ()], args.supersedes, args.op_id)
 
 
 def _target_options(omitted: str | None):
@@ -577,13 +575,10 @@ COMMANDS = [
          option("--workdir", required=True, help="the kept precheck directory"),
          option("--failure-receipt", required=True, help="the failure receipt the refusal wrote")),
     command(judgment_add, "judgment", "add", "append one judgment", (
-        "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head); for a "
-        "recommendation, the line's comparison table at --based-on",
+        "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head)",
         "one judgment row and its subject rows; the same content again is a replay",
         "judgment_id, ledger_commit, replayed",
         "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
-        "and start with a run of its execution identity in the comparison table at --based-on: its `candidates`); "
         "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"), LEDGER,

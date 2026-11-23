@@ -240,10 +240,7 @@ class ResearchGraphTests(unittest.TestCase):
         world.scenario = {}
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
         named = [{"role": "recommended", "candidate": ref}]
-        try:
-            world.judge("recommendation", subjects=named)
-        except Refusal as exc:  # a recommendation names every candidate of the comparison table
-            world.judge("recommendation", subjects=named + [{"role": "about", "candidate": other} for other in exc.missing])
+        world.judge("recommendation", subjects=named)
         drawn = self.graph()
         self.assertEqual({c["id"]: c["status"] for c in drawn["candidates"]}[ref], "recommended")
         summary = next(w for w in layout.build_view(drawn)["widgets"] if w["type"] == "summary")
