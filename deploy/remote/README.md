@@ -122,9 +122,9 @@ Then the tick stops `ledger` and `market-import`, removes the ledger's container
 version's service image with no network, what the ledger service left: the contents of `$TRADE_DATA/dolt` (the
 `paper` directory itself stays, emptied: the Paper controller and docker-api bind mount it), `ledgers` and
 `dolt-backups`, renamed into `$TRADE_DATA/archive/<UTC time>-<revision>/` (one file system: a rename, never a copy),
-and removes the `trade-dolt-data` volume, which only mirrors the old line (kept on DoltHub as its branch; the
-volume also holds the Paper database,
-whose backup the archive keeps). The next tick starts the ledger from the version's own compose definition and waits
+packs the `trade-dolt-data` volume there as `trade-dolt-data.tgz` without the research mirror (DoltHub keeps the old
+line as its branch), so with the Paper database, and only then removes the volume. The new ledger does not read that
+Paper database. The next tick starts the ledger from the version's own compose definition and waits
 for its health check (the mirror's first start fetches `main` alone, with no history of the old line, and makes an
 empty Paper database), starts market import again if it ran, and checks that
 the version reads the new ledger. The tick after removes every other archive it named, so only the previous
