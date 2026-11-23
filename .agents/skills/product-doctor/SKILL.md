@@ -40,8 +40,8 @@ research session that its transcript cannot show ([attach.md](references/attach.
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read the open rows of `docs/plans/doctor/index.zh.md` (a full audit reruns the proofs
-   its header names). Judge current product behavior on a checkout at the current `origin/main`
+   commits; list the `agent-finding` issues, open and closed (a full audit reruns the
+   proofs of those closed as completed without a held comment, and reads the fixed rows the index header links). Judge current product behavior on a checkout at the current `origin/main`
    (after `git fetch origin main`), use its current names in findings, and compare it with the
    session's checkout before calling anything a defect: a fix the session lacked is not a new
    finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp timeline
@@ -67,7 +67,7 @@ research session that its transcript cannot show ([attach.md](references/attach.
    Where no probe can run, give an exact file:line chain from input to wrong output and say it was not
    run. A cost stands on `doctor.py cost`, read as a growth rate; `noisy` is no reading and an unmeasured
    cost is `unknown`. A duplication stands on the measured span both copies share; residue on its search
-   and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Calling a `fixed` row
+   and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Calling a closed finding
    held takes `doctor.py recheck` `confirmed` or its own probe `absent`, never a merged PR. Each finding
    also names its session call and time, or the external norm with URL. Label the rest
    unverified or drop it. Rank by measured cost and recurrence; keep expected savings apart.
@@ -86,13 +86,12 @@ research session that its transcript cannot show ([attach.md](references/attach.
    why any growth was unavoidable.
 6. **Report decisions.** Coverage, test and probe results are what `doctor.py report` prints: say
    `full audit` only where it does, and name a failed command as failed even when a rerun passed, with
-   why. Record per [record.md](references/record.md): an index row for each
-   verified finding, authority recommendation or open evidence gap, and a record file only for an
-   audit or a diagnosis of several rows. Update existing rows rather than recording each symptom
-   anew. A row someone must fix, other than `authority`, also gets an `agent-finding` issue as
-   the index header says. A finding the user pointed out first takes source `user` with the
-   lenses.md workstream that should have caught it, by its name there; one verified from the user
-   bot's issue takes `user-bot` the same way, with the issue number.
+   why. Record per [record.md](references/record.md): an `agent-finding` issue for
+   each verified finding, authority recommendation or open evidence gap, asking the user about the
+   authority ones; a record file only for what it names. Update existing issues rather than recording
+   each symptom anew. A finding the user pointed out first takes source `user` with the lenses.md
+   workstream that should have caught it, by its name there; one verified from the user bot's issue
+   takes `user-bot` the same way.
 
 ## Convergence
 

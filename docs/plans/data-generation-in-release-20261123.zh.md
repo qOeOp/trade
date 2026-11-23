@@ -81,7 +81,8 @@ DoltHub API token 存到那个文件（之后每一代全自动），或每次�
 - `archive`/`prune`：在版本服务镜像里以 root（只加 `DAC_OVERRIDE`）、无网络运行（`python -m deploy.generation`），
   只挂 `$TRADE_DATA` 一个绑定挂载。归档目录是 `$TRADE_DATA/archive/<UTC 时间>-<版本前 12 位>/`，与数据同一个挂载、
   同一个文件系统，只用 `os.rename`，移动前比对 `st_dev`，不同就停。工作站的卷（写入账本本身）先写 `.partial` 再改名
-  成 tgz；服务器的卷只是旧一代 DoltHub 仓库的镜像，不打包，直接删。每一步都可重入。
+  成 tgz；服务器的卷除研究镜像外（旧线分支取得回）同样打包，因为 Paper 库也在卷里，
+  打包落盘后才删卷（原先直接删卷，丢的是备份之后的 Paper 记录）。每一步都可重入。
   `prune` 只删本代码命名格式的其它归档，从不删日志里的那个，也不碰旧手工清单留下的 `/srv/trade-archive`。
 
 ### 工作站（`deploy/update.py` `Cutover`）

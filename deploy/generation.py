@@ -15,9 +15,10 @@ publishes and which line it is on (`WHERE`, read in a container of the version's
 DoltHub's public SQL API, no credential), and the archive, run in a container of the version's service image
 (`archiver`, `pruner`; `python -m deploy.generation`), since the release service may not write the data directory
 itself. Archiving renames within `$TRADE_DATA` (one file system: `os.rename` only, never a copy) into
-`$TRADE_DATA/archive/<UTC time>-<revision>/`. A workstation keeps the volume of Dolt's data as a tgz (its writer ledger
-lives there); the release host removes its volume, a mirror of the old line's branch that a fetch gives back. Only the
-newest archive stays: the others go once the new generation runs. The market directory has no generation and stays.
+`$TRADE_DATA/archive/<UTC time>-<revision>/`. Both keep the volume of Dolt's data as a tgz before they remove it: a
+workstation all of it (its writer ledger lives there), the release host all but the research mirror, which a fetch of
+the old line's branch gives back; the Paper database in that volume has no other copy but its backup. Only the newest
+archive stays: the others go once the new generation runs. The market directory has no generation and stays.
 
 `move` is the one-time move of the v0.5 ledger, which 0.5.3 published as the repository's branch `v0.5`, onto
 `main`: a workstation's ledger does it at its first publish under 0.5.4 (ledger/publish.py onto_main); the release
@@ -62,7 +63,7 @@ KINDS = ("cutover", "move")
 # the table holds something else; any other error is not an answer about the ledger.
 NO_BRANCH = "query error: branch not found"
 NO_TABLE = "query error: table not found: ledger_schema"
-ARCHIVE_SECONDS = 600  # the release host's archive only renames
+ARCHIVE_SECONDS = 600  # the release host's archive renames and packs the Paper database
 API = "https://www.dolthub.com/api/v1alpha1/"
 HOST = "https://doltremoteapi.dolthub.com/"
 REPOSITORY = re.compile(re.escape(HOST) + r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\Z")
@@ -79,6 +80,7 @@ ORIGIN = ("import json\nfrom ledger import db, publish\nprint(json.dumps({'line'
 # Run in the version's service image with the reader's profile: where the host's ledger publishes (publish.where).
 WHERE = ("import json\nfrom ledger import db, publish\nprint(json.dumps(publish.where(db.load_profile('research'))))")
 MOUNTED = "/run/trade/dolt-data"  # where the archive container mounts VOLUME
+MIRROR = "research"  # the release host's mirror in VOLUME, left out of its tgz
 
 
 class OriginUnreadable(RuntimeError):
@@ -223,14 +225,15 @@ def contains(origin: str, line: str, head: str, opener=urllib.request.urlopen) -
     raise _unread(value)
 
 
-def archiver(data: Path, name: str, service: str, volume: bool) -> list[str]:
+def archiver(data: Path, name: str, service: str, volume: bool, skip: str | None = None) -> list[str]:
     """`docker` arguments that archive the ledger service's data under `data` into archive `name`, with root's read
-    and write of any owner's files and nothing else, no network, from the version's own code."""
+    and write of any owner's files and nothing else, no network, from the version's own code. `volume`: VOLUME's files
+    too, but its database `skip`."""
     return ["run", "--rm", "--network", "none", "--user", "0:0", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
             "--security-opt", "no-new-privileges:true", "--mount", f"type=bind,src={data},dst={data}",
             *(("--mount", f"type=volume,src={VOLUME},dst={MOUNTED},readonly") if volume else ()),
             "--workdir", "/opt/trade", "--entrypoint", "python", service, "-m", "deploy.generation", "archive",
-            str(data), name, *((MOUNTED,) if volume else ())]
+            str(data), name, *((MOUNTED, *((skip,) if skip else ())) if volume else ())]
 
 
 def pruner(data: Path, name: str, service: str) -> list[str]:
@@ -241,9 +244,10 @@ def pruner(data: Path, name: str, service: str) -> list[str]:
             name]
 
 
-def archive(data: Path, name: str, volume: Path | None = None) -> None:
-    """Move what MOVED names into `data/archive/name`, by rename only; first the volume's files as one tgz (written
-    under a partial name, then renamed). Every step can run again after an interruption."""
+def archive(data: Path, name: str, volume: Path | None = None, skip: str | None = None) -> None:
+    """Move what MOVED names into `data/archive/name`, by rename only; first the volume's files, but its top directory
+    `skip`, as one tgz (written under a partial name, synced to disk, then renamed: the caller removes the volume after
+    it). Every step can run again after an interruption."""
     target = data / ARCHIVE / name
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     for _, folder in MOVED:
@@ -251,8 +255,11 @@ def archive(data: Path, name: str, volume: Path | None = None) -> None:
     if volume is not None and not (target / VOLUME_TGZ).exists():
         partial = target / (VOLUME_TGZ + ".partial")
         with tarfile.open(partial, "w:gz") as out:
-            out.add(volume, arcname=".")
+            out.add(volume, arcname=".", filter=lambda item: None if skip and item.name == f"./{skip}" else item)
+        with partial.open("rb") as written:
+            os.fsync(written.fileno())
         os.replace(partial, target / VOLUME_TGZ)
+        sync_directory(target)
     device = target.stat().st_dev
     for source, folder in MOVED:
         origin = data / source
@@ -499,9 +506,10 @@ class Generation:
             if self.host.exists(LEDGER):
                 self.host.docker("rm", LEDGER)  # it holds the volume
             held()
-            self.host.docker(*archiver(data, journal["archive"], service, False), timeout=ARCHIVE_SECONDS)
-            if VOLUME in self.host.docker("volume", "ls", "--format", "{{.Name}}").splitlines():
-                self.host.docker("volume", "rm", VOLUME)  # a mirror: the old line's branch holds it
+            volume = VOLUME in self.host.docker("volume", "ls", "--format", "{{.Name}}").splitlines()
+            self.host.docker(*archiver(data, journal["archive"], service, volume, MIRROR), timeout=ARCHIVE_SECONDS)
+            if volume:
+                self.host.docker("volume", "rm", VOLUME)  # the tgz holds all but the mirror
             self.write({**journal, "phase": "archived"})
             print(f"Archived the ledger's data in {data / ARCHIVE / journal['archive']}; the next tick starts the "
                   "new generation's ledger", flush=True)
@@ -539,15 +547,15 @@ class Generation:
                   + (f", removed older archives {removed}" if removed else ""), flush=True)
 
 def main(argv: list[str]) -> None:
-    """Inside the version's service image (archiver, pruner): `archive DATA NAME [VOLUME]` or `prune DATA NAME`."""
+    """Inside the version's service image (archiver, pruner): `archive DATA NAME [VOLUME [SKIP]]` or `prune DATA NAME`."""
     if len(argv) >= 3 and not ARCHIVE_NAME.fullmatch(argv[2]):
         raise SystemExit(f"{argv[2]} is not an archive name")
-    if len(argv) in (3, 4) and argv[0] == "archive":
-        archive(Path(argv[1]), argv[2], Path(argv[3]) if len(argv) == 4 else None)
+    if len(argv) in (3, 4, 5) and argv[0] == "archive":
+        archive(Path(argv[1]), argv[2], Path(argv[3]) if len(argv) > 3 else None, argv[4] if len(argv) == 5 else None)
     elif len(argv) == 3 and argv[0] == "prune":
         print(" ".join(prune(Path(argv[1]), argv[2])))
     else:
-        raise SystemExit("usage: python -m deploy.generation archive DATA NAME [VOLUME] | prune DATA NAME")
+        raise SystemExit("usage: python -m deploy.generation archive DATA NAME [VOLUME [SKIP]] | prune DATA NAME")
 
 
 if __name__ == "__main__":

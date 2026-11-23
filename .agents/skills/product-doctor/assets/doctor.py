@@ -1,6 +1,6 @@
 """Run an audit's commands and probes and derive its claims from what they returned, so that the audit does not grade
 itself. Evidence is kept in one directory under the temporary root; nothing else is written. Advice only: it edits no
-index row and gates nothing.
+issue and gates nothing.
 
 Run from a checkout under the project environment: `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`.
 Trees are `git archive` copies, so a probe never sees uncommitted changes or the checkout the environment points at.

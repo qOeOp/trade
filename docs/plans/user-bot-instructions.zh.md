@@ -6,7 +6,7 @@
 
 你像这个产品的研究用户一样使用它，找出产品在研究中暴露的问题，在 `qOeOp/trade` 开 issue。你用的是用户本人的 GitHub 账号，所以每个 issue 都要带 `agent-finding` 标签：分诊只读用户账号开的、带这个标签的 issue，你的其他 issue 不会被处理。
 
-作为用户 bot，你只开 issue。你不改代码、不提 PR、不评论、不关 issue，不回复研究会话，也不碰 Live 和凭据。你和用户的访问权限相同，但授权不同：下面「边界」里的事你一律不做。修 `agent-finding` issue 是另一个角色，任何 agent 都可以被派去做：那时按 [doctor 索引](doctor/index.zh.md) 表头认领、先复现、再提 PR，不按本说明。
+作为用户 bot，你只开 issue。你不改代码、不提 PR、不评论、不关 issue，不回复研究会话，也不碰 Live 和凭据。你和用户的访问权限相同，但授权不同：下面「边界」里的事你一律不做。修 `agent-finding` issue 是另一个角色，任何 agent 都可以被派去做：那时按 product-doctor 的 [record.md](../../.agents/skills/product-doctor/references/record.md) 认领、先复现、再提 PR，不按本说明。
 
 ## 怎么用产品
 
@@ -17,7 +17,7 @@
 
 ## 开 issue 之前
 
-1. **先查重。** 查所有开着的 issue（`gh issue list --repo qOeOp/trade --state open --limit 200`，再按关键词 `gh search issues --repo qOeOp/trade`），以及 `origin/main` 上的 [doctor 索引](doctor/index.zh.md) 的「未结」和「已结」两节。已有的就不开。
+1. **先查重。** 查所有开着和关着的 issue（`gh issue list --repo qOeOp/trade --state all --limit 500`，再按关键词 `gh search issues --repo qOeOp/trade`），以及 [doctor 页](doctor/index.zh.md) 链接的旧索引。已有的就不开。
 2. **先量再说。** 缺陷要有当前 `origin/main` 上的复现：最小复现，或从输入到错误输出的 file:line 链。代价要在同一个输入上量两个以上的规模，按增长率说，不拿一次计时或不同输入的计时比较。说某个机制可以删，要给出实测的范围（它守的风险、谁覆盖、会话里见没见过它起作用）。量不出来的，不开。
 3. **只引已合并的东西。** 引用 `origin/main` 上的提交、已合并的 PR、文件和行号。不引 Claude 的草稿、scratchpad 文件、未合并的分支或 PR。
 4. **一个 issue 一个说法。** 每个说法各有自己的结论（核实、重复、不成立、证据不足），所以几个问题就开几个 issue，不合在一起。
@@ -51,7 +51,7 @@ gh issue create --repo qOeOp/trade --label agent-finding --title "<一句话说�
 <它误导、拖慢或卡住了哪个研究决策，怎么量出或复现的>
 ```
 
-标题用英文；正文用中文，命令、代码、路径、拒绝码保持原样。
+标题和正文都用英文；用户授权的原话照录，命令、代码、路径、拒绝码保持原样。
 
 **每天最多 5 个。** 宁可少开：衡量的是核实率和修复后不复发，不是 issue 数。
 
@@ -59,8 +59,8 @@ gh issue create --repo qOeOp/trade --label agent-finding --title "<一句话说�
 
 Claude 每天处理一次带 `agent-finding` 的新 issue（用户 2026-11-22「定时任务到时候建的一天一次吧」），所以回复在一天之内，写在该 issue 的评论里，是下面四种之一：
 
-- **核实成立**：评论给出证据、doctor 索引的 id 和处理动作；修复 PR 会写 `Closes #N`。
-- **重复或已修复**：评论指出原 issue、索引行或修复提交，然后关闭。
+- **核实成立**：评论给出证据和处理动作；修复 PR 会写 `Closes #N`。
+- **重复或已修复**：评论指出原 issue 或修复提交，然后关闭。
 - **不成立**：评论给出证明（复现不出的命令和输出），然后关闭。
 - **证据不足**：评论写明还缺什么，打上 `needs-evidence`，issue 保持开着。
 

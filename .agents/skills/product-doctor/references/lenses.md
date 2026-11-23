@@ -32,7 +32,8 @@ one longest unexamined in earlier records' coverage. Reading code covers none of
   (no `--paper`) and after a reload. The artifact is the page's rendered text; find how the page is
   reached in its code, since an unknown address can draw the first page.
 - **consumers** [ledger report cli ide]: one state read through every consumer, which must agree.
-- **fixed** [any]: the index's `fixed` rows (`doctor.py recheck`).
+- **fixed** [any]: the `agent-finding` issues closed as completed without a held comment, and the fixed rows the index
+  header links (`doctor.py recheck`).
 - **unchanged** [any]: a module the last audits' findings and the recent commits leave alone.
 - **recovery** [rotating]: backup restore and ledger rebuild on temporary copies.
 - **security** [rotating]: trust boundaries, dependencies and what each process may reach; no
