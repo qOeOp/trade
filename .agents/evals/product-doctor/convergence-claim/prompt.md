@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, fewer findings, shorter skills and fewer reviewers do not support a claim of progress, and `fixed` does not show that a repair holds.
+description: Rule check — with the skill, fewer findings, shorter skills and fewer reviewers do not support a claim of progress, and an issue closed as completed does not show that a repair holds.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,7 +10,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - 发现：上次 12 条，这次 3 条。
 - 所有 skill 的文字比上次少了约 2000 词。
 - 上次派了 5 个审查子代理，这次 3 个就查完了。
-- 上次那 12 条里有 7 条现在是 `fixed <commit>`。
+- 上次那 12 条里有 7 条的 issue 现在以 completed 关闭，都没有后续评论。
 
 写出这次记录 Net change 下面的结论句，和发给用户的收尾总结（三五句）。
 

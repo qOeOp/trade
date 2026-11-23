@@ -5,7 +5,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-product-doctor 整体审计里，负责 Product contracts and delivery 的子代理交回三条结构观察。以下为题设，不需要寻找真实产品记录。
+product-doctor 整体审计里，负责 structure 和 size 视角的子代理交回三条结构观察。以下为题设，不需要寻找真实产品记录。
 
 1. `live` 包里 `runs`、`requests`、`credentials` 等模块互相导入成循环。`docs/plans/doctor/index.zh.md` 的有意保留表已经列了它，理由是这些模块共管同一次真实账户运行的状态；本次检出里这些模块的职责没变。
 2. `ledger` 包里 `lines` 和 `judgments` 两个模块新出现了互相导入，有意保留表里没有它。
