@@ -47,21 +47,32 @@ research session that its transcript cannot show ([attach.md](references/attach.
    finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp timeline
    including sub-agent sessions ([hosts.md](references/hosts.md)).
 2. **Assign coverage.** Use the three workstreams in [lenses.md](references/lenses.md), each with
-   a fresh read-only sub-agent, and give every item of its full-audit list to one of them. Give
-   each the evidence paths, checkout and its questions, without authoring context or your
-   conclusions, attach's diagnoses included. Split a workstream only for distinct unresolved risks.
+   a fresh sub-agent that edits nothing, and give every item of its full-audit list to one of them, not
+   only what changed since the last audit. Give each the evidence directory and paths, checkout and its
+   questions, without authoring context or your conclusions, attach's diagnoses included. Split a
+   workstream only for distinct unresolved risks. Record what exercises an item:
+   `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py run /tmp/doctor-<audit> ITEM
+   SUBJECT [--artifact FILE] -- COMMAND` (`--help` gives the others). Evidence keeps commands and
+   output: no command there names or prints a credential. A finished command shows the item ran, not
+   that the result is right; read it, and name what it left out.
 3. **Verify the chain.** Trace product output through its actual consumer, interpretation and
    subsequent decision. Check population, units, assumptions and evidence scope; successful
    execution or rule compliance alone does not establish a sound inference or useful next step.
    Verify a repair at every consumer of the fact it changes (grep the verdict or field), not
    only the path that failed; an eval with invented facts does not stand in for the real state.
 4. **Probe, then claim.** A claim stands only on a probe of the current `origin/main`, run again
-   right before writing: a defect on a minimal reproduction or an exact file:line chain from
-   input to wrong output; a cost on one fixture measured at two or more sizes, read as a growth
-   rate, not one timing or timings of different inputs; a duplication on the measured span both copies share; residue on its search
-   and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Each finding
+   right before writing. For a defect, write a probe file (`doctor.py` says its form) with a control
+   whose input must give the other reading, and record it with `doctor.py probe`, `--before` the last full audit's
+   checkout; only `shown` proves it, and `broken`, `indiscriminate` and `uncontrolled` are unverified.
+   Where no probe can run, give an exact file:line chain from input to wrong output and say it was not
+   run. A cost stands on `doctor.py cost`, read as a growth rate; `noisy` is no reading and an unmeasured
+   cost is `unknown`. A duplication stands on the measured span both copies share; residue on its search
+   and anchor ([lenses.md](references/lenses.md#product-contracts-and-delivery)). Calling a closed finding
+   held takes `doctor.py recheck` `confirmed` or its own probe `absent`, never a merged PR. Each finding
    also names its session call and time, or the external norm with URL. Label the rest
    unverified or drop it. Rank by measured cost and recurrence; keep expected savings apart.
+   In a full audit a fresh sub-agent, given the probe files and commands but no verdict, reruns the
+   probes of each costly finding into its own directory; a difference is settled before reporting.
 5. **Choose a converging remedy.** Assign `fix`, `remove`, `skill`, `authority`, `measure` or
    `none`. Read every branch, exception and rule of the refusal, check or skill section the remedy
    would touch, then prefer in order: `none` when the Agent handled or can handle the case with
@@ -73,7 +84,9 @@ research session that its transcript cannot show ([attach.md](references/attach.
    test or CI check can find, the addition is that check (an `authority` item). State why each
    earlier option does not fit, the net change in mechanisms, branches, rules and skill words, and
    why any growth was unavoidable.
-6. **Report decisions.** Record per [record.md](references/record.md): an `agent-finding` issue for
+6. **Report decisions.** Coverage, test and probe results are what `doctor.py report` prints: say
+   `full audit` only where it does, and name a failed command as failed even when a rerun passed, with
+   why. Record per [record.md](references/record.md): an `agent-finding` issue for
    each verified finding, authority recommendation or open evidence gap, asking the user about the
    authority ones; a record file only for what it names. Update existing issues rather than recording
    each symptom anew. A finding the user pointed out first takes source `user` with the lenses.md
@@ -83,4 +96,7 @@ research session that its transcript cannot show ([attach.md](references/attach.
 ## Convergence
 
 Claim improvement only when repairs hold and consumers make better-supported decisions; finding
-counts, smaller text or fewer reviewers alone establish neither.
+counts, smaller text or fewer reviewers alone establish neither. Across audits read, with their
+denominators, the claims an independent rerun overturned, the findings the last audit already had
+(`--before`), recurrences and what the user found first; one audit shows no trend. Stop the audit's own
+processes and remove its copies, then check that none is left.
