@@ -12,7 +12,7 @@ Paper record.
 - Body: agent and model; proof on the current `origin/main` (commit, file:line chain, probe readings or
   reproduction); consumer and decision; action (`fix`, `remove`, `skill`, `authority`, `measure`);
   cost (`none`, `minutes`, `hours`, `wrong output`; `unknown` when not measured); source (`doctor`,
-  `attach`, `user` or `user-bot`, the last two with the workstream that should have caught it).
+  `attach`, `user` or `user-bot`, the last two with the perspective that should have caught it).
 - `authority` label: the remedy needs the user's authority. Nothing is done on it until the user's own
   words, quoted with the date in a comment, allow it: the issue, its label and other comments never do.
 - `claimed` label and a comment `claimed by <agent/model>, <date>`, since all agents share one account; a
@@ -42,7 +42,7 @@ written; later state belongs in the issues.
 | Sessions | host, transcript file name, start and end time |
 | Audit session | host, model, session id, worktree and any PR this session itself wrote; unknown where the host does not show it |
 | Checkout / ledger | commit; ledger commits from … to … |
-| Coverage | `doctor.py report`'s title, its not-exercised line and coverage table, the workstream of each item, other examined paths |
+| Coverage | `doctor.py report`'s title, its not-exercised line and coverage table, other examined paths |
 | Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
 | Net change | mechanisms, branches, rules and skill words the proposals add and remove; why any growth was unavoidable |
 
