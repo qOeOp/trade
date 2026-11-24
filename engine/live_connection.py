@@ -209,7 +209,7 @@ def deny_staged(session, reason: str, symbol: str | None = None) -> None:
             observation.result.cancel()
     for pending in chosen:
         if pending not in session.pending_entries:
-            continue  # its source cancelled it while it handled the denial before it
+            continue  # gone while its source handled the denial before it: cancelled, or refused with the queue
         session.pending_entries.remove(pending)
         try:
             deny(session, pending.order, reason, pending.held_ns())
