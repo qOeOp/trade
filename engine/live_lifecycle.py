@@ -193,6 +193,8 @@ class Observer(Strategy):
         if session.mode in ("run", "finish"):
             session.follow_submissions(self.cache, now)
         if not session.observe_stop_intent():
+            commands.end_canceled(session, self)
+        if not session.observe_stop_intent():  # its source callbacks may stop the run
             commands.dispatch_entry(session)
             if session.mode == "run":
                 live_connection.tick(session, self, now)

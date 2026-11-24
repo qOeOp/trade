@@ -1313,36 +1313,137 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_dispatch_refused("LIVE_BUDGET")
         self.assertIsNone(self.engine.cache.order(order.client_order_id))
 
-    def assert_pending_cancel(self, method):
-        order, observation = self.submit_pending()
-        if method == "cancel_order":
-            self.source.cancel_order(order.client_order_id)
-        elif method == "cancel_orders":
-            self.source.cancel_orders([order.client_order_id])
-        elif method == "cancel_all_orders":
-            self.source.cancel_all_orders(self.iid)
-        else:
-            self.source.market_exit()
-        self.finish_read(observation)
+    def end_canceled(self):
+        """The Observer's tick after the source's callback; another strategy gives the commands, as the Observer does."""
+        commands.end_canceled(self.session, self.foreign)
         commands.dispatch_entry(self.session)
         self.advance()
+
+    def assert_pending_cancel(self, command):
+        position = self.owned_position()
+        calls = len(self.reader.calls)
+        order = self.limit()
+        replacement, events = self.limit(price="99.00"), []
+
+        def on_order_event(event):
+            events.append(type(event).__name__)
+            if type(event).__name__ == "OrderCanceled" and event.client_order_id == order.client_order_id:
+                self.assertEqual(self.source.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
+                self.source.submit_order(replacement)  # the source may act on the end of its order
+        self.source.submit_order(order)
+        observation = self.session.account_observation
+        with patch.object(type(self.source), "on_order_event", lambda _, event: on_order_event(event)):
+            command(order)
+            self.assertEqual(self.session.pending_entries, [])
+            self.assertIsNone(self.session.account_observation)
+            self.assertIsNone(self.engine.cache.order(order.client_order_id))  # not within the source's callback
+            command(order)  # again: nothing more
+            self.finish_read(observation)
+            commands.end_canceled(self.session, self.foreign)
+        self.assertEqual(events[:2], ["OrderInitialized", "OrderCanceled"])
+        ended = self.engine.cache.order(order.client_order_id)
+        self.assertEqual((ended.status, ended.venue_order_id, ended.strategy_id, str(ended.exec_algorithm_id)),
+                         (OrderStatus.CANCELED, None, self.source.strategy_id, "LIVE-GATE"))
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [replacement])
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(replacement.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), calls + 2)  # the replacement takes its own account check
+        self.assertFalse(self.session.stopping or self.session.failed)
+        self.assertTrue(self.engine.cache.position(position.id).is_open)
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertFalse(self.session.failed)  # a CANCELED order is no fault of the run
+
+    def test_a_source_cancels_an_unsent_entry_and_the_run_goes_on(self):
+        self.assert_pending_cancel(lambda order: self.source.cancel_order(order.client_order_id))
+
+    def test_a_source_cancels_a_batch_with_an_unsent_entry_and_the_run_goes_on(self):
+        self.assert_pending_cancel(lambda order: self.source.cancel_orders(iter([order.client_order_id])))
+
+    def test_a_source_cancels_all_with_an_unsent_entry_and_the_run_goes_on(self):
+        self.assert_pending_cancel(lambda order: self.source.cancel_all_orders(self.iid, OrderSide.NO_ORDER_SIDE))
+
+    def test_a_market_exit_ends_the_unsent_entry_and_exits_natively_without_ending_the_run(self):
+        position = self.owned_position()
+        order = self.limit()
+        self.source.submit_order(order)
+        self.finish_read(self.session.account_observation)
+        self.source.market_exit()
+        self.end_canceled()
+        self.assertEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
+        self.assertFalse(self.engine.cache.position(position.id).is_open)
+        self.assertFalse(self.session.stopping or self.session.failed)
+
+    def test_the_other_side_keeps_waiting_and_takes_its_own_account_check(self):
+        first, second = self.limit(), self.source.order_factory.limit(
+            self.iid, OrderSide.SELL, Quantity.from_str("0.500"), Price.from_str("200.00"))
+        self.source.submit_order(first)
+        self.source.submit_order(second)
+        observation = self.session.account_observation
+        self.source.cancel_all_orders(self.iid, OrderSide.BUY)
+        self.finish_read(observation)
+        commands.end_canceled(self.session, self.foreign)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [second])
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.CANCELED)
+        self.assertEqual(self.engine.cache.order(second.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), 2)
+
+    def test_a_stop_before_the_native_end_journals_the_cancelled_entry_and_sends_nothing(self):
+        order, observation = self.submit_pending()
+        self.source.cancel_order(order.client_order_id)
+        self.session.begin_stop("requested")
+        commands.discard_observation(self.session)
+        self.finish_read(observation)
+        self.assertEqual((self.session.pending_entries, self.session.source_canceled), ([], []))
         self.assert_no_orders()
-        self.assertTrue(self.session.stopping)
+
+    def test_cancelling_another_instances_unsent_entry_is_refused_as_in_replay(self):
+        order, _ = self.submit_pending()
+        with patch.object(live_source_runtime, "strategy_ids", lambda _: {"BTCUSDT": StrategyId("OTHER-1")}):
+            self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.cancel_order(order.client_order_id))
         self.assertEqual(self.session.pending_entries, [])
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
-            self.source.submit_order(self.limit())
+        self.assertTrue(self.session.stopping and self.session.failed)
 
-    def test_cancel_unsubmitted_entry_discards_late_observation(self):
-        self.assert_pending_cancel("cancel_order")
+    def test_a_cancel_the_rules_refuse_still_ends_the_run_with_its_unsent_entry(self):
+        for index, command in enumerate((
+                lambda order: self.source.cancel_order(order.client_order_id, None, {"a": 1}),
+                lambda order: self.source.cancel_orders([order.client_order_id], None, {"a": 1}),
+                lambda order: self.source.cancel_all_orders(self.iid, strategy_only=False))):
+            if index:
+                self.doCleanups()
+                self.setUp()
+            with self.subTest(index):
+                order, _ = self.submit_pending()
+                self.assert_refused_unchanged("ORDER_RULE", lambda command=command, order=order: command(order))
+                self.assertEqual(self.session.pending_entries, [])
+                self.assertTrue(self.session.stopping and self.session.failed)
 
-    def test_cancel_batch_with_unsubmitted_entry_discards_late_observation(self):
-        self.assert_pending_cancel("cancel_orders")
+    def test_an_order_submitted_again_before_its_end_ends_with_it_as_in_a_replay(self):
+        order, observation = self.submit_pending()
+        self.source.cancel_order(order.client_order_id)
+        self.source.submit_order(order)
+        self.finish_read(observation)
+        self.session.account_observation.result.result(timeout=2)
+        self.end_canceled()
+        self.assertEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
+        self.assertEqual((self.session.pending_entries, self.session.source_canceled), ([], []))
+        self.assertFalse(self.session.stopping or self.session.failed)
 
-    def test_cancel_all_discards_unsubmitted_entry(self):
-        self.assert_pending_cancel("cancel_all_orders")
-
-    def test_native_market_exit_discards_unsubmitted_entry(self):
-        self.assert_pending_cancel("market_exit")
+    def test_a_denials_callback_cancels_the_entry_about_to_be_sent(self):
+        # dispatch_entry read the account for `order`; a denial on another contract there lets its source cancel it.
+        order, observation = self.submit_pending()
+        self.finish_read(observation)
+        with patch.object(live_connection, "contract",
+                          lambda session, snapshot: self.source.cancel_order(order.client_order_id)):
+            commands.dispatch_entry(self.session)
+        self.assert_no_orders()
+        self.end_canceled()
+        self.assertEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
+        self.assertFalse(self.session.stopping or self.session.failed)
 
     def test_order_modifications_are_not_a_second_entry_budget_path(self):
         order = self.admit()

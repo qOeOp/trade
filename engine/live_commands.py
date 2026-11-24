@@ -3,13 +3,14 @@ from __future__ import annotations
 from concurrent.futures import Future
 from dataclasses import dataclass
 from decimal import Decimal
+import functools
 import threading
 import time
 from typing import Any, TYPE_CHECKING
 from collections.abc import Callable
 from nautilus_trader.model import AccountId, OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
-from engine import live_connection
+from engine import live_connection, unsent
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode, require_clock
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE, exposure, native_cache
@@ -98,9 +99,10 @@ def start_observation(session: Session, purpose: str) -> None:
 def discard_observation(session: Session, code: str = "LIVE_ENTRY_STOPPED", detail: str | None = None) -> None:
     """Drop the outstanding observation and every entry still waiting to be sent; each is journaled as refused."""
     observation, session.account_observation = session.account_observation, None
-    for pending in session.pending_entries:
+    for pending in [*session.pending_entries, *session.source_canceled]:
         live_connection.refused(session, pending, code, detail)
     session.pending_entries.clear()
+    session.source_canceled.clear()
     if observation is not None:
         observation.result.cancel()  # Does not cancel an already running HTTP request.
 
@@ -193,6 +195,52 @@ def queue_entry(session: Session, entry: PendingEntry) -> None:
         start_observation(session, "entry")
 
 
+def _same(identity, order) -> bool:
+    return order.client_order_id == identity
+
+
+def cancel_unsent(session: Session, match: Callable[[Any], bool]) -> set:
+    """A source cancels its entries whose order matches while they wait to be sent: none is sent, and the Observer's
+    next tick ends each natively (end_canceled), after the source's callback as a venue's answer would come. Their
+    client order IDs, and those of matching ones already waiting for that end."""
+    found = [pending for pending in session.pending_entries if match(pending.order)]
+    if found and found[0] is session.pending_entries[0]:  # the account check under way is for a cancelled entry
+        observation, session.account_observation = session.account_observation, None
+        if observation is not None:
+            observation.result.cancel()
+    session.pending_entries[:] = [pending for pending in session.pending_entries if pending not in found]
+    session.source_canceled += found
+    return {pending.order.client_order_id for pending in session.source_canceled if match(pending.order)}
+
+
+def end_canceled(session: Session, observer: Strategy) -> None:
+    """End the entries their sources cancelled unsent (engine.unsent), as CANCELED, with the commands from `observer`;
+    then the first entry still waiting takes its own account check."""
+    if not session.source_canceled:
+        return
+    for _ in range(len(session.source_canceled)):  # one cancelled within these callbacks waits for the next tick
+        if not session.source_canceled:
+            break
+        pending = session.source_canceled.pop(0)  # removed first: its callbacks run at once
+        identity = pending.order.client_order_id
+        # A resubmission of the same order before its end ends with it, as in a replay.
+        cancel_unsent(session, functools.partial(_same, identity))
+        session.source_canceled[:] = [item for item in session.source_canceled
+                                      if item.order.client_order_id != identity]
+        try:
+            if observer.cache.order(identity) is not None:  # an order the source submitted before
+                Strategy.cancel_order(session.owner(pending.order.strategy_id), identity)
+            else:
+                unsent.cancel(observer, pending.order, session.entry_gate.exec_algorithm_id)
+        except Exception as exc:
+            code = getattr(exc, "code", type(exc).__name__)
+            live_connection.refused(session, pending, code, str(exc)[:1000])
+            refuse_entries(session, code, str(exc))
+            return
+    if session.pending_entries and session.account_observation is None and live_connection.entries_open(session):
+        start_observation(session, "entry")
+
+
 def dispatch_entry(session: Session) -> None:
     if not session.pending_entries:
         return
@@ -210,6 +258,8 @@ def dispatch_entry(session: Session) -> None:
         live_connection.contract(session, snapshot)
         if not live_connection.entries_open(session, symbol):
             return  # its contract is not TRADING (denied natively) or another is again (held)
+        if pending not in session.pending_entries:
+            return  # a source cancelled it while it handled such a denial
         equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False, symbols=[symbol])
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)

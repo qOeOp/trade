@@ -69,7 +69,7 @@ class Session:
     # (engine.live_node); a held start cancels the entries it inherited through them (engine.live_connection), and a
     # start that finishes a stop closes its positions through them too (engine.live_lifecycle).
     keepers: dict[str, Any] = field(default_factory=dict)
-    entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
+    entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries, or ends cancelled unsent ones (engine.unsent)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
     # What each instance added to its own findings while it handled one of those denials (engine.live_source):
     # strategy ID -> finding -> count. The gate's denial is the product's doing, so these do not fail the start.
@@ -87,6 +87,8 @@ class Session:
     account_reader: Any = None
     account_observation: AccountObservation | None = None
     pending_entries: list[PendingEntry] = field(default_factory=list)  # entries not yet sent, in order
+    # Entries their source cancelled while they waited, to be ended natively (engine.live_commands.end_canceled).
+    source_canceled: list[PendingEntry] = field(default_factory=list)
     deciding: Any = None  # the bar type of the bar the source is handling (engine.live_source)
     account_verified: bool = False
     connection_failed: bool = False  # the connected start could not be verified; a later disconnect only closes entries

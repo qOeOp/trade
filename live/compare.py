@@ -210,12 +210,17 @@ GATE_REASONS = frozenset({"disconnected", "unverified", "unknown_orders", "accou
 
 def gate(events: list[dict]) -> dict:
     """The entries Live's entry gate changed (engine.live_connection), as replay.comparison attributes them: those sent
-    after a hold, those withdrawn when the gate closed, those it denied natively, and the decision times of those
-    refused after a hold."""
+    after a hold, those withdrawn when the gate closed or cancelled by their source while held (held, and neither
+    sent, denied nor refused after it), those it denied natively, and the decision times of those refused after a
+    hold."""
+    ended = {row.get("client_order_id") for row in events
+             if row.get("event") in ("entry_released", "entry_refused", "entry_denied")}
     return {"released": [row["client_order_id"] for row in events if row.get("event") == "entry_released"],
             "denied": [row["client_order_id"] for row in events if row.get("event") == "entry_denied"],
             "withdrawn": [row["client_order_id"] for row in events if row.get("event") == "entry_cancel_requested"
-                          and row.get("reason") in GATE_REASONS],
+                          and row.get("reason") in GATE_REASONS]
+            + [row["client_order_id"] for row in events if row.get("event") == "entry_held"
+               and row["client_order_id"] not in ended],
             "refused": [row["ts_init"] for row in events if row.get("event") == "entry_refused"
                         and row.get("held_ns") is not None and isinstance(row.get("ts_init"), int)]}
 
