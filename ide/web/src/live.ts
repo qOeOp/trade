@@ -19,6 +19,7 @@ const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
 const VIEW_FORMAT = "research-graph-view";
 const KEPT_VIEWS = 32;
+const RECONNECT_MS = 5000;
 
 /** The open lines a LINE_AMBIGUOUS refusal names, each as this page with `line` set. */
 function lines(error?: Failure): Choice[] | undefined {
@@ -40,6 +41,7 @@ export function follow(show: (view: View | null) => void, status: (text: string,
   void readResearchLines(pinned);
   let shown: string | null = null;
   let latest: State | null = null;  // the last event, applied again once a view is shown
+  let events: EventSource | null = null;  // null while the page is hidden or the stream closed
   let loading = false;
   let loadedFor: string | null = null;  // which availability notification the last HTTP read consumed
   let choosing: string | null = null;  // the refusal whose choices are on the page
@@ -104,7 +106,7 @@ export function follow(show: (view: View | null) => void, status: (text: string,
         hold(body as View);
         show(body as View);
         if (line) void keep("view", line, body, KEPT_VIEWS);
-        if (!latest) update.set(null);
+        if (!latest && events) update.set(null);  // with the stream closed, its first event says whether this is current
       } else if (shown !== null && response.status !== 202 && !forget(body as Failure)) {
         update.set({ stage: "failed", commit: null, shown, error: body as Failure });
       } else if (shown === null) {
@@ -116,6 +118,7 @@ export function follow(show: (view: View | null) => void, status: (text: string,
         else failed(body as Failure);
       }
     } catch (error) {
+      choosing = null;  // the line below replaces any choices, so the next refusal shows them again
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
       else update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
     } finally {
@@ -159,20 +162,34 @@ export function follow(show: (view: View | null) => void, status: (text: string,
 
   // An open stream is what keeps the server reading the head and drawing for this page, so a hidden page holds
   // none; shown again it reads what it missed, as when it first opened.
-  let events: EventSource | null = null;
   const listen = () => {
-    events = new EventSource(`/api/events${query}${have}`);
+    const opened = events = new EventSource(`/api/events${query}${have}`);
+    // The browser reconnects a dropped stream itself, but closes one answered with anything but 200 (a proxy's 502
+    // while the service restarts) for good.
+    events.onerror = () => {
+      if (events !== opened || opened.readyState !== EventSource.CLOSED) return;
+      events = latest = null;  // what it last said is of the service before it closed
+      if (shown !== null && !signedOut()) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: "The trade IDE service did not answer: the event stream closed." } });
+      window.setTimeout(() => void reopen(), RECONNECT_MS);
+    };
     events.onmessage = (event) => {
       latest = JSON.parse(event.data) as State;
       if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
       apply(latest);
     };
   };
+  const follows = () => !document.hidden && !events && !signedOut();
+  // The read comes first: it finds an expired sign-in, and the stream's first event settles whatever it left.
+  const reopen = async () => {
+    if (!follows()) return;
+    await load();
+    if (follows()) listen();
+  };
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       events?.close();
       events = null;
-    } else if (!events && !signedOut()) {
+    } else if (follows()) {
       listen();
       void load();
     }

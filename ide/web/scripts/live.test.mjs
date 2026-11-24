@@ -5,15 +5,15 @@ import { createContext } from "node:vm";
 import { namespace } from "./load.mjs";
 
 async function page(stored = null, views = []) {
-  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [], forgotten = [];
+  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [], forgotten = [], later = [];
   let events, streams = 0, visibility;
   const document = { hidden: false, addEventListener: (type, listener) => { assert.equal(type, "visibilitychange"); visibility = listener; } };
   const context = createContext({
     document,
     URL, URLSearchParams,
-    window: { location: { search: "?line=line-a", href: "http://ide/?line=line-a" }, setTimeout: (callback) => timers.push(callback) },
+    window: { location: { search: "?line=line-a", href: "http://ide/?line=line-a" }, setTimeout: (callback, ms) => (ms ? later : timers).push(callback) },
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve })),
-    EventSource: class { constructor(url) { events = this; urls.push(url); streams++; this.closed = false; } close() { this.closed = true; streams--; } },
+    EventSource: class { static CLOSED = 2; constructor(url) { events = this; urls.push(url); streams++; this.readyState = 1; } close() { this.readyState = 2; streams--; } },
   });
   const live = await namespace("live.ts", { context, sources: ["lib/lines", "lib/transport"], packages: [], stubs: {
     "state/researchLines": { readResearchLines: () => Promise.resolve(), researchLines: { get: () => ({ lines: [] }) } },
@@ -36,6 +36,10 @@ async function page(stored = null, views = []) {
     requests, shown, notices, nexts, updates, flush, kept, urls, forgotten,
     streams: () => streams,
     hide: (hidden) => { document.hidden = hidden; visibility(); },
+    /** The stream failed: dropped (the browser reconnects it) or closed for good by an answer that is not 200. */
+    fail: (closed) => { if (closed) events.close(); else events.readyState = 0; events.onerror(); },
+    /** The page's delays have passed. */
+    wait: async () => { for (const callback of later.splice(0)) callback(); await flush(); },
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (index, status, body) => {
       requests[index].resolve({ status, ok: status >= 200 && status < 300, json: async () => body });
@@ -263,4 +267,92 @@ test("a kept graph of a line this ledger does not have is dropped, from the answ
   assert.match(q.notices.at(-1), /LINE_UNKNOWN/);
   q.event({ state: "ready", ledger_commit: "newer" });
   assert.equal(q.requests.at(-1).url, "/api/view?line=line-a", "the next read names no kept graph");
+});
+
+test("a stream closed by an answer that is not 200 is said and reopened until it is served again", async () => {
+  const p = await page();
+  await p.answer(0, 200, view("a"));
+  p.event({ state: "ready", ledger_commit: "a" });
+  p.fail(false);
+  assert.equal(p.updates.at(-1), null, "a dropped stream is the browser's to reconnect");
+  p.fail(true);
+  assert.equal(p.updates.at(-1).stage, "failed");
+  assert.equal(p.updates.at(-1).error.code, "UNAVAILABLE");
+  await p.wait();
+  await p.answer(1, 502, { code: "BAD_GATEWAY" });
+  assert.equal(p.urls.length, 2);
+  p.fail(true);
+  await p.wait();
+  await p.answer(2, 200, view("b"));
+  assert.deepEqual(p.shown, ["a", "b"]);
+  assert.equal(p.streams(), 1);
+  assert.equal(p.requests.length, 3, "the closed stream's last event is not applied again");
+  assert.equal(p.updates.at(-1).stage, "failed", "said until the stream is served");
+  p.event({ state: "ready", ledger_commit: "b" });
+  assert.equal(p.updates.at(-1), null);
+});
+
+test("a closed stream is not reopened behind a hidden page, twice, or once the sign-in expired", async () => {
+  const p = await page();
+  await p.answer(0, 200, view("a"));
+  p.fail(true);
+  p.hide(true);
+  await p.wait();
+  assert.equal(p.requests.length, 1);
+  p.hide(false);
+  await p.answer(1, 200, view("a"));
+  assert.equal(p.streams(), 1);
+  p.fail(true);
+  p.hide(true);
+  p.hide(false);
+  await p.wait();
+  assert.equal(p.streams(), 1);
+  await p.answer(2, 200, view("a"));
+  p.fail(true);
+  await p.wait();
+  await p.answer(3, 401, {});
+  await p.wait();
+  assert.equal(p.streams(), 0);
+  assert.equal(p.requests.length, 4);
+});
+
+test("the lines to choose from come back after the service did not answer", async () => {
+  const p = await page();
+  const error = { code: "LINE_AMBIGUOUS", message: "several", missing: ["line-a", "line-b"] };
+  await p.answer(0, 400, error);
+  assert.match(p.notices.at(-1), /Choose/);
+  p.fail(true);
+  await p.wait();
+  p.requests[1].resolve(Promise.reject(new Error("offline")));
+  await p.flush();
+  assert.match(p.notices.at(-1), /did not answer/);
+  p.event({ state: "error", ledger_commit: "a", error });
+  await p.flush();
+  assert.match(p.notices.at(-1), /Choose/);
+});
+
+test("a graph read after the stream closed is not stamped with what the closed stream said", async () => {
+  const p = await page(kept("old"));
+  await p.answer(0, 202, { state: "fetching" });
+  p.event({ state: "unchanged", ledger_commit: "a" });
+  p.fail(true);
+  await p.wait();
+  await p.answer(1, 200, view("b"));
+  p.event({ state: "ready", ledger_commit: "b" });
+  await p.flush();
+  assert.deepEqual(p.shown, ["old", "a", "b"]);
+  assert.equal(p.updates.at(-1), null);
+});
+
+test("a page without a graph reads it from a service restarted under a closed stream", async () => {
+  const p = await page();
+  p.event({ state: "ready", ledger_commit: "c" });
+  await p.answer(0, 502, {});
+  p.fail(true);
+  await p.wait();
+  await p.answer(1, 202, { state: "computing", ledger_commit: "c" });
+  p.event({ state: "computing", ledger_commit: "c" });
+  p.event({ state: "ready", ledger_commit: "c" });
+  await p.answer(2, 200, view("c"));
+  assert.deepEqual(p.shown, ["c"]);
 });
