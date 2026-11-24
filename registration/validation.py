@@ -116,9 +116,22 @@ def birth_commit(conn: db.LedgerConnection, registration_id: int) -> str | None:
     return found[0][0] if found else None
 
 
-def _retry_allowed(conn: db.LedgerConnection, original: dict) -> bool:
-    bound = conn.one("SELECT trial_id FROM trial WHERE validation_registration_id = %s", (original["registration_id"],))
-    return bound is not None and register.retryable(conn, bound["trial_id"])
+def _require_retryable_chain(conn: db.LedgerConnection, retried: dict) -> None:
+    """Inside the retry's write: every registration with the retried one's original, siblings included, has
+    consumed its attempt and none of those attempts counts."""
+    origin = original_registration(conn, retried)["registration_id"]
+    for item in conn.dicts("SELECT g.registration_id, g.retry_of, t.trial_id FROM validation_registration g LEFT JOIN "
+                           "trial t ON t.validation_registration_id = g.registration_id WHERE g.source_sha256 = %s "
+                           "AND g.universe_rule = %s AND g.window_start = %s AND g.window_end = %s "
+                           "ORDER BY g.registration_id", (retried["source_sha256"], retried["universe_rule"],
+                                                          retried["window_start"], retried["window_end"])):
+        if original_registration(conn, item)["registration_id"] != origin:
+            continue
+        if item["trial_id"] is None or not register.retryable(conn, item["trial_id"]):
+            why = "is not bound yet" if item["trial_id"] is None else f"has trial {item['trial_id']}, not retryable"
+            raise refuse("RETRY_NOT_ALLOWED", f"registration {retried['registration_id']} cannot be retried: "
+                                              f"registration {item['registration_id']} on its retry chain {why}",
+                         missing=(str(retried["registration_id"]), str(item["registration_id"])))
 
 
 def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mapping) -> bool:
@@ -161,19 +174,22 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
             raise
         unfalsified(conn, row["source_sha256"], market_profile)
         market_day = seams.current.market(market_profile).resolve_day(market)
+        retried = None
         if retry_of is not None:
-            original = _registration(conn, retry_of)
-            if (original is None or original["source_sha256"] != row["source_sha256"]
-                    or (original["window_start"], original["window_end"]) != (start, end)
-                    or original["universe_rule"] != universe_rule
-                    or register.read_design(conn, original_registration(conn, original)["comparison_design_id"])
-                    != dict(design) or not _retry_allowed(conn, original)):
+            retried = _registration(conn, retry_of)
+            if (retried is None or retried["source_sha256"] != row["source_sha256"]
+                    or (retried["window_start"], retried["window_end"]) != (start, end)
+                    or retried["universe_rule"] != universe_rule
+                    or register.read_design(conn, original_registration(conn, retried)["comparison_design_id"])
+                    != dict(design)):
                 raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} cannot be retried", missing=(str(retry_of),))
         payload = {"source_sha256": row["source_sha256"], "market_day": market_day,
                    "universe_rule": universe_rule, "window_start": start.isoformat(), "window_end": end.isoformat(),
                    "design": dict(design), "retry_of": retry_of}
 
         def insert(c, op):
+            if retried is not None:
+                _require_retryable_chain(c, retried)
             (now,), = c.rows("SELECT UTC_TIMESTAMP(6)")
             if retry_of is None and start <= now:  # the table's CHECK holds it too
                 raise refuse("REGISTRATION_TOO_LATE", f"the window starts at {start}, not after the registration "
