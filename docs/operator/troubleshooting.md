@@ -39,7 +39,7 @@ A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run i
 | `PUBLISH_REJECTED` | The DoltHub copy changed elsewhere. Nothing is forced; find out who wrote it before anything else. |
 | `REMOTE_MISMATCH` | The ledger already publishes to another repository. Changing it is a decision, not a repair. |
 | `SCHEMA_MISMATCH` | The code and the ledger are different schema generations. Use the checkout and images of the ledger's generation ([The ledger and the market](../../README.md#the-ledger-and-the-market)). |
-| `BACKUP_DIVERGED`, `LEDGER_CORRUPT` | Stop writing and keep everything as it is; the backup and the DoltHub copy are what a repair starts from. |
+| `BACKUP_DIVERGED`, `LEDGER_CORRUPT` | Stop writing and keep everything as it is. DoltHub is the copy a ledger is started from again; a local backup is what `ledger review` checks the ledger against, and no product command restores from it. Keep it: it may hold records DoltHub lacks, and Paper runs have no other copy. `BACKUP_DIVERGED` on `paper` after a reset: the old Paper backup was not moved aside ([First start](../../deploy/README.md#first-start)). |
 
 ## Market
 
