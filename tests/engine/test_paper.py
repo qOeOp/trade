@@ -1062,9 +1062,9 @@ class EntryTermsTests(unittest.TestCase):
                     mock.patch.object(paper.OrderRules, "cancel_orders", native), \
                     mock.patch.object(paper.OrderRules, "cancel_all_orders", native), \
                     mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
-                    mock.patch.object(paper, "native_cache", lambda _: SimpleNamespace(order=lambda _: None)), \
-                    mock.patch.object(paper, "CANCELLER", mock.sentinel.canceller), \
-                    mock.patch.object(paper.unsent, "cancel") as ended:
+                    mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: None)), \
+                    mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
+                    mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:
                 self.sent.reset_mock()
                 paper._PaperConfigured.submit_order(source, other)  # type: ignore[arg-type]
                 paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
@@ -1073,7 +1073,7 @@ class EntryTermsTests(unittest.TestCase):
                 self.assertEqual(native.call_count, sent_on)  # a cancel of all also cancels the sent orders
                 answered.set()
                 self.tick()
-                self.assertEqual(ended.call_args_list[-1], mock.call(paper.CANCELLER, order, paper.ENTRY_GATE))
+                self.assertEqual(ended.call_args_list[-1], mock.call(paper.paper_terms.CANCELLER, order, paper.paper_terms.ENTRY_GATE))
                 self.assertEqual(ended.call_count, 2 if both else 1)
             self.assertEqual([call.args[0] for call in self.sent.call_args_list], [] if both else [other])
             self.assertEqual(paper.paper_terms.QUEUE, [])
@@ -1085,9 +1085,9 @@ class EntryTermsTests(unittest.TestCase):
         with mock.patch.object(klines, "get_json", return_value=answer), \
                 mock.patch.object(paper.OrderRules, "cancel_order", native), \
                 mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
-                mock.patch.object(paper, "native_cache", lambda _: SimpleNamespace(order=lambda _: known)), \
-                mock.patch.object(paper, "CANCELLER", mock.sentinel.canceller), \
-                mock.patch.object(paper.unsent, "cancel") as ended:
+                mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: known)), \
+                mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
+                mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:
             paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
             source.cancel_order("O-1")  # type: ignore[arg-type]
             self.tick()
@@ -1102,7 +1102,7 @@ class EntryTermsTests(unittest.TestCase):
     def test_a_cancelled_resubmission_cancels_the_order_the_native_cache_holds(self):
         ended, native = self.cancelled(self.exchange("0.10"), known=object())
         ended.assert_not_called()
-        native.assert_called_once_with("O-1")
+        native.assert_called_once_with("O-1", None, None)
 
     def test_a_cancel_with_parameters_reaches_the_order_rules(self):
         answered = threading.Event()
