@@ -52,8 +52,8 @@ window of one of its research trials.
 Last, preparation needs a reconciled Paper run of the source (`live/reconcile.py`): a sealed run whose status is
 `complete`, of the same `source_sha256` on the same contract set, whose image reports Live's replay code, not held after
 an interruption, whose `paper compare` on the archive (never the preliminary REST minutes) has at least one order
-group, no group of cause `unexplained`, no look-ahead suspect and no unexplained equity minute. Leverage need not match
-and no duration is required. Nothing is stored: the serving control lists the runs through the Paper reader profile
+group that agrees with its replay, no group of cause `unexplained`, no look-ahead suspect and no unexplained equity
+minute. Leverage need not match and no duration is required. Nothing is stored: the serving control lists the runs through the Paper reader profile
 each release writes beside the research reader (`profiles/paper.json`) and compares each in a child container of its
 own image (`live paper-compare`), keeping the answer in memory, so a restart derives it again. Preparation runs in
 `live web-command` and asks the serving control over its socket

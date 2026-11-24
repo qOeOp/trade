@@ -4,8 +4,8 @@ docs/plans/stored-fields.zh.md).
 Live prepares a run only for a candidate with a reconciled Paper run: a sealed, complete run (ledger.run_journal.verdict) of
 the same source on the same contracts, whose image runs Live's replay code (live.admission.replay_code), not held after an
 interruption (paper.compare.held_since), whose `paper compare` on the archive (never the preliminary REST overlay) has
-at least one order group, no group whose difference is `unexplained`, no look-ahead suspect and no unexplained equity
-minute (`unreconciled`). Leverage need not match, and no duration is required.
+at least one order group that agrees with its replay, no group whose difference is `unexplained`, no look-ahead suspect
+and no unexplained equity minute (`unreconciled`). Leverage need not match, and no duration is required.
 
 Nothing is stored. The serving control derives it in the background (`Reconciliation`): it lists the matching runs in
 the Paper database through its reader profile and compares each in a child container of its own image (`live
@@ -61,6 +61,10 @@ def unreconciled(result: Mapping) -> str | None:
         return f"{summary['look_ahead_suspects']} look-ahead suspect(s)"
     if summary.get("equity_unexplained_minutes"):
         return f"{summary['equity_unexplained_minutes']} equity minute(s) differ for no known cause"
+    if not any((group or {}).get("class") == "same" for group in result.get("groups") or []):
+        # An explained first difference makes every later one its consequence, whatever its size (#3625): a run that
+        # never agrees shows nothing about how it trades.
+        return "no order group agrees with the replay's"
     return None
 
 
