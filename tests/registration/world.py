@@ -299,7 +299,7 @@ class World:
         return trials.open_trial(
             self.conn, "research", sha(data), runtime or RUNTIME, receipt or self.receipt(registration_id),
             window or LINE_WINDOW, self.start(data),
-            binder or register.binder(registration_id, sha(data)))["trial_id"]
+            binder or register.Binder(registration_id, sha(data)))["trial_id"]
 
     def seal_run(self, trial_id: int, status: str = "passed", fills: int | None = None) -> int:
         """A run row; `fills` also seals a reading whose real_fills fact counts that many fills."""

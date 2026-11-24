@@ -531,7 +531,7 @@ class BindTests(unittest.TestCase):
         seq = self.world.seq()
         exc = refused(trials.open_trial, self.world.conn, "validation", sha(data), RUNTIME,
                       self.world.receipt(registration), LINE_WINDOW, self.world.start(data),
-                      register.binder(registration, sha(data)))
+                      register.Binder(registration, sha(data)))
         self.assertEqual((exc.code, exc.missing, self.world.seq()), ("BINDING_NOT_ALLOWED", ("purpose",), seq),
                          "a research registration binds a research trial only")
         self.world.research_trial(registration, data)
@@ -540,7 +540,7 @@ class BindTests(unittest.TestCase):
         registration, data = self.registration()
         for ghost in (999_999, "1"):
             with self.subTest(ghost=ghost):
-                exc = self.refused_trial(registration, data, binder=register.binder(ghost, sha(data)))
+                exc = self.refused_trial(registration, data, binder=register.Binder(ghost, sha(data)))
                 self.assertEqual(exc.code, "REGISTRATION_INVALID")
 
 
@@ -557,7 +557,7 @@ class ConcurrentRegistrationTests(unittest.TestCase):
         real = register.require_line_records
 
         def collide(*args, **kwargs):
-            if threading.get_ident() not in waited:
+            if args[0].in_write and threading.get_ident() not in waited:  # not the read before the export
                 waited.add(threading.get_ident())
                 barrier.wait()
             return real(*args, **kwargs)
@@ -618,12 +618,23 @@ class LineRecordTests(unittest.TestCase):
         review = world.prechecked(another["source"])
         body = world.body([another["candidate"]], {another["candidate"]: review}, duties=["G3"],
                           control_trial_id=trial_id)
-        exc = refused(world.register, body)
+        with RegisterTests.body_first():
+            exc = refused(world.register, body)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {self.root_trial}",)))
+        self.assertTrue(world.register(world.body(["rsi@1"], {"rsi@1": self.root_review}))["replayed"],
+                        "the registration whose run waits for its interpretation, given again, is a replay")
+        real = register.require_line_records
+
+        def in_write_only(conn, *args):
+            return real(conn, *args) if conn.in_write else None
+
+        with patch.object(register, "require_line_records", in_write_only):  # it finished during the export
+            self.assertEqual(self.code(body), "INTERPRETATION_REQUIRED")
         first = world.judge("interpretation", subjects=[{"role": "about", "registration_id": self.root}])
         supersede("interpretation", first)  # a superseded interpretation still covers its trial
         world.research_trial(batched["registration_id"], batch[-1]["source"])  # the REVIEW_EVERY-th research trial
-        exc = refused(world.register, body)
+        with RegisterTests.body_first():
+            exc = refused(world.register, body)
         self.assertEqual((exc.code, exc.missing), ("REVIEW_DUE", ("recommendation",)))
         world.judge("recommendation", subjects=[{"role": "recommended", "candidate": "rsi@1"}])
         self.assertFalse(world.register(body)["replayed"], "the recommendation clears it")

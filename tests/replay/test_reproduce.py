@@ -75,7 +75,7 @@ class ReproduceTests(unittest.TestCase):
         trial_id = trials.open_trial(self.world.conn, "research", sha(data), RUNTIME,
                                      self.world.receipt(self.forged_registration), LINE_WINDOW,
                                      context(data, self.world.workdir()),
-                                     register.binder(self.forged_registration, sha(data)))["trial_id"]
+                                     register.Binder(self.forged_registration, sha(data)))["trial_id"]
         if captured_receipt is not None:
             capture(self.world.conn, trial_id, data)
             self.world.service.sql(self.world.profile, "UPDATE trial_file SET sha256 = %s WHERE trial_id = %s AND "

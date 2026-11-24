@@ -210,7 +210,7 @@ def grid_point(conn, line_id: int, data: bytes, receipt: bytes | None = None, ru
 
 
 def binder(line_id: int, registration_id: int):
-    """A stand-in for registration.register.binder: the trial's line and research registration, unchecked."""
+    """A stand-in for registration.register.Binder: the trial's line and research registration, unchecked."""
     def bind(conn, row) -> dict:
         return {"line_id": line_id, "research_registration_id": registration_id}
     bind.registration = registration_id  # type: ignore[attr-defined]
