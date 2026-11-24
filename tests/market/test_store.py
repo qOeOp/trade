@@ -537,6 +537,12 @@ class LaterImportTests(unittest.TestCase):
                 ("equity gone again", [seen_coin, row(new, *equity)], None, (True, False, False)),
                 ("equity settling", [seen_coin, row(new, *equity)], item("", "EQUITY", new), (True, False, False)),
                 ("coin delivering, gone", [seen_coin, row(new, "PERPETUAL_DELIVERING", "COIN")], None, (True, True, True)),
+                ("relisted coin delivering", [seen_coin], item("PERPETUAL_DELIVERING", "COIN", new), (True, True, True)),
+                ("equity, then coin settling", [seen_equity, row(new, *coin)], item("", "COIN", new), (False, True, True)),
+                ("equity between two coins, gone", [seen_coin, row(new, *equity), row(date(2025, 4, 5), *coin)], None,
+                 (True, False, True)),
+                ("premarket graduates, gone", [row(FEB, "PERPETUAL", "PREMARKET"), row(new, *coin)], None,
+                 (False, False, False)),
                 ("never seen", [], item(*equity, new), (False, False, False))):
             with self.subTest(label):
                 self.assertEqual(tuple(universe.contract_in_month("XUSDT", seen, now, at)["eligible"] for at in (FEB, MAR, APR)),

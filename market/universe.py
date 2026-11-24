@@ -68,30 +68,35 @@ def item_of(symbol: str, row: dict) -> dict | None:
 
 
 def contract_in_month(symbol: str, seen: list[dict], item: dict | None, month: date) -> dict:
-    """The classification of the contract that bears `symbol` in `month` (classify_contract's). A contract
-    keeps that of its earliest stored observation: later rows are recorded and never reclassify it (a delisting contract
-    is reported SETTLING without a contract type). But a symbol can be given to another contract. One listed after
-    that observation is another: it is classified by exchangeInfo from its month on, and its first month is imported
-    only when both contracts are eligible. Once exchangeInfo no longer states it, a later row naming another underlying
-    type stands for it from the month of that row. A symbol never seen is classified by today's exchangeInfo."""
+    """The classification (classify_contract's) of the contract that bears `symbol` in `month`; `seen` are its stored
+    terms rows, the earliest observed first, and `item` its exchangeInfo contract.
+
+    A symbol never seen is classified by `item`, a seen one by its earliest row: a later row of the same contract is
+    recorded and never reclassifies it. A contract listed after that row is another one: `item` classifies it from the
+    month it lists in, a month both contracts share only when both are eligible. A delisting contract (its type not
+    stated, or delivering) and one exchangeInfo dropped have no `item` to go by: the newest row that states a type
+    does, when it names another underlying type, which one contract keeps unless it leaves premarket."""
     if not seen:
         return classify_contract(symbol, item)
-    first = classify_contract(symbol, item_of(symbol, seen[0]))
     start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
-    if item is not None and item["contract_type"]:
+    earliest = item_of(symbol, seen[0])
+    first = classify_contract(symbol, earliest)
+    if _states_type(item):
         onboard = item["onboard_date"]
-        if onboard is None or onboard <= seen[0]["observed_at"] or end <= onboard:
+        if onboard is None or not seen[0]["observed_at"] < onboard < end:
             return first
         other = classify_contract(symbol, item)
         return other if onboard <= start or first["eligible"] else first
-    if first["eligible"]:
-        underlying = (item_of(symbol, seen[0]) or {}).get("underlying_type", "COIN")
-        for row in seen[1:]:
-            stated = item_of(symbol, row)
-            if (row["observed_at"] < end and stated is not None and stated["contract_type"]
-                    and stated["underlying_type"] != underlying):
-                return classify_contract(symbol, stated)
+    underlying = earliest["underlying_type"] if earliest is not None else "COIN"
+    stated = [found for found in (item_of(symbol, row) for row in seen[1:] if row["observed_at"] < end)
+              if _states_type(found)]
+    if stated and underlying != "PREMARKET" and stated[-1]["underlying_type"] != underlying:
+        return classify_contract(symbol, stated[-1])
     return first
+
+
+def _states_type(item: dict | None) -> bool:
+    return item is not None and item["contract_type"] not in ("", "PERPETUAL_DELIVERING")
 
 
 def _first_day(value) -> bool:
