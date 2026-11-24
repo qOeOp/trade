@@ -79,10 +79,11 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   source that has already run, whichever line ran it, so a line beside an open one starts from
   another source); and `market coverage` at the market day to pin (`line select`'s default, the market
   head, unless the user names one) has every month the period needs (bars, quotes for a line that executes on them,
-  metrics for a source that reads them). State the development period each option gets (`line select`)
-  and, when it is shorter than three years, the contract whose late coverage shortens it. Say in one
-  line what an option that fails lacks; months
-  the archive holds you import once its line is chosen (readiness.md), never an option to wait on.
+  metrics for a source that reads them). State the development period each option gets (by the
+  rule in `line select --help`, counted from the latest contract's first month of `member_months` in
+  `market coverage`, for the pool the earliest one's; `line select` itself writes the line) and, when
+  it is shorter than three years, the contract whose late coverage shortens it. Say in one line what
+  an option that fails lacks; months the archive holds you import once its line is chosen (readiness.md), never an option to wait on.
   A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on months already past, the holdout included.
@@ -119,8 +120,9 @@ published, prechecked and reviewed (research-round's template.md, First report).
 (`--help`) records a new line (a chosen open line is already recorded), with the user's targets for
 it as `--max-drawdown` and `--annual-return` when stated; otherwise the line reads the ledger
 default. When neither exists, ask for them in the question that offers the lines (now, if the user
-chose unasked), so the chosen line's Goal objective carries them. Record a later change the user states with
-`line targets`, and never change or suggest changing targets. Line notes and summaries follow
+chose unasked), so the chosen line's Goal objective carries them. When the `window`
+`line select` returns is not the period you stated, tell the user both before registering anything.
+Record a later change of the targets the user states with `line targets`, and never change or suggest changing targets. Line notes and summaries follow
 research-round's rule for ledger text (English, structured). The targets are the reference for
 reading reports; ask for nothing else (no sizing, budgets or stages).
 
