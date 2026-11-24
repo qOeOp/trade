@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
+import { Tooltip } from "radix-ui";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loader, namespace as alone } from "./load.mjs";
 
@@ -42,17 +43,21 @@ test("the report's basket is compounded over the backtest's days, in the startin
   assert.deepEqual(short.days.map((d) => d.basket === null), [false, true, true], "a day without the basket ends its line");
 });
 
+const drawn = (props) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(EquityLegend, props)));
+
 test("the legend offers the basket with its return under the pointer, and says what it is", () => {
   const point = { time: D0 + 2 * DAY, value: 99_000, peak: 110_000, pace: null, stretch: 0 };
   const props = {
     name: "trial 9", point, stretch: null, named: null, minutes: [point], offline: null,
     reading: { balance: null, before: null, margin: null, exposure: null, hold: null, basket: 101_000 },
-    hold: null, onHold() {}, basket: true, onBasket() {}, basketNote: NOTE, starting: 100_000, replayed: new Map(), worst: 0, step: DAY, many: false, ret: undefined, basis: null, aside: null,
+    hold: null, onHold() {}, basket: true, onBasket() {}, basketNote: NOTE, starting: 100_000, replayed: new Map(), step: DAY, many: false, ret: undefined, aside: null,
   };
-  const html = renderToStaticMarkup(createElement(EquityLegend, props)), text = html.split(/<[^>]*>/).join("");
+  const html = drawn(props), text = html.split(/<[^>]*>/).join("");
   assert.match(text, /basket\+1\.00%/);
   assert.match(html, /aria-label="Basket line"/);
   assert.ok(html.includes("universe members"), "its title carries the report's definition note");
-  const without = renderToStaticMarkup(createElement(EquityLegend, { ...props, basket: null })).split(/<[^>]*>/).join("");
-  assert.ok(!without.includes("basket"), "no toggle without the basket's returns");
+  const without = drawn({ ...props, basket: null }).split(/<[^>]*>/).join("");
+  assert.match(without, /basket-/, "its name, off, without the basket's returns");
+  assert.ok(!drawn({ ...props, basket: null }).includes("<button"), "no toggle");
+  assert.ok(!drawn({ ...props, basket: null, basketNote: null }).includes("basket"), "nothing on a paper run");
 });

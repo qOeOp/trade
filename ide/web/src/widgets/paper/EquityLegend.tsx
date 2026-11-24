@@ -1,9 +1,11 @@
 import { DAY_S, dateTime } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import type { ReactNode } from "react";
+import { MISSING } from "../../lib/format";
 import { fixed } from "../../lib/paperApi";
 import type { Reading } from "../../model/equityReadings";
 import { deepestDrawdown } from "../../model/joined";
+import { Tip } from "../../ui/Tip";
 import { TextButton } from "../../ui/TextButton";
 import { pnlClass } from "../../theme/roles";
 import { useOmitByRank } from "../../ui/hooks/useOmitByRank";
@@ -16,6 +18,11 @@ const number = (n: number, d: number) => n.toLocaleString("en-US", { minimumFrac
 // Signed from the rounded figure, as lib/format's: what rounds to zero is 0.00%, unsigned.
 const signedPct = (r: number) => { const v = +(r * 100).toFixed(2) || 0; return `${v > 0 ? "+" : ""}${number(v, 2)}%`; };
 const Value = ({ name, rank, children }: { name: string; rank: number; children: ReactNode }) => <span data-rank={rank}><span className="mr-1 text-fg-faint">{name}</span>{children}</span>;
+
+/** A line that is not to be had: its name, off, and a missing value, why on hover and to a screen reader. */
+const Unavailable = ({ name, label, note }: { name: string; label: string; note: string }) => (
+  <Tip content={note}><span data-rank={1} tabIndex={0} aria-label={`${label} unavailable: ${note}`} className="text-fg-faint"><span className="mr-1">{name}</span>{MISSING}</span></Tip>
+);
 
 /** A stretch in words, for its name under the pointer: its dates, its own return and deepest drawdown. */
 function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
@@ -35,18 +42,17 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
 /** The equity chart's readout, one row: at `point` (under the pointer, else the shown stretch's last),
  *  timed at the line's step (a backtest's day; the stretch is named on the chart, a lone one here at the head as `name`), its equity on the joined line
  *  and, past the first stretch, the stretch's own equity and return, and the layers' values under the
- *  pointer (the buy and hold, a replay's equity, the open profit and loss, the positions held, the exposure
- *  and margin, what costs took, the gap to the pace, the day's return, the drawdown below the peak) and on
- *  the shown stretch its worst below the peak, with how it was measured (`basis`) where that differs; over a
- *  stretch a chain of runs was offline, when it stopped, when it started again and why; over a stretch's
+ *  pointer (the buy and hold, the basket, a replay's equity, the open profit and loss, the day's return, the
+ *  drawdown below the peak); over a stretch a chain of runs was offline, when it stopped, when it started again and why; over a stretch's
  *  name (`named`), that stretch in words. The buy and hold names a toggle for that line (`hold`, null with
- *  no contract's closes), and so does a backtest's basket (`basket`, null without its returns; `basketNote` what it is). One line on a wide page, so the pointer never moves the chart below: a value that
+ *  no contract's closes), and so does a backtest's basket (`basket`, null without its returns; `basketNote` what it is);
+ *  one that is not to be had keeps its name, off, with why (`holdNote`, `basketNote`). One line on a wide page, so the pointer never moves the chart below: a value that
  *  does not fit is left out whole, the least needed first (each its `data-rank`, useOmitByRank), never cut;
  *  on a phone's width the row wraps instead. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
-export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, basket = null, onBasket = () => {}, basketNote = null, starting, replayed, worst, step, many, ret, basis, aside }: {
+export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, basket = null, onBasket = () => {}, basketNote = null, holdNote = null, starting, replayed, step, many, ret, aside }: {
   name: string | null; point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
-  hold: boolean | null; onHold: () => void; basket?: boolean | null; onBasket?: () => void; basketNote?: string | null; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
-  basis: string | null; aside: ReactNode;
+  hold: boolean | null; onHold: () => void; basket?: boolean | null; onBasket?: () => void; basketNote?: string | null; holdNote?: string | null; starting: number; replayed: ReadonlyMap<number, number>; step: number; many: boolean; ret: number | undefined;
+  aside: ReactNode;
 }) {
   const zone = useTimeZone(), row = useOmitByRank();
   const own = point && stretch ? point.value / stretch.scale : null, base = stretch ? stretch.starting * stretch.scale : starting;
@@ -65,16 +71,13 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
               : <span data-rank={1} className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span data-rank={1} className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
             {hold !== null && <span data-rank={1} className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={`${hold ? "Hide" : "Show"} buy and hold: the run's contracts bought in equal shares at its start, never rebalanced, price only (no fees or funding)`} className="mr-1 px-0.5">hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
+            {hold === null && holdNote !== null && <Unavailable name="hold" label="Buy and hold line" note={holdNote} />}
             {basket != null && <span data-rank={1} className="inline-flex items-center"><TextButton size="inline" active={basket} onClick={onBasket} aria-label="Basket line" title={`${basket ? "Hide" : "Show"} basket: the market's equal-weight daily returns over the run's days, compounded, price only (no fees or funding).${basketNote ? ` ${basketNote}` : ""}`} className="mr-1 px-0.5">basket</TextButton>{reading?.basket != null && <span className={pnlClass(reading.basket - base)}>{signedPct(reading.basket / base - 1)}</span>}</span>}
+            {basket === null && basketNote !== null && <Unavailable name="basket" label="Basket line" note={basketNote} />}
             {replayed.has(point.minute ?? point.time) && <Value name="replay" rank={2}>{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
             {reading?.balance != null && <Value name="open" rank={3}><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
-            {reading?.positions != null && <Value name="held" rank={7}>{reading.positions}</Value>}
-            {reading?.exposure != null && <Value name="exposure" rank={6}>{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</Value>}
-            {reading?.before != null && <Value name="costs" rank={5}>{fixed((reading.before - point.value) / (stretch?.scale ?? 1), 2)}</Value>}
-            {point.pace !== null && <Value name="vs pace" rank={2}><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
             {many && ret != null && <Value name="day" rank={5}><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
             {dd >= 0.005 && <Value name="below peak" rank={4}>{number(dd, 2)}%</Value>}
-            {worst > 0 && (!stretch || stretch.selected) && <Value name="worst" rank={2}>−{number(worst * 100, 1)}%{basis && <span className="text-fg-faint"> · {basis}</span>}</Value>}
           </>}
       </div>
       {aside && <div className="ml-auto flex min-w-0 max-w-[50%] shrink-0 items-center gap-x-3 text-fg-faint *:truncate @max-md/page:ml-0 @max-md/page:max-w-none @max-md/page:flex-wrap @max-md/page:whitespace-normal">{aside}</div>}

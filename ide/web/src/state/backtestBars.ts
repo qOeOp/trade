@@ -35,9 +35,24 @@ export function useBacktestCloses(symbols: readonly string[], b: Backtest | null
   // Anew only as one of them is read: a key's bars, once read, stay as they are.
   const found = keys.map(([s, key]) => [s, all.get(key)] as const), kinds = found.map(([, l]) => l?.kind).join();
   return useMemo(() => {
-    if (!found.length || found.some(([, l]) => l?.kind !== "ready")) return null;
+    if (!found.length || found.some(([, l]) => l?.kind !== "ready" || !l.candles.length)) return null;
     return Object.fromEntries(found.map(([s, l]) => [s, (l as { candles: Candle[] }).candles.map((c) => [c.time, c.close] as [number, number])]));
   }, [keys, kinds]);
+}
+
+/** Why there is no buy and hold of `symbols` over `b`'s window at `market`: the first contract's refusal, or which
+ *  contracts have no daily bar; null while any is being read, and when each has one. */
+export function useClosesNote(symbols: readonly string[], b: Backtest | null, market: string | null): string | null {
+  const all = useAtom(loaded);
+  if (!b || !symbols.length) return null;
+  const [start, end] = daysOf(b.window);
+  if (!market) return "The report names no market day.";
+  const found = symbols.map((s) => [s, all.get(`${s}:${start}:${end}@${market}`)] as const);
+  if (found.some(([, l]) => !l || l.kind === "reading")) return null;
+  const failed = found.find(([, l]) => l!.kind !== "ready")?.[1];
+  if (failed) return barsNote(failed);
+  const none = found.filter(([, l]) => l!.kind === "ready" && !l!.candles.length).map(([s]) => s);
+  return none.length ? `No daily bars of ${none.join(", ")} from ${start} to ${end} in this deployment's market.` : null;
 }
 
 /** `symbol`'s daily bars over `b`'s window at `market`; null when there is no backtest, contract or market day. */
