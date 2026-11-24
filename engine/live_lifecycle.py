@@ -128,14 +128,22 @@ class Observer(Strategy):
         self.unsubscribe_socket_state(client_id=ClientId("BINANCE"))
 
     def on_socket_state(self, event):
-        self.session.event("socket_state", strict=False, client_id=str(event.client_id),
-                           endpoint=str(event.endpoint), state=str(event.state))
-        if self.session.connection_failed:
+        session = self.session
+        session.event("socket_state", strict=False, client_id=str(event.client_id),
+                      endpoint=str(event.endpoint), state=str(event.state))
+        if session.connection_failed:
             return
-        if event.state == SocketState.DISCONNECTED and not self.session.account_verified:
-            self.session.lose_connection("venue_disconnected")  # the start was not verified: nothing was admitted
+        if event.state == SocketState.DISCONNECTED and not session.account_verified:
+            # The start was not verified: nothing was admitted. A start again ends as an interruption (the owner,
+            # 2026-11-25), or goes on ending as one; a stop or failure that came first keeps ending the run.
+            if session.armed_ns is not None and session.check_storage():
+                if not session.observe_stop_intent():
+                    session.give_back("venue_disconnected")
+                if session.interrupting:
+                    return
+            session.lose_connection("venue_disconnected")
         else:
-            live_connection.on_socket_state(self.session, event)
+            live_connection.on_socket_state(session, event)
 
     def on_mark_price(self, update):
         symbol = symbol_of(update.instrument_id)
@@ -184,15 +192,10 @@ class Observer(Strategy):
                 except Refusal as exc:
                     if session.armed_ns is None or exc.code not in UNREAD:
                         raise
-                    # A start again whose connected read failed or is overdue: nothing of this start was admitted, so
-                    # it ends as an interruption (the owner, 2026-11-24) and the control starts the run again, within
-                    # its hourly limit. `live logs` shows the line.
+                    # A start again whose connected read failed or is overdue (the owner, 2026-11-24). `live logs`
+                    # shows the line.
                     print(str(exc), file=sys.stderr)
-                    commands.discard_observation(session)
-                    session.interrupting = True
-                    session.begin_stop("interrupted")
-                    session.cancel_entries("connected_account_unverified")  # a begun stop's, inherited by its finish
-                    session.node.handle().stop()
+                    session.give_back("connected_account_unverified")
                     return
                 if snapshot is None:
                     return

@@ -310,6 +310,15 @@ class Session:
             self.begin_stop(reason)
             self.node.handle().stop()
 
+    def give_back(self, reason: str) -> None:
+        """End a start again before its account is verified as an interruption: nothing of it was admitted, so the
+        control starts the run again, within its hourly limit."""
+        commands.discard_observation(self)
+        self.interrupting = True
+        self.begin_stop("interrupted")
+        self.cancel_entries(reason)  # a begun stop's, inherited by its finish
+        self.node.handle().stop()
+
     def resend_cancel(self, cache, order) -> bool:
         """Native cancel_order sends nothing for an order already PENDING_CANCEL, so after a request
         with an unknown outcome only cancel-all reaches the venue, and rc7 scopes it by side alone.

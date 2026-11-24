@@ -288,7 +288,9 @@ may hold a position. A first read that succeeds is judged however long its retri
 read's 30 second age (`LIVE_OBSERVATION_STALE`) from its last answer. The connected read of a start again, after its
 node has connected, gives the start back too when it fails (`LIVE_ACCOUNT_UNAVAILABLE`) or has not ended after 30
 seconds: the start ends as an interruption, with `interrupted` and exit 3, within the same hourly limit; one that
-succeeds and is refused ends the run, and a first start keeps ending `unresolved` (issue 3578). While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+succeeds and is refused ends the run, and a first start keeps ending `unresolved` (issue 3578). A socket disconnect
+before that read is verified does the same: a start again ends as an interruption, unless a stop or failure came
+first, and a first start ends `unresolved` (issue 3620). While the clock stays outside the limits the run stays `interrupted`: nothing checks its
 positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
 run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
 time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
