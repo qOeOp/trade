@@ -8,9 +8,9 @@ type it decided on; otherwise the run ends as for any refused entry (rc7's Pytho
 and the source cannot see a product refusal). A gate closed for a reason a check cannot clear refuses at once, except a
 missing bar and a contract not TRADING at Binance (the user, 2026-11-13): an entry staged then, and a new one (after a
 missing bar, while a position is held), are denied natively through the run's own ExecutionAlgorithm (OrderDenied, which
-the source receives), and the run goes on. So is an entry whose own account read finds the clock over its limit. A run
-has one instance per contract: a missing bar on any contract closes entries on all of them, and a contract not TRADING
-closes entries on that contract alone.
+the source receives), and the run goes on. So is an entry whose own account read finds the clock over its limit, and one
+its source submits while its market exit runs (the user, 2026-11-25). A run has one instance per contract: a missing
+bar on any contract closes entries on all of them, and a contract not TRADING closes entries on that contract alone.
 Reductions, cancels and closes travel over REST and stay allowed, so the source keeps protecting and exiting its
 positions and the Observer can still stop.
 
