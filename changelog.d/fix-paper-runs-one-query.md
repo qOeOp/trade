@@ -1,0 +1,1 @@
+- The Paper run listing reads its runs and their seals in one statement instead of one more per run.
