@@ -48,22 +48,30 @@ INTERPRETATION = (
 
 # Reads at a market day
 
-def bar_blocks(market: files.Market, market_day: str, symbol: str, price_type: str, start_ms: int,
-               end_ms: int | None):
-    """One series' one-minute integer bars in [start_ms, end_ms) at an exact market day, as (rows, 6) arrays in
-    time order: the bar files are disjoint in time and each is in key order."""
-    for batch in files.scan(market, market_day, "bar", [symbol], start_ms, end_ms):
-        batch = batch.filter(pc.equal(batch.column("price_type"), price_type))
-        if batch.num_rows:
-            yield np.column_stack([batch.column(name).to_numpy() for name in series.COLUMNS])
+def read_series(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int,
+                price_types: tuple[str, ...] = series.PRICE_TYPES) -> dict[str, dict[str, np.ndarray]]:
+    """Both series' one-minute integer bars in [start_ms, end_ms) at an exact market day ({"LAST": ..., "MARK": ...}),
+    from one read of each bar file: the files are disjoint in time and each is in key order."""
+    stop = files._visible("bar", market_day, end_ms)
+    blocks: dict[str, list[np.ndarray]] = {price_type: [] for price_type in price_types}
+    for entry in files.entries(market, "bar", [symbol], start_ms, stop):
+        for batch in files.file_batches(files.file_source(market, entry), files.BAR, [symbol], start_ms, stop):
+            for price_type, found in blocks.items():
+                part = batch.filter(pc.equal(batch.column("price_type"), price_type))
+                if part.num_rows:
+                    found.append(np.column_stack([part.column(name).to_numpy() for name in series.COLUMNS]))
+    bars = {}
+    for price_type in price_types:  # each series' blocks are freed once stacked
+        found = blocks.pop(price_type)
+        stacked = np.concatenate(found) if found else np.empty((0, 6), np.int64)
+        bars[price_type] = {name: np.ascontiguousarray(stacked[:, index]) for index, name in enumerate(series.COLUMNS)}
+    return bars
 
 
 def read_bars(market: files.Market, market_day: str, symbol: str, price_type: str, start_ms: int,
               end_ms: int) -> dict[str, np.ndarray]:
-    """One series' one-minute integer bars in [start_ms, end_ms) at an exact market day."""
-    blocks = list(bar_blocks(market, market_day, symbol, price_type, start_ms, end_ms))
-    stacked = np.concatenate(blocks) if blocks else np.empty((0, 6), np.int64)
-    return {name: np.ascontiguousarray(stacked[:, index]) for index, name in enumerate(series.COLUMNS)}
+    """One series' one-minute integer bars in [start_ms, end_ms) at an exact market day (read_series)."""
+    return read_series(market, market_day, symbol, start_ms, end_ms, (price_type,))[price_type]
 
 
 def read_funding(market: files.Market, market_day: str, symbol: str, start_ms: int,
@@ -235,17 +243,16 @@ class _Bars:
                 "last_mark_unmatched_minutes": self.unmatched}
 
 
-def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int, last_bars: dict,
+def coverage_facts(market_day: str, symbol: str, start_ms: int, end_ms: int, last_bars: dict,
                    mark_bars: dict, funding_rows: list[tuple[int, Decimal]],
-                   edges: dict[str, tuple[int | None, int | None]]) -> dict:
+                   edges: dict[str, tuple[int | None, int | None]], months: list[date]) -> dict:
     """market.coverage_facts: the market-coverage-v1 facts of one contract in [start_ms, end_ms) at an
     exact market day. `edges`: {"LAST": (first, last), "MARK": ...} open times of the whole stored history
-    (market.contract_history)."""
+    (market.contract_history). `months`: the contract's member months (universe.months_of)."""
     _interval(start_ms, end_ms)
     files.check_day(market_day)
     bars = _Bars(start_ms, end_ms)
     bars.add(last_bars, mark_bars)
-    months = [month for month, member in universe.months_of(market, market_day) if member == symbol]
     return _contract_facts(market_day, symbol, start_ms, end_ms, bars, months, [int(at) for at, _ in funding_rows], edges)
 
 
