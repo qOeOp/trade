@@ -45,6 +45,9 @@ VERSIONED = ("ide", "ledger", "market-import", "paper")  # docker-api moves with
 REPOSITORIES = tuple(f"ghcr.io/qoeop/trade-{name}" for name in ("ide", "service", "runtime", "docker-api"))
 REVISION_LABEL = "org.opencontainers.image.revision"
 REPLAY_AGE = timedelta(hours=1)  # a replay removes its own container right after it exits (replay/seams.py)
+# Run in the ledger's container: what its first start's port answers (ledger/first_run.py; compose.yaml --setup).
+FIRST_START = ("import http.client, json\nc = http.client.HTTPConnection('ledger', 8770, timeout=10)\n"
+               "c.request('GET', '/api/setup/')\nprint(json.load(c.getresponse())['state'])")
 MOVE_SECONDS, MOVE_POLL = 1800, 20  # how long a move waits for the ledger to track main, and how often it looks
 
 
@@ -337,6 +340,15 @@ class Cutover:
                                    "cannot publish before the cutover; look at its log and update again")
             self.sleep(MOVE_POLL)
 
+    def stop_failed_first_start(self) -> None:
+        """Stop a ledger whose first start failed, for the `up` that follows to start again from this definition: it
+        runs on and waits for the IDE's page, which the cutover stopped. A first start under way is not stopped, since
+        that could kill it between its steps, nor is a ledger that serves (no first-start port)."""
+        answer = self.docker.result("exec", LEDGER, "python", "-c", FIRST_START)
+        if answer.returncode == 0 and answer.stdout.strip() in ("waiting", "blocked"):
+            print("The ledger's first start failed before (its log says why); starting it again", flush=True)
+            self.docker("stop", LEDGER)
+
     def move(self, check: bool) -> None:
         """Before anything changes: publish what the old ledger holds to the branch it tracks (`v0.5` under 0.5.3)."""
         print(f"Version {self.sha} moves this ledger onto main of {self.wanted['origin']}", flush=True)
@@ -437,6 +449,7 @@ class Cutover:
         self.docker(*base, "pull", "--quiet")
         # The ledger alone first: its first start refuses a profile directory holding any profile, and the other
         # services read market.json, which goes back once it is up.
+        self.stop_failed_first_start()
         self.docker(*base, "up", "--detach", "--wait", "--wait-timeout", "1800", "ledger")
         market = self.data / "ledgers" / "market.json"
         kept = archive / "ledgers" / "market.json"
