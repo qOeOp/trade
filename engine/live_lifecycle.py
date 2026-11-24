@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from decimal import Decimal
 from datetime import timedelta
+import sys
 import time
 from nautilus_trader.common import SocketState
 from nautilus_trader.model import (AccountId, BarType, ClientId, OrderSide, OrderStatus, OrderType, PositionSide, Quantity,
@@ -11,6 +12,7 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
 from engine.live_commands import pending_orders
 from engine.config import MINUTE_NS, symbol_of
+from engine.live_errors import LiveRefusal as Refusal
 from engine.live_records import contract, owned
 from engine.live_session import CANCEL_RETRY_SECONDS, MARK_SECONDS, Session, STOP_GRACE_SECONDS
 from engine.live_source import native_event, resend_close
@@ -24,6 +26,8 @@ ACCOUNT_QUERY_SECONDS = 60
 # timer ticks can fall within one second. An order over the rate is denied locally and never sent; a close denied so
 # is submitted again (engine.live_source).
 CLOSES_PER_TICK = 5
+# The connected read failed or did not end in time: it says nothing about the account.
+UNREAD = frozenset({"LIVE_ACCOUNT_UNAVAILABLE", "LIVE_OBSERVATION_STALE"})
 
 def source_outcome(session: Session, cache) -> None:
     """Keep native failures authoritative and label the source's own declared findings. A finding an instance added
@@ -175,7 +179,21 @@ class Observer(Strategy):
             try:
                 if session.account_observation is None:
                     commands.start_observation(session, "connected")
-                snapshot = commands.observed_account(session, "connected")
+                try:
+                    snapshot = commands.observed_account(session, "connected")
+                except Refusal as exc:
+                    if session.armed_ns is None or exc.code not in UNREAD:
+                        raise
+                    # A start again whose connected read failed or is overdue: nothing of this start was admitted, so
+                    # it ends as an interruption (the owner, 2026-11-24) and the control starts the run again, within
+                    # its hourly limit. `live logs` shows the line.
+                    print(str(exc), file=sys.stderr)
+                    commands.discard_observation(session)
+                    session.interrupting = True
+                    session.begin_stop("interrupted")
+                    session.cancel_entries("connected_account_unverified")  # a begun stop's, inherited by its finish
+                    session.node.handle().stop()
+                    return
                 if snapshot is None:
                     return
                 commands.verify_connected_account(session, snapshot)
