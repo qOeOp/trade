@@ -5,8 +5,7 @@ from __future__ import annotations
 PASSING = frozenset({"interrupted", "rewarming"})
 # The reasons a run stops for without having failed; any other fails it (engine.live_session, engine.live_brake,
 # engine.live_source), also when a later start finishes the stop.
-UNFAILED = frozenset({"requested", "duration", "drawdown", "source_shutdown", "unsubmitted_entry_canceled",
-                      "unsubmitted_entry_exit"})
+UNFAILED = frozenset({"requested", "duration", "drawdown", "source_shutdown"})
 
 
 def begun_stop(rows: list[dict]) -> str | None:

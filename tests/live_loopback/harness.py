@@ -123,6 +123,8 @@ class Loopback:
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith(("BINANCE", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"))}
         environment["NO_PROXY"] = environment["no_proxy"] = "127.0.0.1"
+        if self.stdout is not None:
+            self.stdout.close()  # an earlier start's
         self.stdout = (self.root / f"runner-{mode}.out").open("w")
         def limit():
             if file_size_limit is not None:
