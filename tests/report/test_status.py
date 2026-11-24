@@ -21,7 +21,7 @@ from ledger import db, evidence, judgments, lines, metrics, problems, strategies
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
-from report import measures, runs, seams, status
+from report import measures, runs, seams, status, testing
 from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
@@ -364,12 +364,12 @@ class ComparisonTableTests(unittest.TestCase):
 
     def test_the_line_reading_alone_gives_the_status_reading_and_each_run_of_the_line_its_range(self):
         counts = status.research_status(self.world.profile)
-        found = status.line_testing(self.world.profile, self.world.line["line"])
+        found = testing.line_testing(self.world.profile, self.world.line["line"])
         self.assertEqual((found["ledger_commit"], found["multiple_testing"]),
                          (counts["ledger_commit"], counts["multiple_testing"]))
         self.assertEqual(found["deflated_sharpe"], {str(item["trial_id"]): item["deflated_sharpe"]
                                                     for item in counts["comparison"]["runs"]})
-        self.assertEqual(refused(status.line_testing, self.world.profile, "no-such-line").code, "LINE_UNKNOWN")
+        self.assertEqual(refused(testing.line_testing, self.world.profile, "no-such-line").code, "LINE_UNKNOWN")
 
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):
         table = status.research_status(self.world.profile)["comparison"]

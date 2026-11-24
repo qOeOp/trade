@@ -84,11 +84,11 @@ import threading
 import time
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
 import zlib
 
 from . import layout
 from .pinned import Pinned
+from .released import Released
 from . import live_proxy, render
 
 CACHED = 8
@@ -124,38 +124,6 @@ SYMBOL = re.compile(r"[^\W_]+\Z")  # market.sources.SYMBOL: a contract as the ma
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
 STALE = timedelta(hours=26)  # market.follow.STALE: a status older than this is a stuck command
-# The product's newest version is its latest GitHub release (CHANGELOG.md: a version is released with
-# `gh release create vX.Y.Z`); a deployment whose version is older is told so (`/api/about`).
-RELEASES = "https://api.github.com/repos/qOeOp/trade/releases/latest"
-RELEASE_SECONDS = 3600.0
-VERSION = re.compile(r"v(\d+\.\d+\.\d+)")
-
-
-class Released:
-    """The newest released version ("0.4.3"), read anonymously from GitHub at most once every RELEASE_SECONDS by
-    whichever request comes due; None until a read succeeds, and a failed read keeps the last one. A request never
-    waits on another's read."""
-
-    def __init__(self, url: str = RELEASES, every: float = RELEASE_SECONDS, opener: Callable = urlopen):
-        self.url, self.every, self.opener = url, every, opener
-        self.value: str | None = None
-        self.due = 0.0
-        self.lock = threading.Lock()
-
-    def __call__(self) -> str | None:
-        if time.monotonic() >= self.due and self.lock.acquire(blocking=False):
-            try:
-                self.due = time.monotonic() + self.every
-                request = Request(self.url, headers={"Accept": "application/vnd.github+json", "User-Agent": "trade-ide"})
-                with self.opener(request, timeout=10) as response:
-                    found = VERSION.fullmatch(str(json.load(response).get("tag_name")))
-                if found:
-                    self.value = found[1]
-            except Exception:
-                pass  # unknown this hour: the page says nothing rather than something wrong
-            finally:
-                self.lock.release()
-        return self.value
 
 
 class ProductError(Exception):
