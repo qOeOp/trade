@@ -547,6 +547,32 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual((seen, session.ready), (["started"], False))
         self.assertIn("built 0 of the 4", session.refused)
 
+    def test_a_market_exit_begun_before_the_back_fill_ends_refuses_the_recovery(self):
+        """The running exit would go on sending after a refusal (#3640)."""
+        for since, refuses in (({"15-MINUTE": T - 4 * QUARTER}, True), ({}, False)):  # (no back-fill: the control)
+            with self.subTest(refuses=refuses):
+                with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+                    session = self.recovery(T + MINUTE_NS)
+                session.expected_starts, session.since = 1, since
+                session.cache = SimpleNamespace(account_for_venue=lambda _: SimpleNamespace(
+                    to_dict=lambda: {"calculate_account_state": True}), orders=list)
+                found: list = []
+                with mock.patch.dict(strategy_runtime.STRATEGIES, {}, clear=True), \
+                        mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+                    session.start(lambda: found.append(session.exiting()))
+                self.assertIs(session.ready, not refuses)
+                self.assertEqual(session.refused, found[0])
+                if refuses:
+                    self.assertIn("a market exit begun before the back-fill ended", found[0])
+                    self.assertEqual(session.commanded(close=True), found[0], "nothing more is sent")
+                else:
+                    self.assertIsNone(found[0])
+        # Once the back-fill has ended and the recovery is ready, an exit begins.
+        session.since, session.ready = {"15-MINUTE": T}, True
+        self.assertIsNone(session.exiting())
+        session.handing = ("15-MINUTE", aggregated(T), [], IID)
+        self.assertIn("a position close is a MARKET order", session.exiting())
+
     def test_a_cut_waits_for_the_bar_of_a_bucket_that_ended(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
             session = self.recovery(T + MINUTE_NS)
