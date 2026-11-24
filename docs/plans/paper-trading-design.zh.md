@@ -310,10 +310,14 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 
 **Invalid 只留给证据不可信（用户 2026-11-01 定）**。一条运行要么在跑，要么已停；停了怎么结束的（用户停、到时长、
 重启、崩溃、没起来、内存超限、策略被拒、策略抛异常）只是原因，日志记下的照样算数，封存为 Complete，原因照记。
+策略被拒包括装载时就被拒（2026-11-24 起，#3543）：新运行的 runner 先把这次拒绝写成日志的一条 `refusal`（带拒绝码）
+再退出，封存为 Complete，`reasons` 带 `REFUSED:<拒绝码>`。恢复的运行已有日志，装载被拒时不动它（检查点绑定日志的字节）。
+收到的字节不是声明的源码（`CONTENT_HASH_*`）不算策略被拒，不写日志，仍按没有日志封存为 Invalid。
 只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、跑的杠杆和声明的不一致
 （`LEVERAGE_MISMATCH`，2026-11-11 起）、碰了允许之外的主机
-（`EGRESS_DENIED`）、起过的 runner 没留下日志（`JOURNAL_MISSING` 且不是 `START_FAILED`）。规则在
-`ledger.paper.verdict`，读数版本 `paper-readings@2026-11-15`；`paper list` 的 status 按现行规则由封存的原因
+（`EGRESS_DENIED`）、起过的 runner 一条日志也没留下（`JOURNAL_MISSING` 且不是 `START_FAILED`）：
+这样的 runner 没说过自己做了什么；说了拒绝的不算。规则在
+`ledger.run_journal.verdict`，读数版本 `paper-readings@2026-11-15`；`paper list` 的 status 按现行规则由封存的原因
 推出，旧封存不重写，seal.json 保留当时的 status。
 
 **崩溃和没起来的运行也重开（同日）**。runner 出错退出或容器没起来（`RUNNER_EXIT_NONZERO`、
