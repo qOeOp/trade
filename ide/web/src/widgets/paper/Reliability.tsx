@@ -40,7 +40,7 @@ export function Reliability({ trial, interval, lo }: { trial: number; interval: 
         </Row>
         <Row name="Sharpe (Lo-adjusted)"
              tip="The annual Sharpe ratio counting the daily returns' autocorrelations (Lo 2002): closer to zero than the plain Sharpe when the days trend, further from it when they reverse"
-             detail={lo.note ?? (lo.lags === null ? null : `autocorrelation over ${lo.lags} daily lags`)}>
+             detail={lo.note ?? (lo.lags === null ? null : `Autocorrelation over ${lo.lags} daily lags`)}>
           {ratio(lo.value)}
         </Row>
         <Row name="Deflated Sharpe probability"

@@ -92,7 +92,7 @@ test("#3496: a one-year window's quarters and the Lo-adjusted Sharpe are shown",
   const periods = renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(PeriodsAndRegimes, { p: b.periods }))).split(/<[^>]*>/).join("|").replace(/\|+/g, "|");
   for (const part of [/2025-10-01 – 2026-01-01\|\+4\.0%/, /2026-01-01 – 2026-02-10\| \(part\)\|−8\.1%/, /Worst whole quarter\|\+4\.0%/, /Ex best quarter \(annualized\)\|−53\.7%/]) assert.match(periods, part);
   const reliable = await text("Reliability", { trial: 9, interval: null, lo: b.sharpeLo });
-  assert.match(reliable, /Sharpe \(Lo-adjusted\)\|1\.58\|autocorrelation over 6 daily lags/);
+  assert.match(reliable, /Sharpe \(Lo-adjusted\)\|1\.58\|Autocorrelation over 6 daily lags/);
 });
 
 test("#3496: contract concentration stands under the contracts, the top five's share only past five", async () => {
