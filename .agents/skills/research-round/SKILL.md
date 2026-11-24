@@ -66,9 +66,15 @@ container that grows without bound or work per input that grows with the history
 `inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
 `nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
 (below). Activity: the precheck filled orders on every order path the change adds or
-alters; while one never ran, activity is `unresolved` and the review `failed` until a later
-precheck on a window where it runs (a probe on a `ledger temp` ledger can find one) has a passed review:
-that review lifts the failure. Readiness: no decision before
+alters; while one never ran, activity is `unresolved` and the review `failed`. Once an
+active-ledger precheck of a source sealed a fill or a position on a contract the registration trades,
+its first registration can cite no other: before that single precheck, find the window where every
+such path runs by publishing and prechecking the source on a `ledger temp` ledger, reading which paths
+ran, never returns. A precheck that traded and left activity `unresolved` ends the revision: drop it
+with a priority judgment (a root before its line: tell the user); neither precheck it again nor change
+a rule or constant to get a new source past the refusal. Only after a completed precheck that sealed
+no fill and no position does a later one, where the paths run and whose review passes, lift the
+failure. Readiness: no decision before
 each indicator has converged on its warm-up history, not research-start's input-coverage check.
 Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
 explore` records an explore trial in the active ledger, which counts as exposure to its data, and is

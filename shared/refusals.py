@@ -139,7 +139,13 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                          "--difference.",),
     "EXECUTION_MISMATCH": ("Replay with the registered execution identity, or register again.",),
     "SOURCE_PRECHECK_REQUIRED": ("Run `replay precheck` and record `source review` for the source.",),
-    "SOURCE_PRECHECK_FAILED": ("Fix the source, publish it and precheck it again.",),
+    "SOURCE_PRECHECK_FAILED": ("Fix a defect of the source, publish it and precheck it again.",
+                               "When the review failed only on activity and its completed precheck sealed no fill and "
+                               "no position, precheck the same source where its order paths run and cite that "
+                               "precheck's passed review.",
+                               "When the review failed only because activity is unresolved and its precheck sealed a "
+                               "fill or a position, drop the source: no later precheck makes it registrable on those "
+                               "contracts."),
     "GRID_ALREADY_ATTEMPTED": ("Register a new grid point; consumed attempts stay counted.",),
     # Execution captures (ledger/execution.py)
     "EXECUTION_START_MISSING": ("Replay through `replay run`, `replay precheck` or `replay explore`, which write the "
@@ -217,9 +223,11 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SOURCE_ALREADY_EXPOSED": ("Preserve the exposure record. Use retry_of only for an earlier registration that "
                                "actually consumed this source; such a rebuild on another image cites a new precheck "
                                "on that image. Without retry_of only the cited precheck is exempt, so a new precheck "
-                               "does not clear an earlier one: register on the earlier precheck's image citing it, "
-                               "then move the run with `replay reproduce`. Register a new source for a new research "
-                               "hypothesis.",),
+                               "does not clear an earlier one. When one precheck alone sealed a result on these "
+                               "contracts and its review passed, register on its image citing it, then move the run "
+                               "with `replay reproduce`. Otherwise drop the source: no later precheck makes it "
+                               "registrable on these contracts. Register a new source for a new research hypothesis, "
+                               "never to get past this refusal.",),
     "DUTY_UNKNOWN": ("Use duty IDs A1 to I2 from the duty directory; leave changed_duties empty only for a root.",),
     "DUTY_HEADER_MISMATCH": ("Name in changed_duties exactly the duties whose header lines the grid candidates change "
                              "from their parent's. When a line changed whose own rule the change does not touch, "
