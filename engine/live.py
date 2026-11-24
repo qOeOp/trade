@@ -211,6 +211,7 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
     try:
         clock = observer.clock() if args.mode in ("preflight", "run") else None
         snapshot = observer.snapshot(manifest["symbols"])
+        read_ns = time.time_ns()
         if clock is not None:
             snapshot["clock"] = clock
         if resuming:
@@ -226,7 +227,7 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
     session.event("preflight", mode=args.mode, observation=observation)
     loaded = None
     if resuming:
-        require_account_mode(snapshot, manifest)
+        require_account_mode(snapshot, manifest, read_ns=read_ns)
         try:
             require_flat(snapshot)
         except Refusal as exc:

@@ -279,7 +279,8 @@ instead, before anything is built or written: a start again whose first account 
 (`LIVE_ACCOUNT_UNAVAILABLE`, after the bounded retries of `engine.live_venue.READ_ATTEMPTS`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
 unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
 20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
-may hold a position. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+may hold a position. A first read that succeeds is judged however long its retries took: a start again counts the
+read's 30 second age (`LIVE_OBSERVATION_STALE`) from its last answer. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
 positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
 run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
 time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A

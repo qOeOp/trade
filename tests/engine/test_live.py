@@ -22,7 +22,7 @@ from engine import live_commands as commands, live_lifecycle, live_node, live_se
 from engine.config import RUNTIME_CONTRACT, Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
-from engine.live_venue import Credentials
+from engine.live_venue import Credentials, require_account_mode
 from tests.engine.test_live_venue import MARKET_DAY
 from tests.helpers import refused
 
@@ -921,6 +921,29 @@ class LiveTests(unittest.TestCase):
         last = self.events()[-1]
         self.assertEqual((last["event"], last["code"]), ("unresolved", "LIVE_ACCOUNT_RESPONSE"))
         self.assertFalse(live.resumable(self.output))
+
+    def test_a_start_again_whose_first_read_succeeds_after_long_retries_goes_on(self):
+        """Only the stamp of the read's first request is old: its retries outlasted the age limit, then it succeeded."""
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        for name, wrong, code in (("slow", {}, None), ("wrong mode", {"dualSidePosition": False}, "LIVE_ACCOUNT_MODE")):
+            for base in (self.flat_snapshot(), self.held_snapshot()):
+                (self.output / "events.jsonl").write_text(journal)
+                snapshot = {**base, "observed_ns": live.time.time_ns() - 33 * 10**9,
+                            "config": {"dualSidePosition": True, "multiAssetsMargin": True, **wrong},
+                            "symbols": {"BTCUSDT": {"config": [{"symbol": "BTCUSDT", "marginType": "CROSSED",
+                                                                "leverage": 50, "isAutoAddMargin": False}]}}}
+                with self.subTest(name, positions=base["positions"]), \
+                        mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
+                        mock.patch.object(live, "require_account_mode", require_account_mode), mock.patch.object(live, "LiveCache"), \
+                        mock.patch.object(live, "build_node", side_effect=RuntimeError("built")):
+                    if code is None:
+                        with self.assertRaisesRegex(RuntimeError, "built"):
+                            live.execute(args)
+                        [resumed] = [row for row in self.events() if row["event"] == "resuming"]
+                        self.assertEqual(resumed["held"], bool(base["positions"]))
+                    else:
+                        self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, code)
 
     def test_a_start_after_one_that_ended_to_warm_up_again_may_retry_a_failed_warm_up_once(self):
         class Armed(BaseException):

@@ -380,6 +380,18 @@ class AccountModeTest(unittest.TestCase):
                     with self.assertRaises(Refusal):
                         require_account_mode(observation, manifest)
 
+    def test_a_start_agains_age_counts_from_the_reads_last_answer(self):
+        observation, manifest = fixture()
+        observation["observed_ns"] = 0
+        for age, code in [(0, None), (30_000_000_000, None), (30_000_000_001, "LIVE_OBSERVATION_STALE"),
+                          (-1, "LIVE_OBSERVATION_STALE")]:
+            with self.subTest(age=age), patch("engine.live_venue.time.time_ns", return_value=100_000_000_000 + age):
+                if code is None:
+                    require_account_mode(observation, manifest, read_ns=100_000_000_000)
+                else:
+                    self.assertEqual(refused(require_account_mode, observation, manifest, read_ns=100_000_000_000,
+                                             error=Refusal).code, code)
+
 
 class ReadOnlyVenueTest(unittest.TestCase):
     def test_named_private_file_and_no_secret_repr(self):

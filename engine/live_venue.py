@@ -232,14 +232,19 @@ def require_own_symbol(snapshot: dict, manifest: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "an entry requires no position or open order on a symbol outside the run")
 
 
-def require_account_mode(snapshot: dict, manifest: dict) -> None:
+def require_account_mode(snapshot: dict, manifest: dict, *, read_ns: int | None = None) -> None:
     """Check current account identity and modes without requiring funds or a flat account.
 
     Reconciliation can observe existing exposure and losses even when new trading is
     disabled. This check never changes venue leverage or margin settings.
+
+    The read must be at most 30 s old: from its first request (`observed_ns`), or from `read_ns`, when its last one
+    was answered, which does not bound how old its positions are. Only a start again passes `read_ns`: its requests'
+    bounded retries alone can outlast the limit, and the connected start reads the account again before a source
+    command is admitted or a held start withdraws anything (engine.live_commands.verify_connected_account).
     """
     try:
-        age = time.time_ns() - snapshot["observed_ns"]
+        age = time.time_ns() - (snapshot["observed_ns"] if read_ns is None else read_ns)
         if not 0 <= age <= 30_000_000_000:
             raise Refusal("LIVE_OBSERVATION_STALE", "account checks require a fresh account observation")
         if snapshot["credential_binding"] != manifest["credential_binding"]:
