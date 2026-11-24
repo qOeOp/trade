@@ -67,7 +67,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
             if session.observe_stop_intent():
                 raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
             session.sources = live_source(loaded, session, source_module=source_module)
-            # Denies the source's entries natively while a missing bar holds entries closed (engine.live_connection).
+            # Ends the source's unsent entries natively: denied (engine.live_connection) or cancelled (engine.unsent).
             session.entry_gate = ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=ENTRY_GATE))
             node.add_exec_algorithm(session.entry_gate)
             node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))

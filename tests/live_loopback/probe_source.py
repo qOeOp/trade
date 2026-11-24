@@ -6,6 +6,7 @@ It is ordinary source text, loaded and checked by the product like any reviewed 
      cancelled
   4  enter long with a GTD limit whose expiry has a fraction of a second (Live cannot send it)
   5  enter long with a GTD STOP_MARKET entry (Live cannot send it)
+  6  submit command 2's entry and cancel it in the same callback
 Every closed kline (with the cached instrument's price increment), order event and denial is printed to standard output as `probe <kind> <detail>` for the test to read.
 """
 
@@ -29,7 +30,7 @@ class Probe(Strategy):
         close = bar.close.as_decimal()
         instrument = self.cache.instrument(self.iid)
         print(f"probe bar {bar.ts_event} {code} {close} {instrument.price_increment}", flush=True)
-        if code in (2, 4):
+        if code in (2, 4, 6):
             expire = {}
             if code == 4:
                 expire = dict(time_in_force=TimeInForce.GTD, expire_time=bar.ts_event + 900 * 10**9 + 500_000_000)
@@ -37,6 +38,8 @@ class Probe(Strategy):
                                              Price.from_str(str((close * Decimal("1.001")).quantize(Decimal("0.1")))),
                                              **expire)
             self.submit_order(order)
+            if code == 6:
+                self.cancel_order(order.client_order_id)
         elif code == 5:
             order = self.order_factory.stop_market(self.iid, OrderSide.BUY, Quantity.from_str("0.002"),
                                                    Price.from_str(str((close * Decimal("1.01")).quantize(Decimal("0.1")))),

@@ -258,8 +258,10 @@ class Compare(unittest.TestCase):
                   {"event": "entry_cancel_requested", "client_order_id": "O-3", "reason": "stop"},
                   {"event": "entry_refused", "client_order_id": "O-4", "ts_init": 5, "held_ns": 1},
                   {"event": "entry_refused", "client_order_id": "O-5", "ts_init": 6, "held_ns": None},
-                  {"event": "entry_denied", "client_order_id": "O-6", "reasons": ["bars_missing"]}]
-        self.assertEqual(compare.gate(events), {"released": ["O-1"], "withdrawn": ["O-2"], "denied": ["O-6"],
+                  {"event": "entry_denied", "client_order_id": "O-6", "reasons": ["bars_missing"]},
+                  {"event": "entry_held", "client_order_id": "O-1"}, {"event": "entry_held", "client_order_id": "O-4"},
+                  {"event": "entry_held", "client_order_id": "O-7"}]  # its source cancelled it while it was held
+        self.assertEqual(compare.gate(events), {"released": ["O-1"], "withdrawn": ["O-2", "O-7"], "denied": ["O-6"],
                                                 "refused": [5]})
 
     def test_a_pack_that_agrees_with_its_replay_is_the_same_from_bars_to_equity(self):
