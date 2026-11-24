@@ -109,7 +109,7 @@ function VersionDetail({ c, targets, versions = [], loading = false }: { c: Cand
         {cmp || comparing ? (
           <KeyValues items={[
             ["Control", cmp ? (cmp.vs_trial == null ? null : control
-              ? <span className="inline-flex min-w-0 items-baseline gap-1"><TextButton className="-mx-1" title={`Select ${control}`} onClick={() => select(control, { reveal: true })}>trial {cmp.vs_trial}</TextButton><span className="truncate font-mono text-fg-faint">{control}</span></span>
+              ? <span className="flex flex-wrap items-baseline gap-x-1"><TextButton className="-mx-1" title={`Select ${control}`} onClick={() => select(control, { reveal: true })}>trial {cmp.vs_trial}</TextButton><span title={control} className="max-w-full truncate font-mono text-fg-faint">{control}</span></span>
               : <span>trial {cmp.vs_trial}</span>) : <Skeleton />],
             ["Annual return difference", cmp ? (annual && <Tip content="The annual return over the control, with its paired block-bootstrap interval"><span className="flex flex-wrap gap-x-2"><span className="whitespace-nowrap">{annual[0]}</span>{annual[1] && <span className="whitespace-nowrap text-fg-faint">{annual[1]}</span>}</span></Tip>) : <Skeleton />],
             ["Drawdown difference", cmp ? (drawdown && <Tip content="The maximum drawdown of the daily closes minus the control's, with its paired block-bootstrap interval: above zero is deeper. The MARK drawdown of each run is in its readings"><span className="flex flex-wrap gap-x-2"><span className="whitespace-nowrap">{drawdown[0]}</span>{drawdown[1] && <span className="whitespace-nowrap text-fg-faint">{drawdown[1]}</span>}</span></Tip>) : <Skeleton />],
