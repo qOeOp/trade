@@ -822,6 +822,124 @@ class LiveTests(unittest.TestCase):
         self.assertFalse(session.failed)
         self.assertFalse(live.resumable(self.output))  # venue_flat ends the run
 
+    def finishing(self, args, reads, *, orders=(), venue_flat=False, **stopping):
+        """A start again after a start that traded was killed with `stopping` journalled: (status, session, built)."""
+        session = live.Session(self.manifest, self.output, "run")
+        session.event("stopping", **stopping)
+        found = []
+
+        def node(session, *_, **__):
+            found.append(session)
+            node = mock.Mock()
+            node.cache.orders.return_value, node.cache.positions_open.return_value = list(orders), []
+
+            def run():
+                if venue_flat:
+                    live.live_connection.venue_flat_exit(session, self.flat_snapshot())
+                session.finish_stop()
+                session.native_flat = session.stopping and not session.interrupting
+            node.run.side_effect = run
+            return node
+
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=reads), \
+                mock.patch.object(live, "LiveCache"), mock.patch.object(live, "source_for_run") as source, \
+                mock.patch.object(live, "KlineEvents"), mock.patch.object(live, "build_node", side_effect=node):
+            status = live.execute(args)
+        return status, found[0], source
+
+    def test_a_start_killed_in_a_stop_that_ends_the_run_is_only_finished(self):
+        """#3521: no source, on a flat account too; the begun stop's reason, and its failure, are carried on."""
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        for reason, failed in (("drawdown", 0), ("duration", 0), ("protection_missing", 1), ("source_failure", 1)):
+            for first in (self.flat_snapshot(), self.held_snapshot()):
+                with self.subTest(reason=reason, positions=first["positions"]):
+                    (self.output / "events.jsonl").write_text(journal)
+                    status, session, source = self.finishing(args, [first, self.flat_snapshot()], reason=reason)
+                    source.assert_not_called()
+                    self.assertEqual((status, session.mode, session.failed), (failed, "finish", bool(failed)))
+                    stops = [row["reason"] for row in self.events() if row["event"] == "stopping"]
+                    self.assertEqual(stops, [reason, reason])
+                    self.assertEqual((self.events()[-1]["event"], self.events()[-1]["source_failed"]),
+                                     ("clean_stop", bool(failed)))
+                    self.assertEqual(refused(live.execute, args, error=LiveRefusal).code, "LIVE_COLD_RESTART")
+
+    def test_a_failed_stop_whose_position_was_closed_at_binance_ends_venue_flat_and_failed(self):
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        for reason, failed in (("drawdown", 0), ("protection_missing", 1)):
+            with self.subTest(reason):
+                (self.output / "events.jsonl").write_text(journal)
+                status, session, _ = self.finishing(args, [self.flat_snapshot()] * 2, venue_flat=True, reason=reason)
+                self.assertEqual((status, session.venue_flat), (failed, True))
+
+    def test_an_interruption_or_a_rewarming_is_no_stop_to_finish(self):
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        for reason in ("interrupted", "rewarming"):
+            with self.subTest(reason):
+                (self.output / "events.jsonl").write_text(journal)
+                _, session, source = self.finishing(args, [self.flat_snapshot()] * 2, reason=reason)
+                source.assert_called_once()
+                self.assertEqual(session.mode, "run")
+
+    def test_a_held_starts_stop_is_none_to_finish_and_a_begun_one_stays_begun(self):
+        rows = [{"event": "preflight", "mode": "run"}, {"event": "resuming", "held": True},
+                {"event": "stopping", "reason": "duration"}]
+        self.assertIsNone(live.begun_stop(rows))
+        begun = [{"event": "preflight", "mode": "run"}, {"event": "stopping", "reason": "interrupted"},
+                 {"event": "stopping", "reason": "drawdown"}]
+        self.assertEqual(live.begun_stop(begun + rows), "drawdown")
+
+    def test_an_interrupted_finish_is_finished_by_the_next_start(self):
+        args = self.armed_run()
+        with mock.patch.object(live.Session, "finish_stop", autospec=True, side_effect=lambda session: (
+                session.interrupt_requested.set(), session.observe_stop_intent())):
+            # The begun stop's own refused order is reloaded with the cache: it does not end the interrupted start.
+            refused_order = SimpleNamespace(status=live_lifecycle.OrderStatus.REJECTED, client_order_id="O-1", is_closed=True)
+            status, _, _ = self.finishing(args, [self.flat_snapshot()] * 2, orders=[refused_order],
+                                          reason="protection_missing")
+        self.assertEqual((status, self.events()[-1]["event"]), (live.INTERRUPTED, "interrupted"))
+        self.assertEqual(live.begun_stop(self.events()), "protection_missing")
+        self.assertTrue(live.resumable(self.output))
+
+    def test_a_finishing_start_closes_the_inherited_position_through_its_registered_identity(self):
+        from tests.engine.test_live_venue import fixture
+        snapshot, _ = fixture()
+        snapshot["credential_binding"] = self.credentials.binding
+        snapshot["positions"] = [{"symbol": "BTCUSDT", "positionSide": "LONG", "positionAmt": "0.002"}]
+        session = live.Session(self.manifest, self.output, "finish", begun_stop="drawdown")
+        session.account_reader = mock.Mock()
+        session.account_reader.snapshot.return_value = snapshot
+        session.node, keeper = mock.Mock(), mock.Mock()
+        session.keepers = {"BTCUSDT": keeper}
+        (self.output / "STOP").touch()  # the operator's stop adds nothing to one already begun
+        position = SimpleNamespace(strategy_id=self.instance, id="P-1", is_open=True, side=live_lifecycle.PositionSide.LONG,
+                                   instrument_id=live.contract("BTCUSDT"),
+                                   quantity=SimpleNamespace(as_decimal=lambda: Decimal("0.002")))
+        observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+        observer.request_bars = mock.Mock()
+        observer.cache.bar.return_value = None
+        observer.cache.orders.return_value = []
+        observer.cache.positions_open.return_value = [position]
+        for _ in range(4):
+            live_lifecycle.Observer.observe(observer)
+            keeper.close_position.assert_not_called()  # the native risk engine has no price of its contract yet
+            if session.account_observation is not None:
+                session.account_observation.result.result(timeout=1)
+        observer.request_bars.assert_called_once()
+        observer.cache.bar.return_value = object()
+        live_lifecycle.Observer.observe(observer)
+        keeper.close_position.assert_called_once_with(position, reduce_only=True)
+        self.assertEqual([row["event"] for row in self.events()], ["held", "stopping"])
+        session.node.handle.return_value.stop.assert_not_called()
+
+    def test_a_stop_that_closes_nothing_is_journalled_after_the_runs_ending_event(self):
+        session = live.Session(self.manifest, self.output, "run")
+        session.node = mock.Mock()
+        session.lose_connection("venue_disconnected")
+        self.assertEqual([row["event"] for row in self.events()], ["unresolved", "stopping"])
+
     def test_a_run_that_ended_venue_flat_exits_zero_unless_it_failed(self):
         args = self.armed_run()
 

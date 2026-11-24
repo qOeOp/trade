@@ -3,7 +3,8 @@
 Paper retains its credential-free Sandbox contract. This entry point never changes account settings. An
 interrupted run (SIGTERM, a killed runner) starts again as the same run: on a flat account its source warms up and
 trades again; otherwise it holds, observing only, until the account is flat (design §3.4, first stage: the source
-cannot yet rebuild its state around an open position). An armed run that ends by its own refusal or failure is over
+cannot yet rebuild its state around an open position). One killed in a stop that was to end the run starts again only
+to finish that stop (no source, its positions closed as the stop began to) and is over. An armed run that ends by its own refusal or failure is over
 (`unresolved`) and is never started again; only a start again whose first account read fails, or shows this clock
 outside the limits, gives the start back.
 """
@@ -38,6 +39,7 @@ from engine.live_records import contract, journal, keep, write_json
 from engine.live_commands import pending_orders
 from engine.live_session import ENDED_EVENTS, Session
 from engine.live_source import source_for_run
+from engine.live_stop import begun_stop
 from engine import live_brake, live_connection
 from engine.live_lifecycle import source_outcome
 from engine.live_node import build_node
@@ -190,7 +192,8 @@ def execute(args) -> int:
         resuming = args.mode == "run" and (args.output / "armed.json").is_file()
         if resuming and not resumable(args.output):  # judged before this start writes its own events
             raise Refusal("LIVE_COLD_RESTART", "this run ended or was asked to stop; it can only reconcile")
-        session = Session(manifest, args.output, args.mode, warmup_retry=resuming and warmup_retry(args.output))
+        session = Session(manifest, args.output, args.mode, warmup_retry=resuming and warmup_retry(args.output),
+                          begun_stop=begun_stop(journal(args.output)) if resuming else None)
         try:
             return start(args, manifest, credentials, session, resuming)
         except Exception as exc:
@@ -228,15 +231,18 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
     loaded = None
     if resuming:
         require_account_mode(snapshot, manifest, read_ns=read_ns)
-        try:
-            require_flat(snapshot)
-        except Refusal as exc:
-            if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
-                raise
-            session.mode = "held"  # observe only until the account is flat; the user is told
+        if session.begun_stop is not None:
+            session.mode = "finish"  # no source, on a flat account too: the run is over once the stop is finished
+        else:
+            try:
+                require_flat(snapshot)
+            except Refusal as exc:
+                if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
+                    raise
+                session.mode = "held"  # observe only until the account is flat; the user is told
         session.armed_ns = json.loads(read_regular_file(args.output / "armed.json"))["observed_ns"]
         live_brake.resume(session, args.output)  # the first arming's cash floor and the highest equity since
-        session.event("resuming", held=session.mode == "held", observation=observation)
+        session.event("resuming", held=session.mode != "run", observation=observation)
         if session.mode == "held":
             # The hold begins: whether each inherited position has its stop at Binance, from the same read.
             live_connection.held_verdict(session, snapshot, observation)
@@ -342,11 +348,13 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         # Binance held nothing while the native cache still held a position (engine.live_connection.venue_flat_exit):
         # the run is over with its venue_flat event, as after a reconciliation that finds the account flat.
         return 1 if session.failed else 0
-    if (session.interrupting or session.held_flat or session.rewarming) and not session.failed:
+    # A finishing start reloads the refused orders of the start it follows, which failed the run, not this interruption.
+    if (session.interrupting or session.held_flat or session.rewarming) and (
+            not session.failed or session.mode == "finish" and not session.ended):
         # Positions and their exchange stops stay; the control starts this run again (live.runs).
         start_ended(session)
         return INTERRUPTED
-    if session.mode == "run":
+    if session.mode in ("run", "finish"):
         session.event("unresolved", mode=args.mode)
         return 1
     final_snapshot = observer.snapshot(manifest["symbols"])

@@ -186,6 +186,15 @@ class LiveViewTests(LiveViewFixture):
                           ("rewarming", None, False), ("warmup", None, False), ("rewarming", None, True),
                           ("restart_limited", None, False)])
 
+    def test_a_start_that_only_finishes_a_begun_stop_says_so(self):
+        self.native("preflight", mode="run")
+        self.native("resuming", held=False)
+        self.native("stopping", reason="drawdown")
+        self.native("preflight", mode="run")
+        self.native("resuming", held=True)
+        self.assertEqual([row["event"] for row in views.run_view(self.root, self.run_id)["restarts"]],
+                         ["resuming", "finishing"])
+
     def test_a_held_starts_verdicts_show_only_checked_values(self):
         self.native("resuming", held=True)
         self.native("held_uncovered", holding=1, entries=[{"symbol": "BTCUSDT", "side": "LONG"}], entries_kept=True,

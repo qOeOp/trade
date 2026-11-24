@@ -248,7 +248,7 @@ The drawdown brake (`engine/live_brake.py`, design §3.5, user 2026-11-10) repla
 so fees and funding count. The run's highest equity starts at the equity it armed with and is journalled whenever it
 rises (`equity_peak`), so a start again carries it on. Once equity is the brake's share below it (`drawdown_brake`,
 the user's 15% maximum-drawdown target, or a tighter share the run was prepared with), the run takes the STOP path
-with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and is not started again. With a
+with `stop_reason` `drawdown`, writes the account read beside it, is not a failure, and never trades again. With a
 position open and no equity read for 60 seconds the brake cannot be applied: the run stops, failed
 (`drawdown_unverified`); so does a position with no mark price of its contract for 60 seconds (`mark_missing`). The cash floor is 85% of
 the USDT wallet at the first arming: each entry still needs
@@ -289,6 +289,16 @@ start again checks the clock and account modes: on a flat account it builds the 
 seconds, until the account is flat (its stops, or a close at Binance), when `venue_flat_while_held` ends that start
 with exit 3 and the next one trades. A source cannot yet rebuild its state around an open position, so a held run
 waits for that. STOP during a held start ends it as `reconcile` does. Each step is a Telegram notice.
+
+A start killed after it journalled a stop that ends the run (`stopping` with any reason but `interrupted` and
+`rewarming`, in a start that traded) is started again only to finish that stop (`engine/live_stop.py`, issue 3521),
+also on a flat account and by every later start until one ends the run: no source, no entries. Once the account is
+verified it takes the STOP path with the begun stop's reason, through the run's registered identities: inherited
+entries are canceled, positions closed for what Binance still holds (after the latest bars were requested natively:
+the risk engine denies a market order on a contract without a price), protective orders kept until flat. It ends
+`clean_stop` (failed when the begun stop failed the run), `venue_flat` or `unresolved`; SIGTERM before the account is
+verified interrupts it like any start; a connection that cannot be verified ends it `unresolved`, as any start's. The STOP file still refuses a start again. Telegram and the Live page say that
+such a start only finishes the stop.
 
 A held start checks what protects the positions it inherited, and says so (`engine/live_connection.py`, finding
 20261114-24, the user 2026-11-15). When the hold begins, when the node has connected and at each 30-second read, the

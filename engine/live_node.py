@@ -11,7 +11,7 @@ from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig
 from engine import history, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import Credentials
-from engine.live_lifecycle import Observer
+from engine.live_lifecycle import Closer, Observer
 from engine.config import instrument_id
 from engine.live_records import strategy_ids
 from engine.realtime import node_base
@@ -80,7 +80,8 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
             # Register OMS before native cache load/reconciliation, including accepted entries
             # which have no first fill or position mapping yet. No old source is imported.
             for symbol, strategy in strategy_ids(manifest).items():
-                session.keepers[symbol] = Strategy(strategy_runtime.source_config(strategy))
+                config = strategy_runtime.source_config(strategy)
+                session.keepers[symbol] = Closer(session, config) if session.mode == "finish" else Strategy(config)
                 node.add_strategy(session.keepers[symbol])
     except BaseException:
         node.dispose()

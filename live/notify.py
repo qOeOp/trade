@@ -434,6 +434,8 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
     starts (engine.live, design §3.4)."""
     texts = {"interrupted": "was interrupted without closing: it closed no position and cancelled no stop at "
                             "Binance, and the control starts the run again.",
+             "finishing": "started again after it was killed while stopping: it closes its positions and is then over; "
+                          "it does not trade.",
              "venue_flat_while_held": "is flat at Binance again; the next start trades.",
              "rewarming": "missed a bar and holds no position: it starts again to warm up on Binance's complete bars.",
              "restart_limited": "was interrupted more than 3 times within an hour and is no longer started again "

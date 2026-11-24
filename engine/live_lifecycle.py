@@ -5,14 +5,15 @@ from decimal import Decimal
 from datetime import timedelta
 import time
 from nautilus_trader.common import SocketState
-from nautilus_trader.model import (AccountId, ClientId, OrderSide, OrderStatus, OrderType, PositionSide, Quantity,
+from nautilus_trader.model import (AccountId, BarType, ClientId, OrderSide, OrderStatus, OrderType, PositionSide, Quantity,
                                    StrategyId)
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_brake, live_commands as commands, live_connection
 from engine.live_commands import pending_orders
 from engine.config import MINUTE_NS, symbol_of
 from engine.live_records import contract, owned
-from engine.live_session import MARK_SECONDS, Session, STOP_GRACE_SECONDS
+from engine.live_session import CANCEL_RETRY_SECONDS, MARK_SECONDS, Session, STOP_GRACE_SECONDS
+from engine.live_source import native_event, resend_close
 
 # The periodic native account refresh. rc7's Redis cache appends every account state (about 0.85 KB) to a list it never
 # trims and reads whole at each start: every 10 s that is about 2.6 GB a year, every 60 s about 0.45 GB. Each entry's
@@ -28,7 +29,7 @@ def source_outcome(session: Session, cache) -> None:
     """Keep native failures authoritative and label the source's own declared findings. A finding an instance added
     while it handled the entry gate's own denial (engine.live_source) is journalled with the rest and does not fail
     the start: the denial was the product's, and the run goes on after it."""
-    if session.mode != "run":
+    if session.mode not in ("run", "finish"):
         return  # Old source failures do not invalidate a later successful flat reconciliation.
     # An entry the entry gate denied in any start (engine.live_connection.deny) is no native failure.
     gated = live_connection.denied_entries(session)
@@ -58,9 +59,38 @@ def source_outcome(session: Session, cache) -> None:
                       denied_or_rejected_native_orders=denied, failure_type=type(exc).__name__)
 
 
+class Closer(Strategy):
+    """An instance's identity in a start that finishes an earlier start's stop: no source, only the STOP path's closes,
+    followed as an instance's orders are (engine.live_source)."""
+
+    def __new__(cls, session: Session, config: StrategyConfig):
+        return super().__new__(cls, config)  # type: ignore[call-arg]  # native: (cls, config)
+
+    def __init__(self, session: Session, config: StrategyConfig):
+        super().__init__(config)
+        self.session = session
+
+    def on_order_event(self, event):
+        if type(event).__name__ in {"OrderDenied", "OrderRejected"}:
+            self.session.native_order_failure = self.session.failed = True
+            resend_close(self.session, self.cache, event)
+        self.record("order", event)
+
+    def on_position_event(self, event):
+        self.record("position", event)
+
+    def record(self, kind: str, event) -> None:
+        try:
+            payload = native_event(event)
+        except Exception:
+            self.session.failed = self.session.journal_failed = True
+        else:
+            self.session.event(kind, native=payload, strict=False)
+
+
 class Observer(Strategy):
-    """Observe native state; only a start with sources (a run's first, or a resumed one on a flat account) may ask them
-    to exit owned positions."""
+    """Observe native state; only a start with sources (a run's first, or a resumed one on a flat account), or one that
+    finishes an earlier start's stop, may exit owned positions."""
 
     def __init__(self, session: Session):
         super().__init__(StrategyConfig(strategy_id=StrategyId("LIVE-OBSERVER")))
@@ -121,8 +151,9 @@ class Observer(Strategy):
             self.observe()
         except Exception as exc:
             self.session.failed = True
-            self.session.begin_stop("observer_failure")
+            # It closes nothing: the ending event first, as in Session.lose_connection.
             self.session.event("unresolved", failure_type=type(exc).__name__, reason="observer_failure", strict=False)
+            self.session.begin_stop("observer_failure")
             # No retry of an ambiguous closing request; retain any venue protection and custody.
             try:
                 self.session.cancel_entries("observer_failure")
@@ -148,17 +179,18 @@ class Observer(Strategy):
                 if snapshot is None:
                     return
                 commands.verify_connected_account(session, snapshot)
-                if session.mode == "run" and live_connection.phantom(session, self.cache, snapshot):
+                if session.mode in ("run", "finish") and live_connection.phantom(session, self.cache, snapshot):
                     # A start again on a flat account whose reloaded cache still holds a position: its close came
                     # while no process heard it (finding 20261114-25). Nothing of this start is in flight.
                     live_connection.venue_flat_exit(session, snapshot)
+                session.finish_stop()
             except Exception:
                 session.lose_connection("connected_account_unverified")
                 return
         if healthy and now - self.last_query >= ACCOUNT_QUERY_SECONDS:
             self.query_account(AccountId(session.manifest["account_id"]))
             self.last_query = now
-        if session.mode == "run":
+        if session.mode in ("run", "finish"):
             session.follow_submissions(self.cache, now)
         if not session.observe_stop_intent():
             commands.dispatch_entry(session)
@@ -173,7 +205,7 @@ class Observer(Strategy):
                 return
         if getattr(session.account_observation, "purpose", None) != "stop":
             commands.discard_observation(session)
-        if session.mode in ("reconcile", "held") or not session.sources or session.venue_flat:
+        if session.mode not in ("run", "finish") or not (session.sources or session.keepers) or session.venue_flat:
             session.node.handle().stop()  # nothing to close: no source, or Binance holds nothing (venue_flat_exit)
             return
         positions = owned(self.cache.positions_open, session.manifest)
@@ -192,7 +224,8 @@ class Observer(Strategy):
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
         held = venue_held(session, positions) if positions else {}
         if not entries and not closing and held is not None:
-            for position in [found for found in positions if str(found.id) not in session.exits][:CLOSES_PER_TICK]:
+            for position in [found for found in positions if str(found.id) not in session.exits and (
+                    session.mode != "finish" or priced(self, found.instrument_id, now))][:CLOSES_PER_TICK]:
                 close_held(session, position, held)
         # A position Binance no longer holds (closed outside the run: by hand, a liquidation) is not closed again.
         if not [found for found in positions if str(found.id) not in session.phantoms] and not entries:
@@ -207,6 +240,19 @@ class Observer(Strategy):
             session.failed = True
             session.event("unresolved", reason="native_exit_timeout", strict=False)
             session.node.handle().stop()
+
+
+def priced(observer, instrument_id, now: float) -> bool:
+    """Whether the native risk engine can value a market order on the contract: it reads the cached quote, trade or bar
+    and denies the order without one. A finishing start follows no market data, so it asks for the latest bars, again
+    every CANCEL_RETRY_SECONDS until they are there."""
+    bars = BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL")
+    if observer.cache.bar(bars) is not None:
+        return True
+    if now - observer.session.priced.get(str(instrument_id), float("-inf")) >= CANCEL_RETRY_SECONDS:
+        observer.session.priced[str(instrument_id)] = now
+        observer.request_bars(bars, limit=2)
+    return False
 
 
 def venue_held(session, positions: list) -> dict | None:

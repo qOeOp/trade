@@ -326,9 +326,10 @@ class Sending(Base):
                     {"event": "venue_flat_while_held", "observed_ns": "3", "held": None},
                     {"event": "resuming", "observed_ns": "4", "held": False},
                     {"event": "held_flat", "observed_ns": "5", "held": None},
-                    {"event": "restart_limited", "observed_ns": "6", "held": None}]
+                    {"event": "restart_limited", "observed_ns": "6", "held": None},
+                    {"event": "finishing", "observed_ns": "7", "held": True}]
         texts = [text for key, text in notify.messages(run(restarts=restarts)) if ":restart:" in key]
-        self.assertEqual(len(texts), 5)  # held_flat only ends a start; venue_flat_while_held already said so
+        self.assertEqual(len(texts), 6)  # held_flat only ends a start; venue_flat_while_held already said so
         self.assertIn("interrupted without closing", texts[0])
         self.assertIn("The strategy no longer manages its exits and opens nothing", texts[1])
         self.assertIn("the next message says what the check found", texts[1])
@@ -339,6 +340,7 @@ class Sending(Base):
         self.assertIn("flat at Binance again", texts[2])
         self.assertIn("flat account", texts[3])
         self.assertIn("no longer started again automatically", texts[4])
+        self.assertIn("closes its positions and is then over", texts[5])
 
     def test_a_held_start_says_what_its_reads_show_of_the_stops_at_binance(self):
         """20261114-24: a passed and a failed check are different messages, and a position with no stop says so."""
