@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 
 from deploy import generation
-from deploy.update import (LEDGER, Cutover, Docker, main, paper_busy, plan, read_env, relation, removable,
+from deploy.update import (FIRST_START, LEDGER, Cutover, Docker, main, paper_busy, plan, read_env, relation, removable,
                            stale_replays)
 
 
@@ -136,6 +136,7 @@ class Workstation(Fake):
         self.volumes = {generation.VOLUME}
         self.started = False  # whether the version's ledger runs
         self.moves = True  # whether its publish moves a ledger 0.5.3 left onto main
+        self.first_start = ""  # the state its first-start port answers, "" without one
         self.main = True  # whether the version publishes on main (0.5.4 and later)
 
     def __call__(self, *args: str, check: bool = True) -> str:
@@ -163,6 +164,8 @@ class Workstation(Fake):
         if generation.WHERE in args:
             return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps(
                 {"remote": self.stored, "tracked": self.tracked, "line": self.ledger_line, "head": HEAD}))
+        if FIRST_START in args:
+            return SimpleNamespace(returncode=0 if self.first_start else 1, stderr="", stdout=f"{self.first_start}\n")
         if args[0] == "exec":
             if self.published and self.started and self.moves and self.tracked == ["v0.5"]:
                 self.tracked, self.ledger_line = ["main"], "v0.5"
@@ -437,6 +440,21 @@ class CutoverTests(unittest.TestCase):
         self.cutover.journal.write_text('{"phase": "done"}')
         with self.assertRaisesRegex(RuntimeError, "not a cutover journal"):
             self.cutover.pending()
+
+    def test_a_first_start_that_failed_is_started_again_by_the_next_update(self):
+        self.cutover.assess(self.running)
+        archived = {**self.cutover.begin({}, check=False), "phase": "archived"}
+        for state, again in (("waiting", True), ("blocked", True), ("running", False), ("done", False), ("", False)):
+            with self.subTest(state=state):
+                self.cutover.journal.write_text(json.dumps(archived))
+                self.docker.first_start = state
+                self.docker.calls.clear()
+                self.cutover.run(archived, ["compose"])
+                stops = [index for index, call in enumerate(self.docker.calls) if call == ("stop", LEDGER)]
+                self.assertEqual(len(stops), int(again))
+                if again:
+                    self.assertLess(stops[0], next(index for index, call in enumerate(self.docker.calls)
+                                                      if "up" in call))
 
     def test_a_cutover_pending_for_another_line_is_left_to_the_operator(self):
         self.cutover.assess(self.running)
