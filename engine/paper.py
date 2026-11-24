@@ -287,7 +287,7 @@ def _paper_clock(self):
     return PaperClock(Strategy.clock.__get__(self, type(self)), self)
 
 
-class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runtime.Subscriptions):
+class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, OrderRules, strategy_runtime.Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (the same source arguments as Replay).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
     would match the bars, as a replay's in the bar environment. Metrics come from REST (engine.metrics.Feed)."""
@@ -346,11 +346,10 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
             return None
         if SESSION and SESSION.submitted(order):
             return None
-        send = functools.partial(super().submit_order, order, position_id=position_id, client_id=client_id,
-                                 params=params)
+        send = functools.partial(super().submit_order, order, position_id, client_id, params)
         if order.is_reduce_only or not self._paper_entry_terms:
             return send()
-        return paper_terms.queue(self._paper_entry_terms, self._paper_instrument_id, order, send)
+        return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         if SESSION and SESSION.commanded():
@@ -998,6 +997,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         # reaches Paper's Sandbox too (finding 20261114-39).
         liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"]))
     node = builder.build()
+    paper_terms.add_gate(node)
     for inputs in planned:
         node.add_strategy(Holder(inputs, proxy_url) if session and session.held
                           else strategy_runtime.configure_strategy(loaded, inputs, paper_class))

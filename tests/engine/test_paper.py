@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderStatus, OrderType, Price,
+from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderSide, OrderStatus, OrderType, Price,
                                    TriggerType)
 
 from engine import klines, membership as membership_months, paper, paper_session, realtime
@@ -1045,6 +1045,77 @@ class EntryTermsTests(unittest.TestCase):
         self.sent.assert_not_called()
         self.journal.assert_called_once_with("entry_not_sent", reason="the run is stopping", instrument_id=str(IID),
                                              client_order_id="O-1")
+
+    def test_a_cancelled_waiting_entry_is_never_sent_and_is_ended_natively(self):
+        for sent_on, both, command in ((0, False, lambda source, name: source.cancel_order(name)),
+                                       (0, False, lambda source, name: source.cancel_orders(iter([name]))),
+                                       (1, False, lambda source, name: source.cancel_all_orders(IID, OrderSide.BUY)),
+                                       (1, True, lambda source, name: source.cancel_all_orders(IID, OrderSide.NO_ORDER_SIDE))):
+            answered = threading.Event()
+            source, order, other = self.source(), *(SimpleNamespace(
+                is_reduce_only=False, client_order_id=name, side=side) for name, side in
+                (("O-1", OrderSide.BUY), ("O-2", OrderSide.SELL)))
+            native = mock.Mock(return_value=None)
+            with self.subTest(command=command), \
+                    mock.patch.object(klines, "get_json", lambda *_, **__: answered.wait(10) and self.exchange("0.10")), \
+                    mock.patch.object(paper.OrderRules, "cancel_order", native), \
+                    mock.patch.object(paper.OrderRules, "cancel_orders", native), \
+                    mock.patch.object(paper.OrderRules, "cancel_all_orders", native), \
+                    mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
+                    mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: None)), \
+                    mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
+                    mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:
+                self.sent.reset_mock()
+                paper._PaperConfigured.submit_order(source, other)  # type: ignore[arg-type]
+                paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
+                command(source, "O-1")
+                ended.assert_not_called()  # after the source's callback, not within it
+                self.assertEqual(native.call_count, sent_on)  # a cancel of all also cancels the sent orders
+                answered.set()
+                self.tick()
+                self.assertEqual(ended.call_args_list[-1], mock.call(paper.paper_terms.CANCELLER, order, paper.paper_terms.ENTRY_GATE))
+                self.assertEqual(ended.call_count, 2 if both else 1)
+            self.assertEqual([call.args[0] for call in self.sent.call_args_list], [] if both else [other])
+            self.assertEqual(paper.paper_terms.QUEUE, [])
+        self.journal.assert_not_called()
+
+    def cancelled(self, answer, known=None):
+        order, native = SimpleNamespace(is_reduce_only=False, client_order_id="O-1"), mock.Mock(return_value=None)
+        source = self.source()
+        with mock.patch.object(klines, "get_json", return_value=answer), \
+                mock.patch.object(paper.OrderRules, "cancel_order", native), \
+                mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
+                mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: known)), \
+                mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
+                mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:
+            paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
+            source.cancel_order("O-1")  # type: ignore[arg-type]
+            self.tick()
+        self.sent.assert_not_called()
+        return ended, native
+
+    def test_a_cancelled_entrys_terms_still_refuse_and_stop_the_run(self):
+        ended, _ = self.cancelled(self.exchange("0.01"))
+        ended.assert_called_once()
+        self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
+
+    def test_a_cancelled_resubmission_cancels_the_order_the_native_cache_holds(self):
+        ended, native = self.cancelled(self.exchange("0.10"), known=object())
+        ended.assert_not_called()
+        native.assert_called_once_with("O-1", None, None)
+
+    def test_a_cancel_with_parameters_reaches_the_order_rules(self):
+        answered = threading.Event()
+        order, native = SimpleNamespace(is_reduce_only=False, client_order_id="O-1"), mock.Mock(return_value=None)
+        with mock.patch.object(klines, "get_json", lambda *_, **__: answered.wait(10) and self.exchange("0.10")), \
+                mock.patch.object(paper.OrderRules, "cancel_order", native):
+            source = self.source()
+            paper._PaperConfigured.submit_order(source, order)  # type: ignore[arg-type]
+            source.cancel_order("O-1", None, {"a": 1})  # type: ignore[arg-type]
+            answered.set()
+            self.tick()
+        native.assert_called_once()
+        self.sent.assert_called_once()
 
 
 class SandboxConfigTests(unittest.TestCase):
