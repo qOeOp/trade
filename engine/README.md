@@ -440,7 +440,8 @@ missing or the summary is unreadable. It reads the coverage receipt `input-cover
 report directory's parent: the entry-membership audit requires it even without lifecycle events;
 missing membership must not become unrestricted permission. With the receipt, `load.lifecycle_events` rebuilds the window's terminations from the
 exported episodes and checks them against the native counts (an episode needs the lifecycle bundle unless it is a
-derived stop, `load.derived_piece`: the contract's one piece, one CLOSE status at the close of its last exported bar); before each termination without a
+derived one, `load.derived_instruments`: the contract's one piece, stopped by one CLOSE status at the close of its last
+exported bar or resumed after a halt, or numbered pieces in time order, each but the last so stopped); before each termination without a
 settlement price (a CLOSE status with no `InstrumentClose`) every native position of the contract
 must be flat and every order filled or ended (`POSITION_OPEN_AT_TERMINATION`,
 `ORDER_OPEN_AT_TERMINATION`, one finding per order); an order created at or after any termination is

@@ -306,7 +306,12 @@ through the market day closes before the window's end and at least 7 days before
 nothing after the stop is exported. The stops depend on data after the window, so the export cache key holds the whole
 bar months after it through the market day too, and only a contract not in the cache has its stop derived. Of the month
 the market day falls inside it holds nothing when the window ends before it: each day's import writes that file again
-and refuses to change a row it held. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
+and refuses to change a row it held. Two stored trades at least 7 days apart (`history.trade_halts`; missing minutes
+count as untraded) end one span of trading and start the next (`export.trading_spans`). A window that meets several
+spans exports them as numbered pieces (`SYMBOL-E<n>-PERP.BINANCE`), each but the last ending with a derived CLOSE, each
+starting its daily warm-up with its own span; a window that meets one keeps the contract's name. After such a halt
+entries wait for the next UTC month (`engine.load.episode_membership`). `market bars` and the replay a Paper or Live
+run is compared with (`split_halts=False`) keep stored bars unsplit, as the run traded them. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
 written at the precision their prices need (Binance mark prices carry 8 decimals).
 
 Input preparation follows the declared execution environment: bars does not read or convert stored

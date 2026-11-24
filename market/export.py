@@ -84,19 +84,21 @@ def _keep(bars: dict[str, np.ndarray], keep: np.ndarray) -> dict[str, np.ndarray
 def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, start_ns: int, end_ns: int) -> list[dict]:
     """market.split_episodes: the pieces of one contract; with lifecycle episodes (market.validate_lifecycle's, in
     time order), one native contract per episode holding only its complete minutes and the funding settled inside it;
-    with a derived episode (market.derived_episode), the contract itself up to its stop."""
+    with one derived episode (market.derived_episode), the contract itself from its resumption and up to its stop."""
     if not episodes:
         return [{"index": None, "instrument_id": native_symbol(symbol), "episode": None, "low_ns": start_ns, "high_ns": end_ns, "catalog_dir": "", **series_}]
-    if len(episodes) == 1 and episodes[0].get("sources") == []:  # derived (market.derived_episode): the contract, cut at its stop
+    if len(episodes) == 1 and episodes[0].get("sources") == []:  # derived (market.derived_episode): the contract itself
         episode, stop = episodes[0], lifecycle.termination(episodes[0])
-        if stop is None or episode["instrument_id"] != native_symbol(symbol):
-            raise refuse("EPISODE_SHAPE", f"the derived episode of {symbol} is {episode['instrument_id']} without a stop",
-                         missing=(symbol,))
-        cut = stop // 1_000_000
-        return [{"index": None, "instrument_id": episode["instrument_id"], "episode": episode, "low_ns": start_ns,
-                 "high_ns": stop, "catalog_dir": "", "last": _inside(series_["last"], 0, cut),
-                 "mark": _inside(series_["mark"], 0, cut),
-                 "funding": [(at, rate) for at, rate in series_["funding"] if at < cut]}]
+        low = episode["start_ns"] // 1_000_000
+        if (stop is None and not low) or episode["instrument_id"] != native_symbol(symbol):
+            raise refuse("EPISODE_SHAPE", f"the derived episode of {symbol} is {episode['instrument_id']} without a stop "
+                                          "or a resumption", missing=(symbol,))
+        cut = None if stop is None else stop // 1_000_000
+        return [{"index": None, "instrument_id": episode["instrument_id"], "episode": episode,
+                 "low_ns": max(start_ns, episode["start_ns"]), "high_ns": end_ns if stop is None else stop,
+                 "catalog_dir": "", "last": _inside(series_["last"], low, cut),
+                 "mark": _inside(series_["mark"], low, cut),
+                 "funding": [(at, rate) for at, rate in series_["funding"] if at >= low and (cut is None or at < cut)]}]
     pieces: list[dict] = []
     for index, episode in enumerate(episodes, start=1):
         native = native_symbol(symbol, index)
@@ -113,6 +115,28 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
                        "funding": [(at, rate) for at, rate in series_["funding"]
                                    if at >= low and (high is None or at < high)]})
     return pieces
+
+
+def trading_spans(symbol: str, halts: list[tuple[int, int]], stop: int | None, start_ns: int, end_ns: int
+                  ) -> tuple[list[dict], list[tuple[int, int | None]]]:
+    """market.trading_spans: (derived episodes, the daily warm-up cut of each piece) of a contract no bundle lists, from
+    where its stored trades halted and resumed before the window's end (market.trade_halts) and where they are stopped
+    at it (market.data_end_stops). Only the spans of trading that meet the window [start_ns, end_ns) become pieces: one
+    stays the contract itself, several are numbered in time order. A span's daily warm-up starts with the span."""
+    edges = [0, *(resumed for _, resumed in halts)]
+    # A resumption in the window's last minute ends the span `stop` names: the newest span has traded since.
+    ends: list[int | None] = [*(stopped for stopped, _ in halts), stop if stop is not None and stop > edges[-1] else None]
+    start, end = start_ns // 1_000_000, end_ns // 1_000_000
+    spans = list(zip(edges, ends, strict=True))
+    inside = [(low, high) for low, high in spans if low < end and (high is None or high > start)] or spans[-1:]
+    # A resumption in the window's first month is stated too: that month's members were fixed before it.
+    month = clock.day_ms(clock.ms_day(start).replace(day=1))
+    if len(inside) == 1 and inside[0][0] < month and inside[0][1] is None:
+        return [], inside
+    return [lifecycle.derived_episode(symbol, native_symbol(symbol, index if len(inside) > 1 else None),
+                                      None if high is None else high * 1_000_000,
+                                      low * 1_000_000 if low >= month else 0)
+            for index, (low, high) in enumerate(inside, start=1)], inside
 
 
 # Writing a Catalog (market.write_bars, market.write_marks, market.write_funding)
@@ -501,7 +525,7 @@ def _export_episode(job: dict, path: Path) -> dict:
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
     market = files.open_market(job["profile"], "reader")
     stored = job.get("history") or history.contract_history(
-        market, market_day, {symbol: history.daily_cuts(job.get("episodes"))}, start, end)[symbol]
+        market, market_day, {symbol: job.get("cuts") or history.daily_cuts(job.get("episodes"))}, start, end)[symbol]
     terms = instrument.terms(market, market_day, symbol, any(first is not None for first, _ in stored["edges"].values()))
     bars = coverage.read_series(market, market_day, symbol, start, end)
     raw: dict[str, Any]
@@ -628,12 +652,14 @@ def files_read(market: files.Market, market_day: str, symbols: list[str], end_ms
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
                     fresh: bool = False, root: Path | None = None, workers: int = 4, *,
-                    include_quotes: bool = True, include_trades: bool = False, include_metrics: bool = False) -> dict:
+                    include_quotes: bool = True, include_trades: bool = False, include_metrics: bool = False,
+                    split_halts: bool = True) -> dict:
     """market.export_catalogs: each contract's Catalogs and receipt at one market day for [start_ns, end_ns),
     from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/.
     `include_quotes=False` omits unused quote conversion for bars execution; `include_trades` adds every stored
     aggregate trade as a TradeTick and its count, `include_metrics` every visible metrics row and its count (the
-    receipt names the visibility rule); all other inputs are unchanged.
+    receipt names the visibility rule); `split_halts=False` keeps a contract that halted and traded again whole, as a
+    Paper or Live run trades it; all other inputs are unchanged.
     """
     step = MINUTE * 1_000_000
     if type(start_ns) is not int or type(end_ns) is not int or start_ns >= end_ns or start_ns % step or end_ns % step:
@@ -649,7 +675,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
         key = (f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}"
-               f"{'-m1' if include_metrics else ''}-x{exporter_sha256()[:16]}-f")
+               f"{'-m1' if include_metrics else ''}{'' if split_halts else '-h0'}-x{exporter_sha256()[:16]}-f")
         key += files_read(market, market_day, symbols, end_ns // 1_000_000, tuple(
             table for table, wanted in (("quote", include_quotes), ("agg_trade", include_trades),
                                         ("metrics", include_metrics)) if wanted))[:16]
@@ -671,23 +697,33 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         if jobs:
             missed = [job["symbol"] for job in jobs]
             # A contract no bundle lists whose stored trades stopped ends at its stop (market.data_end_stops).
-            stops = history.data_end_stops(market, market_day, [symbol for symbol in missed if symbol not in (episodes or {})],
-                                           end_ns // 1_000_000)
-            derived = {symbol: [lifecycle.derived_episode(symbol, native_symbol(symbol), stop * 1_000_000)]
-                       for symbol, stop in stops.items()}
+            # One that halted and traded again before the window's end is split there (market.trade_halts).
+            unlisted = [symbol for symbol in missed if symbol not in (episodes or {})]
+            # Unsplit, only one that never traded again stopped: asked at the market day's end, not the window's.
+            stops_at = end_ns // 1_000_000 if split_halts else files.day_end("bar", market_day) + MINUTE
+            stops = {symbol: stop for symbol, stop in history.data_end_stops(market, market_day, unlisted, stops_at).items()
+                     if stop < end_ns // 1_000_000}
             months: dict[str, list] = {symbol: [] for symbol in missed}
             for month, member in universe.months_of(market, market_day):
                 if member in months:
                     months[member].append(month)
             for job in jobs:
-                job["episodes"] = (episodes or {}).get(job["symbol"]) or derived.get(job["symbol"])
                 job["months"] = months[job["symbol"]]
             # spawn: Linux's default forkserver chmods a socket under TMPDIR, which paper's TMPDIR, a macOS bind
             # mount, refuses (EINVAL, measured).
             with ProcessPoolExecutor(max(1, workers), mp_context=multiprocessing.get_context("spawn")) as pool:
+                halts = history.trade_halts(market, market_day, unlisted, end_ns // 1_000_000, pool) \
+                    if split_halts else {}
+                for job in jobs:
+                    symbol = job["symbol"]
+                    if symbol in (episodes or {}):
+                        job["episodes"] = (episodes or {})[symbol]
+                        job["cuts"] = history.daily_cuts(job["episodes"])
+                    else:
+                        job["episodes"], job["cuts"] = trading_spans(symbol, halts.get(symbol, []), stops.get(symbol),
+                                                                     start_ns, end_ns)
                 # One read of each bar file for every contract (a file holds them all), not one per contract.
-                stored = history.contract_history(market, market_day, {job["symbol"]: history.daily_cuts(job["episodes"])
-                                                                       for job in jobs},
+                stored = history.contract_history(market, market_day, {job["symbol"]: job["cuts"] for job in jobs},
                                                   start_ns // 1_000_000, end_ns // 1_000_000, pool)
                 for job in jobs:
                     job["history"] = stored[job["symbol"]]

@@ -5,6 +5,7 @@ lifecycle events checked against the coverage receipt."""
 from __future__ import annotations
 
 import ast
+from datetime import UTC, datetime
 import hashlib
 import importlib.util
 import inspect
@@ -323,10 +324,14 @@ def trading_end(episode: dict | None, end_ns: int) -> int:
 
 def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | None) -> tuple[tuple[int, int], ...]:
     """engine.episode_membership: membership cut at the listing and at the termination or an earlier
-    PRE_CLOSE; empty intervals are dropped."""
+    PRE_CLOSE; empty intervals are dropped. After a derived halt (no source) it starts with the next UTC month: the month's
+    members were fixed at its start, when the contract did not trade."""
     if episode is None:
         return tuple(intervals)
     low = episode.get("start_ns") or 0
+    if low and episode.get("sources") == []:
+        resumed = datetime.fromtimestamp(low // 1_000_000_000, UTC)
+        low = int(datetime(resumed.year + resumed.month // 12, resumed.month % 12 + 1, 1, tzinfo=UTC).timestamp()) * 10**9
     stops = [termination(episode), *(int(event["ts_event"]) for event in episode.get("events") or ()
                                      if event.get("action") == "PRE_CLOSE")]
     high = min((stop for stop in stops if stop is not None), default=None)
@@ -338,19 +343,40 @@ def episode_membership(intervals: tuple[tuple[int, int], ...], episode: dict | N
     return tuple(found)
 
 
-def derived_piece(piece) -> bool:
-    """engine.derived_piece: an exported contract whose episode the exporter derived from where its stored trades end
-    (no evidence bundle): the contract's one piece, no listing clock or source, one CLOSE status (no price) at the
-    close of its last exported bar, or with no bar in the window."""
+def _derived_span(piece) -> bool:
+    """Whether a piece's episode is one the exporter derived from stored trades (no evidence bundle): no source, no
+    exported bar before its start, and at most one event, a CLOSE status (no price) at the close of
+    its last exported bar, or with no bar in the window."""
     episode = piece.get("episode") if isinstance(piece, dict) else None
-    if (not isinstance(episode, dict) or piece.get("index") is not None or episode.get("sources") != []
-            or episode.get("start_ns") != 0 or not isinstance(episode.get("events"), list)
-            or len(episode["events"]) != 1):
+    if (not isinstance(episode, dict) or episode.get("sources") != [] or type(episode.get("start_ns")) is not int
+            or not isinstance(episode.get("events"), list) or len(episode["events"]) > 1
+            or episode.get("instrument_id") != piece.get("instrument_id")):
         return False
-    event, last = episode["events"][0], piece.get("last_bar_ns")
+    start, first, last = episode["start_ns"], piece.get("first_bar_ns"), piece.get("last_bar_ns")
+    if first is not None and first < start:
+        return False
+    if not episode["events"]:
+        return True
+    event = episode["events"][0]
     return (isinstance(event, dict) and event.get("type") == "InstrumentStatus" and event.get("action") == "CLOSE"
-            and event.get("instrument_id") == piece.get("instrument_id") == episode.get("instrument_id")
+            and event.get("instrument_id") == piece.get("instrument_id")
             and type(event.get("ts_event")) is int and (last is None or event["ts_event"] == last + 1_000_000))
+
+
+def derived_instruments(pieces) -> set[str]:
+    """engine.derived_instruments: the instruments of a contract's exported pieces whose episodes the exporter derived
+    from where its stored trades end and resume: the contract's one piece, which then stops or resumes in the window,
+    or numbered pieces in time order, each but the last stopped before the next starts. Empty otherwise."""
+    if not isinstance(pieces, list) or not pieces or not all(_derived_span(piece) for piece in pieces):
+        return set()
+    if len(pieces) == 1:
+        episode = pieces[0]["episode"]
+        ok = pieces[0].get("index") is None and bool(episode["start_ns"] or episode["events"])
+    else:
+        ok = all(piece.get("index") == number for number, piece in enumerate(pieces, start=1)) and all(
+            (stop := termination(before["episode"])) is not None and 0 < stop < after["episode"]["start_ns"]
+            for before, after in zip(pieces, pieces[1:], strict=False))
+    return {piece["instrument_id"] for piece in pieces} if ok else set()
 
 
 def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, int], ...]]:
@@ -381,12 +407,13 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
         pieces = receipt["pieces"]
         if not isinstance(pieces, list) or not pieces:
             raise ValueError(f"{symbol}: no exported instances")
+        derived = derived_instruments(pieces)
         for piece in pieces:
             instrument, episode = piece["instrument_id"], piece.get("episode")
             if not isinstance(instrument, str) or not instrument or instrument in allowed:
                 raise ValueError(f"{symbol}: exported instrument is missing or repeats")
             if episode is not None:
-                if (not (coverage["input_identity"].get("lifecycle_bundle") or derived_piece(piece))
+                if (not (coverage["input_identity"].get("lifecycle_bundle") or instrument in derived)
                         or not isinstance(episode, dict) or episode["instrument_id"] != instrument
                         or type(episode["start_ns"]) is not int):
                     raise ValueError(f"{symbol}: episode is not the trusted exported instrument")
@@ -514,7 +541,7 @@ def _native_counts(summary: dict) -> dict[str, dict[str, int]]:
 def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     """engine.lifecycle_events: the window's terminations (InstrumentClose, InstrumentStatus CLOSE) by clock.
 
-    Without a lifecycle bundle every native count must be zero except a derived piece's (engine.derived_piece).
+    Without a lifecycle bundle every native count must be zero except a derived piece's (engine.derived_instruments).
     With a bundle or a derived piece, the receipt's window and market day equal the summary's, each counted instance
     has exactly one exported episode whose counts equal the native counts, and every event in the window is a native
     event.
@@ -524,8 +551,8 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     bundle = isinstance(identity, dict) and bool(identity.get("lifecycle_bundle"))
     receipts = coverage["export_receipts"] if isinstance(coverage, dict) and isinstance(
         coverage.get("export_receipts"), dict) else {}
-    derived = {piece["instrument_id"] for receipt in receipts.values() if isinstance(receipt, dict)
-               for piece in receipt.get("pieces") or () if derived_piece(piece)}
+    derived = {instrument for receipt in receipts.values() if isinstance(receipt, dict)
+               for instrument in derived_instruments(receipt.get("pieces"))}
     if not bundle:
         nonzero = sorted(instrument for instrument, values in native.items()
                          if any(values.values()) and instrument not in derived)
@@ -551,7 +578,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
             episode = piece.get("episode") if isinstance(piece, dict) else None
             if episode is None:
                 continue
-            if not bundle and not derived_piece(piece):
+            if not bundle and piece.get("instrument_id") not in derived:
                 raise Refusal("LIFECYCLE_BUNDLE_MISSING", f"{symbol}: an episode without a lifecycle bundle")
             instrument = piece.get("instrument_id")
             if not isinstance(episode, dict) or episode.get("instrument_id") != instrument or instrument in represented:

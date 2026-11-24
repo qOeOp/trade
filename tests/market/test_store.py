@@ -455,7 +455,7 @@ class ImportTests(unittest.TestCase):
 
     def test_a_contract_whose_trades_stopped_ends_there_without_a_bundle(self):
         from engine import run
-        from engine.load import derived_piece, read_market
+        from engine.load import derived_instruments, read_market
         day, iid = self.market_days[MAR], "CCCUSDT-PERP.BINANCE"
         start, end = ns(FEB), ns(date(2025, 2, 15))
         done = export.export_catalogs(self.profile, day, ["CCCUSDT", "BTCUSDT"], start, end, fresh=True)
@@ -465,7 +465,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(piece["episode"], lifecycle.derived_episode("CCCUSDT", iid, DELISTED * 1_000_000))
         self.assertEqual((piece["counts"]["instrument_status"], piece["counts"]["instrument_close"],
                           piece["last_bar_ns"]), (1, 0, DELISTED * 1_000_000 - 1_000_000))
-        self.assertTrue(derived_piece(piece))
+        self.assertEqual(derived_instruments([piece]), {iid})
         self.assertIsNone(done["receipts"]["BTCUSDT"]["pieces"][0]["episode"])  # it trades on
         rows = read_market(Path(done["root"]), ["CCCUSDT"], day, start, end)
         last = list(run.market_events(rows, start, end))[-1]
@@ -480,8 +480,102 @@ class ImportTests(unittest.TestCase):
         piece, = after["receipts"]["CCCUSDT"]["pieces"]
         self.assertEqual((piece["last_bar_ns"], piece["counts"]["last"], piece["counts"]["instrument_status"]),
                          (None, 0, 0))
-        self.assertTrue(derived_piece(piece))
-        self.assertFalse(derived_piece({**piece, "episode": {**piece["episode"], "sources": ["notice.txt"]}}))
+        self.assertEqual(derived_instruments([piece]), {iid})
+        self.assertEqual(derived_instruments([{**piece, "episode": {**piece["episode"], "sources": ["notice.txt"]}}]), set())
+
+
+class HaltTests(unittest.TestCase):
+    """CCCUSDT stops on 2025-02-10, shows zero-volume minutes for a week and trades again from 2025-03-05."""
+
+    RESUMED = day_ms(date(2025, 3, 5))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.profile, cache = directory(cls.addClassCleanup), tempdir(cls.addClassCleanup, prefix="market-cache-")
+        found = exchange()
+        filler = [(*row[:5], "0", *row[6:]) for row in minutes(DELISTED, DELISTED + 7 * DAY)]
+        found.klines("monthly", "LAST", "CCCUSDT", "2025-02", minutes(day_ms(FEB), DELISTED) + filler)
+        found.klines("monthly", "LAST", "CCCUSDT", "2025-03", minutes(cls.RESUMED, day_ms(APR), base=7.0))
+        found.klines("monthly", "MARK", "CCCUSDT", "2025-03", minutes(cls.RESUMED, day_ms(APR), mark=True, base=7.0))
+        found.funding_month("CCCUSDT", "2025-03", [(at + 3, "0.0001") for at in range(cls.RESUMED, day_ms(APR),
+                                                                                     EIGHT_HOURS)])
+        with serving(found):
+            for month in (JAN, FEB, MAR):
+                done = store.import_month(cls.profile, month, cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
+        cls.day = done["market_day"]
+        # the first traded minute: every 7th LAST minute does not trade, the stop's last minute included
+        traded = [row[0] for row in minutes(day_ms(JAN), DELISTED) if row[5] != "0"]
+        cls.stop = traded[-1] + MINUTE
+        cls.start = next(row[0] for row in minutes(cls.RESUMED, cls.RESUMED + DAY) if row[5] != "0")
+
+    def exported(self, start: date, end: date) -> tuple[dict, list[dict]]:
+        done = export.export_catalogs(self.profile, self.day, ["CCCUSDT", "BTCUSDT"], ns(start), ns(end), fresh=True)
+        self.addCleanup(shutil.rmtree, done["root"], True)
+        self.assertIsNone(done["receipts"]["BTCUSDT"]["pieces"][0]["episode"])
+        return done, done["receipts"]["CCCUSDT"]["pieces"]
+
+    def test_a_halt_inside_the_window_splits_the_contract(self):
+        from engine.load import derived_instruments, read_market
+        done, pieces = self.exported(FEB, date(2025, 3, 20))
+        first, second = "CCCUSDT-E1-PERP.BINANCE", "CCCUSDT-E2-PERP.BINANCE"
+        self.assertEqual([piece["episode"] for piece in pieces],
+                         [lifecycle.derived_episode("CCCUSDT", first, self.stop * 1_000_000),
+                          lifecycle.derived_episode("CCCUSDT", second, None, self.start * 1_000_000)])
+        self.assertEqual(pieces[0]["last_bar_ns"], self.stop * 1_000_000 - 1_000_000)  # no zero-volume tail
+        self.assertEqual(pieces[1]["first_bar_ns"], (self.start + MINUTE - 1) * 1_000_000)
+        self.assertEqual([piece["counts"]["instrument_status"] for piece in pieces], [1, 0])
+        self.assertEqual(derived_instruments(pieces), {first, second})
+        rows = read_market(Path(done["root"]), ["CCCUSDT"], self.day, ns(FEB), ns(date(2025, 3, 20)))
+        self.assertEqual([str(row["instrument_id"]) for row in rows], [first, second])
+        # the second's daily warm-up holds its own days only: 5..19 March
+        self.assertEqual(pieces[1]["counts"]["daily"], 15)
+        for broken in (pieces[::-1], pieces[1:], [pieces[0], {**pieces[1], "episode": {
+                **pieces[1]["episode"], "start_ns": self.stop * 1_000_000}}], [{**pieces[0], "episode": {
+                **pieces[0]["episode"], "events": []}}, pieces[1]]):
+            self.assertEqual(derived_instruments(broken), set())
+
+    def test_a_window_that_meets_one_span_keeps_the_contracts_name(self):
+        from engine.load import derived_instruments
+        name = "CCCUSDT-PERP.BINANCE"
+        for label, start, end, episode in (
+                ("before the halt", JAN, date(2025, 2, 5), None),
+                ("ends in the halt", JAN, date(2025, 3, 1),
+                 lifecycle.derived_episode("CCCUSDT", name, self.stop * 1_000_000)),
+                ("in the halt", date(2025, 2, 12), date(2025, 2, 25),
+                 lifecycle.derived_episode("CCCUSDT", name, self.stop * 1_000_000)),
+                ("starts in the halt", date(2025, 2, 12), date(2025, 3, 20),
+                 lifecycle.derived_episode("CCCUSDT", name, None, self.start * 1_000_000)),
+                ("after it, the same month", date(2025, 3, 10), date(2025, 3, 20),
+                 lifecycle.derived_episode("CCCUSDT", name, None, self.start * 1_000_000))):
+            with self.subTest(label):
+                _, (piece,) = self.exported(start, end)
+                self.assertEqual((piece["index"], piece["instrument_id"], piece["episode"]), (None, name, episode))
+                self.assertEqual(derived_instruments([piece]), {name} if episode else set())
+                if episode and episode["start_ns"]:
+                    self.assertGreaterEqual(piece["first_bar_ns"], episode["start_ns"])
+                    self.assertEqual(piece["counts"]["daily"], 15)
+
+    def test_the_replay_a_run_is_compared_with_keeps_the_contract_whole(self):
+        done = export.export_catalogs(self.profile, self.day, ["CCCUSDT"], ns(FEB), ns(date(2025, 3, 20)), fresh=True,
+                                      split_halts=False)
+        self.addCleanup(shutil.rmtree, done["root"], True)
+        piece, = done["receipts"]["CCCUSDT"]["pieces"]
+        self.assertEqual((piece["instrument_id"], piece["episode"]), ("CCCUSDT-PERP.BINANCE", None))
+        self.assertGreater(piece["counts"]["daily"], 15 + 40)
+
+    def test_a_resumption_at_a_month_start_waits_whatever_the_window_start(self):
+        feb, halt = day_ms(FEB), [(day_ms(FEB) + 5 * DAY, day_ms(MAR))]
+        for start in (feb, day_ms(MAR), day_ms(MAR) + 5 * DAY):
+            episodes, _ = export.trading_spans("CCCUSDT", halt, None, start * 1_000_000, ns(APR))
+            self.assertEqual(episodes[-1]["start_ns"], ns(MAR))
+
+    def test_membership_waits_for_the_month_after_a_resumption(self):
+        from engine.load import episode_membership
+        resumed = lifecycle.derived_episode("CCCUSDT", "CCCUSDT-PERP.BINANCE", None, self.start * 1_000_000)
+        self.assertEqual(episode_membership(((ns(MAR), ns(APR)),), resumed), ())
+        self.assertEqual(episode_membership(((ns(MAR), ns(date(2025, 6, 1))),), resumed), ((ns(APR), ns(date(2025, 6, 1))),))
+        stated = {**resumed, "sources": ["notice.txt"]}
+        self.assertEqual(episode_membership(((ns(MAR), ns(APR)),), stated), ((self.start * 1_000_000, ns(APR)),))
 
 
 def stamps(market: dict) -> dict:
