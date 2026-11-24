@@ -392,11 +392,13 @@ RESEAL = "reseal"  # the write kind of a reseal: db.write commits it as `reseal:
 
 
 def reseal_reading(conn: db.LedgerConnection, trial_id: int, reproduction_id: int, workdir: Path,
-                   capture: Mapping, checkout: Path | None) -> dict:
+                   capture: Mapping, checkout: Path | None,
+                   admit: Callable[[db.LedgerConnection, int], None]) -> dict:
     """Replace the reading of the passed run `trial_id` with the report the current metrics code (`checkout`'s HEAD)
     computes from the verified files of its reproduction `reproduction_id` in `workdir`, in one `reseal:<op_id>`
-    commit; a reading the current code computes alike is left as it is. Returns {product_commit,
-    previous_product_commit, resealed, ledger_commit[, op_id]}."""
+    commit; a reading the current code computes alike is left as it is. `admit` is called inside the write
+    after the update, with the trial, and refuses a reading that may not be stored (as in ingest_run). Returns
+    {product_commit, previous_product_commit, resealed, ledger_commit[, op_id]}."""
     files = _verified_files(execution.read_capture(conn, reproduction_id), reproduction_id, workdir)
     reasons, sealed = _sealed_report(capture, trial_id, files, checkout)
     if reasons:
@@ -416,6 +418,7 @@ def reseal_reading(conn: db.LedgerConnection, trial_id: int, reproduction_id: in
     def update(c, op_id):
         c.rows("UPDATE run_reading SET report = %s, product_commit = %s, op_id = %s WHERE trial_id = %s",
                (db.canonical_json(report), revision, op_id, trial_id))
+        admit(c, trial_id)
         return {"trial_id": trial_id}
 
     written = db.write(conn, RESEAL, payload, "run_reading", update, attempts=db.WRITE_ATTEMPTS)

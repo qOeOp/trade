@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 
 from ledger import db, execution, strategies, witness
 from ledger import trials
@@ -138,9 +139,11 @@ def _require_retryable_chain(conn: db.LedgerConnection, retried: dict) -> None:
                          missing=(str(retried["registration_id"]), str(item["registration_id"])))
 
 
-def require_unretried(conn: db.LedgerConnection, trial_id: int) -> None:
-    """Inside a run's write, after its rows: refuse a validation run that counts (it could not be retried) once a
-    later registration of its chain retries the attempt, which had a capture and no run then."""
+def require_unretried(conn: db.LedgerConnection, trial_id: int, *,
+                      write_status: Literal["not_written", "written"] = "not_written") -> None:
+    """Inside the write of a run or of its resealed reading, after its rows: refuse a validation run that counts (it
+    could not be retried) once a later registration of its chain retries the attempt. `write_status`: "written" when
+    the command has committed something before (a reseal's reproduction trial)."""
     registration = conn.one("SELECT g.* FROM validation_registration g JOIN trial t ON t.validation_registration_id = "
                             "g.registration_id WHERE t.trial_id = %s", (trial_id,))
     if registration is None:
@@ -148,9 +151,10 @@ def require_unretried(conn: db.LedgerConnection, trial_id: int) -> None:
     later = [item["registration_id"] for item in _retry_chain(conn, registration)
              if item["registration_id"] > registration["registration_id"]]
     if later and not register.retryable(conn, trial_id):
-        raise refuse("RETRY_NOT_ALLOWED", f"the run of trial {trial_id} cannot be stored: registration {later[0]} "
-                                          f"retries registration {registration['registration_id']}, whose attempt had "
-                                          "no run; the attempt stays captured and the retry is the one that counts",
+        raise refuse("RETRY_NOT_ALLOWED", f"the run of trial {trial_id} cannot be stored or resealed as one that counts: "
+                                          f"registration {later[0]} retries registration "
+                                          f"{registration['registration_id']}; the attempt stays as it was and the "
+                                          "retry is the one that counts", write_status=write_status,
                      missing=(str(registration["registration_id"]), str(later[0])))
 
 
