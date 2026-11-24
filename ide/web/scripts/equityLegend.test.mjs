@@ -16,7 +16,7 @@ function legend(scale, more = {}) {
     reading: { balance: (equity - open) * scale, before: (equity + costs) * scale, hold: null, exposure: null, margin: null },
     hold: null, onHold() {}, starting: 100000, replayed: new Map(), step: 60, many: false, ret: undefined, aside: null,
   };
-  return renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(EquityLegend, { ...props, ...more }))).replace(/<[^>]*>/g, "");
+  return renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(EquityLegend, { ...props, ...more }))).split(/<[^>]*>/).join("");
 }
 
 test("20261106-02: normalized and unscaled charts show the same real paper equity and open profit", () => {
