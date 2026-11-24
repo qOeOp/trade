@@ -295,7 +295,8 @@ def _sealed_report(capture: Mapping, trial_id: int, files: Mapping[str, bytes],
 
 
 def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_identity: Mapping, *,
-               host_reasons: list[dict] | tuple = (), checkout: Path | None = None) -> dict:
+               host_reasons: list[dict] | tuple = (), checkout: Path | None = None,
+               admit: Callable[[db.LedgerConnection, int], None] | None = None) -> dict:
     """Store one sealed replay as a run in one write; returns {trial_id, status, failure_reasons}.
 
     Only the trial's original capture decides: its stages, outcome, audit result, runtime failures,
@@ -306,6 +307,8 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
     they only add reasons. The effective configuration and its hash come from the start receipt's
     sealed coverage receipt (`engine.config.config_sha256`), never from the caller. `checkout` is the
     product checkout whose HEAD names the metrics code (default: this repository).
+    `admit` is called inside the write after the run's rows, with the trial, and refuses a run that may not be
+    stored (registration.validation.require_unretried, a layer above).
     """
     workdir = Path(workdir)
     trial = _run_trial(conn, trial_id, require_new=False)  # a retry of the same write replays below
@@ -376,6 +379,8 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
                          row["ts_closed_ns"], row["realized_pnl"], row["commissions"], row["funding"],
                          row["open_unrealized"], row["plan_tag"], row["closing_order_type"], row["closing_order_tag"])
                         for row in cycle_rows])
+        if admit is not None:
+            admit(c, trial_id)
         return {"trial_id": trial_id, "status": status, "failure_reasons": reasons}
 
     written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row),

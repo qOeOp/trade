@@ -116,22 +116,42 @@ def birth_commit(conn: db.LedgerConnection, registration_id: int) -> str | None:
     return found[0][0] if found else None
 
 
+def _retry_chain(conn: db.LedgerConnection, registration: dict) -> list[dict]:
+    """Every registration with this one's original, siblings included, in order, each with its trial_id or None."""
+    origin = original_registration(conn, registration)["registration_id"]
+    return [item for item in conn.dicts(
+        "SELECT g.registration_id, g.retry_of, t.trial_id FROM validation_registration g LEFT JOIN trial t ON "
+        "t.validation_registration_id = g.registration_id WHERE g.source_sha256 = %s AND g.universe_rule = %s AND "
+        "g.window_start = %s AND g.window_end = %s ORDER BY g.registration_id",
+        (registration["source_sha256"], registration["universe_rule"], registration["window_start"],
+         registration["window_end"])) if original_registration(conn, item)["registration_id"] == origin]
+
+
 def _require_retryable_chain(conn: db.LedgerConnection, retried: dict) -> None:
     """Inside the retry's write: every registration with the retried one's original, siblings included, has
     consumed its attempt and none of those attempts counts."""
-    origin = original_registration(conn, retried)["registration_id"]
-    for item in conn.dicts("SELECT g.registration_id, g.retry_of, t.trial_id FROM validation_registration g LEFT JOIN "
-                           "trial t ON t.validation_registration_id = g.registration_id WHERE g.source_sha256 = %s "
-                           "AND g.universe_rule = %s AND g.window_start = %s AND g.window_end = %s "
-                           "ORDER BY g.registration_id", (retried["source_sha256"], retried["universe_rule"],
-                                                          retried["window_start"], retried["window_end"])):
-        if original_registration(conn, item)["registration_id"] != origin:
-            continue
+    for item in _retry_chain(conn, retried):
         if item["trial_id"] is None or not register.retryable(conn, item["trial_id"]):
             why = "is not bound yet" if item["trial_id"] is None else f"has trial {item['trial_id']}, not retryable"
             raise refuse("RETRY_NOT_ALLOWED", f"registration {retried['registration_id']} cannot be retried: "
                                               f"registration {item['registration_id']} on its retry chain {why}",
                          missing=(str(retried["registration_id"]), str(item["registration_id"])))
+
+
+def require_unretried(conn: db.LedgerConnection, trial_id: int) -> None:
+    """Inside a run's write, after its rows: refuse a validation run that counts (it could not be retried) once a
+    later registration of its chain retries the attempt, which had a capture and no run then."""
+    registration = conn.one("SELECT g.* FROM validation_registration g JOIN trial t ON t.validation_registration_id = "
+                            "g.registration_id WHERE t.trial_id = %s", (trial_id,))
+    if registration is None:
+        return
+    later = [item["registration_id"] for item in _retry_chain(conn, registration)
+             if item["registration_id"] > registration["registration_id"]]
+    if later and not register.retryable(conn, trial_id):
+        raise refuse("RETRY_NOT_ALLOWED", f"the run of trial {trial_id} cannot be stored: registration {later[0]} "
+                                          f"retries registration {registration['registration_id']}, whose attempt had "
+                                          "no run; the attempt stays captured and the retry is the one that counts",
+                     missing=(str(registration["registration_id"]), str(later[0])))
 
 
 def _same_registration(conn: db.LedgerConnection, prior: Mapping, payload: Mapping) -> bool:

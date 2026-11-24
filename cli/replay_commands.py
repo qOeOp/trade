@@ -163,7 +163,8 @@ COMMANDS = [
         "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; STALE_CHECKOUT (research: HEAD is not the fetched "
         "origin/main or the work tree is not clean; validation: HEAD lacks the remote's main); "
         "validation: RUNTIME_NOT_MAIN, "
-        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed, or, for a "
+        "REGISTRATION_CONSUMED, WINDOW_MISMATCH, RETRY_NOT_ALLOWED (a retry was registered before this run was "
+        "stored); LINE_ENDED (the registration's line is closed, or, for a "
         "research run, its closing has begun: it has a history trial); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
          LEDGER, MARKET, market_day(default="the research registration's market day, else head"),
