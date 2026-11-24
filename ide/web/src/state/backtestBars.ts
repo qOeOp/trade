@@ -1,7 +1,7 @@
 // A contract's daily bars over the shown backtest's window (model/backtest.ts) at the market day it read,
 // read once per contract, days and market day for the session: the backtest's candles on the contract chart,
 // and every contract's closes for the equity chart's buy and hold. Where they are not to be had, what the
-// chart says instead.
+// chart says instead; a read that failed is asked again each time its chart is shown again.
 import { useEffect, useMemo } from "react";
 import type { Candle } from "../lib/bars";
 import { fetchBars } from "../lib/barsApi";
@@ -19,9 +19,10 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 export const daysOf = (window: readonly [number, number]): [string, string] =>
   [day(Math.floor(window[0] / DAY_MS) * DAY_MS), day(Math.ceil(window[1] / DAY_MS) * DAY_MS)];
 
-/** Reads `symbol`'s daily bars from UTC day `start` to `end` at `market` under `key`, unless already asked. */
+/** Reads `symbol`'s daily bars from UTC day `start` to `end` at `market` under `key`, unless they are read or being read. */
 function read(key: string, symbol: string, start: string, end: string, market: string): void {
-  if (loaded.get().has(key)) return;
+  const last = loaded.get().get(key)?.kind;
+  if (last === "reading" || last === "ready") return;
   put(key, { kind: "reading" });
   void fetchBars(symbol, start, end, market).then((r) => put(key, r.kind === "bars" ? { kind: "ready", candles: r.candles } : r));
 }
