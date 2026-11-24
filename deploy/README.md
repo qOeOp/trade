@@ -235,8 +235,8 @@ authority for that rewrite. When another workstation already put the line's ledg
 The update puts `market.json` back into `ledgers`, removes every older archive it made, and goes on as above. The
 market directory has no generation and stays. `$TRADE_DATA/deploy/generation.json` records the step and the line: an
 interrupted cutover is finished by the next update of that line, from that step (a version of another line is
-refused), and a first start that fails removes what it made and waits; the next update starts it again (it does
-not stop one under way): pushing the archive branch again changes nothing. One
+refused), and a first start that fails removes what it made and waits; the next update starts it again (one
+under way it waits for; after 30 minutes it stops, the first start untouched, and says how to end a stuck one): pushing the archive branch again changes nothing. One
 killed midway (out of memory, a power loss, a stop that took longer than Docker waits) leaves files without
 `service.json`: `ledger service check` fails, the log says `BOOTSTRAP_REFUSED` and the update fails after its 30-minute
 wait, until you reset it as [First start](#first-start) says and update again (the old ledger is in the archive and on
