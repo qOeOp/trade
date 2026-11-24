@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when no existing candidate can start a line and earlier lines were closed, the agent reads closed lines' summaries and history (`line list --all`, `research history`) before designing new starts, ending with a question before any write.
+description: Rule check — with the skill, when no existing candidate can start a line and earlier lines were closed, the agent reads closed lines' summaries and history (`line list --all --full`, `research history`) before designing new starts, ending with a question before any write.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
