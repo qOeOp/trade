@@ -98,7 +98,9 @@ before the source receives another bar of the type it decided on. Otherwise the 
 `deny_order`. An entry its own source cancels while it waits (held, or for its account check; `cancel_order`,
 `cancel_orders`, `cancel_all_orders` or `market_exit`) is never sent: the Observer's next tick ends it natively as
 `CANCELED` through `LIVE-GATE` (`engine/unsent.py`), the source gets `OrderCanceled`, and the run goes on. A run that
-stops before that tick journals it as `entry_refused` instead.
+stops before that tick journals it as `entry_refused` instead. An entry a source submits while its market exit runs,
+and that passes the entry checks, is denied natively at once (`entry_denied`, `entry_during_market_exit`), as a replay
+denies it, and the run goes on (an entry submitted from within that denial's callbacks still ends it, as below).
 A gate closed for a reason no check clears (below) refuses entries at once, held ones included, except a
 missing bar or a contract not trading. After a missing bar alone, an entry staged when it closed, and a new one that
 passes every entry check while the run holds a position, are denied natively and the run goes on (`entry_denied`).

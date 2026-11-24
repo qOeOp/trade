@@ -110,7 +110,7 @@ from nautilus_trader.trading import Strategy
 from engine import history, metrics, paper_terms, strategy as strategy_runtime
 from engine.kline_events import KlineEvents
 from engine import paper_checkpoint as checkpoint, protection
-from engine.order_rules import OrderRules
+from engine.order_rules import OrderRules, denied_exiting
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
@@ -346,7 +346,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         if SESSION and SESSION.submitted(order):
             return None
         send = functools.partial(super().submit_order, order, position_id, client_id, params)
-        if order.is_reduce_only or not self._paper_entry_terms or self._denied_exiting(order):
+        if order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order):
             return send()
         return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
 

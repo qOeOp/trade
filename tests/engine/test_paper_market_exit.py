@@ -202,7 +202,7 @@ class MarketExitTests(Clocked):
         self.feed(self.now + MINUTE)
         self.changed = ["price_increment: market 0.10, exchange 0.01"]
         order = self.source.order_factory.limit(fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("0.010"),
-                                                Price.from_str("100.50"), tags=[paper_terms.MARKET_EXIT_TAG])
+                                                Price.from_str("100.50"), tags=[order_rules.MARKET_EXIT_TAG])
 
         def act(source):
             source.market_exit()
@@ -222,7 +222,7 @@ class MarketExitTests(Clocked):
                 self.release()
 
     def test_a_replay_sends_an_entry_with_the_exits_tag(self):
-        self.assertEqual(self.entry_during_exit(after=False, waiting=False, tags=[paper_terms.MARKET_EXIT_TAG]),
+        self.assertEqual(self.entry_during_exit(after=False, waiting=False, tags=[order_rules.MARKET_EXIT_TAG]),
                          ("FILLED", []))
 
     def test_a_refused_recovery_exits_nothing(self):

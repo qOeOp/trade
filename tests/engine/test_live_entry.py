@@ -32,7 +32,7 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy, StrategyConfig
 
-from engine import history, live, live_brake, protection
+from engine import history, live, live_brake, order_rules, protection
 from engine import live_commands as commands, live_connection, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import MINUTE_NS, Refusal
 from engine.live_errors import LiveRefusal
@@ -1393,6 +1393,140 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
         self.assertFalse(self.engine.cache.position(position.id).is_open)
         self.assertFalse(self.session.stopping or self.session.failed)
+
+    def during_exit(self, act):
+        """`act` with the source and its position, within a native callback of the source after its `market_exit()`."""
+        position = self.owned_position()
+        Strategy.subscribe_quotes(self.source, self.iid)
+        acts = [act]
+
+        def on_quote(source, _):
+            if acts:
+                source.market_exit()
+                self.assertTrue(source.is_exiting())
+                acts.pop()(source, position)
+        self.enterContext(patch.object(type(self.source), "on_quote", on_quote, create=True))
+        self.advance("99.00", "100.00")
+        self.assertEqual(acts, [])
+        return position
+
+    def assert_denied_in_the_exit(self, *entries):
+        for entry in entries:
+            self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
+        rows = self.read_events("entry_denied")
+        self.assertEqual([(row["client_order_id"], row["detail"]) for row in rows],
+                         [(str(entry.client_order_id), "entry_during_market_exit") for entry in entries])
+        journaled = [row["native"] for row in self.read_events("order") if row["native"]["type"] == "OrderDenied"]
+        self.assertEqual([(row["client_order_id"], row["reason"]) for row in journaled],
+                         [(str(entry.client_order_id), "MARKET_EXIT_IN_PROGRESS") for entry in entries])
+        self.assertEqual((self.session.pending_entries, self.session.account_observation), ([], None))
+        self.assertFalse(self.session.stopping or self.session.failed or self.session.native_order_failure)
+        live_lifecycle.source_outcome(self.session, self.engine.cache)
+        self.assertFalse(self.session.failed)
+
+    def test_an_entry_submitted_during_a_market_exit_is_denied_at_once_and_the_run_goes_on(self):
+        entry = self.limit(price="80.00")
+        position = self.during_exit(lambda source, _: source.submit_order(entry))
+        self.assertEqual(len(self.reader.calls), 1)  # the position's own entry: none is read for this one
+        self.assert_denied_in_the_exit(entry)
+        self.assertFalse(self.engine.cache.position(position.id).is_open)
+        while self.source.is_exiting():  # the native exit ends on its timer
+            self.ts += 1_000_000_000
+            self.advance("99.00", "100.00")
+        later = self.limit(price="80.00")
+        self.source.submit_order(later)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [later])
+
+    def test_a_closed_gate_does_not_hold_an_entry_of_a_market_exit(self):
+        entry = self.limit(price="80.00")
+
+        def act(source, _):
+            live_connection.close_entries(self.session, "disconnected", socket="x")
+            source.submit_order(entry)
+        self.during_exit(act)
+        self.assert_denied_in_the_exit(entry)
+        self.assertEqual(self.read_events("entry_held"), [])
+
+    def test_the_replacement_of_an_entry_a_market_exit_cancels_is_denied(self):
+        for sent in (False, True):
+            with self.subTest(sent=sent):
+                entry, replacement = self.limit(price="80.00"), self.limit(price="79.00")
+                original = type(self.source).on_order_event
+
+                def on_order_event(source, event, original=original, entry=entry, replacement=replacement):
+                    original(source, event)
+                    if type(event).__name__ == "OrderCanceled" and event.client_order_id == entry.client_order_id:
+                        source.submit_order(replacement)
+                with patch.object(type(self.source), "on_order_event", on_order_event):
+                    self.reader.release.set()
+                    self.owned_position()
+                    self.source.submit_order(entry)
+                    if sent:
+                        self.session.account_observation.result.result(timeout=2)
+                        commands.dispatch_entry(self.session)
+                        self.advance("99.00", "100.00")
+                    self.source.market_exit()
+                    self.advance("99.00", "100.00")
+                    self.end_canceled()
+                self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.CANCELED)
+                self.assert_denied_in_the_exit(replacement)
+            if not sent:
+                self.doCleanups()
+                self.setUp()
+
+    def test_a_market_exit_denies_nothing_that_closes_or_protects_a_position(self):
+        sent = []
+
+        def act(source, position):
+            for order in (source.order_factory.stop_market(self.iid, OrderSide.SELL, Quantity.from_str("0.100"),
+                                                           Price.from_str("90.00"), reduce_only=True),
+                          self.reduction("0.100")):
+                source.submit_order(order, position_id=position.id)
+                sent.append(order)
+
+        self.during_exit(act)
+        self.assertEqual(len(sent), 2)
+        for order in sent:
+            # What the exit's own close leaves of it: never a denial.
+            self.assertNotIn(self.engine.cache.order(order.client_order_id).status,
+                             (OrderStatus.DENIED, OrderStatus.INITIALIZED))
+        self.assertEqual(self.read_events("entry_denied"), [])
+        self.assertEqual(self.engine.cache.positions_open(), [])
+
+    def test_a_reduction_from_the_callback_of_a_market_exits_denial_is_sent(self):
+        entry, reduction = self.limit(price="80.00"), self.reduction("0.100")
+        position = self.owned_position()
+        self.on_denied(lambda source, _: source.submit_order(reduction, position_id=position.id))
+        with patch.object(Strategy, "is_exiting", lambda _: True):
+            self.source.submit_order(entry)
+        self.advance("99.00", "100.00")
+        self.assert_denied_in_the_exit(entry)
+        self.assertEqual(self.engine.cache.order(reduction.client_order_id).status, OrderStatus.FILLED)
+
+    def test_an_entry_with_the_exits_tag_waits_for_its_account_check(self):
+        """Nautilus does not deny one, so neither does the gate."""
+        entry = self.limit(price="80.00", tags=[order_rules.MARKET_EXIT_TAG])
+        self.during_exit(lambda source, _: source.submit_order(entry))
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [entry])
+        self.assertEqual(self.read_events("entry_denied"), [])
+
+    def test_a_sources_own_is_exiting_is_not_the_native_flag(self):
+        with patch.object(type(self.source), "is_exiting", lambda _: True):
+            self.submit_pending()
+
+    def test_an_entry_the_rules_refuse_during_a_market_exit_still_ends_the_run(self):
+        entry = self.limit(quantity="400.000")
+        raised = []
+
+        def act(source, _):
+            try:
+                source.submit_order(entry)
+            except Refusal as exc:
+                raised.append(exc.code)
+        self.during_exit(act)
+        self.assertEqual(raised, ["ORDER_RULE"])
+        self.assertTrue(self.session.stopping and self.session.failed)
+        self.assertEqual(self.read_events("entry_denied"), [])
 
     def test_the_other_side_keeps_waiting_and_takes_its_own_account_check(self):
         first, second = self.limit(), self.source.order_factory.limit(
