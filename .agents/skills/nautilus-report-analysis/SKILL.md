@@ -7,8 +7,9 @@ description: Derives descriptive statistics from a sealed run's stored cycles, d
 
 The product's reports (`replay report --trial-id RUN`, `hypothesis compare --registration ID --trial-id
 RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
-compute yourself from `report.runs.tables()` under these rules; its docstring lists its arguments
-and returned fields.
+compute yourself under these rules from `report.runs.tables(trial_id, ledger=None, at=None)` (None: the
+active ledger, its head; cycles under key `positions`; the docstring lists the rest) or, as JSON key
+`tables`, `python -m cli.main replay report --trial-id RUN --tables [--ledger L] [--at COMMIT]`.
 
 ## Rules
 
