@@ -1,5 +1,5 @@
 """A validation replay against a retry of its registration written between its capture and its run: the whole
-replay entry with a stand-in runtime, the registrations and the witness on a local authority."""
+replay entry with a stand-in runtime, the registrations and the witness on a local authority. And a reseal of an attempt already retried."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import execution, witness
+from ledger import execution, metrics, witness
 from registration import availability, register, seams as registration_seams, validation
-from replay import entry
+from replay import entry, reproduce
 from report import comparison
 from tests.helpers import refused, tempdir
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
@@ -56,7 +56,7 @@ class ValidationIngestTests(unittest.TestCase):
         # Each window opens seconds after its witness and has passed before the replay.
         cls.windows, cls.registered = {}, {}
         closed = datetime.now(UTC).replace(microsecond=0)
-        for label in ("passed", "invalid", "no-evidence", "lost"):
+        for label in ("passed", "invalid", "no-evidence", "resealed", "lost"):
             start = max(closed, datetime.now(UTC).replace(microsecond=0) + timedelta(seconds=4))
             closed = start + timedelta(seconds=1)
             cls.windows[label] = (start, closed)
@@ -119,6 +119,39 @@ class ValidationIngestTests(unittest.TestCase):
         self.assertEqual(stored["status"], "passed")
         self.assertEqual(availability.assess(self.world.conn, stored)["reasons"][0].split(":")[0],
                          "RETURN_SERIES_UNUSABLE")
+
+    def test_a_retried_attempt_is_not_resealed_into_one_that_counts(self):
+        compute = metrics.metrics
+
+        def computing(passed: bool):
+            """Metrics code at another commit, that reads the one-minute window's returns as compounding or not."""
+            def report(reports):
+                found = compute(reports)
+                fact = {"passed": passed, "code": None if passed else "RETURN_SERIES_UNUSABLE"}
+                return {**found, "activity": {**found["activity"], "returns_compound_to_equity": fact}}
+            return patch.multiple(metrics, metrics=report, product_commit=lambda checkout=None: "ed"[passed] * 40)
+
+        def reseal(name: str) -> dict:
+            return reproduce.reseal(first, self.world.output(name), ledger=self.world.profile, market=self.world.market)
+
+        def reading() -> list[tuple]:
+            return self.world.conn.rows("SELECT report, product_commit FROM run_reading WHERE trial_id = %s", (first,))
+
+        with registration_seams.use(qualification_assess=None):
+            with computing(False):
+                first = self.replay("resealed")["trial_id"]
+            retry = self.register("resealed", "resealed-retry", self.registered["resealed"])
+            with computing(True):
+                second = self.replay("resealed", retry)["trial_id"]
+                self.assertEqual([register.retryable(self.world.conn, item) for item in (first, second)], [True, False])
+                sealed = reading()
+                caught = refused(reseal, "gains-evidence")
+            self.assertEqual((caught.code, caught.missing, caught.write_status),
+                             ("RETRY_NOT_ALLOWED", (str(self.registered["resealed"]), str(retry)), "written"))
+            self.assertEqual(reading(), sealed, "the refused reseal leaves the reading")
+            self.assertTrue(register.retryable(self.world.conn, first))
+            with computing(False), patch.object(metrics, "product_commit", return_value="f" * 40):
+                self.assertTrue(reseal("no-evidence-still")["resealed"], "a reading that does not count is replaced")
 
     def test_a_failed_ingestion_is_retried_and_a_stored_run_is_not(self):
         with patch.object(entry.trials, "ingest_run", side_effect=RuntimeError("host lost the ledger")), \

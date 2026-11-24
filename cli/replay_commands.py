@@ -249,7 +249,8 @@ COMMANDS = [
         "the reading is unchanged), ledger_commit, op_id",
         "RUN_NOT_PASSED (no passed run with a reading); REPRODUCTION_MISMATCH (any fingerprint table differs, also "
         "on another image): the reproduction trial is written, the reading is not; REPORT_UNREADABLE (the current "
-        "metrics code cannot read the reproduction); replay reproduce's refusals"), LEDGER, MARKET,
+        "metrics code cannot read the reproduction); RETRY_NOT_ALLOWED (a validation attempt already retried would "
+        "count with the new reading): the reproduction trial is written, the reading is not; replay reproduce's refusals"), LEDGER, MARKET,
          option("--trial-id", required=True, type=int, help="the passed run whose reading to replace"), OUTPUT,
          option("--image", help="as replay reproduce --image"),
          epilog="Runs replay reproduce, which records an explore trial. Only when every native report equals the "

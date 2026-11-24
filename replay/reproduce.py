@@ -17,12 +17,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 from ledger import db, execution, metrics, problems, strategies, trials
 from shared import clock, paths
 from shared.refusals import refuse
-from registration import inputs as registration_inputs, reproduction, seams as registration_seams
+from registration import inputs as registration_inputs, reproduction, seams as registration_seams, validation
 from replay import entry
 
 
@@ -131,7 +132,7 @@ def reseal(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, ima
     """Reproduce a passed run into `output` (`reproduce`), require every fingerprint table to equal the run's, and
     replace its reading with the report the current metrics code (the product checkout's HEAD, as a replay seals it)
     computes from the reproduced files, in one `reseal:<op_id>` commit. A reading the current code computes alike is
-    left as it is."""
+    left as it is; one with which a validation attempt already retried would count beside its retry is refused."""
     checkout = registration_seams.current.checkout()
     metrics.product_commit(checkout)  # outside a checkout this raises before the reproduction's trial
     with db.connect(ledger, "writer") as conn:
@@ -147,6 +148,7 @@ def reseal(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, ima
                      missing=tuple(done["tables_differing"]), write_status="written")
     with db.connect(ledger, "writer") as conn:
         written = trials.reseal_reading(conn, trial_id, done["reproduction_trial_id"], Path(done["directory"]),
-                                        stored["capture"], checkout)
+                                        stored["capture"], checkout,
+                                        partial(validation.require_unretried, write_status="written"))
     return {"trial_id": trial_id, "reproduction_trial_id": done["reproduction_trial_id"],
             "directory": done["directory"], **written}
