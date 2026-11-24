@@ -30,10 +30,10 @@ select`); its development period follows from the date and the start's contracts
   (`research status`) and the research state (`research state`): its `open_lines`, and for each
   open line its record (`research state --line LINE`), whose `targets` are the user's two research
   targets in force for the line (its own, else the ledger default). `candidate list`, `research
-  state` and `research status` print large JSON: redirect each to a file under /tmp and read only
-  the keys you need (for example with `jq`), such as `open_lines`, `line`, `targets`, `gates`,
-  `unreviewed_trials` and, of `recommendation`, only its `judgment_id` and `body` (its `facts` and
-  `subjects` exceed one read), never the whole output. After an interruption, or when
+  state`, `research status`, `research history` and `line list --full` print large JSON: redirect
+  each to a file under /tmp and read only the keys you need (for example with `jq`), such as
+  `open_lines`, `line`, `targets`, `gates`, `unreviewed_trials` and, of `recommendation`, only its
+  `judgment_id` and `body`, never the whole output. After an interruption, or when
   the user says to continue, continue the line this session works on (the one its Goal names) under
   `research-round` without asking. A new session started with only `research-start` asks once:
   continue an open line (each with its state and next step) or choose another line (Offer lines and
@@ -87,7 +87,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on months already past, the holdout included.
 - When no existing candidate can start a line, read closed lines' summaries and history
-  (`line list --all`, `research history`; of a history whose holdout overlaps the new line's, only
+  (`line list --all --full`, `research history`; of a history whose holdout overlaps the new line's, only
   development and veto cells), then design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
   market day, execution environment (research-round), readiness result and

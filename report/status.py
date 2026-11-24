@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, time
 import hashlib
+import itertools
 import json
 import math
 import statistics
@@ -497,11 +498,19 @@ def deflated_range(facts: Mapping, testing: Mapping | None) -> dict | None:
             for name in ("effective_trials", "trials_with_sweeps")}
 
 
+# What a table run keeps of each measure: the definitions, populations and lags are `replay report`'s.
+TABLE_KEYS = ("value", "sample_size", "null_reason", "standard_error", "pnl_sum")
+
+
+def _table_measure(measured: Mapping) -> dict:
+    return {key: measured[key] for key in TABLE_KEYS if key in measured and (key != "null_reason" or measured[key])}
+
+
 def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mapping, records: list,
                      testing: Mapping | None = None) -> dict:
     """Every passed research run with economic evidence whose trading window is the line's development
     window and whose universe rule is the line's (older candidates and other lines included), with
-    its execution identity (_identities), the table measures of its report and whether another run of
+    its execution identity (_identities), the table measures of its report (TABLE_KEYS of each) and whether another run of
     the same identity dominates it on the dominance measures. `non_dominated` is null for a run missing one.
     `execution_identity` is the line's (line_identity) and `candidates` the candidates with a run of it among the line's own trials (line_trials), and the line's start
     with a run of it; other lines' runs stay in `runs`. Passed runs
@@ -522,7 +531,7 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
             for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities[row["trial_id"]],
-              "measures": {name: read[row["trial_id"]][0][name] for name in TABLE_MEASURES},
+              "measures": {name: _table_measure(read[row["trial_id"]][0][name]) for name in TABLE_MEASURES},
               "deflated_sharpe": read[row["trial_id"]][1],
               **{name: (read[row["trial_id"]][2] or {}).get(key) for name, key in DEV_YEAR_COLUMNS.items()}}
              for row in passed]
@@ -788,7 +797,7 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
                    current_image: str | None = None) -> dict:
     """The research line's whole record (`line`: ledger.read_line's line_id, name, start, development window,
     market day, universe rule and closing), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
-    null), the open lines (`open_lines`: name, start, development window and market day of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    null), the open lines (`open_lines`: name, start, development window and market day of each), its current judgments, the fixed review cadence (`review_every`),
     the line's latest runs read for a due change of approach (`undistinguished_runs`, _undistinguished_runs),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
@@ -799,8 +808,9 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
     from the catalogue), empty without a gate.
 
     By default interpretations and search exposures are those after the current recommendation, with the
-    count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
-    gives every current judgment and the facts. `current_image` is the main image's digest reference, as given;
+    count of earlier ones in `earlier`, and both the read-time facts of their subjects (`facts` in each judgment)
+    and `facts` (candidate list, research status) are left out; `full`
+    gives every current judgment and the facts. A subject carries no null key. `current_image` is the main image's digest reference, as given;
     `runs_behind_image` lists the line's passed runs that have not reached it (null without it)."""
     checker = availability.check_identity()
     profile = db.profile(ledger)
@@ -847,9 +857,12 @@ def research_state(ledger, line: str | None = None, at: str | None = None, *,
             for kind, name in (("interpretation", "interpretations"), ("search_exposure", "search_exposures")):
                 kept = [item for item in judged[kind] if item["judgment_id"] > recommendation["judgment_id"]]
                 earlier[name], judged[kind] = len(judged[kind]) - len(kept), kept
-        for kind in judged:
-            for item in judged[kind]:
+        if full:
+            for item in itertools.chain(*judged.values()):
                 item["facts"] = [_subject_facts(pinned, subject, checker, records) for subject in item["subjects"]]
+        for item in itertools.chain(*judged.values(), original["entries"]):
+            item["subjects"] = [{key: value for key, value in subject.items() if value is not None}
+                                for subject in item["subjects"]]
         try:
             register.require_line_records(pinned, line_id)
             gates: list[dict] = []

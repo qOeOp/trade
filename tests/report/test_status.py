@@ -417,6 +417,13 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual(list(full)[:2], ["ledger_commit", "gates"], "a cut answer keeps the gates")
         self.assertEqual(full["facts"]["counts"]["research_attempts"], 2)
         self.assertIsNone(full["earlier"])
+        self.assertNotIn("facts", default["interpretations"][0])
+        self.assertEqual(default["recommendation"]["subjects"], [
+            {"seq": seq, "role": role, "strategy_id": "rsi", "revision": int(ref.rpartition("@")[2])}
+            for seq, role, ref in ((1, "recommended", first), (2, "about", second))], "no null key")
+        facts = full["recommendation"].pop("facts")
+        self.assertEqual([fact["candidate"]["revision"] for fact in facts],
+                         [item["revision"] for item in full["recommendation"]["subjects"]])
         self.assertEqual((default["recommendation"], default["gates"], default["unreviewed_trials"]),
                          (full["recommendation"], full["gates"], full["unreviewed_trials"]))
 

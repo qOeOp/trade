@@ -544,7 +544,9 @@ class ReportTests(unittest.TestCase):
                             if item["id"] == "market_exposure")
             for name in ("alpha_basket", "beta_basket"):
                 self.assertIsNotNone(exposure[name]["value"], name)
-                self.assertEqual(row["measures"][name], exposure[name], name)
+                self.assertEqual(row["measures"][name], {key: exposure[name][key] for key in status.TABLE_KEYS
+                                                         if exposure[name].get(key) is not None}, name)
+                self.assertIn("pnl_sum", row["measures"][name])
                 self.assertEqual(listed[row["trial_id"]]["measures"][name], exposure[name]["value"], name)
             self.assertEqual(listed[row["trial_id"]]["alpha_basket_standard_error"],
                              exposure["alpha_basket"]["standard_error"])

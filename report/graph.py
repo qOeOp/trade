@@ -157,11 +157,13 @@ def _recommendation(conn: db.LedgerConnection, line_id: int, on_line: set[int], 
     return found
 
 
-def line_list(profile, at: str | None = None, every: bool = False, readings: bool = False) -> dict:
-    """`line list`: the open line declarations, or with `every` all of them (ledger.lines.list_lines), each with the
+def line_list(profile, at: str | None = None, every: bool = False, readings: bool = False,
+              full: bool = False) -> dict:
+    """`line list`: the open line declarations, or with `every` all of them (ledger.lines.list_lines, whose closing
+    summaries `full` adds), each with the
     candidates its graph draws (`candidates`, oldest first), read at the same commit; with `readings` also its
     recommendation as the graph's summary reads it (_recommendation), without drawing the graph."""
-    listed = lines.list_lines(db.profile(profile), at, every=every)
+    listed = lines.list_lines(db.profile(profile), at, every=every, full=full)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
         lineage = _Lineage(_candidate_rows(conn), research_trials(conn))
         checker: dict = availability.check_identity() if readings else {}

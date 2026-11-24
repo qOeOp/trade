@@ -315,7 +315,7 @@ def _market_facts(market: dict):
 
 def line_list(args):
     from report import graph
-    return graph.line_list(_research(args), args.at, args.all, args.readings)
+    return graph.line_list(_research(args), args.at, args.all, args.readings, args.full)
 
 
 def line_select(args):
@@ -596,14 +596,16 @@ COMMANDS = [
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
         "with --readings the recommendation judgments and each recommended version's latest research run; no market",
         "nothing",
-        "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, summary, "
-        "targets, candidates, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
+        "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, "
+        "summary (with --full: a closed line's closing summary, else null), targets, candidates, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
         "eligible, annual_return, max_drawdown} or null)}] oldest first; candidates are those its research "
         "graph draws, oldest first; a recommendation is the latest current judgment's version, since the first of the "
         "latest judgments naming it, and its latest sealed research run on the line read as the graph reads it "
         "(measures only while it is eligible)",
         "UNKNOWN_REF (--at)"), LEDGER,
          option("--all", action="store_true", help="list the closed lines too"),
+         option("--full", action="store_true", help="add each closed line's closing summary (up to 32 KiB a line; "
+                "one line's is also `line.summary` of research state --line)"),
          option("--readings", action="store_true",
                 help="add each line's recommendation as its research graph's summary reads it, without the graph"),
          AT),
@@ -751,7 +753,8 @@ COMMANDS = [
         "product_commit; comparison (the line's comparison table: line, dev_start, dev_end, universe_rule, "
         "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
-        "execution_identity {execution, image_digest, keys}, measures (annual_return, "
+        "execution_identity {execution, image_digest, keys}, measures (each {value, sample_size, "
+        "null_reason (only when null)}, its definition is in `replay report`: annual_return, "
         "mark_max_drawdown, sharpe_365, plan_win_rate, breakeven_fee_multiple, alpha_basket (with standard_error), "
         "beta_basket; alpha_basket and beta_basket with pnl_sum, their USDT split of the daily PnL sum), deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
@@ -763,7 +766,7 @@ COMMANDS = [
         "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"), LEDGER,
          option("--line", help="research line name of the comparison table (default: the only open line)"), AT),
-    command(research_state, "research", "state", "the line record and its current judgments with read-time facts", (
+    command(research_state, "research", "state", "the line record and its current judgments", (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market day (reader)",
         "nothing in the ledger; pulls the main runtime image each time, which moves the local "
@@ -771,7 +774,8 @@ COMMANDS = [
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
         "when it cannot be resolved or with --without-image), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
         "--image`; null without it), targets, open_lines "
-        "[{name, start, dev_start, dev_end, market_day}], recommendation, priority, "
+        "[{name, start, dev_start, dev_end, market_day}], recommendation, priority (each judgment with its subjects, their null "
+        "keys left out, and with --full their read-time facts), "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
         "for a due change of approach, null without a line: trials leave candidate and control undistinguished, uncompared "
         "have no comparison and neither count nor clear, distinguished ended the reading; reported, not a gate; "
@@ -792,8 +796,9 @@ COMMANDS = [
          option("--history-before", type=int,
                 help="include the next history page before this judgment ID (use next_before; implies --history)"),
          option("--full", action="store_true",
-                help="every current interpretation and search exposure, and the candidate list and research "
-                     "status as facts (default: those after the current recommendation, earlier ones counted)"),
+                help="every current interpretation and search exposure, the read-time facts of each current "
+                     "judgment's subjects, and the candidate list and research status as facts (default: those "
+                     "after the current recommendation, earlier ones counted, no facts)"),
          option("--without-image", action="store_true",
                 help="pull no runtime image: current_image and runs_behind_image are null (the IDE's read)"),
          AT),

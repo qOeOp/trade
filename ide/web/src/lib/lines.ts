@@ -34,7 +34,7 @@ export function trialHref(href: string, line: string, version: string, trial: nu
   return `${url.pathname}${url.search}#${encodeURI(version)}`;
 }
 
-/** A line as `line list --all` gives it: `name`, its start version, its development period (`dev_start` to
+/** A line as `line list --all --full` gives it: `name`, its start version, its development period (`dev_start` to
  *  `dev_end`, UTC days), `candidates`, the candidates its research graph draws, and a closed line's closing `summary`. */
 export type ResearchLine = {
   name: string; start: string; dev_start: string; dev_end: string; closed: boolean; candidates: string[]; summary?: string | null;

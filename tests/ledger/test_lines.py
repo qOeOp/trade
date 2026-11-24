@@ -84,12 +84,14 @@ class ResearchLineTests(unittest.TestCase):
         head = db.head_commit(self.conn)
         self.assertEqual([item["name"] for item in lines.list_lines(self.profile)["lines"]], [second["line"]],
                          "L11: the open lines by default")
-        found = lines.list_lines(self.profile, every=True)
+        found = lines.list_lines(self.profile, every=True, full=True)
         self.assertEqual(found["ledger_commit"], head)
         self.assertEqual([(item["name"], item["closed"], item["summary"]) for item in found["lines"]],
                          [(first["line"], True, "historical findings retained"), (second["line"], False, None)])
         self.assertEqual(found["lines"][0]["dev_start"], "2021-04-01")
-        self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "targets"})
+        self.assertEqual(set(found["lines"][0]), {*lines.LISTED, "summary", "targets"})
+        self.assertEqual(set(lines.list_lines(self.profile, every=True)["lines"][0]), {*lines.LISTED, "targets"},
+                         "a closing summary is up to 32 KiB, so only with full")
         self.assertLessEqual(set(test_release.HOST_LINE_KEYS), set(lines.LISTED), "deploy.release_host reads these keys")
         self.assertEqual([item["targets"] for item in found["lines"]], [None, None])
         historical = lines.list_lines(self.profile, first_head)

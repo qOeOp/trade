@@ -116,7 +116,7 @@ LIGHT_READS = (("ledger", "sql"), ("ledger", "service"), ("line", "list"))
 # Room left for this server and the overview to grow past what they held when last measured.
 MARGIN = 64 * 2**20
 CGROUP = Path("/sys/fs/cgroup")
-# What the line menu reads of `research state`; the judgments and their facts stay with the Agent's tool.
+# What the line menu reads of `research state`; the judgments stay with the Agent's tool.
 STATE_KEYS = ("ledger_commit", "gates", "review_every", "undistinguished_runs", "unreviewed_trials")
 # `/api/about`'s ledger state (its `behind_seconds` moves with time) is read again after this many seconds or a new head.
 STATUS_SECONDS = 30
@@ -317,7 +317,7 @@ class Product:
         return self.run("ledger", "service", "status", f"--ledger={self.ledger}")
 
     def lines(self, commit: str) -> dict:
-        return self.run("line", "list", "--all", f"--ledger={self.ledger}", f"--at={commit}")
+        return self.run("line", "list", "--all", "--full", f"--ledger={self.ledger}", f"--at={commit}")
 
     def history(self, commit: str) -> dict:
         """Every line's closing history test (the History page's heatmap), as `research history` reads it."""
