@@ -1,0 +1,1 @@
+- `ledger service` and `ledger mirror` help say that `--research-origin`'s `main` is the ledger in use.
