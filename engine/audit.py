@@ -88,8 +88,8 @@ FINDINGS: dict[str, str] = {
     "LIFECYCLE_EVIDENCE_INCONSISTENT": "Positions do not cover a terminated contract's fills exactly once, or its "
                                        "event fills differ from the fills report.",
     "POSITION_OPEN_AT_TERMINATION": "A native position was not flat before an unpriced termination.",
-    "ORDER_OPEN_AT_TERMINATION": "An order was not filled or ended, or had an update in flight, before an unpriced "
-                                 "termination.",
+    "ORDER_OPEN_AT_TERMINATION": "An order was not filled or ended before an unpriced termination; an update or cancel "
+                                 "request alone does not end it.",
     "DATA_ENDS_WITHOUT_TERMINATION": "A contract's bars end more than the MARK carry limit before the window's end "
                                      "and before its lifecycle termination (or it has none).",
     "LATE_ORDER_EVENT": "An order of a terminated contract was created at or after its termination, or (without "
@@ -626,7 +626,6 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
                 found.append(finding("DATA_ENDS_WITHOUT_TERMINATION", f"{name}: {ended}, "
                                      f"{'the termination' if until < window.end_ns else 'the window end'} is {_ns_utc(until)}"))
 
-
     priced = {(item["instrument_id"], item["ts_event"]) for item in lifecycle if item["type"] == "InstrumentClose"}
     ended_at: dict[str, int] = {}
     for item in lifecycle:
@@ -690,10 +689,12 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
                         return found + [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: fill of "
                                                                                    f"{identity} is invalid")]
                     state["filled"] += quantity
+                    if state["quantity"] is not None and state["filled"] >= state["quantity"]:
+                        state["pending"] = False  # nothing is left to update or cancel
                     scope = (event["strategy_id"], event.get("account_id"), event.get("position_id"))
                     held[scope] += quantity if event["order_side"] == "BUY" else -quantity
                 elif kind in ENDING_EVENTS:
-                    state["ended"] = True
+                    state["ended"], state["pending"] = True, False
                 elif kind != "OrderAccepted" and kind not in PASSIVE_EVENTS:
                     return found + [finding("LIFECYCLE_EVIDENCE_INCONSISTENT", f"{instrument}: unknown event "
                                                                                f"type {kind} of {identity}")]

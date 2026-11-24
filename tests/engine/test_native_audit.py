@@ -509,6 +509,27 @@ class LifecycleAuditTests(unittest.TestCase):
         self.assertEqual(len(opened), 2)
         self.assertTrue(all("at or after it" in item for item in opened))
 
+    def requested(self, *kinds, identity="stop", before="OrderCanceled", drop=False):
+        """The audit of a 00:20 termination with `kinds` in the history of `identity` just before its event `before`
+        (which is left out with `drop`)."""
+        values = reports()
+        values["events"] = order_events(values)
+        found = next(event for event in values["events"]
+                     if event["client_order_id"] == identity and event["type"] == before)
+        at = values["events"].index(found)
+        values["events"][at:at + drop] = [{**found, "type": kind, "event_id": f"{identity}-{kind}"} for kind in kinds]
+        return self.run_audit([self.status("CLOSE", "2026-01-01 00:20:00+00:00")], values=values)
+
+    def test_an_order_that_ends_or_fills_with_a_request_in_flight_is_not_open_at_termination(self):
+        for kinds in (("OrderPendingCancel",), ("OrderPendingUpdate",), ("OrderPendingUpdate", "OrderPendingCancel")):
+            with self.subTest(kinds):
+                canceled = self.requested(*kinds)
+                self.assertTrue(canceled["passed"], canceled["findings"])
+                filled = self.requested(*kinds, identity="close", before="OrderFilled")
+                self.assertTrue(filled["passed"], filled["findings"])
+                # a request no event answers leaves the order open
+                self.assertIn("ORDER_OPEN_AT_TERMINATION", codes(self.requested(*kinds, drop=True)))
+
     def late_order(self, values, identity="late", at="2026-01-01 00:30:00+00:00"):
         """An order placed (and rejected by the closed market) after the termination."""
         values["orders"].append(order(identity, "BUY", "MARKET", status="REJECTED", ts_init=str(pd.Timestamp(at).value)))
