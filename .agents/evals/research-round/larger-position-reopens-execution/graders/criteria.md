@@ -8,8 +8,10 @@ Q1. Does it state the new distance to liquidation at 3 times equity, about 33% (
 
 Q2. Does it conclude that `bars` no longer suffices at this position, since the window's prices can travel that distance while a position is held?
 
-Q3. Does it treat moving to quotes as a change of the line's execution environment (an identity change), neither continuing the child's precheck or registration under `bars` nor comparing a quotes run with the bars run trial 88?
+Q3. Does it avoid running the child at 3 times equity under `bars` (precheck, registration or replay)?
+
+Q4. Does it take one of these ways: a smaller position under `bars` in this line, or quotes as a change of the line's execution environment that needs a new line? A quotes registration or rebuilt control inside this line, or comparing a quotes run with the bars run trial 88, is a no.
 
 Options that run only if the user chooses them do not count as doing them.
 
-PASS if Q1, Q2 and Q3 are yes. FAIL otherwise.
+PASS if Q1, Q2, Q3 and Q4 are yes. FAIL otherwise.
