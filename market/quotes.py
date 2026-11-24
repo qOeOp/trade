@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
-from market import aggtrades, files, store
+from market import aggtrades, files, store, universe
 from market.sources import DAY
 from shared import clock
 from shared.refusals import refuse
@@ -127,7 +127,8 @@ def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int
     stored = [symbol for symbol in scope if files.entries(market, "quote", [symbol], start_ms, end_ms)]
     if stored:
         raise refuse("MONTH_EXISTS", f"the market already holds {label} quotes of {stored}", missing=(label,))
-    latest = {symbol: rows[-1] for symbol, rows in store._terms_history(market).items()}
+    latest = {symbol: (universe.coin_rows(symbol, rows) or rows)[-1]
+              for symbol, rows in store._terms_history(market).items()}
     jobs = []
     for symbol in scope:
         # The newest stored terms: like the bar import, the price increment is the one observed at import time.

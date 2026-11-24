@@ -75,6 +75,9 @@ that costs.
   reclassify it. A symbol Binance gives to another contract, one whose `onboardDate` is after that
   observation, is classified anew from the month it lists in (`universe.contract_in_month`); a month the two
   contracts share is imported only when both are eligible. A premarket contract stays excluded when it graduates.
+  The months before a non-coin's `onboardDate` (an equity with a coin's old symbol) are an earlier contract's,
+  classified by name and imported where it has LAST minutes; its terms are `inferred` from its own trades, and
+  replays of its bars use them.
 - **Bars.** Only 1-minute LAST and MARK of eligible contracts; prices are integers x 10^8, volumes
   x 10^4 (`series.PRICE_SCALE`, `series.VOLUME_SCALE`). The daily warm-up bars are derived at export (`series.derive_bars`); a strategy aggregates any other timeframe natively from the 1-minute bars.
 - **Sources, stitched invisibly.** Monthly archives, daily archives for months without one and for
