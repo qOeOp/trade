@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -112,6 +113,16 @@ class NativeCache:
             return json.loads(values[0])["state"]
         except (ValueError, KeyError, TypeError) as exc:
             raise checkpoint.fail("the native checkpoint runner state is invalid") from exc
+
+    def retain_attempt(self) -> None:
+        """Preserve per-attempt originals before the conventional latest files are replaced."""
+        for name in ("summary.json", "runtime_failures.jsonl"):
+            path = self.output / name
+            if path.is_file():
+                data = path.read_bytes()
+                target = self.root / "attempts" / f"{hashlib.sha256(data).hexdigest()}.{name}"
+                if not target.exists():
+                    atomic(target, data)
 
     def accounts(self) -> dict:
         return self.reader.load_all()["accounts"]

@@ -81,7 +81,6 @@ if __name__ == "__main__":
 import argparse
 from contextlib import nullcontext, suppress
 import functools
-import hashlib
 import importlib.metadata
 import itertools
 import json
@@ -1128,7 +1127,15 @@ def _main(args) -> bool:
     """Run the node to its end; whether the journal failed on the way (the runner then exits JOURNAL_FAILED_EXIT)."""
     global JOURNAL, SESSION, KLINES
     strategy_runtime.begin_run(args.output, {"Metrics": {instrument_id(symbol) for symbol in args.symbols}})
-    loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
+    try:
+        loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
+    except Refusal as exc:
+        # Bytes that are not the declared source are no verdict on it; a resumed run's journal stays at its checkpoint.
+        if not exc.code.startswith("CONTENT_HASH_") and not (args.output / "events.jsonl").exists():
+            JOURNAL = Journal(args.output)
+            journal("refusal", code=exc.code, reason=str(exc))
+            JOURNAL.close()
+        raise
     membership = read_universe(args.universe, list(args.symbols))
     binding = args.strategy_file.parent / "recovery.json"
     backend = None
@@ -1158,14 +1165,7 @@ def _main(args) -> bool:
             warm_at = SESSION.warm_at  # a recovery that back-fills an aggregation may move it (Session.crossed)
         if saved:
             assert backend is not None
-            # Preserve per-attempt originals before the conventional latest files are replaced.
-            for name in ("summary.json", "runtime_failures.jsonl"):
-                path = args.output / name
-                if path.is_file():
-                    data = path.read_bytes()
-                    target = backend.root / "attempts" / f"{hashlib.sha256(data).hexdigest()}.{name}"
-                    if not target.exists():
-                        atomic(target, data)
+            backend.retain_attempt()
             journal("resumed", execution=EXECUTION)
             if SESSION and SESSION.fallen:
                 # The source's recovery is refused and the run is held (Session.hold); `paper compare` reads the

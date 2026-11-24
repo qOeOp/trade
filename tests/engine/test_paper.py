@@ -3,6 +3,7 @@ data callbacks held until the next data dispatch, when the fills their data caus
 the live view draws from."""
 
 import functools
+import hashlib
 import tempfile
 import threading
 import time
@@ -20,6 +21,7 @@ from engine import klines, membership as membership_months, paper, paper_session
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
+from ledger import run_journal
 from tests.helpers import refused
 
 DAYS = 200  # a declared WARMUP 1-DAY
@@ -798,6 +800,42 @@ class StartedTests(unittest.TestCase):
                 started = next(call for call in written.write.call_args_list if call.args[0] == "started")
                 self.assertIs(started.kwargs["recovery_declared"], expected)
                 self.assertEqual(started.kwargs["strategy_entry_class"], "S")
+
+
+class LoadRefusalTests(unittest.TestCase):
+    def refused(self, root: Path, declared: bytes = b"import os\n") -> Refusal:
+        source = b"import os\n"
+        (root / "strategy.py").write_bytes(source)
+        args = SimpleNamespace(symbols=["BTCUSDT"], output=root / "out", strategy_file=root / "strategy.py",
+                               strategy_class="S", strategy_sha256=hashlib.sha256(declared).hexdigest())
+        with mock.patch.object(paper, "JOURNAL", None):
+            return refused(paper._main, args, error=Refusal)
+
+    def test_a_source_refused_at_load_is_journaled_and_seals_complete_with_its_code(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            self.assertEqual(self.refused(root).code, "SOURCE_REACH")
+            journal = root / "out" / "events.jsonl"
+            lines, _ = run_journal.journal_lines(journal.read_bytes() if journal.is_file() else b"")
+        row = {"paper_id": 1, "source_sha256": "a" * 64, "config": {}}
+        found = run_journal.readings(row, lines, 0, None, 2, None)
+        self.assertEqual((found["status"], found["reasons"]),
+                         ("complete", ["REFUSED:SOURCE_REACH", "RUNNER_EXIT_NONZERO", "SUMMARY_MISSING"]))
+        self.assertEqual([line["kind"] for line in lines], ["refusal"])
+        self.assertIn("import os", lines[0]["reason"])
+
+    def test_bytes_that_are_not_the_declared_source_leave_no_journal(self):
+        with tempfile.TemporaryDirectory() as name:
+            self.assertEqual(self.refused(Path(name), declared=b"other").code, "CONTENT_HASH_MISMATCH")
+            self.assertFalse((Path(name) / "out" / "events.jsonl").exists())
+
+    def test_a_resumed_runs_journal_stays_as_its_checkpoint_binds_it(self):
+        with tempfile.TemporaryDirectory() as name:
+            journal = Path(name) / "out" / "events.jsonl"
+            journal.parent.mkdir()
+            journal.write_bytes(b'{"kind": "started", "wall_ns": 1}\n')
+            self.refused(Path(name))
+            self.assertEqual(journal.read_bytes(), b'{"kind": "started", "wall_ns": 1}\n')
 
 
 class SnapshotTests(unittest.TestCase):
