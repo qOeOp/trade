@@ -17,6 +17,7 @@ from engine.live_errors import LiveRefusal as Refusal
 from engine.live_brake import Brake
 from engine import live_connection
 from engine.live_connection import Connection
+from engine.live_stop import UNFAILED
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
@@ -60,11 +61,13 @@ class Session:
     # starts once more instead of ending (the user, 2026-11-13); warmup_retried says this start does so.
     warmup_retry: bool = False
     warmup_retried: bool = False
+    begun_stop: str | None = None  # the terminal stop an earlier start began and this start finishes (mode "finish")
     armed_ns: int | None = None  # a resumed run's first arming: its duration counts from there, across starts
     node: Any = None
     sources: dict[str, Any] = field(default_factory=dict)  # the run's instances: contract -> instance (engine.live_source)
     # A start without sources (held, reconcile) registers each instance's identity as an inert native Strategy
-    # (engine.live_node); a held start cancels the entries it inherited through them (engine.live_connection).
+    # (engine.live_node); a held start cancels the entries it inherited through them (engine.live_connection), and a
+    # start that finishes a stop closes its positions through them too (engine.live_lifecycle).
     keepers: dict[str, Any] = field(default_factory=dict)
     entry_gate: Any = None  # the native ExecutionAlgorithm that denies entries (engine.live_connection.deny)
     denied: set[str] = field(default_factory=set)  # client order IDs of the entries it denied in this start
@@ -97,6 +100,7 @@ class Session:
     stop_read: dict | None = None
     stop_held: dict = field(default_factory=dict)
     phantoms: set[str] = field(default_factory=set)
+    priced: dict[str, float] = field(default_factory=dict)  # contract -> when a finishing start last asked for its bars
     resent: Counter = field(default_factory=Counter)  # position ID -> closes sent again after a rejection
     gaps: protection.Gaps = field(default_factory=lambda: protection.Gaps(PROTECTION_NS))  # position ID -> gap start
     submitted: dict[str, list[float]] = field(default_factory=dict)  # SUBMITTED order -> [since, last query]
@@ -165,6 +169,11 @@ class Session:
 
     def observe_stop_intent(self) -> bool:
         """Apply operator intent at dispatch/submission, without waiting for a timer."""
+        if self.mode == "finish":  # the begun stop is the run's end already; an operator's STOP or the duration adds nothing
+            if self.interrupt_requested.is_set() and not self.stopping:
+                self.interrupting = True
+                self.begin_stop("interrupted")
+            return self.stopping
         if self.rewarming and (strategy_runtime.FAILURES or (self.output / "STOP").exists() or self.duration_reached()):
             self.rewarming = self.stopping = False  # a stop that ends the run supersedes starting it again
             self.failed = self.failed or self.warmup_retried  # a warm-up that failed and is not tried again
@@ -180,6 +189,13 @@ class Session:
             self.begin_stop("duration")
         return self.stopping
 
+    def finish_stop(self) -> None:
+        """Once its account is verified, a start that finishes an earlier start's stop takes the STOP path for it."""
+        if self.begun_stop is None or self.observe_stop_intent() and self.interrupting:
+            return
+        self.failed = self.failed or self.begun_stop not in UNFAILED  # also when Binance was found flat (venue_flat_exit)
+        self.begin_stop(self.begun_stop)
+
     def duration_reached(self) -> bool:
         duration = self.manifest["config"]["duration_seconds"]
         return duration is not None and (
@@ -194,8 +210,10 @@ class Session:
                      if found == strategy_id), None)
 
     def any_source(self):
-        """An instance for native commands that belong to no one strategy (account queries)."""
-        return next(iter(self.sources.values()), None)
+        """An instance for native commands that belong to no one strategy (account queries); a start that finishes a stop
+        has only its registered identities."""
+        instances = self.keepers if self.mode == "finish" else self.sources
+        return next(iter(instances.values()), None)
 
     def check_protection(self, cache, now: float) -> None:
         """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none),
@@ -285,8 +303,9 @@ class Session:
                 if Strategy.is_running(source):
                     Strategy.stop(source)
         finally:
-            self.begin_stop(reason)
+            # It closes nothing, so its ending event comes first: no later start may take it for a stop to finish.
             self.event("unresolved", reason=reason, strict=False)
+            self.begin_stop(reason)
             self.node.handle().stop()
 
     def resend_cancel(self, cache, order) -> bool:

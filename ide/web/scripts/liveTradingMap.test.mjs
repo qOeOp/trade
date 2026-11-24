@@ -172,6 +172,7 @@ test("a running run's entries are closed until its latest start warms up, then f
   assert.deepEqual(entries(rewarm, [gate("2", "entries_closed", ["bars_missing"])]), { open: false, text: "Closed · warming up" });
   assert.deepEqual(entries([...rewarm, restart("5", "warmup")], [gate("2", "entries_closed", ["bars_missing"])]), { open: true, text: "Open" });
   assert.deepEqual(entries([restart("1", "resuming", true)]), { open: false, text: "Closed · inherited position" });
+  assert.deepEqual(entries([restart("1", "warmup"), restart("2", "finishing", true)]), { open: false, text: "Closed · finishing its stop" });
   assert.equal(entries([restart("1", "warmup")], [], "clean_stopped"), null);
   assert.equal(entries(null), null, "restarts unknown: unknown, not closed");
 });

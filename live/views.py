@@ -19,6 +19,7 @@ import threading
 import time
 
 from engine.live_errors import REFUSALS, LiveRefusal
+from engine.live_stop import begun_stop
 from live import daily, runs, state
 from market.sources import SYMBOL  # a contract as the market holds it, a non-ASCII coin included
 from shared.failures import FAILURES, failure_records
@@ -356,13 +357,16 @@ def _held_verdict(row) -> dict:
 
 
 def _restarts(native, lifecycle):
-    """Interruptions and starts again of the same run (engine.live), and the control's restart_limited."""
+    """Interruptions and starts again of the same run (engine.live), and the control's restart_limited. A start
+    again after a terminal stop was begun (engine.live_stop) only finishes it: its `resuming` reads `finishing`."""
     if native is None or lifecycle is None:
         return None
-    rows = [{"event": row["event"], "observed_ns": str(row["observed_ns"]),
+    begun = next((index for index in range(len(native)) if native[index].get("event") == "stopping"
+                  and begun_stop(native[:index + 1]) is not None), len(native))
+    rows = [{"event": "finishing" if row["event"] == "resuming" and index > begun else row["event"], "observed_ns": str(row["observed_ns"]),
              "held": row.get("held") if isinstance(row.get("held"), bool) else None, "retry": row.get("retry") is True,
              **(_held_verdict(row) if row["event"] in ("held_covered", "held_uncovered") else {})}
-            for row in native if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
+            for index, row in enumerate(native) if row.get("event") in RESTART_EVENTS and type(row.get("observed_ns")) is int]
     rows += [{"event": "restart_limited", "observed_ns": str(row["observed_ns"]), "held": None, "retry": False}
              for row in lifecycle if row.get("event") == "restart_limited" and type(row.get("observed_ns")) is int]
     return sorted(rows, key=lambda row: int(row["observed_ns"]))[-MAX_ROWS:]

@@ -37,7 +37,7 @@ const GATE_TEXT: Record<string, string> = {
   contract_status: "contract not trading",
 };
 // A process of the run ends at these, and the next one starts closed until it warms up (engine.live).
-const PROCESS_ENDS = new Set(["interrupted", "rewarming", "resuming"]);
+const PROCESS_ENDS = new Set(["interrupted", "rewarming", "resuming", "finishing"]);
 
 type Moment = { ns: bigint; kind: "gate" | "restart"; event: string; reasons: readonly string[]; held: boolean | null; status: string | null };
 
@@ -51,10 +51,10 @@ function moments(run: LiveRunDto): Moment[] {
  *  then closed for each reason the gate gave since, until it reopened. */
 function entriesOf(run: LiveRunDto): LiveRun["entries"] {
   if (run.host.state !== "running" || run.host.mode !== "run" || !run.restarts) return null;
-  let warmed = false, held = false, status: string | null = null;
+  let warmed = false, held = false, finishing = false, status: string | null = null;
   const closed = new Set<string>();
   for (const moment of moments(run)) {
-    if (moment.kind === "restart" && PROCESS_ENDS.has(moment.event)) { warmed = false; held = moment.event === "resuming" && moment.held === true; closed.clear(); }
+    if (moment.kind === "restart" && PROCESS_ENDS.has(moment.event)) { warmed = false; held = moment.event === "resuming" && moment.held === true; finishing = moment.event === "finishing"; closed.clear(); }
     else if (moment.kind === "restart" && moment.event === "warmup") { warmed = true; held = false; }
     else if (moment.event === "entries_closed" || moment.event === "connection_lost") {
       moment.reasons.forEach((reason) => closed.add(reason));
@@ -62,6 +62,7 @@ function entriesOf(run: LiveRunDto): LiveRun["entries"] {
     }
     else if (moment.event === "entries_opened") closed.clear();
   }
+  if (finishing) return { open: false, text: "Closed · finishing its stop" };
   if (held) return { open: false, text: "Closed · inherited position" };
   if (!warmed) return { open: false, text: "Closed · warming up" };
   if (closed.size === 0) return { open: true, text: "Open" };
