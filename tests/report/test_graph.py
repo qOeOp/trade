@@ -18,7 +18,7 @@ from ledger import db, execution, lines, metrics, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import precheck, register
-from replay import entry
+from replay import entry, seams
 from report import comparison, graph, status
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, market as line_market, pinned
 from tests.registration.world import RUNNER_ARGV, capture
@@ -264,6 +264,30 @@ class ResearchGraphTests(unittest.TestCase):
         read = self.readings()
         self.assertEqual((read["recommended"], read["eligible"], read["annual_return"]), (ref, False, None),
                          "the recommendation stays named, ineligible now and without measures")
+
+    def test_2d_a_trial_without_a_run_changes_no_status(self):
+        """#3549: a replay that still runs, or was killed, has no evidence and takes none away."""
+        world, drawn = self.world, []
+
+        def killed(*_):
+            drawn.append({c["id"]: c["status"] for c in self.graph()["candidates"]})
+            raise KeyboardInterrupt
+
+        def interrupted(ref, registration):
+            with seams.use(run=killed), self.assertRaises(KeyboardInterrupt):
+                entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+            drawn.append({c["id"]: c["status"] for c in self.graph()["candidates"]})
+            return [statuses[ref] for statuses in drawn[-2:]]  # while it ran, and afterwards
+
+        registration, (ref, broken) = registered_grid(world, ["never-finished", "broken"])
+        self.assertEqual(interrupted(ref, registration), ["unrun", "unrun"])
+        world.scenario = {"skip_reports": True, "native_exit": 3}
+        entry.run(world.profile, world.market, MARKET_DAY, broken, None, RUNNER_ARGV, registration=registration)
+        world.scenario = {}
+        self.assertEqual({c["id"]: c["status"] for c in self.graph()["candidates"]}[broken], "masked")
+        cited = {point["candidate"]: point["source_review_id"] for point in world.plan(registration)["grid"]}
+        retry = world.register(world.body([ref, broken], cited, retry_of=registration))["registration_id"]
+        self.assertEqual(interrupted(broken, retry), ["masked", "masked"], "an open retry does not lift it")
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs
