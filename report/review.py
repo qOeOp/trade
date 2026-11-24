@@ -26,6 +26,7 @@ from registration import validation
 # Not commitments: the write coordination row and the one replaceable reading per run (checked apart).
 UNCHECKED = ("ledger_head", "run_reading")
 READINGS = "run_reading"
+CAPTURES_CHUNK = 20  # runs whose captured bytes the review holds at once
 HISTORY_UNCHECKED = ("HISTORY_UNCHECKED: no readable backup, so whether a commit was rewritten (an amended last "
                      "commit) was not checked")
 
@@ -125,12 +126,24 @@ def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str,
     return found
 
 
-def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> list[dict]:
-    found, trial_id = [], run["trial_id"]
+def _captures(conn: db.LedgerConnection, trial_ids: list[int]) -> dict[int, dict | Refusal]:
+    """execution.read_captures of one chunk; when the chunk cannot be read, each trial alone, so one unreadable capture
+    is that run's finding and stops nothing else."""
     try:
-        capture = execution.read_capture(conn, trial_id)
+        return execution.read_captures(conn, trial_ids)
     except Refusal as exc:
-        return [_finding("CAPTURE_UNREADABLE", "run", trial_id, commit, f"{exc.code}: {exc.message}")]
+        if len(trial_ids) == 1:
+            return {trial_ids[0]: exc}
+        return {trial_id: _captures(conn, [trial_id])[trial_id] for trial_id in trial_ids}
+
+
+def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str,
+                  capture: Mapping | Refusal) -> list[dict]:
+    """`capture`: the run's execution.read_captures entry, read with every byte (a stored file that fails its hash is a
+    finding, so a listing read is not enough)."""
+    found, trial_id = [], run["trial_id"]
+    if isinstance(capture, Refusal):
+        return [_finding("CAPTURE_UNREADABLE", "run", trial_id, commit, f"{capture.code}: {capture.message}")]
     if capture["status"] != "captured":
         found.append(_finding("CAPTURE_MISSING", "run", trial_id, commit, capture.get("reason") or "missing"))
     if run["status"] != "passed":
@@ -304,8 +317,11 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | No
                    + f" UNION SELECT to_trial_id FROM dolt_diff_{READINGS} WHERE diff_type <> 'removed'" + new)
         runs = pinned.dicts(f"SELECT trial_id, status FROM run WHERE trial_id IN ({changed}) ORDER BY trial_id",
                             args + args)
-        for row in runs:
-            findings += _run_findings(pinned, row, commit)
+        for start_run in range(0, len(runs), CAPTURES_CHUNK):
+            chunk = runs[start_run:start_run + CAPTURES_CHUNK]
+            captures = _captures(pinned, [row["trial_id"] for row in chunk])
+            for row in chunk:
+                findings += _run_findings(pinned, row, commit, captures.pop(row["trial_id"]))
         found, registrations = _registration_findings(pinned, commit, new, args)
         findings += found
         found, validations = _validation_findings(pinned, commit)

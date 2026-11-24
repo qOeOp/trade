@@ -49,14 +49,16 @@ import statistics
 
 from collections.abc import Iterable, Mapping
 
-from ledger import db, execution, lines
+from ledger import db, execution, lines, metrics
 from ledger import targets as line_targets
 from registration import availability, precheck, reproduction, seams as registration_seams
 from report import candidates as report_candidates, measures, status
+from shared.errors import Refusal
 from shared.refusals import refuse
 
 
 SHORT_DAYS = 90  # about three months
+CAPTURES_CHUNK = 20  # runs whose captured bytes a reading holds at once
 MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_win_rate")
 
 
@@ -104,21 +106,47 @@ def _latest(rows: list[dict], kind) -> list[dict]:
     return sorted(chosen, key=lambda row: row["trial_id"])
 
 
-def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None,
-          holdout_until: datetime | None = None) -> dict:
-    """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial. A holdout
-    is `cut` when it ends before `holdout_until` (the planned holdout's end, or the market's end when sooner)."""
+def _readings(conn: db.LedgerConnection, trial_ids: Iterable[int], holdouts: set[int]
+              ) -> tuple[dict[int, dict], dict[int, list[float]], dict[int, str | None]]:
+    """(MEASURES of each passed run, the trade-window daily returns of each of the `holdouts` among them, each run's
+    fingerprint hash), by trial. Every captured byte is read and hash checked; a run load_run refuses raises its
+    refusal."""
+    ids = sorted(set(trial_ids))
+    read, returns, prints = {}, {}, {}
+    for at in range(0, len(ids), CAPTURES_CHUNK):
+        for trial_id, loaded in metrics.load_runs(conn, ids[at:at + CAPTURES_CHUNK]).items():
+            if isinstance(loaded, Refusal):
+                raise loaded
+            facts = measures.facts_of(loaded)
+            derived = measures.derive_measures(facts, wanted=MEASURES)
+            read[trial_id] = {key: derived[key]["value"] for key in MEASURES}
+            prints[trial_id] = reproduction.fingerprint_hash(facts["capture"])
+            if trial_id in holdouts:
+                returns[trial_id] = [value for ts, value, _ in facts["returns"]
+                                     if facts["trade_start_ns"] <= ts < facts["trade_end_ns"]]
+    return read, returns, prints
+
+
+def _fingerprints(conn: db.LedgerConnection, trial_ids: list[int]) -> dict[int, str | None]:
+    """Each trial's fingerprint hash, every captured byte read and hash checked; a refused capture raises."""
+    prints = {}
+    for at in range(0, len(trial_ids), CAPTURES_CHUNK):
+        for trial_id, capture in execution.read_captures(conn, trial_ids[at:at + CAPTURES_CHUNK]).items():
+            if isinstance(capture, Refusal):
+                raise capture
+            prints[trial_id] = reproduction.fingerprint_hash(capture)
+    return prints
+
+
+def _cell(row: dict, kind: str, readings: Mapping[int, dict], holdout_until: datetime | None = None) -> dict:
+    """One history run's cell with its `readings` (_readings) when it passed. A holdout is `cut` when it ends before
+    `holdout_until` (the planned holdout's end, or the market's end when sooner)."""
     cell = {"trial_id": row["trial_id"], "kind": kind, "label": _veto_year(row) if kind == "veto" else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
             "status": row["status"], "whole_year": kind == "veto" and _whole_year(row),
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS,
             "cut": kind == "holdout" and holdout_until is not None and row["trade_end"] < holdout_until}
     if row["status"] == "passed":
-        facts = measures.run_facts(conn, row["trial_id"])
-        derived = measures.derive_measures(facts, wanted=MEASURES)
-        cell["measures"] = {key: derived[key]["value"] for key in MEASURES}
-        if kind == "holdout" and returns is not None:
-            returns[row["trial_id"]] = [value for ts, value, _ in facts["returns"]
-                                        if facts["trade_start_ns"] <= ts < facts["trade_end_ns"]]
+        cell["measures"] = readings[row["trial_id"]]
     return cell
 
 
@@ -221,14 +249,13 @@ def _summary(cells: list[dict], targets: dict | None, control: bool, planned: It
     return {"veto": veto, "holdout": holdout, "meets_targets": meets, "judged_on": judged, "missing": missing}
 
 
-def _control_reproduces(conn: db.LedgerConnection, control: dict | None, run_id: int) -> bool | None:
-    """The control's whole fingerprint equals the research run's (both on the run's image); None without a
-    control run."""
+def _control_reproduces(prints: Mapping[int, str | None], control: dict | None, run_id: int) -> bool | None:
+    """The control's whole fingerprint equals the research run's (both on the run's image), from their hashes; None
+    without a control run."""
     if control is None:
         return None
-    mine = reproduction.fingerprint_hash(execution.read_capture(conn, control["trial_id"]))
-    theirs = reproduction.fingerprint_hash(execution.read_capture(conn, run_id))
-    return mine is not None and mine == theirs
+    mine = prints[control["trial_id"]]
+    return mine is not None and mine == prints[run_id]
 
 
 def _prior_trials(conn: db.LedgerConnection, line_id: int, dev_end: datetime, end: datetime, own: set[int],
@@ -294,23 +321,31 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     targets = line_targets.targets_for(conn, record["line_id"])
     found = lines.history_trials(conn, record["line_id"])
     rows: list[dict] = []
-    returns: dict[int, list[float]] = {}
     kept, without = candidates(conn, record["line_id"], checker, records)
     planned: dict[str, list[str]] = {}
     for item in lines.history_plan(conn, record["line_id"], *days, kept):
         if item["kind"] == "veto" and item["window"] is not None:
             planned.setdefault(item["source_sha256"], []).append(item["label"])
+
+    def kind(row: dict) -> str:
+        return _kind(row, dev_start, dev_end, held)
+
+    segments = {participant["source_sha256"]: _latest(
+        [row for row in found if row["source_sha256"] == participant["source_sha256"]], kind) for participant in kept}
+    controls = {sha: next((row for row in own if kind(row) == "control"), None) for sha, own in segments.items()}
+    researched = {row["trial_id"]: {**row, "status": "passed"} for row in conn.rows_in(
+        "SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id IN ()",
+        [participant["trial_id"] for participant in kept], dicts=True)}
+    passed = [row for own in segments.values() for row in own if row["status"] == "passed"]
+    readings, returns, prints = _readings(conn, [*researched, *(row["trial_id"] for row in passed)],
+                                          {row["trial_id"] for row in passed if kind(row) == "holdout"})
+    prints.update(_fingerprints(conn, [control["trial_id"] for control in controls.values()
+                                       if control is not None and control["trial_id"] not in prints]))
     for participant in kept:
-        own = _latest([row for row in found if row["source_sha256"] == participant["source_sha256"]],
-                      lambda row: _kind(row, dev_start, dev_end, held))
-        cells = [{**_cell(conn, row, _kind(row, dev_start, dev_end, held), returns, holdout_until),
-                  "superseded": row["superseded"]} for row in own]
-        control = next((row for row in own if _kind(row, dev_start, dev_end, held) == "control"), None)
-        researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
-                              (participant["trial_id"],))
-        assert researched is not None  # a participant is a run's trial
-        development = _cell(conn, {**researched, "status": "passed"}, "development")
-        reproduces = _control_reproduces(conn, control, participant["trial_id"])
+        own, control = segments[participant["source_sha256"]], controls[participant["source_sha256"]]
+        cells = [{**_cell(row, kind(row), readings, holdout_until), "superseded": row["superseded"]} for row in own]
+        development = _cell(researched[participant["trial_id"]], "development", readings)
+        reproduces = _control_reproduces(prints, control, participant["trial_id"])
         rows.append({"source_sha256": participant["source_sha256"], "candidate": participant["candidate"],
                      "run": participant["trial_id"],
                      "development": development, "cells": cells, "control_reproduces": reproduces,

@@ -1,0 +1,1 @@
+- `research history` and the ledger review issue far fewer statements; every stored byte is checked as before.

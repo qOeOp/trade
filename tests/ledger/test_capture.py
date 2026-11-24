@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import coverage, db, evidence, execution, problems, strategies, trials
+from registration import reproduction
 from shared.errors import Refusal
 from tests.ledger import dolt
 from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, SYMBOLS, Service, sha, source
@@ -157,6 +158,27 @@ class CaptureTests(LedgerCase):
         for key in ("status", "stages", "outcome", "statuses", "runtime_failures", "start", "input_coverage",
                     "input_coverage_bytes", "table_hashes"):
             self.assertEqual(listed[key], full[key], key)
+
+    def test_a_reproduction_check_refuses_a_corrupt_file_its_hash_does_not_read(self):
+        exited = {stage: {"state": "exited", "exit_code": 0} for stage in execution.STAGES}
+        sealed = []
+        for purpose, output in (("precheck", b"anchor ran\n"), ("explore", b"explore ran\n")):
+            workdir = self.workdir({problems.AUDIT_RESULT: b'{"passed": true}',
+                                    problems.FINGERPRINT_RESULT: b'{"fills": 1}', "native.stdout.txt": output})
+            sealed.append(self.trial(workdir, purpose))
+            self.seal(sealed[-1], workdir, exited)
+        anchor, explore = sealed
+        self.assertTrue(reproduction.matcher(self.conn)(explore, anchor))
+        admin = self.service.admin(self.profile)
+        try:
+            with admin.cursor() as cursor:
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                cursor.execute("UPDATE evidence_content SET content = %s WHERE sha256 = %s",
+                               (b"rewritten anchor\n", sha(b"anchor ran\n")))
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes')")
+        finally:
+            admin.close()
+        self.assertEqual(self.refused(lambda: reproduction.matcher(self.conn)(explore, anchor)), "LEDGER_CORRUPT")
 
     def test_the_source_and_the_coverage_receipt_are_stored_once_and_the_capture_hashes_them(self):
         workdir = self.workdir({"native.stdout.txt": b"ran\n"})
