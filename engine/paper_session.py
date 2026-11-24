@@ -436,8 +436,8 @@ class Session:
         return found
 
     def commanded(self, close: bool = False) -> str | None:
-        """Why a cancel, or a position close (`close`), the source sends is not sent, or None: nothing is once the
-        recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
+        """Why a cancel, or a position close or a market exit (`close`), the source sends is not sent, or None: nothing
+        is once the recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
         if close:
             return self.submitted(None)
         return self.refused

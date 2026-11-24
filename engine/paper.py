@@ -351,27 +351,27 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
-        if SESSION and SESSION.commanded():
-            return None
-        return super().cancel_order(client_order_id, client_id, params)
+        return None if SESSION and SESSION.commanded() else super().cancel_order(client_order_id, client_id, params)
 
     def cancel_orders(self, client_order_ids, client_id=None, params=None):
-        if SESSION and SESSION.commanded():
-            return None
-        return super().cancel_orders(client_order_ids, client_id, params)
+        return None if SESSION and SESSION.commanded() else super().cancel_orders(client_order_ids, client_id, params)
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
-        if SESSION and SESSION.commanded():
-            return None
-        return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
+        return None if SESSION and SESSION.commanded() else super().cancel_all_orders(
+            instrument_id, order_side, client_id, strategy_only, params)
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
                        quote_quantity=None, params=None):
-        """A close on a back-filled bar is a MARKET order the recovery refuses; after a refusal no cancel or close is
-        sent (engine.paper_session.Session.commanded)."""
+        """A close on a back-filled bar is a MARKET order the recovery refuses; after a refusal no cancel or close is sent
+        (engine.paper_session.Session.commanded). A market exit, native past these overrides, is gated as a close."""
         if SESSION and SESSION.commanded(close=True):
             return None
         return super().close_position(position, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
+
+    def market_exit(self):
+        if SESSION and SESSION.commanded(close=True):
+            return None
+        return super().market_exit()
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         if SESSION and (SESSION.ready or args or kwargs):
@@ -818,9 +818,9 @@ class Recorder(DataActor):
     def on_stop_timer(self, _event):
         record_kline_events()
         self._protection()
-        if paper_terms.QUEUE:  # a callback of the run: it sends orders (Session.callback)
+        if paper_terms.QUEUE:  # a callback of the run: it sends orders (Session.callback), unless refused (Session.submitted)
             with SESSION.callback() if SESSION else nullcontext():
-                paper_terms.release(journal, request_stop, stopping=STOP.is_set())
+                paper_terms.release(journal, request_stop, stopping=STOP.is_set() or bool(SESSION and SESSION.refused))
         if SESSION and not STOP.is_set():
             try:
                 SESSION.backend.health()
