@@ -85,7 +85,9 @@ equity E at maintenance rate m needs (E/N - m)/(1 + m), about +99% at N = E). Wh
 prices can travel that distance while a position is held, margin decides survival: use `quotes`
 with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the largest position.
 When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
-`bars` suffices: report liquidation as unmodelled together with that smallest distance. At lower
+`bars` suffices: report liquidation as unmodelled together with that smallest distance, recomputing
+and reporting it whenever the largest allowed position changes; once `bars` no longer suffices,
+[changes.md](references/changes.md) applies. At lower
 exposure `quotes` may still be chosen when the pinned market day holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
