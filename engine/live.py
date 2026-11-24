@@ -6,7 +6,8 @@ trades again; otherwise it holds, observing only, until the account is flat (des
 cannot yet rebuild its state around an open position). One killed in a stop that was to end the run starts again only
 to finish that stop (no source, its positions closed as the stop began to) and is over. An armed run that ends by its own refusal or failure is over
 (`unresolved`) and is never started again; only a start again whose first account read fails, or shows this clock
-outside the limits, or whose connected read fails or is overdue, gives the start back.
+outside the limits, or whose connected read fails or is overdue, or whose socket disconnects before that read is
+verified, gives the start back.
 """
 
 from __future__ import annotations

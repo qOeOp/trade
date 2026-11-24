@@ -1084,6 +1084,83 @@ class LiveTests(unittest.TestCase):
         cancel.assert_called_once()
         self.assertEqual((status, session.mode, live.begun_stop(self.events())), (live.INTERRUPTED, "finish", "drawdown"))
 
+    def test_a_start_again_whose_socket_disconnects_before_verification_is_interrupted(self):
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        disconnected = SimpleNamespace(client_id="BINANCE", endpoint="user-stream", state=SocketState.DISCONNECTED)
+
+        def start_again(before=lambda session: None, snapshot=None):
+            (self.output / "events.jsonl").write_text(journal)
+            (self.output / "STOP").unlink(missing_ok=True)
+            sessions = []
+
+            def connects(session, *_, **__):
+                sessions.append(session)
+                node = session.node = mock.Mock()
+                node.cache.orders.return_value = node.cache.positions_open.return_value = []
+                observer = SimpleNamespace(session=session, last_query=0, cache=node.cache, query_account=mock.Mock())
+
+                def run():
+                    before(session)
+                    live_lifecycle.Observer.on_socket_state(observer, disconnected)
+                    live_lifecycle.Observer.on_socket_state(observer, disconnected)  # each socket has its own event
+                    live_lifecycle.Observer.observe(observer)
+                    node.handle().stop.assert_called()
+                node.run.side_effect = run
+                return node
+
+            with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot or self.flat_snapshot()), \
+                    mock.patch.object(live, "LiveCache"), mock.patch.object(live, "KlineEvents"), \
+                    mock.patch.object(live, "build_node", side_effect=connects), \
+                    mock.patch.object(live.strategy_runtime, "FAILURES", []):
+                return live.execute(args), sessions[0]
+
+        interruptions = {"connected": lambda session: None,
+                         "signal not yet seen": lambda session: session.interrupt_requested.set(),
+                         "interrupting": lambda session: (session.interrupt_requested.set(),
+                                                          session.observe_stop_intent())}
+        for snapshot in (self.flat_snapshot(), self.held_snapshot()):
+            for name, before in interruptions.items():
+                with self.subTest(name, positions=snapshot["positions"]):
+                    status, session = start_again(before, snapshot)
+                    self.assertEqual((status, self.events()[-1]["event"]), (live.INTERRUPTED, "interrupted"))
+                    self.assertFalse(session.failed or session.account_verified)
+                    self.assertTrue(live.resumable(self.output))
+                    self.assertIsNone(live.begun_stop(self.events()))
+        # A stop or failure that came first still ends the run.
+        endings = {"stop": lambda session: (self.output / "STOP").touch(),
+                   "source failure": lambda session: live.strategy_runtime.FAILURES.append({}),
+                   "failure while interrupting": lambda session: (
+                       session.interrupt_requested.set(), session.observe_stop_intent(),
+                       live.strategy_runtime.FAILURES.append({})),
+                   "storage": lambda session: setattr(session, "persistence_failed", True),
+                   "failed order": lambda session: setattr(session, "failed", True)}
+        for name, before in endings.items():
+            with self.subTest(name):
+                status, session = start_again(before)
+                self.assertNotEqual(status, live.INTERRUPTED)
+                self.assertFalse(live.resumable(self.output))
+                self.assertEqual([row["event"] for row in self.events() if row["event"] in live.ENDED_EVENTS][:1],
+                                 ["unresolved"])
+        # A start that finishes an earlier start's stop withdraws the working entry it inherited, and a later start
+        # still finishes that stop.
+        journal += json.dumps({"event": "preflight", "run_id": "native-test", "mode": "run", "observed_ns": 1}) + "\n" \
+            + json.dumps({"event": "stopping", "run_id": "native-test", "reason": "drawdown", "observed_ns": 1}) + "\n"
+        with mock.patch.object(live.Session, "cancel_entries") as cancel:
+            status, session = start_again()
+        cancel.assert_called_once()
+        self.assertEqual((status, session.mode, live.begun_stop(self.events())), (live.INTERRUPTED, "finish", "drawdown"))
+
+    def test_a_first_starts_disconnect_before_verification_still_ends_the_run(self):
+        for interrupting in (False, True):
+            with self.subTest(interrupting=interrupting):
+                session = live.Session(self.manifest, self.output, "run")
+                session.node = mock.Mock()
+                session.interrupting = interrupting
+                live_lifecycle.Observer.on_socket_state(SimpleNamespace(session=session), SimpleNamespace(
+                    client_id="BINANCE", endpoint="user-stream", state=SocketState.DISCONNECTED))
+                self.assertTrue(session.connection_failed)
+
     def test_a_first_starts_failed_connected_read_still_ends_the_run(self):
         session = live.Session(self.manifest, self.output, "run")
         session.node = mock.Mock()
