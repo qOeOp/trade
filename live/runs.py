@@ -354,18 +354,18 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
               inspection: dict, runner_args: list[str], leverage: str | None) -> list[dict]:
     """The replays at research_at that back running this source live: on exactly Live's instruments, in the bars
     environment, either a passed sealed run or a completed explore whose audit passed (`replay explore` of the
-    candidate at the wallet's balance) trading only inside a research trial's window of this source (a window it
-    already saw: no new exposure, no holdout spent), on an image whose replay code (admission.REPLAY_CODE) equals this
-    execution image's. A sealed run on other replay code still counts through an explore that reproduces it on
-    matching code. Only replays at `leverage` (their effective configuration's) back a run at it (re-judge C-083);
+    candidate at the wallet's balance) trading only inside the window of a research trial of this source in any
+    environment (a window it already saw: no new exposure, no holdout spent), on an image whose replay code
+    (admission.REPLAY_CODE) equals this execution image's. A sealed run on other replay code still counts through an
+    explore that reproduces it on matching code. Only replays at `leverage` (their effective configuration's) back a run at it (re-judge C-083);
     None, for the page before the user picks one, lists them at any."""
     from ledger import execution
     from registration import reproduction
     with db.read_as_of(research, research_at) as reader:
-        rows = reader.dicts("SELECT t.trial_id, t.purpose, t.image_ref, t.starting_balance, t.trade_start, "
+        rows = reader.dicts("SELECT t.trial_id, t.purpose, t.execution, t.image_ref, t.starting_balance, t.trade_start, "
                             "t.trade_end, r.status FROM trial t "
                             "LEFT JOIN run r ON r.trial_id = t.trial_id "
-                            "WHERE t.source_sha256 = %s AND t.execution = 'bars' ORDER BY t.trial_id",
+                            "WHERE t.source_sha256 = %s ORDER BY t.trial_id",
                             (source_sha256,))
         instruments: dict[int, set] = {}
         for trial_id, symbol in reader.rows("SELECT i.trial_id, i.symbol FROM trial_instrument i "
@@ -375,7 +375,7 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
         seen = [(row["trade_start"], row["trade_end"]) for row in rows if row["purpose"] == "research"]
         backing = []
         for row in rows:
-            if instruments.get(row["trial_id"]) != set(symbols):
+            if row["execution"] != "bars" or instruments.get(row["trial_id"]) != set(symbols):
                 continue
             if row["status"] == "passed":
                 images = [row["image_ref"], *(item["image_ref"]

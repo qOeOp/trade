@@ -19,7 +19,7 @@ from tests.ledger.dolt import BINARY, RUNTIME, SKIP
 from tests.live.authority_fixture import install, launch, prepare
 from tests.live.test_runs import IDENTITY, LiveFixture
 from tests.ledger.dolt import source
-from tests.registration.world import World, capture
+from tests.registration.world import ACCOUNT, RUNNER_ARGV, World, capture, config
 from report import history
 from shared.refusals import refuse
 from tests.helpers import refused
@@ -140,6 +140,52 @@ class ReplayEvidenceTests(LiveFixture):
         self.assertEqual(self.refused("no-paper", reconciled=unreconciled), "LIVE_PAPER_UNRECONCILED")
         self.assertEqual(asked, [(hashlib.sha256(self.candidate["source"]).hexdigest(), ["AAAUSDT"])])
         self.assertTrue(self.prepare("reconciled", reconciled=lambda *_: None)["evidence"])
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class QuoteResearchEvidenceTests(unittest.TestCase):
+    """A source researched with quotes (#3492): its research trial gives the windows it saw, and only bars replays
+    inside one back a run."""
+
+    def setUp(self):
+        self.world = World("live-evidence-quotes")
+        self.addCleanup(self.world.close)
+        self.source = source("root")
+        with patch.dict(ACCOUNT, execution="quotes"):
+            review = self.world.prechecked(self.source)
+            registered = self.world.register(self.world.body(["rsi@1"], {"rsi@1": review}, comparison=None),
+                                             runner_argv=[*RUNNER_ARGV, "--execution", "quotes"])
+            self.research = self.world.research_trial(registered["registration_id"], self.source)  # January 2026
+
+    def found(self, symbols=("AAAUSDT",)) -> list[int]:
+        with patch.object(runs.admission, "replay_code", return_value=CODE):
+            rows = runs._evidence(self.world.profile, db.head_commit(self.world.conn),
+                                  hashlib.sha256(self.source).hexdigest(), list(symbols), CODE, [], "3")
+        return [row["trial_id"] for row in rows]
+
+    def explore(self, execution: str, days: int = 2) -> int:
+        with patch.dict(ACCOUNT, execution=execution):
+            trial_id = self.world.open_precheck(self.source, effective_config=config(symbols=["AAAUSDT"]),
+                                                purpose="explore", days=days)
+        capture(self.world.conn, trial_id, self.source, purpose="explore", fingerprint={"fills": {"sha256": "f" * 64}})
+        self.assertEqual(self.world.conn.rows("SELECT execution FROM trial WHERE trial_id = %s", (trial_id,)),
+                         [(execution,)])
+        return trial_id
+
+    def test_a_bars_explore_inside_the_quote_research_window_backs_a_run_and_one_outside_does_not(self):
+        self.assertEqual(self.world.conn.rows("SELECT execution FROM trial WHERE trial_id = %s", (self.research,)),
+                         [("quotes",)])
+        self.explore("bars", days=40)  # past the research window's end
+        self.assertEqual(self.found(), [])
+        backing = self.explore("bars")
+        self.assertEqual(self.found(), [backing])
+
+    def test_no_quote_replay_backs_a_run(self):
+        self.explore("quotes")
+        self.assertEqual(self.found(), [], "an audited explore in quotes")
+        capture(self.world.conn, self.research, self.source, purpose="research")
+        self.world.seal_run(self.research)
+        self.assertEqual(self.found(("AAAUSDT", "BBBUSDT")), [], "a passed sealed run in quotes")
 
 
 @unittest.skipUnless(BINARY, SKIP)

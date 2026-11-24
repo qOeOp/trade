@@ -36,8 +36,8 @@ Preparation first needs the candidate's closing history test, read at research_a
 its line's targets, the check `validation registration` makes (`report.history.require_unfalsified`): it refuses
 `LIVE_CANDIDATE_FALSIFIED` for a candidate the test judged short of them and `LIVE_HISTORY_UNDECIDED` for one it has
 not decided (no history test, or a verdict missing a reading). It also records the replay evidence at research_at: a passed sealed run, or a completed `replay explore` whose
-audit passed and whose trading window lies inside a research trial's window of the same source (a window it already
-saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars` at the run's leverage (the replay's effective
+audit passed and whose trading window lies inside a research trial's window of the same source, whatever that
+trial's execution environment (a window it already saw, so no new exposure and no holdout spent), of that exact source on exactly the run's symbols in `bars` at the run's leverage (the replay's effective
 configuration), on a replay image whose `--describe`
 reports the execution image's `source_files_sha256`, `audit_source_sha256` and `dependency_lock_sha256` (the same
 replay code). A sealed run on other replay code counts through an explore that reproduces it on matching code
