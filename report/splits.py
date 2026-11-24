@@ -124,3 +124,20 @@ def dev_quarters(run: Mapping) -> dict | None:
                                                                           strict=True))],
             "worst_quarter_return": min(returns[:whole]),
             "return_without_best_quarter": _without_best(cuts, whole, returns)}
+
+
+# Display-only columns of the development years and quarters (dev_years, dev_quarters); no dominance.
+DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
+DEV_QUARTER_COLUMNS = {"worst_dev_quarter_return": "worst_quarter_return",
+                       "return_without_best_quarter": "return_without_best_quarter"}
+
+
+def table_columns(facts: Mapping, net_without_top: Mapping) -> dict:
+    """A run's display-only `research status` table columns: DEV_YEAR_COLUMNS, DEV_QUARTER_COLUMNS, and its
+    `net_without_top_instrument` with the contract it removes (`top_instrument`), both null for a run that
+    registered one contract, where removing it leaves nothing to read."""
+    years, quarters = dev_years(facts) or {}, dev_quarters(facts) or {}
+    top = net_without_top if len(facts["trial"]["instruments"]) > 1 else {}
+    return {**{name: years.get(key) for name, key in DEV_YEAR_COLUMNS.items()},
+            **{name: quarters.get(key) for name, key in DEV_QUARTER_COLUMNS.items()},
+            "net_without_top_instrument": top.get("value"), "top_instrument": top.get("instrument")}

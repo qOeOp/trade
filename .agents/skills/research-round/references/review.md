@@ -11,10 +11,12 @@ Each candidate's readings come from `replay report` and `hypothesis compare`: an
 its `annual_return_interval` and maximum drawdown, each against the user's target (met, or missed by
 how much); each development year's return against the annual target and its sealed MARK drawdown
 (`mark_max_drawdown`, never recomputed) against the drawdown target, the worst year and the return
-without the best year (`dev_years`); Sharpe; plan win rate; costs; capital use and exposure; the
-profit mechanism and its profit-source split; and the uncertainty against its control (or the
-comparison's diagnosis). A reading the product left empty, or that needs a missing exposure table,
-stays empty with the reason; never estimate it or show a number the reports do not have.
+without the best year (`dev_years`), and under two years the worst quarter and the return without
+the best quarter (`dev_quarters`); with several contracts, `net_without_top_instrument`; Sharpe;
+plan win rate; costs; capital use and exposure; the profit mechanism and its profit-source split;
+and the uncertainty against its control (or the comparison's diagnosis). A reading the product left
+empty, or that needs a missing exposure table, stays empty with the reason; never estimate it or
+show a number the reports do not have.
 
 ## Recommendation
 

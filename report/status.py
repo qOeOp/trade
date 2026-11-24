@@ -35,8 +35,6 @@ TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_
                   "alpha_basket", "beta_basket")
 DOMINANCE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
-# Display-only columns of the development years (splits.dev_years); no dominance.
-DEV_YEAR_COLUMNS = {"worst_dev_year_return": "worst_year_return", "return_without_best_year": "return_without_best_year"}
 IDENTITY_COLUMNS = ("trial_id, purpose, source_sha256, execution, comparable_config_sha256, "
                     f"export_sha256, input_start, trade_start, trade_end, {db.IMAGE_DIGEST}")
 
@@ -516,8 +514,8 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     with a run of it; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. With the
     line's multiple-testing reading (`testing`), each run carries its deflated Sharpe range (deflated_range),
-    else null. Each run shows its worst development year and its return without the best one (DEV_YEAR_COLUMNS),
-    null for a window of one year or less. Nothing is ranked, scored or stored."""
+    else null. Each run shows its sub-period and concentration columns (splits.table_columns).
+    Nothing is ranked, scored or stored."""
     record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
     identities = _identities(conn)
     current = line_identity(conn, record["line_id"], identities)
@@ -525,15 +523,17 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     passed, without = passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
     candidates = sorted({row["candidate"] for row in passed if _same(identities[row["trial_id"]], current)
                          and (row["trial_id"] in own or row["candidate"] == record["start"])})
-    read = {trial_id: (measures.derive_measures(facts, market=measures.market_for(facts), wanted=TABLE_MEASURES),
-                       deflated_range(facts, testing),
-                       splits.dev_years(facts))
-            for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed])}
+    read = {}
+    for trial_id, facts in measures.runs_facts(conn, [row["trial_id"] for row in passed]):
+        measured = measures.derive_measures(facts, market=measures.market_for(facts),
+                                            wanted=(*TABLE_MEASURES, "net_without_top_instrument"))
+        read[trial_id] = (measured, deflated_range(facts, testing),
+                          splits.table_columns(facts, measured["net_without_top_instrument"]))
     found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
               "execution_identity": identities[row["trial_id"]],
               "measures": {name: _table_measure(read[row["trial_id"]][0][name]) for name in TABLE_MEASURES},
               "deflated_sharpe": read[row["trial_id"]][1],
-              **{name: (read[row["trial_id"]][2] or {}).get(key) for name, key in DEV_YEAR_COLUMNS.items()}}
+              **read[row["trial_id"]][2]}
              for row in passed]
     excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
                  "execution_identity": identities[row["trial_id"]], "reasons": row["reasons"]} for row in without]
