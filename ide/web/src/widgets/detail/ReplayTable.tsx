@@ -18,12 +18,23 @@ const value = (x: number | null | undefined, text: string, ok: boolean | null = 
   loading ? <Skeleton className="w-10" /> : x == null ? <Missing /> : <span className={textClass(tone(ok))}>{text}</span>;
 const PLACEHOLDERS: Trial[] = [{ trial_id: 1, purpose: "research" }, { trial_id: 2, purpose: "research" }];
 
+/** Trial and Elig are as wide as their headers, so Trial starts under the section title and Elig sits a column
+ *  gap after Sharpe. */
+const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
+/** In a card too narrow for the six columns side by side (below 32.3em, 388px of 12px text, Validation would
+ *  touch its return), a row takes two lines of three: what the trial is (Trial, Use, Elig) above its readings
+ *  (Return, Drawdown, Sharpe), every column right-aligned. The child numbers are the order of `cols`; the first
+ *  two tracks are never narrower than 1234.56% and Validation. */
+const STACK = [
+  "@max-[32.3em]:[&_tr]:grid @max-[32.3em]:[&_tr]:grid-cols-[calc(8ch+--spacing(4))_minmax(calc(10ch+--spacing(4)),1fr)_1fr]",
+  "@max-[32.3em]:[&_tr>*]:h-auto @max-[32.3em]:[&_tr>*]:w-auto @max-[32.3em]:[&_tr>*]:py-0.5 @max-[32.3em]:[&_tr>*]:content-center @max-[32.3em]:[&_tr>*]:text-right",
+  "@max-[32.3em]:[&_tr>:is(:nth-child(3),:nth-child(4),:nth-child(5))]:order-1",
+  "@max-[32.3em]:[&_tr>:is(:nth-child(1),:nth-child(2),:nth-child(6))]:border-b-0 @max-[32.3em]:[&_tr>:is(:nth-child(1),:nth-child(2),:nth-child(6))]:pb-0",
+].join(" ");
 /** A version's trials: purpose, readings against the targets, and whether each kept its evidence. On the
  *  Runs page the replay its backtest draws is selected; on any page a sealed run with evidence (research,
  *  validation or history) shows its backtest there, and a precheck or explore replay says why it cannot. The trial number and every reading align right, the
- *  purpose left. Trial and Elig are as wide as their
- *  headers, so Trial starts under the section title and Elig sits a column gap after Sharpe. */
-const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
+ *  purpose left (right too on two lines). */
 export function ReplayTable({ trials, targets, loading = false }: { trials: Trial[]; targets: Targets | null; loading?: boolean }) {
   // A cell's function is its component: a new one each render would rebuild every cell.
   const cols = useMemo((): Column<Trial>[] => [
@@ -53,7 +64,7 @@ export function ReplayTable({ trials, targets, loading = false }: { trials: Tria
   const lost = loading ? [] : trials.filter((t) => t.eligible === false);
   return (
     <>
-      <div className="-mx-2"><DataTable data={rows} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div>
+      <div className="@container -mx-2"><div className={STACK}><DataTable data={rows} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div></div>
       {/* Why each run lost its evidence, in words, the record's detail after it. */}
       {lost.length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
