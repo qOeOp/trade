@@ -1,5 +1,5 @@
 ---
-description: Rule check — a source reviewer passes activity only when the precheck filled orders on the order path the change adds or alters; fills on the unchanged entry path leave it unresolved, not passed and not failed, until a window where the new path runs, or a probe on a temporary ledger, shows it.
+description: Rule check — a source reviewer passes activity only when the precheck filled orders on the order path the change adds or alters; fills on the unchanged entry path leave it unresolved, not passed and not failed, and, since that precheck traded, the revision ends and no later precheck of it lifts the failure.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
