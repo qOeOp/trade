@@ -59,9 +59,6 @@ def entry(market_terms: dict, instrument_id: str, proxy_url: str | None) -> list
         return [f"Binance's terms were not read ({type(exc).__name__}: {exc})"]
 
 
-MARKET_EXIT_TAG = "MARKET_EXIT"  # the native exit's own orders: rc7 does not deny an order that carries it
-
-
 @dataclass
 class Entry:
     instrument_id: str
@@ -135,11 +132,6 @@ class Waiting:
 
     def _wait(self, order, send, end) -> None:
         queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
-
-    def _denied_exiting(self, order) -> bool:
-        """Nautilus denies the entry (MARKET_EXIT_IN_PROGRESS): it is never sent, so no terms are read for it. The
-        native flag, past a name of the source's own."""
-        return Strategy.is_exiting(self) and MARKET_EXIT_TAG not in (order.tags or ())  # type: ignore[arg-type]
 
     def _end_waiting(self, order, position_id, client_id, params) -> None:
         """End a cancelled entry. An unsent order keeps the order rules too, as in a replay, which checks it before

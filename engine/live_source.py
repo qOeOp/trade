@@ -18,7 +18,7 @@ from engine import live_commands as commands, live_connection
 from engine.live_commands import PendingEntry
 from engine.live_records import contract, owned, strategy_ids
 from engine.live_session import Session
-from engine.order_rules import CODE, OrderRules, native_cache
+from engine.order_rules import CODE, MARKET_EXIT_DENIAL, OrderRules, denied_exiting, native_cache
 from engine.load import LoadedStrategy, load_strategy, read_universe
 from engine.membership import MONTHS, Membership, month_end_ns, opening
 
@@ -115,6 +115,10 @@ class _LiveConfigured(history.Warming, metrics.Feed):
                 # Only this entry, which passed every entry check, is denied, natively.
                 live_connection.deny(self._live, order, "entry_while_contract_not_trading" if halted
                                      else "entry_while_bars_missing")
+                return None
+            if denied_exiting(self, order):
+                # A replay denies it too; queued, its read's timing would decide whether a real order is sent.
+                live_connection.deny(self._live, order, "entry_during_market_exit", reason=MARKET_EXIT_DENIAL)
                 return None
             if closed:
                 live_connection.hold(self._live, pending)

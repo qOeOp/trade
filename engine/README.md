@@ -135,7 +135,8 @@ rc7 does not reload a loaded instrument mid-run, off the node's thread: the entr
 reduce-only orders go on (`engine.paper_terms`), and a Paper checkpoint is not cut while one waits. An entry
 its source cancels while it waits (a market exit cancels it too) is never sent and ends `CANCELED` natively
 (`engine.unsent`): in Paper once its read is done, in Live on the Observer's next tick. One a source submits
-during its market exit does not wait in Paper: Nautilus denies it at once, as in a replay. A difference is
+during its market exit does not wait: it is denied at once, as in a replay, in Paper by Nautilus and in Live by the
+entry gate (`entry_denied`, detail `entry_during_market_exit`), and Live's run goes on. A difference is
 `TERMS_CHANGED`, with both values: the entry is not sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
 same way. A replay never meets a change: it trades the whole window on one terms snapshot per contract
 (`market.instrument`). Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot

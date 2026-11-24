@@ -67,6 +67,9 @@ VENUE = "BINANCE"
 WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engine.run)
 CONTRACTS: dict[str, Any] = {}  # strategy ID -> its instance's own InstrumentId (engine.history.Warming._warming_setup)
 
+MARKET_EXIT_TAG = "MARKET_EXIT"  # the native exit's own orders: rc7 does not deny an order that carries it
+MARKET_EXIT_DENIAL = "MARKET_EXIT_IN_PROGRESS"  # Nautilus's reason for an entry it denies during a market exit
+
 
 def native_cache(source):
     """The native cache of `source`, past the source's own read-only `cache` (engine.strategy)."""
@@ -75,6 +78,12 @@ def native_cache(source):
 
 def _strategy_id(source):
     return Strategy.strategy_id.__get__(source, type(source))
+
+
+def denied_exiting(source, order) -> bool:
+    """Nautilus denies the entry `order`: the source's market exit runs. The native flag, past a name of the source's
+    own."""
+    return Strategy.is_exiting(source) and MARKET_EXIT_TAG not in (order.tags or ())
 
 
 def usdt_equity(source) -> Decimal | None:

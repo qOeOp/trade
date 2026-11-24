@@ -1000,7 +1000,7 @@ class EntryTermsTests(unittest.TestCase):
         self.journal = mock.Mock()
         for patcher in (mock.patch.object(paper.OrderRules, "submit_order", self.sent),
                         mock.patch.object(paper, "SESSION", None), mock.patch.object(paper, "journal", self.journal),
-                        mock.patch.object(paper._PaperConfigured, "_denied_exiting", lambda *_: False),
+                        mock.patch.object(paper, "denied_exiting", lambda *_: False),
                         mock.patch("time.sleep")):
             patcher.start()
             self.addCleanup(patcher.stop)
