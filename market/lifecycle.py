@@ -9,7 +9,7 @@ Catalog's own writers, and the replay delivers them natively: a PRE_CLOSE status
 positions), a CLOSE status (the market closes) and, only when the exchange published a settlement
 price, an InstrumentClose of type CONTRACT_EXPIRED that the engine settles at. No price is made up.
 A contract no bundle lists whose stored trades stopped gets a derived episode: only a CLOSE status at its last traded
-minute's close.
+minute's close; one that stopped and traded again inside the window gets one per span of trading.
 """
 
 from __future__ import annotations
@@ -57,11 +57,13 @@ def _native(event):
 DERIVED_REASON = "data-end"
 
 
-def derived_episode(symbol: str, instrument_id: str, stop_ns: int) -> dict:
+def derived_episode(symbol: str, instrument_id: str, stop_ns: int | None, start_ns: int = 0) -> dict:
     """market.derived_episode: a contract's termination without evidence, at the close of its last traded minute
-    (market.data_end_stops): one InstrumentStatus CLOSE, no settlement price, no listing clock and no source. Every
-    episode of an evidence bundle cites a source, so an empty `sources` marks a derived one."""
-    return {"symbol": symbol, "instrument_id": instrument_id, "start_ns": 0, "sources": [], "events": [
+    (market.data_end_stops, market.trade_halts): one InstrumentStatus CLOSE, no settlement price, no listing clock and
+    no source. Every episode of an evidence bundle cites a source, so an empty `sources` marks a derived one. After a
+    halt `start_ns` is the first trade's minute; without `stop_ns` it trades on and has no event."""
+    return {"symbol": symbol, "instrument_id": instrument_id, "start_ns": start_ns, "sources": [],
+            "events": [] if stop_ns is None else [
         {"type": "InstrumentStatus", "instrument_id": instrument_id, "action": "CLOSE", "ts_event": stop_ns,
          "ts_init": stop_ns, "reason": DERIVED_REASON, "trading_event": None, "is_trading": None, "is_quoting": None,
          "is_short_sell_restricted": None}]}

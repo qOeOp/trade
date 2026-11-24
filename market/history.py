@@ -1,7 +1,7 @@
 """What an export takes from each contract's whole stored history (`market.contract_history`, `market.daily_bars`,
-`market.data_end_stops`): the daily warm-up, the price grid's divisors and the first and last stored bars, from one
+`market.data_end_stops`, `market.trade_halts`): the daily warm-up, the price grid's divisors and the first and last stored bars, from one
 read of each `bar` month file for every contract at once (a file holds every contract and whole UTC days, so each file
-is one task and a contract's days derive file by file), and where a contract's stored trades stop."""
+is one task and a contract's days derive file by file), and where a contract's stored trades stop and resume."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ def daily_bars(market: files.Market, market_day: str, symbol: str, low_ms: int, 
 
 # market.data_end_stops
 
-QUIET_DAYS = 7  # a contract counts as stopped once its last trade is this long before the market day's end
+QUIET_DAYS = 7  # a contract counts as stopped when it trades no more for this long, up to its next trade or the market day's end
 
 
 def _traded(market: files.Market, entry: files.DataFile, symbols: set[str], low: int | None, high: int) -> pa.Table:
@@ -177,22 +177,68 @@ def _traded(market: files.Market, entry: files.DataFile, symbols: set[str], low:
 
 
 def data_end_stops(market: files.Market, market_day: str, symbols: list[str], end_ms: int) -> dict[str, int]:
-    """market.data_end_stops: {symbol: stop in ms} for each contract whose last traded LAST minute (volume above
-    zero) of everything stored through `market_day` closes before `end_ms` and at least QUIET_DAYS before the market
-    day's end; the stop is that minute's close. A trade opening at or after `cut` rules a stop out, so the files from
-    the cut on are read only until each contract has traded there, and those before it only for the rest."""
-    stop_ms = files.day_end("bar", market_day)
-    cut = min(end_ms - MINUTE, stop_ms - QUIET_DAYS * DAY - MINUTE + 1)
-    pending = set(symbols)
-    for entry in files.entries(market, "bar", None, cut, stop_ms):
-        if not pending:
-            break
-        pending -= set(pc.unique(_traded(market, entry, pending, cut, stop_ms).column("symbol")).to_pylist())
+    """market.data_end_stops: {symbol: stop in ms} for each contract that is stopped at `end_ms`: its last traded LAST
+    minute (volume above zero) closing before `end_ms` is followed by at least QUIET_DAYS without a trade, up to its
+    next stored trade or the market day's end; the stop is that minute's close. Only the files around `end_ms` are
+    read, and earlier ones for the contracts that did not trade there."""
+    stop_ms, quiet = files.day_end("bar", market_day), QUIET_DAYS * DAY
+    end_ms = min(end_ms, stop_ms + MINUTE)  # nothing after the market day is read
+    cut = end_ms - MINUTE
     last: dict[str, int] = {}
-    for entry in reversed(files.entries(market, "bar", None, None, cut)):
+    following: dict[str, int] = {}
+    for entry in files.entries(market, "bar", None, end_ms - quiet, min(end_ms + quiet, stop_ms)):
+        rows = _traded(market, entry, set(symbols), end_ms - quiet, min(end_ms + quiet, stop_ms))
+        for found, aggregate, part in ((last, "max", rows.filter(pc.less(rows.column("ts_open"), cut))),
+                                       (following, "min", rows.filter(pc.greater_equal(rows.column("ts_open"), cut)))):
+            grouped = part.group_by("symbol").aggregate([("ts_open", aggregate)])
+            for symbol, opened in zip(grouped.column("symbol").to_pylist(),
+                                      grouped.column(f"ts_open_{aggregate}").to_pylist(), strict=True):
+                found[symbol] = (max if aggregate == "max" else min)(found.get(symbol, opened), opened)
+    pending = set(symbols) - set(last)
+    for entry in reversed(files.entries(market, "bar", None, None, end_ms - quiet)):
         if not pending:
             break
-        grouped = _traded(market, entry, pending, None, cut).group_by("symbol").aggregate([("ts_open", "max")])
+        grouped = _traded(market, entry, pending, None, min(cut, end_ms - quiet)).group_by("symbol").aggregate(
+            [("ts_open", "max")])
         last.update(zip(grouped.column("symbol").to_pylist(), grouped.column("ts_open_max").to_pylist(), strict=True))
         pending -= set(last)
-    return {symbol: opened + MINUTE for symbol, opened in sorted(last.items())}
+    return {symbol: opened + MINUTE for symbol, opened in sorted(last.items())
+            if min(following.get(symbol, stop_ms), stop_ms) - (opened + MINUTE) >= quiet}
+
+
+# market.trade_halts
+
+def _halts_job(job: tuple[files.Market, files.DataFile, set[str], int]) -> dict[str, tuple[int, int, list]]:
+    """{symbol: (first traded minute, last traded minute, halts between)} of one bar file, trades opening before the
+    end; a symbol's rows are in time order within the file."""
+    market, entry, symbols, end_ms = job
+    rows = _traded(market, entry, symbols, None, end_ms)
+    codes = pc.dictionary_encode(rows.column("symbol")).combine_chunks()
+    if isinstance(codes, pa.ChunkedArray):
+        codes = codes.chunk(0)
+    names, indices, opens = codes.dictionary.to_pylist(), codes.indices.to_numpy(), rows.column("ts_open").to_numpy()
+    found = {}
+    for at, symbol in enumerate(names):
+        own = opens[indices == at]
+        wide = np.flatnonzero(np.diff(own) - MINUTE >= QUIET_DAYS * DAY)
+        found[symbol] = (int(own[0]), int(own[-1]), [(int(own[i]) + MINUTE, int(own[i + 1])) for i in wide])
+    return found
+
+
+def trade_halts(market: files.Market, market_day: str, symbols: list[str], end_ms: int,
+                pool: ProcessPoolExecutor | None = None) -> dict[str, list[tuple[int, int]]]:
+    """market.trade_halts: {symbol: [(stop, resumption)] in ms} of the LAST trades stored through `market_day` that open
+    before `end_ms`: each span of at least QUIET_DAYS between two consecutive traded minutes, from the first's close to the second's open.
+    Missing minutes count like minutes without volume: no position is carried over a span without data either."""
+    end_ms = min(end_ms, files.day_end("bar", market_day))
+    jobs = [(market, entry, set(symbols), end_ms) for entry in files.entries(market, "bar", None, None, end_ms)]
+    found: dict[str, list[tuple[int, int]]] = {}
+    last: dict[str, int] = {}
+    for part in pool.map(_halts_job, jobs) if pool is not None else map(_halts_job, jobs):  # in time order
+        for symbol, (first, latest, inside) in part.items():
+            if symbol in last and first - last[symbol] - MINUTE >= QUIET_DAYS * DAY:
+                found.setdefault(symbol, []).append((last[symbol] + MINUTE, first))
+            if inside:
+                found.setdefault(symbol, []).extend(inside)
+            last[symbol] = latest
+    return found

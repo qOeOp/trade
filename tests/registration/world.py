@@ -78,7 +78,7 @@ class FakeMarket:
             [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.market_days[market_day]])}
 
     def export_catalogs(self, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
-                        include_trades=False, include_metrics=False):
+                        include_trades=False, include_metrics=False, split_halts=True):
         self.exports += 1
         root = Path(tempfile.mkdtemp(prefix="export-"))
         receipts = {}

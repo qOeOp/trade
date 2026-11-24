@@ -151,7 +151,7 @@ class Market(FakeMarket):
     """The fake market with the one exported piece in each receipt, as market.export_episode writes it."""
 
     def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
-                        include_trades=False, include_metrics=False):
+                        include_trades=False, include_metrics=False, split_halts=True):
         done = super().export_catalogs(commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh,
                                       include_quotes=include_quotes, include_trades=include_trades,
                                       include_metrics=include_metrics)

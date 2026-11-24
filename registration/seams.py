@@ -113,12 +113,12 @@ class Market:
 
     def export_catalogs(self, market_day: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
-                        include_metrics: bool = False) -> dict:
+                        include_metrics: bool = False, split_halts: bool = True) -> dict:
         """{root, receipts}."""
         from market import export
         done = export.export_catalogs(self.profile, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files,
                                       fresh, include_quotes=include_quotes, include_trades=include_trades,
-                                      include_metrics=include_metrics)
+                                      include_metrics=include_metrics, split_halts=split_halts)
         return {"root": Path(done["root"]), "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, market_day: str, files: Mapping[str, bytes]) -> dict:
