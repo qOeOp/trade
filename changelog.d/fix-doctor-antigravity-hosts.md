@@ -1,0 +1,1 @@
+- product-doctor's transcript reference covers Antigravity sessions and their sub-agents.
