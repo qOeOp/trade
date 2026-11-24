@@ -14,6 +14,10 @@ import unittest
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
+from nautilus_trader.model import (
+    Bar, MarkPriceUpdate, OmsType, OrderSide, Price, Quantity, StrategyId,
+)
+from nautilus_trader.trading import Strategy, StrategyConfig
 
 from cli import research_commands
 from engine import strategy as strategy_runtime
@@ -21,7 +25,7 @@ from engine import run
 from engine.config import ACCOUNT_CONTRACT
 from engine.load import load_strategy
 from market.instrument import build_instrument
-from tests.engine.test_fill_model import fees
+from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, INSTRUMENT, INSTRUMENT_ID, START, fees
 from tests.helpers import tempdir
 
 
@@ -61,7 +65,7 @@ class ScaffoldTests(unittest.TestCase):
         self.engine.add_instrument(build_instrument("BTCUSDT", TERMS, 2, "BTCUSDT-PERP.BINANCE", on_grid=True)[0])
         strategy = self._strategy()
         self.engine.run()
-        self.assertEqual(strategy.equity(), Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]))
+        self.assertEqual(strategy.equity(START), Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]))
         self.assertEqual(str(strategy.order_quantity(Decimal("1.23456"))), "1.234")
         self.assertEqual(str(strategy.order_quantity("0.002")), "0.002")  # at min_quantity
         self.assertIsNone(strategy.order_quantity(Decimal("0.0015")))  # rounds to 0.001, below min_quantity
@@ -69,3 +73,44 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIsNone(strategy.order_quantity(0))
         self.assertIsNone(strategy.order_quantity("0.002", price="2000"))  # 4 USDT, below min_notional 5
         self.assertEqual(str(strategy.order_quantity("0.003", price=2000)), "0.003")
+
+    def test_equity_counts_no_fill_or_price_of_the_deciding_minute(self):
+        read = []
+
+        scaffold = self.loaded.strategy_class.equity
+
+        class Trades(Strategy):
+            equity = scaffold
+            instrument_id = INSTRUMENT_ID
+
+            def on_start(self):
+                self.subscribe_bars(BAR_TYPE)
+
+            def on_bar(self, bar):
+                if len(read) == 2:  # long 10 from 100: close at 102
+                    for position in self.cache.positions_open():
+                        self.close_position(position)
+                read.append([self.equity(bar.ts_event)])
+                if len(read) == 4:  # a bar handed over late: later bars are in the cache already
+                    read[-1].append(self.equity(bar.ts_event - BAR_NS))
+                if len(read) == 1:
+                    self.submit_order(self.order_factory.limit(INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("10.000"),
+                                                               Price.from_str("105.00")))
+
+            def on_order_filled(self, event):  # the same minute's fill is native now, and not yet counted
+                read[-1].append(self.equity(event.ts_event))
+                read[-1].append(self.equity(event.ts_event + 5 * 10**9))  # a Paper decision some seconds on
+
+        run.add_venue(self.engine, fees())
+        self.engine.add_instrument(INSTRUMENT)
+        self.engine.add_strategy(Trades(StrategyConfig(strategy_id=StrategyId("T-1"), oms_type=OmsType.HEDGING)))
+        data = []
+        for minute, (close, mark) in enumerate((("100.00", "100"), ("101.00", "90"), ("102.00", "80"), ("99.00", "70"))):
+            at, close = START + (minute + 1) * BAR_NS - 10**6, Price.from_str(close)
+            data += [MarkPriceUpdate(INSTRUMENT_ID, Price.from_str(mark + ".00"), at, at),
+                     Bar(BAR_TYPE, close, close, close, close, Quantity.from_str("9000.000"), at, at)]
+        self.engine.add_data(data)
+        self.engine.run()
+        self.assertEqual([[str(round(value - Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]), 2)) for value in found]
+                          for found in read],
+                         [["0.00"] * 3, ["-0.50"], ["9.50"] * 3, ["18.99", "9.50"]])

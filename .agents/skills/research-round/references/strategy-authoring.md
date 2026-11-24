@@ -104,7 +104,12 @@ header template, the entry class, the two hooks and a sizing helper.
 - Every input used to decide whether, how much or at what price to submit (signals, quantity
   inputs, specification-check prices, equity and account state included) must come from a
   completed event strictly earlier than submission; in replay a timestamp's MARK arrives before its
-  bar, so read equity at the earlier decision event. Trace each input's timestamp; guarding the
+  bar, so read equity at the earlier decision event. `portfolio.equity` read while any position is open
+  can differ between replay and Paper (its MARKs, other contracts' same-minute fills), and one other size makes
+  Live refuse the Paper run: size from the `candidate new` scaffold's `equity(bar.ts_event)` instead (no fill
+  of that close, positions at the one-minute LAST close before it, so strictly earlier), every instance
+  subscribed to its one-minute LAST bars. Paper's account books no funding, so even this differs after a
+  settlement with a position open. Trace each input's timestamp; guarding the
   signal timestamp alone does not establish this. Submit on a later event so fills
   cannot share the input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
   Do not delay required protection or termination actions with a blanket bar gate.
@@ -193,7 +198,7 @@ flag) is `METRICS_NOT_SERVED`; report the rows received and the empty ratios rea
   count them.
 - React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
-  funding, or keep a private ledger. Size from native state: portfolio equity (read as above), the instrument's
+  funding, or keep a private ledger. Size from native state: equity (read as above), the instrument's
   multiplier, `make_price`, `make_qty`, `min_quantity` and `min_notional`.
 
 ## Plans, sizing and capital
