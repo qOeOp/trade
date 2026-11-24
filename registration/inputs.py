@@ -80,13 +80,15 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
     for name, path in sorted(entries, key=lambda item: item[0]):
         if semantic and name.startswith(LIFECYCLE_EVIDENCE):
             continue
-        data = path.read_bytes()
         if semantic and Path(name).name in (RECEIPT, MEMBERSHIP):
-            data = _read_facts(name, data)
+            digest = hashlib.sha256(_read_facts(name, path.read_bytes())).digest()
+        else:
+            with path.open("rb") as file:
+                digest = hashlib.file_digest(file, "sha256").digest()
         encoded = name.encode("utf-8")
         total.update(len(encoded).to_bytes(8, "big"))
         total.update(encoded)
-        total.update(hashlib.sha256(data).digest())
+        total.update(digest)
     return {"export_content_sha256": total.hexdigest()}
 
 

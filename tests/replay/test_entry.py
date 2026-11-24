@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 from ledger import db, evidence, execution, metrics, problems, server, trials
 from shared.errors import Refusal
-from registration import inputs as registration_inputs, precheck, seams as registration_seams
+from shared.refusals import refuse
+from registration import inputs as registration_inputs, precheck, register, seams as registration_seams
 from replay import entry, seams
 from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
@@ -482,9 +483,39 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(stored["status"], "invalid")
         self.assertEqual(sorted(codes(stored["failure_reasons"])), ["NATIVE_EXIT_NONZERO", "SOURCE_MISMATCH"])
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run_reading WHERE trial_id = %s", (stored["trial_id"],)), [(0,)])
-        before = self.kept()
+        before, exports = self.kept(), self.world.market.exports
         self.assertEqual(refused(self.run_ref, self.refs[1]).code, "GRID_ALREADY_ATTEMPTED")
+        outside = self.registration_of[self.refs[5]]
+        self.assertEqual(refused(self.run_ref, self.refs[1], registration=outside).code, "SOURCE_MISMATCH")
+        with patch.object(entry.lines, "open_line", side_effect=refuse("LINE_ENDED", "closed")):
+            self.assertEqual(refused(self.run_ref, self.refs[3]).code, "LINE_ENDED")
+        self.assertEqual(self.world.market.exports, exports, "refused before the export")
         self.assertEqual(self.kept(), before, "a refusal before any container leaves no directory")
+        # a point consumed while this replay exports is still refused in the write
+        taken, real = self.registration_of[self.refs[1]], register.require_grid_point
+
+        def in_write_only(conn, *args, binding):
+            return real(conn, *args, binding=binding) if binding else (register.load_registration(conn, taken), None)
+
+        with patch.object(register, "require_grid_point", in_write_only):
+            self.assertEqual(refused(self.run_ref, self.refs[1]).code, "GRID_ALREADY_ATTEMPTED")
+        self.assertEqual(self.kept(), before)
+
+    def test_the_same_replay_again_takes_up_its_trial_that_never_started(self):
+        def in_container(identity, runner_argv, inputs):  # the real probe sees the container's path of the export
+            return inspect(identity, runner_argv, {**inputs, "root": "/inputs/market"})
+
+        self.enterContext(registration_seams.use(inspect_runtime=in_container))
+        output = self.world.output("lost-answer")
+        with patch.object(entry, "execute", side_effect=RuntimeError("the commit's answer was lost")), \
+                self.assertRaises(RuntimeError):
+            self.run_ref(self.refs[4], output=output)
+        self.assertFalse(output.exists(), "nothing in it to diagnose")
+        opened = self.rows("SELECT t.trial_id FROM trial t JOIN candidate c ON c.source_sha256 = t.source_sha256 WHERE "
+                           "t.research_registration_id = %s AND CONCAT(c.strategy_id, '@', c.revision) = %s",
+                           (self.registration_of[self.refs[4]], self.refs[4]))
+        stored = self.run_ref(self.refs[4], output=output)
+        self.assertEqual([(stored["trial_id"],)], opened)
 
     def test_inputs_changed_during_the_replay_make_it_invalid(self):
         self.world.scenario = {"tamper_export": True}

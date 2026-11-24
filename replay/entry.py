@@ -497,8 +497,10 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
         registration_runner.require_current(registration_seams.current.checkout())
     with db.connect(ledger, "writer") as conn:
         revision = strategies.read_candidate(conn, strategy)
-        if registration is not None and (at is None or runtime is None):
-            registered = register.load_registration(conn, registration)["execution"]
+        if registration is not None:
+            found, _ = register.require_grid_point(conn, registration, revision["source_sha256"],
+                                                   binding=False)
+            registered = found["execution"]
             at = str(registered["market_day"]) if at is None else at
             runtime = registered["image_ref"] if runtime is None else runtime
     exported = None
@@ -550,7 +552,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         source_sha256 = revision["source_sha256"]
         binder: trials.Binder
         if registration is not None:
-            purpose, binder = "research", register.binder(registration, source_sha256)
+            purpose, binder = "research", register.Binder(registration, source_sha256)
         elif history is not None:
             purpose, binder = "history", lines.HistoryBinder(history)
         else:

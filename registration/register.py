@@ -1,5 +1,5 @@
 """Registration (`registration.plan_schema`, `registration.validate_design`, `registration.register`,
-`registration.binder`, `registration.load_registration`, `registration.require_line_records`,
+`registration.Binder`, `registration.load_registration`, `registration.require_line_records`,
 `registration.retryable`, `registration.control_trial`).
 
 A registration locks one hypothesis before any replay of it: the pre-registered text (prediction, changed
@@ -613,11 +613,18 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     runner.require_current(seams.current.checkout())
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
+    body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
+    plan = {"body": {key: body[key] for key in BODY_KEYS}, "control_trial_id": body["control_trial_id"],
+            "comparison": body["comparison"], "retry_of": body.get("retry_of"), "grid": body["grid"],
+            "prechecks": body["prechecks"]}
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
         lines.require_not_closing(conn, held["line_id"])
-        _check_plan(conn, {"body": body, "control_trial_id": body["control_trial_id"],
-                           "comparison": body["comparison"], "grid": body["grid"]})
+        _check_plan(conn, plan)
+        # Before the export and the probe too; the same body again is left to the write, which may replay it.
+        if not any(db.json_column(stored) == plan["body"] for (stored,) in conn.rows(
+                "SELECT body FROM research_registration WHERE line_id = %s", (held["line_id"],))):
+            require_line_records(conn, held["line_id"], plan["retry_of"])
         identity = seams.current.resolve_runtime(runtime_ref)
         parsed = runner.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_day"], parsed["window"],
@@ -639,13 +646,9 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                      "trade_start": trials.utc(parsed["window"]["trade_start"]),
                      "trade_end": trials.utc(parsed["window"]["end"]),
                      "symbols": sorted(set(inputs.get("symbols") or ()))}
-        body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:
             raise refuse("SOURCES_REQUIRED", "rationale.external cites work without a source original",
                          missing=("sources",))
-        plan = {"body": {key: body[key] for key in BODY_KEYS}, "control_trial_id": body["control_trial_id"],
-                "comparison": body["comparison"], "retry_of": body.get("retry_of"), "grid": body["grid"],
-                "prechecks": body["prechecks"]}
         stored = {key: execution[key] for key in ("image_ref", "market_day", "universe_rule", "lifecycle_bundle",
                                                    "export_sha256", "comparable_config_sha256")}
         payload = {"line_id": held["line_id"], "plan": plan, "execution": stored}
@@ -731,22 +734,39 @@ def load_registration(conn: db.LedgerConnection, registration_id) -> dict:
             "change": first.get("difference"), "created_at": row["created_at"]}
 
 
+def require_grid_point(conn: db.LedgerConnection, registration_id: int, source_sha256: str,
+                       binding: bool) -> tuple[dict, dict]:
+    """The registration and its open line, whose grid holds this source unconsumed: what a research replay needs
+    whatever its execution. replay.run asks before its market export and image probe, bind (`binding`) again in the
+    write. Before the write a point whose trial has no capture is not refused: the same replay again takes that trial
+    up (ledger.open_trial replays it), any other is refused in the write."""
+    registration = load_registration(conn, registration_id)
+    line = lines.open_line(conn, registration["line_id"])
+    lines.require_not_closing(conn, registration["line_id"], "its history test has fixed the candidates it tests, so "
+                              "a research run now would be a result the test leaves out")
+    if source_sha256 not in {point["source_sha256"] for point in registration["grid"]}:
+        raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of registration {registration_id}",
+                     missing=(str(source_sha256),))
+    consumed = conn.rows("SELECT trial_id FROM trial WHERE research_registration_id = %s AND source_sha256 = %s",
+                         (registration_id, source_sha256))
+    if any(binding or _bundle_exists(conn, f"trial-{trial_id}-capture") for (trial_id,) in consumed):
+        raise refuse("GRID_ALREADY_ATTEMPTED", f"the grid point {source_sha256} of registration {registration_id} was "
+                                               "already consumed", missing=(f"{registration_id}:{source_sha256}",))
+    return registration, line
+
+
 def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, row: Mapping) -> dict:
     """Inside the trial's write, before its row: check the registration again and consume one grid point.
 
     `row` is the trial row about to be written (open_trial's binder argument). Its execution identity must
     equal the registration's, its window the line's development window; the grid point must be unconsumed.
     Returns the trial's line and registration columns."""
-    registration = load_registration(conn, registration_id)
-    line = lines.open_line(conn, registration["line_id"])
-    lines.require_not_closing(conn, registration["line_id"], "its history test has fixed the candidates it tests, so "
-                              "a research run now would be a result the test leaves out")
-    grid = {point["source_sha256"]: point for point in registration["grid"]}
+    registration, line = require_grid_point(conn, registration_id, source_sha256, binding=True)
     if row["purpose"] != "research":
         raise refuse("BINDING_NOT_ALLOWED", f"a {row['purpose']} trial takes no research registration",
                      missing=("purpose",))
-    if source_sha256 not in grid or row["source_sha256"] != source_sha256:
-        raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of registration {registration_id}",
+    if row["source_sha256"] != source_sha256:
+        raise refuse("SOURCE_MISMATCH", f"the trial runs source {row['source_sha256']}, not the bound {source_sha256}",
                      missing=(str(source_sha256),))
     registered = registration["execution"]
     names = {"image_ref": "runtime_image", "market_day": "market_day", "universe_rule": "universe_rule",
@@ -756,10 +776,6 @@ def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, ro
     if conflicts:
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))
-    if conn.rows("SELECT 1 FROM trial WHERE research_registration_id = %s AND source_sha256 = %s",
-                 (registration_id, source_sha256)):
-        raise refuse("GRID_ALREADY_ATTEMPTED", f"the grid point {source_sha256} of registration {registration_id} was "
-                                               "already consumed", missing=(f"{registration_id}:{source_sha256}",))
     plan = {"body": registration["body"], "control_trial_id": registration["control_trial_id"],
             "comparison": registration["comparison"], "retry_of": registration["retry_of"],
             "grid": [point["candidate"] for point in registration["grid"]],
@@ -781,7 +797,3 @@ class Binder:
 
     def __call__(self, conn: db.LedgerConnection, row: Mapping) -> dict:
         return bind(conn, self.registration_id, self.source_sha256, row)
-
-
-def binder(registration_id: int, source_sha256: str) -> Binder:
-    return Binder(registration_id, source_sha256)
