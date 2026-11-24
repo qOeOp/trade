@@ -168,9 +168,10 @@ def _prepare(job: dict) -> dict:
         report["gaps"][price_type], report["source_rows"][price_type] = gaps, used
         if price_type == "LAST":
             last = table
-            if job["earlier"] and not table.num_rows:
-                # An earlier contract's month has its trades: Binance publishes marks and funding of a contract
-                # about to list from before its onboard time, and those are not the earlier contract's.
+            if job["earlier"] and not table.num_rows and not any(count for count, _ in job["stored"].values()):
+                # An earlier contract's month has its trades: Binance publishes marks and funding of a contract about
+                # to list from before its onboard time, and those are not the earlier contract's. A month that already
+                # holds its rows goes on.
                 return _nothing(report)
         bars, rounded = bar_rows(table, symbol, price_type) if table.num_rows else (_empty_bars(), 0)
         report["rounded_volumes"] += rounded

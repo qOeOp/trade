@@ -88,13 +88,13 @@ def contract_in_month(symbol: str, seen: list[dict], item: dict | None, month: d
     terms rows, the earliest observed first, and `item` its exchangeInfo contract.
 
     A symbol never seen is classified by `item`, a seen one by its earliest row: a later row of the same contract is
-    recorded and never reclassifies it. The months before a non-coin listed (`precedes`)
-    are an earlier contract's, of which nothing is recorded: classified by name, as any contract exchangeInfo no
-    longer lists, until its inferred terms are stored. A contract listed after that row is another one, classified by `item` from
-    its onboard month; without its onboard time (exchangeInfo dropped it), by the rows that name another underlying
-    type, from the month of the row. A month two contracts share is imported only when both are eligible. A delisting
-    contract (its type not stated, or delivering) keeps the class its stored rows give it, and a premarket one
-    is never reclassified: it keeps its symbol when it graduates."""
+    recorded and never reclassifies it. The months before a non-coin listed (`precedes`) are an earlier contract's, of
+    which nothing is recorded: classified by name, as any contract exchangeInfo no longer lists, until its inferred
+    terms are stored. A contract listed after that row is another one, classified by `item` from its onboard month;
+    without its onboard time (exchangeInfo dropped it), by the rows that name another underlying type, from the month
+    of the row. A month two contracts share is imported only when both are eligible. A delisting contract (its type not
+    stated, or delivering) keeps the class its stored rows give it, and a premarket one is never reclassified: it keeps
+    its symbol when it graduates."""
     start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
     earliest = item_of(symbol, seen[0]) if seen else item
     first = classify_contract(symbol, earliest)
