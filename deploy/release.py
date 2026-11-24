@@ -313,16 +313,26 @@ class Release:
                 print(f"{busy}; the release waits until Live is idle", flush=True)
                 return
         image = target["image"]
-        self.host.pull(image, IMAGE_REF, sha)
         paper = self.paper()
-        try:
-            paper_plan = paper.prepare(target)  # its refusals journal nothing
-        except HostCondition as condition:
-            self.wait(sha, condition)
-            return
+        paper_plan = None
+
+        def ready() -> bool:
+            """The other images are pulled and the Paper side refuses nothing, before any journal; False waits."""
+            nonlocal paper_plan
+            self.host.pull(image, IMAGE_REF, sha)
+            try:
+                paper_plan = paper.prepare(target)
+            except HostCondition as condition:
+                self.wait(sha, condition)
+                return False
+            return True
+
+        self.host.pull(target["service"], SERVICE_REF, sha)  # all that a new data generation's question reads
         # Read before the journal (a failure here journals nothing), and before a wait, whose step uses the files.
         self.host.definition(target["service"], sha)
-        if self.generation().due(target, owner):  # a new data generation first; the release follows next tick
+        # A new data generation first, the release follows next tick. It asks `ready` once the public ledger and Paper
+        # runners allow it, before it changes anything: until then no other image is pulled (qOeOp/trade#3494).
+        if self.generation().due(target, owner, ready) or not ready():
             return
         self.github.ensure(target)
         agent_before = agent if change_agent else None
@@ -472,8 +482,9 @@ class Release:
         self.host.observe(web, self.host.warm(web, protected), protected)
         print(f"Verified {web} and {controller}; automatic main releases can start", flush=True)
 
-    def prune(self) -> None:
-        """Housekeeping after a settled tick: it must never fail or undo a release."""
+    def prune(self, target: dict | None = None) -> None:
+        """Housekeeping after a settled tick: it must never fail or undo a release. `target` is the version this tick
+        released or left waiting: its images stay, or the next tick would pull them all again (qOeOp/trade#3494)."""
         if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
             return
         try:
@@ -491,7 +502,9 @@ class Release:
             active |= {LIVE + sha for sha in kept}
             runtimes |= self.live.runtimes()  # read before its directories are pruned
             self.cleaned = self.host.prune(KINDS, active, failed, runtimes,
-                                           frozenset(prefix + sha for sha in old for prefix in KINDS))
+                                           frozenset(prefix + sha for sha in old for prefix in KINDS),
+                                           frozenset(target[key] for key in ("image", "service", "runtime"))
+                                           if target else frozenset())
             self.live.prune(kept)
             remaining = {revision(name, prefix) for prefix in KINDS for name in self.host.managed(prefix)}
             for sha in sorted(old - remaining):  # a running one, or one routed, stays with its marker
@@ -560,7 +573,7 @@ class Release:
             print(f"No newer successful main image; keeping {active}", flush=True)
         if not target:  # a tick that released something leaves the services to the next one
             self.follow(active)
-        self.prune()
+        self.prune(target)
         if not target:
             self.settle()
         return False

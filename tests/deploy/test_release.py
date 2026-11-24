@@ -11,7 +11,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
@@ -41,6 +41,9 @@ A, B, C, D = (letter * 40 for letter in "abcd")
 TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64,
           "service": "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64,
           "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64}
+
+IMAGES = {**TARGET, "service": "ghcr.io/qoeop/trade-service@sha256:" + "1" * 64,
+          "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "2" * 64}
 
 
 class Crash(BaseException):
@@ -487,7 +490,7 @@ class GenerationTests(unittest.TestCase):
         self.controller.unread = {"research": "2"}
         with patch.object(release.Generation, "cut") as cut:
             self.release.apply(TARGET)
-        cut.assert_called_once_with(TARGET, A, self.wanted, self.where)
+        cut.assert_called_once_with(TARGET, A, ANY, self.wanted, self.where)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(WEB + B, self.host.containers)
         self.assertNotIn(PAPER + B, self.controller.running)
@@ -499,6 +502,41 @@ class GenerationTests(unittest.TestCase):
             self.release.apply(TARGET)
         cut.assert_not_called()
         self.assertEqual(self.host.disk, WEB + B)
+
+    def waiting(self):
+        """The images one apply pulled, as keys of IMAGES; its waits are the release's."""
+        pulled = []
+
+        def pull(reference, pattern, sha=None):
+            pulled.append(reference)
+            return sha
+
+        self.release.waits = {}
+        with patch.object(self.host, "pull", side_effect=pull), patch.object(self.controller, "pull", side_effect=pull):
+            self.release.apply(IMAGES)
+        return [next(key for key in ("image", "service", "runtime") if IMAGES[key] == item) for item in pulled]
+
+    def test_a_version_waiting_for_its_generation_pulls_only_the_image_that_answers(self):
+        # qOeOp/trade#3494: each tick pulled the IDE and runtime images before it asked whether the version waits.
+        self.host.docker.return_value = "trade-paper-runner-1"  # a Paper run still runs
+        self.assertEqual(self.waiting(), ["service"])
+        self.assertEqual(list(self.release.waits), [f"wait:generation:{B}:paper"])
+        with patch.object(generation, "place", return_value="unpublished"):
+            self.assertEqual(self.waiting(), ["service"])
+        self.assertEqual(list(self.release.waits), [f"wait:generation:{B}:mirror"])
+
+    def test_a_cutover_or_move_changes_nothing_until_the_version_is_ready(self):
+        self.host.docker.return_value = ""  # no Paper run
+        for how in ("cutover", "move"):
+            with self.subTest(how), patch.object(generation, "place", return_value=how), \
+                    patch.object(release.Generation, "held", return_value=True), \
+                    patch.object(release.Generation, "hold") as hold:
+                with patch.object(self.controller, "memory_available", return_value=False):
+                    self.assertEqual(self.waiting(), ["service", "image"])
+                self.assertEqual([key.split(":")[1] for key in self.release.waits], ["host"])
+                hold.assert_not_called()
+                self.assertEqual(self.waiting(), ["service", "image", "runtime"])
+                hold.assert_called_once()
 
     def test_after_a_cutover_a_rollback_does_not_wait_for_the_previous_version_to_read_the_ledger(self):
         """The previous version cannot read a new generation's ledger: once a cutover is done, a failed release still
@@ -831,6 +869,27 @@ class PruneTests(unittest.TestCase):
         self.assertEqual(host.removed_images(), [ide, service, proxy], "no runtime image without a list of kept ones")
         self.assertTrue(all(call[:3] != ("image", "rm", "--force") for call in host.calls))
 
+    def test_the_images_of_a_waiting_version_stay(self):
+        # qOeOp/trade#3494: no container of it exists, so each tick removed what the next one pulled.
+        ide, service, runtime = IMAGES["image"], IMAGES["service"], IMAGES["runtime"]
+        superseded = [image.replace(image[-64:], "f" * 64) for image in (ide, service, runtime)]
+        host = FakeDocker({}, [ide, service, runtime, *superseded], [])
+        with patch.object(Registry, "serves", return_value=True):
+            host.prune((WEB,), set(), set(), set(), frozenset(), frozenset({ide, service, runtime}))
+        self.assertEqual(host.removed_images(), superseded)
+
+    def test_a_tick_spares_the_images_of_the_version_it_left_waiting(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper"):
+            host = Mock(state=Path(directory))
+            host.managed.return_value = []
+            host.disk_route.return_value = WEB + A
+            github = Mock()
+            github.choose.return_value = IMAGES
+            with patch("deploy.release.running", return_value=A), patch.object(Release, "handoff", return_value=False), \
+                    patch.object(Release, "apply"):
+                Release(host, github, live=IdleLive(host)).tick()
+            self.assertEqual(host.prune.call_args.args[5], {IMAGES[key] for key in ("image", "service", "runtime")})
+
     def test_a_runtime_image_goes_only_when_unused_unnamed_and_still_in_the_registry(self):
         old, kept, used, gone = ("ghcr.io/qoeop/trade-runtime@sha256:" + c * 64 for c in "defa")
         host = FakeDocker({}, [old, kept, used, gone], [used])
@@ -905,7 +964,7 @@ class PruneTests(unittest.TestCase):
             release = Release(host, Mock(), live=IdleLive(host))
             release.prune()
             host.prune.assert_called_once_with((WEB, AGENT, PAPER, LIVE), {WEB + A, PAPER + A}, set(), set(),
-                                               frozenset())
+                                               frozenset(), frozenset())
             host.prune.side_effect = RuntimeError("docker rm failed")
             release.prune()
 
@@ -939,7 +998,7 @@ class PruneTests(unittest.TestCase):
             live = Mock()
             live.runtimes.return_value = {"ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}
             Release(host, Mock(), live=live).prune()
-            prefixes, active, failed, runtimes, _ = host.prune.call_args.args
+            prefixes, active, failed, runtimes, *_ = host.prune.call_args.args
             self.assertEqual(runtimes, live.runtimes.return_value)
             self.assertEqual(prefixes, (WEB, AGENT, PAPER, LIVE))
             self.assertEqual(active, {WEB + B, PAPER + A, LIVE + B, LIVE + C})
