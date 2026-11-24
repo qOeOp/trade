@@ -3,6 +3,8 @@ them CANCELED and never sends them, whether the exit still runs or has ended, as
 Paper strategy class in a native engine."""
 
 import hashlib
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest import mock
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
@@ -222,3 +224,30 @@ class MarketExitTests(Clocked):
     def test_a_replay_sends_an_entry_with_the_exits_tag(self):
         self.assertEqual(self.entry_during_exit(after=False, waiting=False, tags=[paper_terms.MARKET_EXIT_TAG]),
                          ("FILLED", []))
+
+    def test_a_refused_recovery_exits_nothing(self):
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        waiting, resting = self.entry("limit"), self.entry("limit", "90.00")
+        self.source.submit_order(resting)
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.source.submit_order(waiting)
+        session = SimpleNamespace(commanded=mock.Mock(return_value="an order cannot wait for T"), callback=nullcontext)
+        with mock.patch.object(paper, "SESSION", session):
+            self.on_next_bar(lambda source: source.market_exit())
+            self.feed(self.now + 2 * MINUTE)
+        session.commanded.assert_called_once_with(close=True)
+        self.assertFalse(self.source.is_exiting())
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        self.assertEqual([order.client_order_id for order in self.engine.cache.orders_open()],
+                         [resting.client_order_id])
+        self.assertEqual([item.canceled for item in paper_terms.QUEUE], [False])
+        # The same call without the refusal exits (control).
+        session.commanded.return_value = None
+        with mock.patch.object(paper, "SESSION", session):
+            self.on_next_bar(lambda source: source.market_exit())
+            self.release()
+            self.feed(self.now + 2 * MINUTE)
+        self.assertEqual((self.engine.cache.positions_open(), self.engine.cache.orders_open()), ([], []))

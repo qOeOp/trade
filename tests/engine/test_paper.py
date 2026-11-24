@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -533,6 +534,30 @@ class PauseTests(unittest.TestCase):
                 self.assertIsNone(getattr(paper._PaperConfigured, name)(source, *args), name)
         self.assertEqual(session.commanded.call_args_list[-1], mock.call(close=True))
         self.assertEqual(session.commanded.call_count, 4)
+
+    def test_an_entry_waiting_when_the_recovery_is_refused_is_not_sent(self):
+        """Once the recovery is refused nothing more is sent (engine.paper_session.Session.submitted): the tick that
+        journals the refusal sends no entry whose terms read is done either."""
+        for why in ("an order cannot wait for T", None):
+            with self.subTest(why):
+                paper.STOP.clear()
+                session = SimpleNamespace(backend=mock.Mock(), ready=not why, refused=why, held=False,
+                                          supported=True, holding=False, saved={"sources": {}}, callback=nullcontext, try_cut=mock.Mock())
+                send = mock.Mock()
+                entry = paper.paper_terms.Entry(str(IID), SimpleNamespace(client_order_id="O-1"), send, mock.Mock(),
+                                                changed=[])
+                entry.thread = SimpleNamespace(is_alive=lambda: False)  # type: ignore[assignment]
+                with mock.patch.object(paper, "SESSION", session), mock.patch.object(paper, "journal") as journal, \
+                        mock.patch.object(paper.paper_terms, "QUEUE", [entry]), \
+                        mock.patch.object(paper.checkpoint, "dirty"):
+                    self.recorder.on_stop_timer(None)
+                kinds = [call.args[0] for call in journal.call_args_list]
+                if why:
+                    send.assert_not_called()
+                    self.assertEqual(kinds, ["entry_not_sent", "refusal", "stop_requested"])
+                else:
+                    send.assert_called_once_with()
+                    self.assertEqual(kinds, [])
 
     def test_a_stop_cancels_past_the_gate_on_the_sources_commands(self):
         """A STOP that comes before a refused back-fill's refusal is journalled still cancels: the runner's cancel is
