@@ -317,7 +317,7 @@ class Release:
         paper_plan = None
 
         def ready() -> bool:
-            """Every other image is admitted and the Paper side refuses nothing, before any journal; False waits."""
+            """The other images are pulled and the Paper side refuses nothing, before any journal; False waits."""
             nonlocal paper_plan
             self.host.pull(image, IMAGE_REF, sha)
             try:
@@ -330,8 +330,8 @@ class Release:
         self.host.pull(target["service"], SERVICE_REF, sha)  # all that a new data generation's question reads
         # Read before the journal (a failure here journals nothing), and before a wait, whose step uses the files.
         self.host.definition(target["service"], sha)
-        # A new data generation first, the release follows next tick. It is `ready` before it changes anything, and
-        # while it waits for the host the other images are not pulled (qOeOp/trade#3494).
+        # A new data generation first, the release follows next tick. It asks `ready` once the public ledger and Paper
+        # runners allow it, before it changes anything: until then no other image is pulled (qOeOp/trade#3494).
         if self.generation().due(target, owner, ready) or not ready():
             return
         self.github.ensure(target)
