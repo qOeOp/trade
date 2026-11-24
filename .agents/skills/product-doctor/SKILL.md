@@ -39,8 +39,11 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    unexamined. One pass finds only part of what is there, and repeating its question finds little
    more: give each pass to a fresh sub-agent with one perspective and one object, evidence paths, the
    audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, and no suspects of
-   yours. Run at most four passes at once and one heavy load (replay, build, cost measurement) among
-   them. Anything a script can read takes no agent.
+   yours, and no cap on findings. Run at most four passes at once and one heavy load (replay, build, cost
+   measurement) among them. Anything a script can read takes no agent. Depth before breadth: finish fewer
+   objects and leave the rest to the next audit. A pass ends when its object's paths are exercised, not
+   at its first findings; an object with a `shown` finding gets a second fresh pass, from another
+   perspective, before a new object is taken.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`,
    whose control must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`,
    a rate, not one time (`--help` says the forms; run as
@@ -63,7 +66,8 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    Changing a refusal or audit is an `authority` item:
    ask the user.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report
-   `doctor.py report` verbatim: examined, not examined, what each perspective found, spent
-   against budget, tokens per confirmed finding. For an audit of one session, tell the user only of
-   perspectives its objects touch; the record keeps the report whole. Absence of findings says only what was tried. Trend claims need repairs that
-   held. Stop the audit's own processes and remove its copies.
+   `doctor.py report` verbatim: examined, not examined, what each perspective found, spent against
+   budget, tokens per confirmed finding; and the listed objects no pass took, since one subject of an
+   `any` line examines that object alone. For an audit of one session, tell the user only of perspectives
+   its objects touch; the record keeps the report whole. Absence of findings says only what was tried.
+   Trend claims need repairs that held. Stop the audit's own processes and remove its copies.
