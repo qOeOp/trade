@@ -158,10 +158,9 @@ QUIET_DAYS = 7  # a contract counts as stopped once its last trade is this long 
 
 def _traded(market: files.Market, entry: files.DataFile, symbols: set[str], low: int | None, high: int) -> pa.Table:
     """The (symbol, ts_open) of the traded minutes (volume above zero: only LAST has volume) of `symbols` in one bar
-    file that open in [low, high), from the row groups that may hold them and only the columns this needs. A reader
-    opens the file itself: mapping a whole month file costs more than the few row groups read (measured)."""
-    reader = pq.ParquetFile(pa.BufferReader(files.file_bytes(market, entry)) if market.locked or entry.relative in
-                            market.pending else str(market.root / entry.relative))
+    file that open in [low, high), from the row groups that may hold them and only the columns this needs."""
+    source = files.file_source(market, entry)
+    reader = pq.ParquetFile(source if isinstance(source, str) else pa.BufferReader(source))
     column, names, found = reader.schema_arrow.get_field_index("symbol"), sorted(symbols), []
     for group in range(reader.num_row_groups):
         stats = reader.metadata.row_group(group).column(column).statistics

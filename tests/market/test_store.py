@@ -163,17 +163,81 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
         assert_refused(self, "INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty,
-                       empty, [])
+                       empty, [], {})
         assert_refused(self, "MARKET_DAY_UNRESOLVED", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE,
-                       empty, empty, [])
+                       empty, empty, [], {})
         assert_refused(self, "UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"],
                        "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
         assert_refused(self, "SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
-                       {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
+                       {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [], {})
         assert_refused(self, "EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [],
                        "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
         assert_refused(self, "INTERVAL_INVALID", coverage.diagnose_coverage, self.profile, None, ["BTCUSDT"],
                        "2025-02-09T00:00:00", "2025-02-11T00:00:00Z", None)
+
+    def test_coverage_reads_each_bar_file_once_and_folds_the_months_to_the_whole_read(self):
+        start, end, symbols = day_ms(date(2025, 1, 15)), day_ms(date(2025, 3, 20)), ["BTCUSDT", "BBBUSDT", "CCCUSDT"]
+        source, read_files = files.file_source, []
+
+        def reading(market, entry):
+            read_files.append(entry.relative)
+            return source(market, entry)
+        with patch.object(files, "file_source", reading), \
+                patch.object(coverage, "read_bars", side_effect=AssertionError("a read per contract")):
+            found = coverage.diagnose_coverage(self.profile, None, symbols, "2025-01-15T00:00:00Z",
+                                               "2025-03-20T00:00:00Z", None)
+        self.assertEqual(sorted(read_files), ["bar/2025-01.parquet", "bar/2025-02.parquet", "bar/2025-03.parquet"])
+        market, at = files.open_market(self.profile, "reader"), found["market_day"]
+        stored = history.contract_history(market, at, {symbol: [(0, None)] for symbol in symbols}, start, end)
+        for facts in found["coverage"]:
+            symbol = facts["symbol"]
+            whole = coverage.coverage_facts(
+                market, at, symbol, start, end, coverage.read_bars(market, at, symbol, "LAST", start, end),
+                coverage.read_bars(market, at, symbol, "MARK", start, end),
+                coverage.read_funding(market, at, symbol, start, end), stored[symbol]["edges"])
+            self.assertEqual({**{key: facts[key] for key in whole},
+                              "funding": {key: facts["funding"][key] for key in whole["funding"]}}, whole)
+        self.assertEqual([facts["last"]["gap_intervals_ms"] for facts in found["coverage"]],
+                         [[], [[start, LISTED]], [[DELISTED, end]]])
+
+    def test_coverage_of_a_market_day_folds_a_gap_over_a_month_start_and_one_sided_minutes(self):
+        low, high = day_ms(JAN), day_ms(FEB)
+        rows_ = [(symbol, kind, at) for symbol, kind, opens in (
+            ("AUSDT", "LAST", [low, high - 2 * MINUTE, high + MINUTE, high + 2 * MINUTE]),
+            ("AUSDT", "MARK", [low, high - MINUTE, high + MINUTE]), ("BUSDT", "MARK", [high]),
+            ("CUSDT", "LAST", [low - MINUTE])) for at in opens]
+
+        def batches(reversed_=False):
+            for month in (low - MINUTE, low, high):
+                inside = [row for row in rows_ if clock.ms_day(row[2]).replace(day=1) == clock.ms_day(month).replace(day=1)]
+                yield pa.RecordBatch.from_pylist([{"symbol": symbol, "price_type": kind, "ts_open": at, "open": 1, "high": 1,
+                                                   "low": 1, "close": 1, "volume": int(at == low)}
+                                                  for symbol, kind, at in (inside[::-1] if reversed_ else inside)],
+                                                 files.BAR.schema)
+        root = tempdir(self.addCleanup, prefix="market-coverage-")
+        (root / "bar").mkdir()
+
+        def write(reversed_=False):
+            for name, batch in zip(("2024-12", "2025-01", "2025-02"), batches(reversed_), strict=True):
+                pq.write_table(pa.Table.from_batches([batch]), root / "bar" / f"{name}.parquet", row_group_size=2)
+        write()
+        market = files.open_market({"root": str(root)}, "reader")
+        found = coverage._bar_facts(market, "2025-02-27", ["AUSDT", "BUSDT", "CUSDT", "DUSDT"], low, high + 3 * MINUTE)
+        bars, edges = found["AUSDT"]
+        facts = bars.facts()
+        self.assertEqual(facts["last"], {
+            "rows": 4, "first_open_ms": low, "last_open_ms": high + 2 * MINUTE, "missing_minutes": 31 * 1440 - 1,
+            "gap_intervals_ms": [[low + MINUTE, high - 2 * MINUTE], [high - MINUTE, high + MINUTE]],
+            "zero_volume_minutes": 3})
+        self.assertEqual(facts["mark"]["gap_intervals_ms"], [[low + MINUTE, high - MINUTE], [high, high + MINUTE],
+                                                            [high + 2 * MINUTE, high + 3 * MINUTE]])
+        self.assertEqual(facts["last_mark_unmatched_minutes"], 3)
+        self.assertEqual(edges, {"LAST": (low, high + 2 * MINUTE), "MARK": (low, high + MINUTE)})
+        self.assertEqual(found["BUSDT"][1], {"LAST": (None, None), "MARK": (high, high)})
+        self.assertEqual(found["CUSDT"][1], {"LAST": (low - MINUTE, low - MINUTE), "MARK": (None, None)})
+        self.assertEqual(found["DUSDT"][0].facts()["last"]["gap_intervals_ms"], [[low, high + 3 * MINUTE]])
+        write(reversed_=True)  # no such file is written (files.write_file): the series of one are not single runs
+        assert_refused(self, "SERIES_UNSORTED", coverage._bar_facts, market, "2025-02-27", ["AUSDT", "BUSDT"], low, high + MINUTE)
 
     def test_daily_returns_of_btc_and_the_equal_weight_universe(self):
         found = read.daily_returns(self.profile, self.market_days[MAR], universe.RULE,
