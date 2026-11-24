@@ -12,7 +12,7 @@ export type Testing = {
   /** By trial ID: the probability that the run's Sharpe is above the best of that many trials, at each count. */
   deflated_sharpe: Record<string, { effective_trials: number | null; trials_with_sweeps: number | null } | null>;
 };
-export type TestingRead = { kind: "reading" } | { kind: "ready"; testing: Testing } | Unread;
+export type TestingRead = { kind: "reading" } | { kind: "ready"; testing: Testing; newer: boolean /* a later commit is being read */ } | Unread;
 
 type Held = { at: string; read: TestingRead };
 const reads = atom<ReadonlyMap<string, Held>>(new Map());
@@ -20,10 +20,11 @@ const put = (line: string, held: Held) => reads.set(new Map(reads.get()).set(lin
 
 async function read(line: string, at: string): Promise<void> {
   const had = reads.get().get(line);
-  if (had?.at === at) return;
-  put(line, { at, read: had?.read.kind === "ready" ? had.read : { kind: "reading" } });
+  // A refused or failed read is read again when the cards open again; a ready or running one is not.
+  if (had?.at === at && (had.read.kind === "ready" || had.read.kind === "reading")) return;
+  put(line, { at, read: had?.read.kind === "ready" ? { ...had.read, newer: true } : { kind: "reading" } });
   const found = await getJson<Testing>(`/api/testing?${new URLSearchParams({ line, at })}`);
-  if (reads.get().get(line)?.at === at) put(line, { at, read: found.kind === "ready" ? { kind: "ready", testing: found.body } : found });
+  if (reads.get().get(line)?.at === at) put(line, { at, read: found.kind === "ready" ? { kind: "ready", testing: found.body, newer: false } : found });
 }
 
 /** The drawn line's reading, read while the calling component is mounted. */

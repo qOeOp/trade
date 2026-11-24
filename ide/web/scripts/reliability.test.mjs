@@ -22,7 +22,7 @@ const report = (over = {}) => ({
   ],
   ...over,
 });
-const TESTING = { kind: "ready", testing: { multiple_testing: { effective_trials: 56.168, trials_with_sweeps: 377 },
+const TESTING = { kind: "ready", newer: false, testing: { multiple_testing: { effective_trials: 56.168, trials_with_sweeps: 377 },
                                             deflated_sharpe: { 9: { effective_trials: 0.478, trials_with_sweeps: 0.0908 } } } };
 async function text(name, props, read = TESTING) {
   const cards = await alone("widgets/paper/Reliability.tsx", { stubs: { "state/testing": { useTesting: () => read }, "ui/Section": { Section: ({ title, children }) => createElement("section", null, title, children) } } });
@@ -35,9 +35,9 @@ test("the report's readings reach the cards", async () => {
   const reliable = await text("Reliability", { trial: 9, interval: b.annualInterval });
   assert.match(reliable, /\+9\.7% to \+63\.0%/);
   assert.match(reliable, /9\.1% to 47\.8%/, "the range runs from every trial to the independent ones");
-  assert.match(reliable, /377 trials to 56\.2 independent/);
+  assert.match(reliable, /377 trials \(low\) · 56\.2 independent \(high\)/);
   const costs = await text("CostsAndCapacity", { c: b.costs });
-  for (const part of [/46\.0×/, /4\.91%/, /268\.00%/, /310\.00%/, /\|2\|\s*above their minute/, /\|4\|\s*in a minute without volume/]) assert.match(costs, part);
+  for (const part of [/46\.0×/, /4\.91%/, /268\.00%/, /310\.00%/, /\|2\|\s*of them above 100%/, /\|4\|\s*others in a minute without volume/]) assert.match(costs, part);
   assert.doesNotMatch(costs, /without a bar/, "a count of none is left out");
 });
 
@@ -47,8 +47,29 @@ test("what is missing says why instead of a number", async () => {
   assert.deepEqual([...b.exitNet], []);
   const costs = await text("CostsAndCapacity", { c: b.costs });
   assert.match(costs, /NO_FEES/);
-  assert.match(costs, /holds no share/);
+  assert.match(costs, /not recorded/);
   const reliable = await text("Reliability", { trial: 9, interval: null }, { kind: "refused", code: "LINE_UNKNOWN", message: "no line" });
-  assert.match(reliable, /declares no comparison design/);
-  assert.match(reliable, /LINE_UNKNOWN: no line/);
+  assert.match(reliable, /Not available for this run/);
+  assert.match(reliable, /no line/);
+});
+
+test("a run the held answer lacks waits for the newer read, then says it has none", async () => {
+  const of = (newer) => text("Reliability", { trial: 10, interval: null }, { ...TESTING, newer });
+  assert.doesNotMatch(await of(true), /377 trials|Not available for this run.*Not available/);
+  assert.match(await of(false), /Not available for this run.*Not available for this run/);
+});
+
+test("a refused read of the line is read again when the cards open again", async () => {
+  const asked = [], effects = [];
+  const answers = [{ kind: "refused", code: "OUT_OF_MEMORY", message: "open it again to retry" }, { kind: "ready", body: { multiple_testing: null, deflated_sharpe: {} } }];
+  const { useTesting } = await alone("state/testing.ts", { stubs: {
+    react: { useEffect: (f) => { effects.push(f); } },
+    "lib/transport": { getJson: async (url) => { asked.push(url); return answers.shift(); } },
+    "model/view": { useView: () => ({ line: { name: "line" }, scope: { ledger_commit: "c1" } }) },
+    "state/atom": { atom: (v) => ({ get: () => v, set: (n) => { v = n; } }), useAtom: (a) => a.get() },
+  } });
+  const open = async () => { useTesting(); effects.pop()(); await new Promise(setImmediate); };
+  await open(); await open(); await open();
+  assert.equal(asked.length, 2, "read again after a refusal, not after an answer");
+  assert.equal(useTesting().kind, "ready");
 });

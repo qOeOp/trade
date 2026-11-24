@@ -26,21 +26,24 @@ const chance = (p: number) => (p > 0 && p < 0.0005 ? "<0.1%" : p < 1 && p > 0.99
  *  deflated Sharpe at each of the line's trial counts, which move with the ledger and are read apart (state/testing.ts). */
 export function Reliability({ trial, interval }: { trial: number; interval: AnnualInterval | null }) {
   const read = useTesting(), testing = read.kind === "ready" ? read.testing : null;
+  // A run bound since the answer held is in the newer one being read.
+  const reading = read.kind === "reading" || (read.kind === "ready" && read.newer && !(trial in read.testing.deflated_sharpe));
   const counts = testing?.multiple_testing, ends = testing?.deflated_sharpe[trial];
   const low = ends?.trials_with_sweeps, high = ends?.effective_trials;
   return (
     <Section title="Reliability">
       <Rows>
-        <Row name={`Annual return${interval ? `, ${Math.round(interval.coverage * 100)}% interval` : " interval"}`}
-             tip="The block-bootstrap interval of the annual return, in the comparison design the run's registration declared"
-             detail={interval ? `${interval.days} days in ${interval.block}-day blocks` : "The registration declares no comparison design"}>
+        <Row name="Annual return range"
+             tip="The block-bootstrap interval of the annual return, in the comparison design the run's registration declared; a run without one, or with days too few for its blocks, has none"
+             detail={interval ? `${Math.round(interval.coverage * 100)}% interval · ${interval.days} days in ${interval.block}-day blocks` : "Not available for this run"}>
           {interval ? range(signedPct(interval.low, 1), signedPct(interval.high, 1)) : MISSING}
         </Row>
-        <Row name="Deflated Sharpe"
-             tip="The probability that the run's Sharpe is above what the best of that many trials would show by chance: at every overlapping trial with the declared offline variants, and at the number of independent trials their correlation leaves"
-             detail={read.kind === "refused" ? `${read.code}: ${read.message}` : read.kind === "absent" ? read.message
-               : counts ? `from ${counts.trials_with_sweeps} trials to ${counts.effective_trials?.toFixed(1) ?? MISSING} independent ones` : null}>
-          {read.kind === "reading" ? <Skeleton className="w-24" /> : low == null && high == null ? MISSING
+        <Row name="Deflated Sharpe probability"
+             tip="The probability that the run's Sharpe is above what the best of that many trials would show by chance: at every overlapping trial with the declared offline variants, and at the number of independent trials their correlation leaves. Only the line's research runs have one"
+             detail={read.kind === "refused" || read.kind === "absent" ? read.message : reading ? null
+               : low == null && high == null ? "Not available for this run"
+               : `${counts!.trials_with_sweeps} trials (low) · ${counts!.effective_trials?.toFixed(1) ?? MISSING} independent (high)`}>
+          {reading ? <Skeleton className="w-24" /> : low == null && high == null ? MISSING
             : range(low == null ? MISSING : chance(low), high == null ? MISSING : chance(high))}
         </Row>
       </Rows>
@@ -52,34 +55,39 @@ export function Reliability({ trial, interval }: { trial: number; interval: Annu
  *  much of their minute's volume its fills take. Each is a description of the run, with no threshold of its own. */
 export function CostsAndCapacity({ c }: { c: Costs }) {
   const p = c.participation;
-  const counted = p && ([["above their minute's volume", p.above], ["in a minute without volume", p.zero],
-                         ["without a bar", p.noBar], ["of settlement or liquidation", p.engine]] as const).filter(([, n], i) => i === 0 || n > 0);
+  const counted = p && ([["of them above 100%", p.above], ["others in a minute without volume", p.zero],
+                         ["others without a bar", p.noBar], ["others of settlement or liquidation", p.engine]] as const).filter(([, n], i) => i === 0 || n > 0);
   return (
-    <Section title="Costs and capacity" aside={p?.execution ? `${p.execution} execution` : undefined}>
+    <Section title="Costs and capacity" aside={p?.execution ? `${p.execution === "bars" ? "bar" : p.execution === "quotes" ? "quote" : p.execution} execution` : undefined}>
       <div className="flex flex-col gap-3">
         <Rows>
-          <Row name="Break-even fees" tip="How many times the fees paid the run could pay before its profit is gone" detail={c.breakevenNote}>
+          <Row name="Break-even fee multiple" tip="How many times the fees paid the run could pay before its profit is gone" detail={c.breakevenNote}>
             {c.breakeven === null ? MISSING : `${c.breakeven.toFixed(1)}×`}
           </Row>
-          <Row name="Daily turnover" tip="The notional traded a day over the starting balance, across the trading window" detail={c.turnoverNote}>
+          <Row name="Daily turnover of starting balance" tip="The notional traded a day over the starting balance, across the trading window" detail={c.turnoverNote}>
             {pct(c.turnover)}
           </Row>
         </Rows>
         {p ? (
           <div className="flex flex-col gap-1.5 text-dense tabular-nums">
-            <Tip content="Each fill's quantity over the last-price volume of its minute, every fill weighted equally; Minute is one contract's fills of one minute together, at their largest">
+            <Tip content="Each fill's quantity over the last-price volume of its minute, every fill with a share weighted equally; a fill in a minute without volume or without a bar, or of settlement or liquidation, has none">
               <span className="self-start text-fg-muted">Share of the minute's volume</span>
             </Tip>
-            <div className="grid grid-cols-5 gap-x-2">
-              {([["Median", p.median], ["p95", p.p95], ["p99", p.p99], ["Largest", p.max], ["Minute", p.minuteMax]] as const).map(([name, v]) => (
-                <div key={name} className="flex min-w-0 flex-col text-right first:text-left">
+            <div className="grid grid-cols-4 gap-x-2">
+              {([["Median", p.median], ["p95", p.p95], ["p99", p.p99], ["Largest", p.max]] as const).map(([name, v]) => (
+                <div key={name} className="flex min-w-0 flex-col text-right">
                   <span className="text-small text-fg-faint">{name}</span><span className="text-fg">{v === null ? MISSING : pct(v)}</span>
                 </div>
               ))}
             </div>
-            <p className="text-small text-fg-faint">{`${p.fills} fills read`}{counted!.map(([words, n]) => <span key={words}> · <span className={n > 0 ? "text-fg" : ""}>{n}</span> {words}</span>)}</p>
+            <Rows>
+              <Row name="Largest minute" tip="The largest share of its minute's volume that one contract's fills of one minute make together">
+                {pct(p.minuteMax)}
+              </Row>
+            </Rows>
+            <p className="text-small text-fg-faint">{`${p.fills} fills with a share`}{counted!.map(([words, n]) => <span key={words}> · <span className={n > 0 ? "text-fg" : ""}>{n}</span> {words}</span>)}</p>
           </div>
-        ) : <p className="text-dense text-fg-faint">The seal holds no share of the minute's volume.</p>}
+        ) : <p className="text-dense text-fg-faint">Share of the minute's volume not recorded for this run.</p>}
       </div>
     </Section>
   );

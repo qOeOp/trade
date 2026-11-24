@@ -18,7 +18,7 @@ export function Performance({ a, stats, exitNet = [] }: { a: Account; stats: Tra
       <Section title="Trades" open={closed}><div className="flex flex-col gap-3">
         <TradeStrip trades={a.trades} />
         <Exits exits={stats.exits} />
-        {exitNet.length > 0 && <ExitNet rows={exitNet} />}
+        {exitNet.length > 1 && <ExitNet rows={exitNet} />}
       </div></Section>
       {closed && <Section title="Long and short" aside="closed trades, after fees"><Sides sides={stats.sides} /></Section>}
       {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
@@ -46,11 +46,11 @@ function Exits({ exits }: { exits: TradeStats["exits"] }) {
   );
 }
 
-/** The closed cycles' net by the order type that closed them (a backtest's report). */
+/** The closed cycles' net by the order type that closed them (a backtest's report); one type alone is the whole net. */
 function ExitNet({ rows }: { rows: Backtest["exitNet"] }) {
-  const words = (type: string) => { const s = type.toLowerCase().replace(/_/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+  const words = (type: string) => { if (type === "UNKNOWN") return "No recorded type"; const s = type.toLowerCase().replace(/_/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-dense tabular-nums">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 text-dense tabular-nums">
       <span className="text-small text-fg-faint">Closing order</span><span className="text-right text-small text-fg-faint">Net P&L</span>
       {rows.map((r) => (
         <Fragment key={r.type}>
