@@ -57,8 +57,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                          "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
                          "rerun with a new path.",),
     "DOLT_SQL_ERROR": ("If the message names a value the column refuses (a judgment body holds at most 65,535 "
-                       "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. Otherwise: "
-                       + _RERUN,),
+                       "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. If it says no space is left, the ledger refuses every write until "
+                       "the operator frees disk space and then restarts its service; freeing space alone does not help "
+                       "(docs/operator/troubleshooting.md). Otherwise: " + _RERUN,),
     "SQL_STATEMENT_FAILED": ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "
                              "with `ledger sql \"DESCRIBE <table>\"`.",),
     # Paths
