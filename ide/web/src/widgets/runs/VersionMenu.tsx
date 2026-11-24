@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { copyText } from "../../lib/clipboard";
+import { versionHref } from "../../lib/lines";
+import { useView } from "../../model/view";
 import { locate, openSource } from "../../state/editors";
 import { select } from "../../state/selection";
 import { useAtom } from "../../state/atom";
@@ -9,7 +11,7 @@ import { Menu, MenuItem, MenuSeparator } from "../../ui/ContextMenu";
 
 /** The right-click menu of a version, the same wherever the version appears. */
 export function VersionMenu({ id, children }: { id: string; children: ReactNode }) {
-  const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
+  const { line } = useView();
   const paper = usePaperService() === "present";
   const listing = usePaperRuns(), run = activeRun(listing, id), pending = useAtom(starting).has(id);
   const taken = full(listing) ? " · memory full" : "";
@@ -26,7 +28,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactNode 
       </>}
       <MenuSeparator />
       <MenuItem icon="copy" label="Copy version name" run={() => void copyText(id)} />
-      <MenuItem label="Copy link" run={() => void copyText(link)} />
+      <MenuItem label="Copy link" run={() => void copyText(versionHref(window.location.href, line.name, id))} />
     </>}>{children}</Menu>
   );
 }

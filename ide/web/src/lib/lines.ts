@@ -7,6 +7,15 @@ export function lineHref(href: string, line: string): string {
   return `${url.pathname}${url.search}`;
 }
 
+/** This page on line `line` with `version` selected. A page opened without a line has none in its address, and
+ *  which line it draws changes with the open ones, so a link to the version always names it. */
+export function versionHref(href: string, line: string, version: string): string {
+  const url = new URL(href);
+  url.searchParams.set("line", line);
+  url.hash = encodeURI(version);
+  return url.href;
+}
+
 /** The page on line `line` with `version` selected and, on the Runs page, paper run `run` picked
  *  (`run=`, which the page drops once it has picked it), and `stage` shown of it (`stage=`, the same). */
 export function runHref(href: string, line: string, version: string, run: number, stage?: string): string {

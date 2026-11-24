@@ -128,3 +128,9 @@ test("a run of another line's version opens that line with the version selected 
   assert.equal(runHref("http://ide/?line=line-a&since=abc&at=def#s@1", "line-c", "s@2", 14), "/?line=line-c&at=def&run=14#s@2",
     "the snapshot is kept, the scope dropped");
 });
+
+test("a copied link to a version names the line even when the page's address does not", async () => {
+  const { versionHref } = await namespace("lib/lines.ts", { context: createContext({ URL, document: {} }), sources: [], packages: [] });
+  assert.equal(versionHref("http://ide/#s@1", "line-a", "s@2"), "http://ide/?line=line-a#s@2");
+  assert.equal(versionHref("http://ide/?line=line-a&at=def", "line-a", "s@2"), "http://ide/?line=line-a&at=def#s@2");
+});

@@ -7,13 +7,14 @@ import { firstRun } from "./state/firstRun";
 import { usePhone } from "./state/phone";
 import { PhoneShell } from "./shell/phone/PhoneShell";
 import { Shell } from "./shell/Shell";
+import { MissingVersion } from "./widgets/MissingVersion";
 import { PaperRefusal } from "./widgets/paper/PaperRefusal";
 import { SessionNotice } from "./widgets/SessionNotice";
 import { LiveDialogs } from "./widgets/live/LiveDialogs";
 
 /** Providers only, and which shell: the view model for everyone (null until there is one, when each shell says why
  *  and Runs, Market and Agent still work), tooltips that open after 500ms and then instantly; over either shell,
- *  an expired session and a refused paper action. */
+ *  an expired session, a refused paper action and, on the desktop, a linked version the line does not hold. */
 export function App({ view }: { view: View | null }) {
   const phone = usePhone();
   const first = useAtom(firstRun);
@@ -25,6 +26,7 @@ export function App({ view }: { view: View | null }) {
         <LiveDialogs />
         <div className="fixed left-1/2 top-12 z-50 flex w-max max-w-[min(32rem,calc(100vw-32px))] -translate-x-1/2 flex-col gap-2 empty:hidden">
           <SessionNotice />
+          {!phone && <MissingVersion />}
           <PaperRefusal />
         </div>
       </Tooltip.Provider>
