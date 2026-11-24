@@ -104,14 +104,15 @@ from nautilus_trader.common import CacheConfig, DataActor, Environment
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.model import (
-    AccountType, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId, Venue,
+    AccountType, BarType, BookType, Currency, ExecAlgorithmId, InstrumentId, Money, OmsType, OrderSide, Price,
+    StrategyId, Venue,
 )
-from nautilus_trader.trading import Strategy
+from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 
-from engine import history, metrics, paper_terms, strategy as strategy_runtime
+from engine import history, metrics, paper_terms, strategy as strategy_runtime, unsent
 from engine.kline_events import KlineEvents
 from engine import paper_checkpoint as checkpoint, protection
-from engine.order_rules import OrderRules
+from engine.order_rules import OrderRules, native_cache
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
@@ -128,6 +129,9 @@ from engine import membership as membership_months
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
 STOP_CANCEL_SECONDS = 10
+ENTRY_GATE = ExecAlgorithmId("PAPER-GATE")  # ends an entry its source cancelled while it waited unsent (engine.unsent)
+CANCELLER_ID = StrategyId("PAPER-unsent")  # its order ID tag is no contract's (lower case)
+CANCELLER: Strategy | None = None  # the run's strategy that gives those commands and no other
 # The runner's exit status after its journal failed (ledger.run_journal.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
 JOURNAL_FAILED_EXIT = 3
@@ -350,21 +354,43 @@ class _PaperConfigured(history.Warming, metrics.Feed, OrderRules, strategy_runti
                                  params=params)
         if order.is_reduce_only or not self._paper_entry_terms:
             return send()
-        return paper_terms.queue(self._paper_entry_terms, self._paper_instrument_id, order, send)
 
+        cancel = super().cancel_order
+
+        def end():  # an unsent order keeps the order rules too, as in a replay, which checks it before its cancel
+            if native_cache(self).order(order.client_order_id) is not None:  # an order the source submitted before
+                cancel(order.client_order_id)
+            elif self._orders_allowed(order, position_id, client_id, params):
+                assert CANCELLER is not None  # build_node's
+                unsent.cancel(CANCELLER, order, ENTRY_GATE)
+        return paper_terms.queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
+
+    # An entry that waits unsent for its terms read is not in the native cache: engine.paper_terms ends it.
     def cancel_order(self, client_order_id, client_id=None, params=None):
         if SESSION and SESSION.commanded():
+            return None
+        if not params and paper_terms.cancel(self._paper_instrument_id,
+                                             lambda order: order.client_order_id == client_order_id):
             return None
         return super().cancel_order(client_order_id, client_id, params)
 
     def cancel_orders(self, client_order_ids, client_id=None, params=None):
         if SESSION and SESSION.commanded():
             return None
-        return super().cancel_orders(client_order_ids, client_id, params)
+        ids = list(client_order_ids)
+        if not params:
+            waiting = paper_terms.cancel(self._paper_instrument_id, lambda order: order.client_order_id in ids)
+            ids = [identity for identity in ids if identity not in waiting]
+            if waiting and not ids:
+                return None
+        return super().cancel_orders(ids, client_id, params)
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         if SESSION and SESSION.commanded():
             return None
+        if strategy_only and not params and str(instrument_id) == self._paper_instrument_id:
+            paper_terms.cancel(self._paper_instrument_id,
+                               lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
         return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
@@ -998,9 +1024,13 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
         # reaches Paper's Sandbox too (finding 20261114-39).
         liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"]))
     node = builder.build()
+    global CANCELLER
+    CANCELLER = Strategy(strategy_runtime.source_config(CANCELLER_ID))  # type: ignore[call-arg]
+    node.add_strategy(CANCELLER)
     for inputs in planned:
         node.add_strategy(Holder(inputs, proxy_url) if session and session.held
                           else strategy_runtime.configure_strategy(loaded, inputs, paper_class))
+    node.add_exec_algorithm(ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=ENTRY_GATE)))
     node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
     recorder = Recorder(RecorderConfig([item.instrument_id for item in planned], terms))
     node.add_actor(recorder)

@@ -10,6 +10,8 @@ native case on the replay's own venue (engine.run.add_venue) so that an upgrade 
   the source replaces it (the strategy-authoring rule: check again on the stop's OrderAccepted).
 - `time_bars_build_delay` delays an aggregated bar's `ts_event` by the delay, not only its delivery (Paper and Live
   build their aggregations with history.BUILD_DELAY_US).
+- An unsent order routed to an execution algorithm ends CANCELED without reaching the venue (engine.unsent, Paper's
+  cancel of an entry that waits for its terms read).
 - The risk engine denies an entry whose initial margin exceeds the free balance (order_rules' three-times-equity cap
   relies on it below a leverage of 3).
 """
@@ -20,13 +22,16 @@ import unittest
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
-from nautilus_trader.model import Bar, BarType, OrderSide, Price, Quantity, StrategyId, TraderId
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.model import (
+    Bar, BarType, ExecAlgorithmId, OrderSide, Price, Quantity, StrategyId, TimeInForce, TraderId,
+)
+from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy, StrategyConfig
 
-from engine import history
+from engine import history, unsent
 from engine.run import ACCOUNT_CONTRACT, add_venue, with_margins
 from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, FLAT, INSTRUMENT, INSTRUMENT_ID, START, fees
 
+GATE = ExecAlgorithmId("TEST-GATE")
 AGGREGATED = BarType.from_str(f"{INSTRUMENT_ID}-5-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL")
 
 
@@ -56,7 +61,7 @@ class Script(Strategy):
 
 
 def replay(act=lambda source, count: None, *, volume="40.000", bars=6, instrument=INSTRUMENT, build_delay=0,
-           script=Script):
+           script=Script, algorithm=None, commander=None):
     """(fills as (side, quantity, price), orders as (type, status, quantity), the source) of a replay of `bars` flat
     one-minute bars of `volume`."""
     account = ACCOUNT_CONTRACT
@@ -69,6 +74,9 @@ def replay(act=lambda source, count: None, *, volume="40.000", bars=6, instrumen
     try:
         add_venue(engine, fees())
         engine.add_instrument(instrument)
+        if algorithm is not None:
+            engine.add_strategy(commander)
+            engine.add_exec_algorithm(ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=algorithm)))
         source = script(act)
         engine.add_strategy(source)
         prices = [Price.from_str(value) for value in FLAT]
@@ -130,6 +138,44 @@ class ReduceOnlyTests(unittest.TestCase):
         _, orders, source = replay(act)
         self.assertEqual(source.after_partial, "0.300")
         self.assertEqual(orders[1], ("STOP_MARKET", "CANCELED", "0.300"))
+
+
+class Events(Script):
+    def __init__(self, act):
+        super().__init__(act)
+        self.events, self.kept = [], []
+
+    def on_order_event(self, event):
+        self.events.append(type(event).__name__)
+        if type(event).__name__ == "OrderCanceled":  # the source reads and orders as after any native cancel
+            order = self.cache.order(event.client_order_id)
+            self.submit_order(self.order_factory.limit(INSTRUMENT_ID, OrderSide.BUY, order.quantity,
+                                                       Price.from_str("90.00"), time_in_force=TimeInForce.GTC))
+
+
+class UnsentCancelTests(unittest.TestCase):
+    def test_an_unsent_order_ends_canceled_without_reaching_the_venue(self):
+        def act(source, count):
+            factory, quantity = source.order_factory, Quantity.from_str("1.000")
+            if count == 2:  # both would fill on this flat bar or the next
+                for order in (factory.limit(INSTRUMENT_ID, OrderSide.BUY, quantity, Price.from_str("105.00"),
+                                            time_in_force=TimeInForce.GTD, expire_time=START + 20 * BAR_NS, tags=["a"]),
+                              factory.stop_market(INSTRUMENT_ID, OrderSide.BUY, quantity, Price.from_str("99.00"))):
+                    unsent.cancel(commander, order, GATE)
+                    cached = source.cache.order(order.client_order_id)
+                    source.kept.append({key for key, value in cached.to_dict().items()
+                                        if key in order.to_dict() and order.to_dict()[key] != value})
+
+        commander = Strategy(StrategyConfig(strategy_id=StrategyId("GATE-unsent")))
+        fills, orders, source = replay(act, script=Events, algorithm=GATE, commander=commander)
+        self.assertEqual(source.events, ["OrderInitialized", "OrderCanceled", "OrderInitialized"] * 2
+                         + ["OrderSubmitted"] * 2 + ["OrderAccepted"] * 2)
+        self.assertEqual(fills, [])
+        self.assertEqual(sorted(orders), [("LIMIT", "ACCEPTED", "1.000")] * 2 + [
+            ("LIMIT", "CANCELED", "1.000"), ("STOP_MARKET", "CANCELED", "1.000")])
+        for changed in source.kept:
+            self.assertLessEqual(changed, {"exec_algorithm_id", "exec_spawn_id", "status", "events", "event_count",
+                                           "last_event", "ts_last", "ts_closed"})
 
 
 class StopOnFirstFill(Script):

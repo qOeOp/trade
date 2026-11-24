@@ -132,7 +132,9 @@ step size, minimum notional): Paper against the terms `paper start` wrote from t
 loaded instrument) and for each entry; Live at each entry's admission against the terms `prepare` read from the
 market's latest day. For an entry both read Binance's `fapi/v1/exchangeInfo` then (`engine.config.venue_terms`), as
 rc7 does not reload a loaded instrument mid-run, off the node's thread: the entry waits unsent while bars, timers and
-reduce-only orders go on (`engine.paper_terms`), and a Paper checkpoint is not cut while one waits. A difference is `TERMS_CHANGED`, with both values: the entry is not
+reduce-only orders go on (`engine.paper_terms`), and a Paper checkpoint is not cut while one waits. An entry
+its source cancels while it waits in Paper is never sent and, once its read is done, ends `CANCELED` natively
+(`engine.unsent`). A difference is `TERMS_CHANGED`, with both values: the entry is not
 sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
 same way. A replay never meets a change: it trades the whole window on one terms snapshot per contract
 (`market.instrument`). Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
