@@ -27,7 +27,6 @@ OVERSIZED = {
     "ide/research_graph/serve.py": 1150,
     "ledger/metrics.py": 995,
     "paper/serve.py": 883,
-    "replay/comparison.py": 833,
     "report/status.py": 888,
 }
 # Runtime dependencies no product module imports by name: nautilus_trader.analysis imports plotly when loaded, and

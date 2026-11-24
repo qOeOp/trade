@@ -52,7 +52,7 @@ type ContractBars = { archive: number; live: number; missing_bars: number; late_
 type ContractMetrics = { archive: number; live: number; missing_metrics: number; late_metrics: number; differing_metrics: number;
                          live_only_metrics: number; missing: string[]; late: string[]; live_only: string[];
                          differing: { at: string; fields: Record<string, [string | null, string | null]> }[] };
-/** comparison.json (run-comparison@2026-11-21.1); `groups` is null when the replay wrote no order events. */
+/** comparison.json (run-comparison@2026-11-24.1); `groups` is null when the replay wrote no order events. */
 type Result = {
   kind: "paper" | "live"; paper_id?: number; window: { start: string; end: string }; market_day: string; image_ref: string;
   /** "rest": a preliminary comparison, the minutes after `preliminary.market_day` read from Binance's public REST. */

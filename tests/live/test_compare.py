@@ -8,6 +8,7 @@ measures miscount fills, slippage, fees, equity or held entries."""
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 from decimal import Decimal
 import gzip
 import hashlib
@@ -185,8 +186,8 @@ class Compare(unittest.TestCase):
             return {"status": "passed", "problems": [], "path": str(output)}, events, reports
 
         def stored(market, day, symbol, price_type, interval, start, end, limit, funding=True):
-            first = (int(shared.datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
-            last = (int(shared.datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
+            first = (int(datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
+            last = (int(datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
             return {"market_day": "2026-11-11", "bars": {"rows": archived(first, last - first)}}
 
         with mock.patch.object(rerun, "replay", side_effect=replayed), \

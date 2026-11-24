@@ -128,6 +128,14 @@ def archive(market: dict, at: str | None, symbols: list[str], start: int, end: i
     return market_day, found  # type: ignore[return-value]
 
 
+def archive_marks(market: dict, market_day: str, symbol: str, start: int, end: int) -> dict[int, Decimal]:
+    """{minute: the close of its archived MARK bar, as a replay values it} in [start, end)."""
+    from market import read
+    rows = read.stored_bars(market, market_day, symbol, "MARK", "1m", utc_text(start), utc_text(end), None,
+                            funding=False)["bars"]["rows"]
+    return {row[0] * MILLISECOND_NS: Decimal(row[5]) for row in rows}
+
+
 def history_start(start: int, received: Mapping[str, Mapping[str, Mapping]]) -> int:
     """The first minute a replay warmed at `start` must export so the histories the run `received` ({instrument:
     {period: digest}}) lie in it: the opening of the first of each period's bars (engine.warmup.history_range), as the
@@ -211,12 +219,15 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
                                                           firsts.get(symbol_of(row["instrument_id"]), end))
     archived_metrics = {symbol: archive_metrics(opened, market_day, symbol, first, end)
                         for symbol, first in firsts.items()}
+    # Only Paper records when it took each minute's value, which equity_differences needs with its marks.
+    archived_marks = ({symbol: archive_marks(market, market_day, symbol, start, end) for symbol in symbols}
+                      if run.get("taken") else None)
     if not existing:  # a preliminary comparison made its directory for its market (replay.preliminary)
         output = paths.temporary_path(output)
         output.mkdir(mode=0o700, parents=True)
     replayed, events, reports = replay(market, market_day, source, entry_class, image_ref, symbols, start, end,
                                        leverage, starting_balance, output / "replay", name, timeout, received)
     return output, replayed, compare(run, events, archived, reports, start, end, archived_warmup=archived_warmup,
-                                     archived_metrics=archived_metrics,
+                                     archived_metrics=archived_metrics, archived_marks=archived_marks,
                                      replay_terms=replay_terms, replay_fees={"maker": instrument.ASSUMED["maker_fee"],
                                                                             "taker": instrument.ASSUMED["taker_fee"]})
