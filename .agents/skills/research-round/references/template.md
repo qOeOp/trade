@@ -42,8 +42,9 @@ first report. Defer a template lacking required data, instrument support or nati
 - Choose the native precheck's smallest sufficient window and contract set for the technical
   behavior: a single-instrument defect may need one contract; allocation, membership transitions
   and two-leg exceptions need their relevant scenarios. Never choose a window for its return.
-  Existing identity, exposure and independent-review requirements still apply. Report unobserved
-  behavior as unverified; a passed short precheck is not the formal first report or proof of a
+  Existing identity, exposure and independent-review requirements still apply: an order path
+  unobserved in it leaves activity unresolved (SKILL.md), so find its window on a `ledger temp` ledger
+  first. Report other unobserved behavior as unverified; a passed short precheck is not the formal first report or proof of a
   larger scope. Do not introduce a separate pilot-first-report stage.
 - The formal first report covers the selected line's full development window and chosen contract
   scope, locked in the registration's input identity: all of the pool when chosen, or the explicit
