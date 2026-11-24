@@ -395,7 +395,8 @@ def _runtime_transition(conn: db.LedgerConnection, plan: Mapping, execution: Map
                                                            "market_day", "universe_rule", "lifecycle_bundle")):
         return False
     if (plan["body"] != prior["body"] or plan["comparison"] != prior["comparison"]
-            or [point["candidate"] for point in plan["points"]] != [point["candidate"] for point in prior["grid"]]):
+            or sorted(point["candidate"] for point in plan["points"])
+            != sorted(point["candidate"] for point in prior["grid"])):
         return False
     control, old_control = plan["control_trial_id"], prior["control_trial_id"]
     if control is None or old_control is None:

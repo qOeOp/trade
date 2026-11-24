@@ -4,13 +4,30 @@ from __future__ import annotations
 
 import copy
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from ledger import trials
 from registration import precheck, register, seams
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP, sha, source
 from tests.registration.test_register import OTHER_RUNTIME, refused
 from tests.registration.world import ACCOUNT, DESIGN, LINE_WINDOW, World, capture, config, inspect_stand_in
+
+
+class SourceGridTests(unittest.TestCase):
+    def test_a_rebuild_matches_the_same_source_grid_in_any_order_with_its_duplicates(self):
+        execution = dict.fromkeys(("comparable_config_sha256", "export_sha256", "market_day", "universe_rule",
+                                   "lifecycle_bundle"), "same")
+        plan = {"body": {}, "comparison": None, "control_trial_id": None}
+        # load_registration returns the grid by strategy and revision, the plan keeps the caller's order.
+        prior = {**plan, "execution": {**execution, "image_digest": "old"},
+                 "grid": [{"candidate": ref} for ref in ("rsi@2", "rsi@2", "rsi@10")]}
+        for refs, expected in ((("rsi@2", "rsi@2", "rsi@10"), True), (("rsi@10", "rsi@2", "rsi@2"), True),
+                               (("rsi@2", "rsi@10"), False), (("rsi@2", "rsi@10", "rsi@10"), False),
+                               (("rsi@2", "rsi@2", "rsi@3"), False)):
+            with self.subTest(refs=refs):
+                self.assertIs(register._runtime_transition(
+                    MagicMock(), {**plan, "points": [{"candidate": ref} for ref in refs]},
+                    {**execution, "image_digest": "new"}, prior), expected)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -80,6 +97,22 @@ class ContinuityTests(unittest.TestCase):
             ):
                 with self.subTest(name=name):
                     self.assertEqual(refused(self.world.register, changed).code, expected)
+
+    def test_a_rebuild_may_list_its_grid_in_another_order(self):
+        first, second = (self.world.publish(text, parent=None) for text in ("first root", "second root"))
+        refs = [first["candidate"], second["candidate"]]
+        items = list(zip(refs, (first["source"], second["source"]), strict=True))
+        body = self.world.body(refs, {ref: self.review_on(data, RUNTIME) for ref, data in items}, comparison=None)
+        old = self.register(body)
+        trial_id = self.world.research_trial(old, first["source"])
+        self.world.seal_run(trial_id)
+        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": trial_id}])
+        retry = {**body, "retry_of": old, "prechecks": {ref: self.review_on(data, OTHER_RUNTIME) for ref, data in items}}
+        with self.on_new_runtime():
+            self.assertEqual(refused(self.world.register, {**retry, "grid": refs[:1],
+                                                          "prechecks": {refs[0]: retry["prechecks"][refs[0]]}}).code,
+                             "RETRY_NOT_ALLOWED")
+            self.register({**retry, "grid": refs[::-1]})
 
     def test_valid_retry_cannot_change_research_declarations_or_execution_inputs(self):
         body = self.migrated_body()
