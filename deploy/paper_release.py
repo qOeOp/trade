@@ -12,7 +12,7 @@ Otherwise it rolls back to the previous controller, before the Web rolls back, a
 
 import os
 from .paper_host import PAPER, PaperHost
-from .release_host import (SERVICE_REF, RUNTIME_REF, WEB, HostCondition, durable_json, read_journal, revision,
+from .release_host import (RUNTIME_REF, WEB, HostCondition, durable_json, read_journal, revision,
                            sync_directory)
 
 
@@ -91,7 +91,7 @@ class PaperRelease:
 
     def prepare(self, target: dict) -> dict | None:
         """The Paper side's refusals before any journal of the release, so a transient one marks nothing failed.
-        None when the controller already serves this revision."""
+        None when the controller already serves this revision. Release.apply pulled the service image."""
         sha = target["revision"]
         candidate, previous = PAPER + sha, self.host.disk_route()
         if previous == candidate:
@@ -101,7 +101,6 @@ class PaperRelease:
             raise RuntimeError("Paper disk/live routes disagree")
         if not self.host.memory_available():
             raise HostCondition("insufficient memory for a standby Paper controller")
-        self.host.pull(target["service"], SERVICE_REF, sha)
         runtime_source = self.host.pull(target["runtime"], RUNTIME_REF)
         self.source.require_runtime(runtime_source, sha)
         return {"candidate": candidate, "previous": previous}

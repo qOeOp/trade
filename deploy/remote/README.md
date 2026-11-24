@@ -83,6 +83,7 @@ remains, and its `live/<revision>/` directory goes with it. A runtime image goes
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
 again pulls it by digest. A failed version older than the routed one can no longer be chosen: its stopped containers
 go, and its `failed/` marker goes once none of them remains; `paper-failed/`, which no version writes, goes too.
+The images of a version that waits to be released stay too, whether or not a container uses them.
 Running containers, the active routes, runs, ledger records and market inputs are never pruned.
 A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
 services are workstation-only); it never updates the Web or Paper. The release control code changes only with an
@@ -108,7 +109,9 @@ other failure fails the tick before the journal, as a pull does. Nobody moves th
 line's ledger when its own update reaches the version ([Updating](../README.md#updating)).
 
 The release waits, changing nothing and marking nothing failed, with one Telegram notice ([Notices](#notices)) that
-says why, until all of these hold; every tick checks again:
+says why, until all of these hold; every tick checks again. Until the host
+may start the new generation only the version's service image is pulled; its other images are pulled and its Paper
+controller's refusals asked before anything changes:
 
 - `main` of the repository holds a ledger of that version's line and schema generation, and the branch named after
   the mirror's line holds the mirror's head (both read through DoltHub's public API, no credential): until a

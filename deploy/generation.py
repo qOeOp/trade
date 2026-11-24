@@ -27,6 +27,7 @@ host's mirror follows once `main` holds its head (a 0.5.4 mirror tracks only `ma
 `Generation` is the release host's part (deploy/release.py Release.apply); deploy/update.py is the workstation's.
 """
 
+from collections.abc import Callable
 from datetime import datetime, UTC
 import json
 import os
@@ -350,9 +351,10 @@ class Generation:
                                            "/tmp:rw,nosuid,size=16777216", *paper.common(), "--env", "HOME=/tmp",
                                            "--entrypoint", "python", service, "-c", WHERE, timeout=180))
 
-    def due(self, target: dict, owner: str) -> bool:
+    def due(self, target: dict, owner: str, ready: Callable[[], bool]) -> bool:
         """Whether version `target` is of another line than the host's ledger (or must move it); if so it cuts over
-        (or moves) when it may, and the release waits for the next tick either way."""
+        (or moves) when it may, and the release waits for the next tick either way. It needs only the version's service image
+        until it may act; `ready` then pulls the rest and says whether the version can be released (it printed why not)."""
         sha, service = target["revision"], target["service"]
         found = self.release.paper().host.generations(service)
         base = self.host.config.research_origin
@@ -380,18 +382,18 @@ class Generation:
               f"ledger is of line {where.get('line') or '?'} and tracks {', '.join(where['tracked'])}: {how}",
               flush=True)
         if how == "move":
-            self.move(target, owner, wanted, where)
+            self.move(target, owner, ready, wanted, where)
         else:
-            self.cut(target, owner, wanted, where)
+            self.cut(target, owner, ready, wanted, where)
         return True
 
-    def move(self, target: dict, owner: str, wanted: dict, where: dict) -> None:
+    def move(self, target: dict, owner: str, ready: Callable[[], bool], wanted: dict, where: dict) -> None:
         sha, service = target["revision"], target["service"]
         if busy := self.runners():
             self.wait(sha, "paper", f"{len(busy)} Paper run(s) still run ({', '.join(busy)}). Stop them on the "
                                     "Paper page.")
             return
-        if not self.held(sha, wanted, MAIN, where["head"]):
+        if not self.held(sha, wanted, MAIN, where["head"]) or not ready():
             return
         self.release.github.ensure(target)
         self.release.live.prepare(owner, target)
@@ -425,13 +427,13 @@ class Generation:
                                        "workstation's deploy/update.sh keeps the old line there.")
         return kept
 
-    def cut(self, target: dict, owner: str, wanted: dict, where: dict) -> None:
+    def cut(self, target: dict, owner: str, ready: Callable[[], bool], wanted: dict, where: dict) -> None:
         sha, service = target["revision"], target["service"]
         if busy := self.runners():
             self.wait(sha, "paper", f"{len(busy)} Paper run(s) still run ({', '.join(busy)}); their containers mount "
                                     "the Paper directory the cutover archives. Stop them on the Paper page.")
             return
-        if not self.held(sha, wanted, where["line"], where["head"]):
+        if not self.held(sha, wanted, where["line"], where["head"]) or not ready():
             return
         self.release.github.ensure(target)
         self.release.live.prepare(owner, target)

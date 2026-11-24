@@ -222,7 +222,7 @@ class GenerationTests(unittest.TestCase):
         with patch.object(generation, "probe", side_effect=lambda origin: self.published), \
                 patch.object(generation, "contains", side_effect=lambda origin, branch, head:
                              self.asked.append((branch, head)) or self.held):
-            return self.generation.due(TARGET, A)
+            return self.generation.due(TARGET, A, lambda: True)
 
     def journal(self) -> dict | None:
         path = self.host.state / JOURNAL
@@ -237,7 +237,7 @@ class GenerationTests(unittest.TestCase):
     def test_a_version_of_the_host_ledger_s_line_changes_nothing(self):
         self.paper.unread = {}
         self.docker.line = "v0.5"
-        self.assertFalse(self.generation.due(TARGET, A))
+        self.assertFalse(self.generation.due(TARGET, A, lambda: True))
         self.assertUntouched()
         self.assertEqual(self.release.waits, {})
 
@@ -245,7 +245,7 @@ class GenerationTests(unittest.TestCase):
         self.paper.generations = lambda service: {}
         with patch.object(generation, "probe", return_value=self.published) as probe, \
                 patch.object(generation, "contains", return_value=True) as contains:
-            self.assertTrue(self.generation.due(TARGET, A))
+            self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         probe.assert_called_once_with(BASE)
         contains.assert_called_once_with(BASE, "v0.5", HEAD)  # the old line's branch holds the mirror's head
         self.assertEqual((self.journal()["kind"], self.journal()["line"], self.journal()["phase"]),
@@ -253,14 +253,14 @@ class GenerationTests(unittest.TestCase):
 
     def test_a_schema_change_within_the_line_waits_and_changes_nothing(self):
         self.docker.line = "v0.5"
-        self.assertTrue(self.generation.due(TARGET, A))
+        self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         self.assertUntouched()
         self.assertIn("a schema change needs a new line", self.release.waits[f"wait:generation:{B}:schema"])
 
     def test_a_mirror_that_has_not_fetched_its_line_waits(self):
         self.paper.unread = {}
         self.docker.where = {"remote": BASE, "tracked": [], "line": None, "head": HEAD}
-        self.assertTrue(self.generation.due(TARGET, A))
+        self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         self.assertUntouched()
         self.assertIn(f"wait:generation:{B}:mirror", self.release.waits)
 
@@ -269,7 +269,7 @@ class GenerationTests(unittest.TestCase):
         self.docker.where = {"remote": "https://doltremoteapi.dolthub.com/someone/else", "tracked": ["main"],
                              "line": "v0.5", "head": HEAD}
         with self.assertRaisesRegex(RuntimeError, "not to .*owner/research"):
-            self.generation.due(TARGET, A)
+            self.generation.due(TARGET, A, lambda: True)
         self.assertUntouched()
 
     def test_the_v0_5_mirror_moves_to_main_only_once_main_holds_the_ledger_and_its_head(self):
@@ -315,7 +315,7 @@ class GenerationTests(unittest.TestCase):
         with patch.object(self.generation, "where", side_effect=lambda service: reads.pop(0)), \
                 patch.object(generation, "probe", side_effect=lambda origin: self.published), \
                 patch.object(generation, "contains", side_effect=lambda origin, branch, head: head == HEAD):
-            self.assertTrue(self.generation.due(TARGET, A))
+            self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         self.assertEqual(reads, [], "read again inside the hold")
         self.assertUntouched()
         self.assertIn(f"does not hold the mirror's head {newer}", self.release.waits[f"wait:generation:{B}:held"])
@@ -361,7 +361,7 @@ class GenerationTests(unittest.TestCase):
             self.assertIn(f"wait:generation:{B}:published", self.release.waits)
         self.setUp()
         with patch.object(generation, "probe", side_effect=OriginUnreadable("DoltHub answered HTTP 503")):
-            self.assertTrue(self.generation.due(TARGET, A))
+            self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         self.assertUntouched()
         self.assertIn("HTTP 503", self.release.waits[f"wait:generation:{B}:dolthub"])
         self.setUp()
@@ -370,7 +370,7 @@ class GenerationTests(unittest.TestCase):
         self.docker.where = {"remote": BASE, "tracked": ["v0.5"], "line": None, "head": HEAD}
         with patch.object(generation, "probe", return_value=("data", "2", "v0.5")), \
                 patch.object(generation, "contains", side_effect=OriginUnreadable("DoltHub answered HTTP 503")):
-            self.assertTrue(self.generation.due(TARGET, A))
+            self.assertTrue(self.generation.due(TARGET, A, lambda: True))
         self.assertUntouched()
         self.assertIn("HTTP 503", self.release.waits[f"wait:generation:{B}:dolthub"])
 
@@ -538,7 +538,7 @@ class GenerationTests(unittest.TestCase):
         self.paper.generations = lambda service: {"research": "2"}
         with patch.object(generation, "probe", return_value=self.published), \
                 patch.object(generation, "contains", return_value=True):
-            self.generation.cut(TARGET, A, {"origin": BASE, "line": "v0.6", "research": 2}, self.docker.where)
+            self.generation.cut(TARGET, A, lambda: True, {"origin": BASE, "line": "v0.6", "research": 2}, self.docker.where)
         with self.assertRaisesRegex(RuntimeError, "not the version's schema generation"):
             self.generation.resume(B)
         self.assertEqual(self.journal()["phase"], "archived")

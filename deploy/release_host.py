@@ -749,14 +749,16 @@ class DockerHost:
                 raise RuntimeError("public API authentication boundary is not healthy")
 
     def prune(self, prefixes: tuple[str, ...], active: set[str], failed: set[str],
-              runtimes: set[str] | None = None, stale: frozenset[str] = frozenset()) -> list[str]:
+              runtimes: set[str] | None = None, stale: frozenset[str] = frozenset(),
+              waiting: frozenset[str] = frozenset()) -> list[str]:
         """Bound what releases leave behind, and name what it removed. Never a running or active container.
 
         A failed candidate does not use up a place meant for a good release; the newest one stays to be read, unless
         it is `stale` (a version older than the routed one).
         Paper and Live runs this host cannot enumerate pin runtime images by digest and pull a missing one
         again (runtime/image.py resolve), so a runtime image goes only when no container uses it, no kept
-        release names it (`runtimes`; None keeps them all) and the registry still serves its digest.
+        release names it (`runtimes`; None keeps them all) and the registry still serves its digest. The images of a
+        version that waits to be released (`waiting`) stay: no container uses them yet.
         """
         removed = []
         for prefix in prefixes:
@@ -774,7 +776,7 @@ class DockerHost:
                     removed.append(name)
         used = set(self.docker("ps", "-a", "--no-trunc", "--format", "{{.Image}}").splitlines())
         for image in self.docker("images", "--digests", "--format", "{{.Repository}}@{{.Digest}}").splitlines():
-            if image in used:
+            if image in used or image in waiting:
                 continue
             # Without --force Docker also refuses an image that a stopped container still uses.
             if (IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image) or DOCKER_API_REF.fullmatch(image)
