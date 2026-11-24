@@ -27,10 +27,10 @@ import { VersionLine } from "../widgets/VersionLine";
 const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills", live: " · native execution observations" } as const;
 const EXECUTION: Record<string, string> = { bars: "1m bars", quotes: "aggTrades quotes" };
 /** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image (by
- *  its end) and the last day of the market data it read, how it filled; or, in the failure colour, that its report is
- *  not served here. */
+ *  its end) and the last day of the market data it read, how it filled; or, in the failure colour, why its report is
+ *  not to be had. */
 function backtestSource(l: Loaded | null, contract: boolean): { text: string; failed: boolean } {
-  if (l?.kind === "absent") return { text: " · data not served by this IDE", failed: true };
+  if (l?.kind === "absent") return { text: ` · ${l.message}`, failed: true };
   if (l?.kind !== "ready") return { text: "", failed: false };
   const { image, execution, market } = l.b, digest = image?.replace(/^sha256:/, "");
   return { text: [contract ? " · 1d bars" : " · 1d series", digest && `image …${digest.slice(-6)}`, market && `market ${marketThrough(market)}`, execution && (EXECUTION[execution] ?? execution)]
