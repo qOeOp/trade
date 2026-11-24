@@ -529,7 +529,7 @@ def contract(session, snapshot: dict) -> None:
     """Binance's status of each contract of the run, from a comparison's read or an entry's own (the user,
     2026-11-13): not TRADING closes entries on that contract alone, and an entry on it is then denied natively and the
     run goes on; working entries and positions with their exchange stops stay. Back at TRADING, the run's entries
-    reopen once the account check passes."""
+    reopen once the account check passes; entries waiting to be sent are held until then, and each is read again."""
     for symbol in session.manifest["symbols"]:
         try:
             status = snapshot["symbols"][symbol]["instrument"]["status"]
@@ -548,6 +548,8 @@ def contract(session, snapshot: dict) -> None:
             state.agreed = None
             session.event("entries_checking", strict=False, reasons=sorted(state.closed), symbol=symbol,
                           status=status)
+            if holdable(session):
+                hold_queued(session)
 
 
 def settle_stale(state: Connection, found: dict) -> None:

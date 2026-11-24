@@ -1,5 +1,6 @@
 """The entry gate's scheduling and judgments (engine.live_connection), without a venue or a native node."""
 
+from concurrent.futures import Future
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -787,6 +788,40 @@ class GateTests(unittest.TestCase):
         observation.result.cancel.assert_called_once()
         start.assert_called_once_with(self.session, "entry")
         self.assertEqual(self.session.pending_entries, [btc])
+
+    def test_another_contract_back_at_trading_holds_the_waiting_entries_until_the_check_passes(self):
+        self.session.manifest["symbols"] = [SYMBOL, "ETHUSDT"]
+        snapshot = json.loads(json.dumps(self.snapshot))
+        snapshot["symbols"]["ETHUSDT"] = {"instrument": {"status": "TRADING"}}
+
+        def halted():
+            session = live.Session(self.session.manifest, self.session.output, "run", account_verified=True)
+            session.node = mock.Mock()
+            session.connection.halted["ETHUSDT"] = 0.0
+            pending = self.pending(time.time_ns())
+            session.pending_entries.append(pending)
+            read: Future = Future()
+            session.account_observation = commands.AccountObservation("entry", time.monotonic() + 30, read)
+            return session, pending, read
+
+        # The entry's own read and, with that read still under way, a comparison find ETHUSDT TRADING again.
+        own, comparison = halted(), halted()
+        own[2].set_result(snapshot)
+        commands.dispatch_entry(own[0])
+        with mock.patch.object(live_connection, "compare", return_value={}):
+            live_connection.judge(comparison[0], Cache(), dict(snapshot))
+        self.assertTrue(comparison[2].cancelled())  # dropped: its answer is never used
+        for session, pending, _ in (own, comparison):
+            self.assertIsNone(session.account_observation)
+            self.assertEqual(session.pending_entries, [pending])
+            self.assertEqual(pending.deadline_ns, pending.order.ts_init + live_connection.HOLD_NS)
+            with mock.patch("engine.live_commands.time.monotonic", return_value=time.monotonic() + 31):
+                commands.dispatch_entry(session)  # past the first read's deadline: waits, refuses nothing
+            self.assertFalse(session.stopping or session.failed)
+            with mock.patch.object(commands, "start_observation") as start:
+                live_connection.open_entries(session)
+            start.assert_called_once_with(session, "entry")  # a new read of the account
+            pending.submit.assert_not_called()
 
     def test_each_contract_is_compared_with_its_own_instance(self):
         self.session.manifest["symbols"] = [SYMBOL, "ETHUSDT"]

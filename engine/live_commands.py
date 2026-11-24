@@ -209,7 +209,7 @@ def dispatch_entry(session: Session) -> None:
         observation = keep(session.output, "entry-account", snapshot)
         live_connection.contract(session, snapshot)
         if not live_connection.entries_open(session, symbol):
-            return  # its contract is not TRADING: the entries on it were denied natively, the others wait
+            return  # its contract is not TRADING (denied natively) or another is again (held)
         equity = require_admission(snapshot, session.manifest, session.brake.budget, flat=False, symbols=[symbol])
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
