@@ -1016,6 +1016,78 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(self.events(), before)
         self.assertTrue(live.resumable(self.output))
 
+    def test_a_start_again_whose_connected_read_fails_or_is_overdue_is_interrupted(self):
+        args = self.armed_run()
+        journal = (self.output / "events.jsonl").read_text()
+        unavailable = LiveRefusal("LIVE_ACCOUNT_UNAVAILABLE", "Binance GET /fapi/v2/account failed (TimeoutError)")
+        overdue = threading.Event()
+        self.addCleanup(overdue.set)
+
+        def start_again(snapshot, read, *, verify=None):
+            (self.output / "events.jsonl").write_text(journal)
+            sessions = []
+
+            def connects(session, *_, **__):
+                sessions.append(session)
+                node = session.node = mock.Mock()
+                node.cache.orders.return_value = node.cache.positions_open.return_value = []
+                observer = SimpleNamespace(session=session, last_query=0, cache=node.cache, query_account=mock.Mock())
+
+                def run():
+                    session.account_reader = mock.Mock()
+                    if read is overdue:
+                        session.account_reader.snapshot.side_effect = lambda _: overdue.wait(5)
+                    else:
+                        session.account_reader.snapshot.side_effect = [read]
+                    commands.start_observation(session, "connected")
+                    if read is overdue:
+                        with mock.patch.object(commands, "time", SimpleNamespace(
+                                monotonic=lambda: live.time.monotonic() + 31, time_ns=live.time.time_ns)):
+                            live_lifecycle.Observer.observe(observer)
+                    else:
+                        session.account_observation.result.exception(timeout=2)
+                        live_lifecycle.Observer.observe(observer)
+                    node.handle().stop.assert_called_once()
+                node.run.side_effect = run
+                return node
+
+            with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
+                    mock.patch.object(live, "LiveCache"), mock.patch.object(live, "KlineEvents"), \
+                    mock.patch.object(live, "build_node", side_effect=connects), \
+                    mock.patch.object(commands, "verify_connected_account", side_effect=verify):
+                status = live.execute(args)
+            return status, sessions[0]
+
+        for snapshot in (self.flat_snapshot(), self.held_snapshot()):
+            for read in (unavailable, overdue):
+                with self.subTest(read=read, positions=snapshot["positions"]):
+                    status, session = start_again(snapshot, read)
+                    self.assertEqual((status, self.events()[-1]["event"]), (live.INTERRUPTED, "interrupted"))
+                    self.assertFalse(session.failed or session.account_verified)
+                    self.assertTrue(live.resumable(self.output))
+                    self.assertIsNone(live.begun_stop(self.events()))
+            # A read that succeeds and contradicts, or whose answer is unusable, still ends the run.
+            contradiction = LiveRefusal("LIVE_ACCOUNT_MODE", "the trial requires hedge and multi-assets mode")
+            aged = LiveRefusal("LIVE_OBSERVATION_STALE", "account checks require a fresh account observation")
+            incomplete = LiveRefusal("LIVE_ACCOUNT_RESPONSE", "no usable server time")
+            for read, verify in ((snapshot, contradiction), (snapshot, aged), (incomplete, None), (KeyError("x"), None)):
+                with self.subTest(read=read, verify=verify):
+                    status, session = start_again(snapshot, read, verify=verify)
+                    self.assertNotEqual(status, live.INTERRUPTED)
+                    self.assertTrue(session.connection_failed)
+                    self.assertFalse(live.resumable(self.output))
+
+    def test_a_first_starts_failed_connected_read_still_ends_the_run(self):
+        session = live.Session(self.manifest, self.output, "run")
+        session.node = mock.Mock()
+        session.account_reader = mock.Mock()
+        session.account_reader.snapshot.side_effect = LiveRefusal("LIVE_ACCOUNT_UNAVAILABLE", "failed")
+        commands.start_observation(session, "connected")
+        session.account_observation.result.exception(timeout=2)
+        live_lifecycle.Observer.observe(SimpleNamespace(session=session, last_query=0, cache=mock.Mock()))
+        self.assertTrue(session.connection_failed)
+        self.assertEqual([row["event"] for row in self.events()], ["unresolved", "stopping"])
+
     def test_a_start_again_with_this_clock_outside_the_limits_gives_the_start_back(self):
         """The user, 2026-11-15: a host clock that steps aside comes back by itself and the account may hold a
         position, so a start again over the clock limit ends as one that could not read Binance does (exit status 3,

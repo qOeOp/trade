@@ -279,13 +279,16 @@ then the control records `restart_limited` once and the user decides. A runner t
 failure is not interrupted, and its run is over: once armed, every such exit of a `run` records `unresolved` (with
 the refusal's `code`), whether the final account read after a completed native exit failed or was not flat, a start
 again found no native cache or changed account modes, or anything else raised; and the control never starts again a
-runner that exited with status 1 or 2, even where it could write no event. Two refusals give the start back
-instead, before anything is built or written: a start again whose first account read fails
+runner that exited with status 1 or 2, even where it could write no event. Two refusals of the first read give the
+start back instead, before anything is built or written: a start again whose first account read fails
 (`LIVE_ACCOUNT_UNAVAILABLE`, after the bounded retries of `engine.live_venue.READ_ATTEMPTS`), or whose read shows this clock outside the limits (`LIVE_CLOCK`; the limits are
 unchanged), exits 3 with no event, and the control starts the run again within the same hourly limit (finding
 20261114-23, the user 2026-11-15). Both pass by themselves, a host clock that steps aside included, and the account
 may hold a position. A first read that succeeds is judged however long its retries took: a start again counts the
-read's 30 second age (`LIVE_OBSERVATION_STALE`) from its last answer. While the clock stays outside the limits the run stays `interrupted`: nothing checks its
+read's 30 second age (`LIVE_OBSERVATION_STALE`) from its last answer. The connected read of a start again, after its
+node has connected, gives the start back too when it fails (`LIVE_ACCOUNT_UNAVAILABLE`) or has not ended after 30
+seconds: the start ends as an interruption, with `interrupted` and exit 3, within the same hourly limit; one that
+succeeds and is refused ends the run, and a first start keeps ending `unresolved` (issue 3578). While the clock stays outside the limits the run stays `interrupted`: nothing checks its
 positions and stops, the control records `restart_limited` each time the hourly limit keeps it from starting the
 run, and starts it again once the hour allows; `live logs` shows the refused start. A read with no usable server
 time (`LIVE_ACCOUNT_RESPONSE`) ends the run. Every other start of an armed run is refused `LIVE_COLD_RESTART`. A
