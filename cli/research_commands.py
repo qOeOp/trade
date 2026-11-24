@@ -689,7 +689,12 @@ COMMANDS = [
          option("--line", required=True, help="an open line research state lists under open_lines"),
          option("--summary", required=True,
                 help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, what was "
-                     "tried, results with their run IDs, failures and why, lessons and advice; numbers stay in the "
+                     "tried, results with their run IDs, failures and why, lessons and advice; the closing history test, "
+                     "veto and holdout apart, as a falsification test, never validation, without copying each "
+                     "candidate's verdicts (`research history` gives them); the holdout's earlier searches (its "
+                     "holdout_prior_trials, and outside this ledger: the three earlier ledger generations searched "
+                     "2024-10 to 2026-10 about 3,100 times, which this ledger does not count); the date of the "
+                     "forward read, after which only Paper and later data are unseen; other numbers stay in the "
                      "reports")),
     command(registration_add, "registration", "add", "lock a registration", (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
