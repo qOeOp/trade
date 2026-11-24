@@ -191,6 +191,7 @@ class Observer(Strategy):
                     commands.discard_observation(session)
                     session.interrupting = True
                     session.begin_stop("interrupted")
+                    session.cancel_entries("connected_account_unverified")  # a begun stop's, inherited by its finish
                     session.node.handle().stop()
                     return
                 if snapshot is None:

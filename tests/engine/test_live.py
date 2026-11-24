@@ -1076,6 +1076,13 @@ class LiveTests(unittest.TestCase):
                     self.assertNotEqual(status, live.INTERRUPTED)
                     self.assertTrue(session.connection_failed)
                     self.assertFalse(live.resumable(self.output))
+        # A start that finishes an earlier start's stop still withdraws the working entry it inherited.
+        journal += json.dumps({"event": "preflight", "run_id": "native-test", "mode": "run", "observed_ns": 1}) + "\n" \
+            + json.dumps({"event": "stopping", "run_id": "native-test", "reason": "drawdown", "observed_ns": 1}) + "\n"
+        with mock.patch.object(live.Session, "cancel_entries") as cancel:
+            status, session = start_again(self.flat_snapshot(), unavailable)
+        cancel.assert_called_once()
+        self.assertEqual((status, session.mode, live.begun_stop(self.events())), (live.INTERRUPTED, "finish", "drawdown"))
 
     def test_a_first_starts_failed_connected_read_still_ends_the_run(self):
         session = live.Session(self.manifest, self.output, "run")
