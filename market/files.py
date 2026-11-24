@@ -202,6 +202,12 @@ def file_bytes(market: Market, entry: DataFile) -> pa.Buffer:
     return pa.memory_map(written.temporary if written is not None else str(path)).read_buffer()
 
 
+def file_source(market: Market, entry: DataFile) -> pa.Buffer | str:
+    """What a reader of some columns or row groups of a large file reads it from: its path, opened by the reader itself
+    (mapping a whole month file costs more than the part read, measured), or under the import lock its bytes."""
+    return file_bytes(market, entry) if market.locked or entry.relative in market.pending else str(market.root / entry.relative)
+
+
 # Opening
 
 def open_market(profile: dict, role: Literal["import", "reader"]) -> Market:
@@ -402,10 +408,11 @@ def _visible(table: str, market_day: str | None, end_ms: int | None) -> int | No
     return stop if end_ms is None else min(stop, end_ms)
 
 
-def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None, start_ms: int | None = None,
-                 end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
-    """The rows of one data file's bytes that fall in the request, row group by row group."""
-    reader = pq.ParquetFile(pa.BufferReader(data))
+def file_batches(data: pa.Buffer | str, table: Table, symbols: list[str] | None = None, start_ms: int | None = None,
+                 end_ms: int | None = None, columns: list[str] | None = None) -> Iterator[pa.RecordBatch]:
+    """The rows of one data file (its bytes or its path) that fall in the request, row group by row group; `columns` (by
+    default every one) includes those the request filters on."""
+    reader = pq.ParquetFile(data if isinstance(data, str) else pa.BufferReader(data))
     names = sorted(set(symbols)) if symbols is not None else None
     wanted = pa.array(names, STRING) if names is not None else None
     for group in range(reader.num_row_groups):
@@ -417,7 +424,7 @@ def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None
             stats = reader.metadata.row_group(group).column(reader.schema_arrow.get_field_index("symbol")).statistics
             if stats is not None and stats.has_min_max and not any(stats.min <= name <= stats.max for name in names):
                 continue
-        batch = reader.read_row_group(group)
+        batch = reader.read_row_group(group, columns=columns)
         keep = None
         if start_ms is not None or end_ms is not None:
             times = _times(table, batch.column(table.time))

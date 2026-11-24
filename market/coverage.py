@@ -12,8 +12,10 @@ shortens a window, fills data or judges an economic failure.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from itertools import groupby
 
 import numpy as np
 import pyarrow as pa
@@ -70,20 +72,96 @@ def read_funding(market: files.Market, market_day: str, symbol: str, start_ms: i
             for at, rate in zip(batch.column("funding_time").to_pylist(), batch.column("rate").to_pylist(), strict=True)]
 
 
-def _edges(market: files.Market, market_day: str, table: str, symbol: str, start_ms: int | None = None,
-           end_ms: int | None = None, price_type: str | None = None) -> tuple[int | None, int | None]:
-    """The first and last stored time of `symbol` in `table` (and `price_type`) in [start_ms, end_ms) at the market day: a
-    table's files are disjoint in time, so the earliest file holding such a row gives the first and the latest
-    the last, and no other file is read."""
+def _bar_runs(market: files.Market, market_day: str, entry: files.DataFile, symbols: list[str]
+              ) -> Iterator[tuple[str, str, np.ndarray, np.ndarray]]:
+    """(symbol, price type, ts_open, volume) of each series of `symbols` in one bar file at the market day. The file is
+    in key order, so a series is one run of rows and is finished before the next."""
+    key: tuple[str, str] | None = None
+    pending: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def finish() -> Iterator[tuple[str, str, np.ndarray, np.ndarray]]:
+        if key is not None:
+            yield *key, np.concatenate([part[0] for part in pending]), np.concatenate([part[1] for part in pending])
+
+    for batch in files.file_batches(files.file_source(market, entry), files.BAR, symbols, None,
+                                    files._visible("bar", market_day, None),
+                                    columns=["symbol", "price_type", "ts_open", "volume"]):
+        names, kinds = (pc.dictionary_encode(batch.column(name)) for name in ("symbol", "price_type"))
+        symbol_at, kind_at = names.indices.to_numpy(), kinds.indices.to_numpy()
+        times, volume = batch.column("ts_open").to_numpy(), batch.column("volume").to_numpy()
+        bounds = [0, *(np.flatnonzero(np.diff(symbol_at) | np.diff(kind_at)) + 1).tolist(), len(times)]
+        for low, high in zip(bounds, bounds[1:], strict=False):
+            if low == high:
+                continue
+            found = (names.dictionary[symbol_at[low]].as_py(), kinds.dictionary[kind_at[low]].as_py())
+            if found != key:
+                if key is not None and found < key:
+                    raise refuse("SERIES_UNSORTED", f"{entry.relative}: {' '.join(found)} rows follow {' '.join(key)} rows",
+                                 missing=(entry.relative,))
+                yield from finish()
+                key, pending = found, []
+            pending.append((times[low:high], volume[low:high]))
+    yield from finish()
+
+
+def _bar_facts(market: files.Market, market_day: str, symbols: list[str], start_ms: int, end_ms: int
+               ) -> dict[str, tuple[_Bars, dict[str, tuple[int | None, int | None]]]]:
+    """{symbol: (the _Bars of [start_ms, end_ms), the LAST and MARK edges of the whole stored history)} at the market
+    day, one contract's month held at a time. A bar file meeting the interval is read once for every contract. Files are
+    disjoint in time, so another is read only for the contracts whose first or last minute it may hold, at most once for
+    each."""
+    entries = files.entries(market, "bar", None, None, files._visible("bar", market_day, None))
+    found = {symbol: _Bars(start_ms, end_ms) for symbol in symbols}
+    edges: dict[str, dict[tuple[str, str], tuple[int, int]]] = {}  # per file, the first and last minute of each series
+    asked: dict[str, set[str]] = {entry.relative: set() for entry in entries}
+
+    def read(entry: files.DataFile, wanted: set[str]) -> Iterator[tuple[str, dict[str, dict[str, np.ndarray]]]]:
+        asked[entry.relative] |= wanted
+        into = edges.setdefault(entry.relative, {})
+        for symbol, runs in groupby(_bar_runs(market, market_day, entry, sorted(wanted)), key=lambda run: run[0]):
+            parts = {price_type: {"ts_open": times, "volume": volume} for _, price_type, times, volume in runs}
+            for price_type, part in parts.items():
+                into[symbol, price_type] = int(part["ts_open"].min()), int(part["ts_open"].max())
+            yield symbol, parts
+
+    for entry in entries:
+        if entry.start_ms >= end_ms or entry.end_ms <= start_ms:
+            continue
+        for symbol, parts in read(entry, set(symbols)):
+            for part in parts.values():
+                keep = (part["ts_open"] >= start_ms) & (part["ts_open"] < end_ms)
+                part.update({name: values[keep] for name, values in part.items()})
+            found[symbol].add(parts.get("LAST"), parts.get("MARK"))
+    bounds: list[dict[tuple[str, str], int]] = []
+    for side, order in enumerate((entries, entries[::-1])):
+        reached: dict[tuple[str, str], int] = {}
+        for entry in order:
+            pending = {symbol for symbol in symbols for price_type in series.PRICE_TYPES
+                       if (symbol, price_type) not in reached}
+            if not pending:
+                break
+            if pending - asked[entry.relative]:
+                for _ in read(entry, pending - asked[entry.relative]):
+                    pass
+            for key, edge in edges[entry.relative].items():
+                reached.setdefault(key, edge[side])
+        bounds.append(reached)
+    return {symbol: (bars, {price_type: (bounds[0].get((symbol, price_type)), bounds[1].get((symbol, price_type)))
+                            for price_type in series.PRICE_TYPES}) for symbol, bars in found.items()}
+
+
+def _edges(market: files.Market, market_day: str, table: str, symbol: str, start_ms: int,
+           end_ms: int) -> tuple[int | None, int | None]:
+    """The first and last stored time of `symbol` in `table` in [start_ms, end_ms) at the market day: a table's files
+    are disjoint in time, so the earliest file holding such a row gives the first and the latest the last, and no
+    other file is read."""
     definition = files.TABLES[table]
-    end_ms = files._visible(table, market_day, end_ms)
-    found = files.entries(market, table, [symbol], start_ms, end_ms)
+    stop = files._visible(table, market_day, end_ms)
+    found = files.entries(market, table, [symbol], start_ms, stop)
 
     def bounds(entry: files.DataFile) -> tuple[int, int] | None:
         times: list[int] = []
-        for batch in files.file_batches(files.file_bytes(market, entry), definition, [symbol], start_ms, end_ms):
-            if price_type is not None:
-                batch = batch.filter(pc.equal(batch.column("price_type"), price_type))
+        for batch in files.file_batches(files.file_bytes(market, entry), definition, [symbol], start_ms, stop):
             if batch.num_rows:
                 times += [value.as_py() for value in pc.min_max(batch.column(definition.time)).values()]
         return (min(times), max(times)) if times else None
@@ -109,44 +187,78 @@ def _interval(start_ms, end_ms) -> None:
                      missing=("start", "end"))
 
 
-def _series(bars: dict, start_ms: int, end_ms: int, volume: bool) -> dict:
-    times = np.asarray(bars["ts_open"], dtype=np.int64)
-    if len(times) and (np.any(times % MINUTE) or np.any(np.diff(times) <= 0)):
-        raise refuse("SOURCE_SHAPE", "bar open times are not whole, strictly increasing minutes")
-    facts = series.missing_intervals(times, start_ms, end_ms, MINUTE,
-                                     np.asarray(bars["volume"]) if volume else None)
-    found = {"rows": int(len(times)), "first_open_ms": int(times[0]) if len(times) else None,
-             "last_open_ms": int(times[-1]) if len(times) else None,
-             "gap_intervals_ms": [list(gap) for gap in facts["intervals"]], "missing_minutes": facts["missing_count"]}
-    if volume:
-        found["zero_volume_minutes"] = facts["zero_volume_count"]
-    return found
+class _Series:
+    """The facts of one series' minutes in [start_ms, end_ms), added in time order."""
+
+    def __init__(self, start_ms: int, end_ms: int) -> None:
+        self.end_ms, self.at = end_ms, start_ms  # `at`: the minute the next row is due
+        self.rows = self.zero = 0
+        self.first: int | None = None
+        self.last: int | None = None
+        self.gaps: list[list[int]] = []
+
+    def add(self, times: np.ndarray, volume: np.ndarray | None) -> None:
+        if not len(times):
+            return
+        if (np.any(times % MINUTE) or np.any(np.diff(times) <= 0) or (self.last is not None and times[0] <= self.last)):
+            raise refuse("SOURCE_SHAPE", "bar open times are not whole, strictly increasing minutes")
+        end = min(int(times[-1]) + MINUTE, self.end_ms)
+        facts = series.missing_intervals(times, self.at, end, MINUTE, volume)
+        self.gaps += [list(gap) for gap in facts["intervals"]]
+        self.zero += facts["zero_volume_count"] or 0
+        self.first = int(times[0]) if self.first is None else self.first
+        self.rows, self.last, self.at = self.rows + len(times), int(times[-1]), end
+
+    def facts(self, volume: bool) -> dict:
+        gaps = self.gaps + ([[self.at, self.end_ms]] if self.at < self.end_ms else [])
+        return {"rows": self.rows, "first_open_ms": self.first, "last_open_ms": self.last, "gap_intervals_ms": gaps,
+                "missing_minutes": sum((high - low) // MINUTE for low, high in gaps),
+                **({"zero_volume_minutes": self.zero} if volume else {})}
+
+
+class _Bars:
+    """One contract's LAST and MARK facts of [start_ms, end_ms), from bars added in time order: each part's LAST and
+    MARK rows cover the same time, or None."""
+
+    def __init__(self, start_ms: int, end_ms: int) -> None:
+        self.last, self.mark, self.unmatched = _Series(start_ms, end_ms), _Series(start_ms, end_ms), 0
+
+    def add(self, last: dict | None, mark: dict | None) -> None:
+        empty = np.empty(0, np.int64)
+        opens, marks = (empty if bars is None else np.asarray(bars["ts_open"], np.int64) for bars in (last, mark))
+        self.last.add(opens, empty if last is None else np.asarray(last["volume"]))
+        self.mark.add(marks, None)
+        self.unmatched += int(len(np.setxor1d(opens, marks, assume_unique=True)))  # unique: each series ascends
+
+    def facts(self) -> dict:
+        return {"last": self.last.facts(True), "mark": self.mark.facts(False),
+                "last_mark_unmatched_minutes": self.unmatched}
 
 
 def coverage_facts(market: files.Market, market_day: str, symbol: str, start_ms: int, end_ms: int, last_bars: dict,
                    mark_bars: dict, funding_rows: list[tuple[int, Decimal]],
-                   edges: dict[str, tuple[int | None, int | None]] | None = None) -> dict:
+                   edges: dict[str, tuple[int | None, int | None]]) -> dict:
     """market.coverage_facts: the market-coverage-v1 facts of one contract in [start_ms, end_ms) at an
-    exact market day. `edges` ({"LAST": (first, last), "MARK": ...} open times of the whole stored history) saves
-    reading them again when the caller already has (market.contract_history)."""
+    exact market day. `edges`: {"LAST": (first, last), "MARK": ...} open times of the whole stored history
+    (market.contract_history)."""
     _interval(start_ms, end_ms)
     files.check_day(market_day)
-    last, mark = _series(last_bars, start_ms, end_ms, True), _series(mark_bars, start_ms, end_ms, False)
-    unmatched = int(len(np.setxor1d(np.asarray(last_bars["ts_open"]), np.asarray(mark_bars["ts_open"]))))
-    months = [month.isoformat() for month, member in universe.months_of(market, market_day) if member == symbol]
-    bounds = {}
-    for price_type in ("LAST", "MARK"):
-        first, latest = edges[price_type] if edges is not None else _edges(market, market_day, "bar", symbol,
-                                                                           price_type=price_type)
-        bounds[price_type] = {"first_open_ms": first, "last_open_ms": latest} if first is not None else None
-    times = [int(at) for at, _ in funding_rows]
+    bars = _Bars(start_ms, end_ms)
+    bars.add(last_bars, mark_bars)
+    months = [month for month, member in universe.months_of(market, market_day) if member == symbol]
+    return _contract_facts(market_day, symbol, start_ms, end_ms, bars, months, [int(at) for at, _ in funding_rows], edges)
+
+
+def _contract_facts(market_day: str, symbol: str, start_ms: int, end_ms: int, bars: _Bars, months: list[date],
+                    funding: list[int], edges: dict[str, tuple[int | None, int | None]]) -> dict:
+    bounds = {price_type.lower(): {"first_open_ms": edges[price_type][0], "last_open_ms": edges[price_type][1]}
+              if edges[price_type][0] is not None else None for price_type in series.PRICE_TYPES}
     return {"format": FORMAT, "market_day": market_day, "symbol": symbol, "input_interval_ms": [start_ms, end_ms],
-            "last": last, "mark": mark, "last_mark_unmatched_minutes": unmatched,
-            "funding": {"rows": len(times), "first_ms": times[0] if times else None,
-                        "last_ms": times[-1] if times else None},
-            "member_months": months,
-            "listing_delisting": {"data_bounds_proxy": {"last": bounds["LAST"], "mark": bounds["MARK"]}},
-            "interpretation": INTERPRETATION}
+            **bars.facts(),
+            "funding": {"rows": len(funding), "first_ms": funding[0] if funding else None,
+                        "last_ms": funding[-1] if funding else None},
+            "member_months": [month.isoformat() for month in months],
+            "listing_delisting": {"data_bounds_proxy": bounds}, "interpretation": INTERPRETATION}
 
 
 def funding_spacing(times: list[int]) -> dict:
@@ -276,18 +388,26 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
     if lifecycle_bundle is not None:
         body, evidence = lifecycle_bundle
         episodes = lifecycle.validate_lifecycle(body, market_day, evidence)
+    stored = _bar_facts(market, market_day, symbols, start_ms, end_ms)
+    terms = {symbol: instrument.terms(market, market_day, symbol, any(first is not None for first, _ in edges.values()))
+             for symbol, (_, edges) in stored.items()}
+    funding: dict[str, list[int]] = {symbol: [] for symbol in symbols}
+    for batch in files.read_table(market, market_day, "funding", symbols, start_ms, end_ms):
+        for symbol, at in zip(*(batch.column(name).to_pylist() for name in ("symbol", "funding_time")), strict=True):
+            funding[symbol].append(int(at))
+    months: dict[str, list[date]] = {symbol: [] for symbol in symbols}
+    for month, member in universe.months_of(market, market_day):
+        if member in months:
+            months[member].append(month)
     found = []
     for symbol in symbols:
-        terms = instrument.terms(market, market_day, symbol)
-        last = read_bars(market, market_day, symbol, "LAST", start_ms, end_ms)
-        mark = read_bars(market, market_day, symbol, "MARK", start_ms, end_ms)
-        funding = read_funding(market, market_day, symbol, start_ms, end_ms)
-        facts = coverage_facts(market, market_day, symbol, start_ms, end_ms, last, mark, funding)
-        found.append({**facts, "funding": {**facts["funding"], **funding_spacing([at for at, _ in funding])},
+        bars, edges = stored[symbol]
+        facts = _contract_facts(market_day, symbol, start_ms, end_ms, bars, months[symbol], funding[symbol], edges)
+        found.append({**facts, "funding": {**facts["funding"], **funding_spacing(funding[symbol])},
                       "quotes": _held(market, market_day, "quote", symbol, start_ms, end_ms),
                       "trades": _held(market, market_day, "agg_trade", symbol, start_ms, end_ms),
                       "metrics": metrics_facts(market, market_day, symbol, start_ms, end_ms),
-                      "terms": {key: value for key, value in terms.items() if key != "symbol"}})
+                      "terms": {key: value for key, value in terms[symbol].items() if key != "symbol"}})
     return {"market_day": market_day, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},
             "lifecycle_missing": [] if episodes is None else [symbol for symbol in symbols if symbol not in episodes],

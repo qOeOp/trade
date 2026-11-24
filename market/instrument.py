@@ -27,21 +27,23 @@ def _rows(market: files.Market, market_day: str | None, symbol: str) -> list[dic
     return [row for batch in files.read_table(market, market_day, "instrument", [symbol]) for row in batch.to_pylist()]
 
 
-def visible(market: files.Market, market_day: str, symbol: str) -> dict | None:
+def visible(market: files.Market, market_day: str, symbol: str, barred: bool | None = None) -> dict | None:
     """The terms row a replay of the market day trades on: the latest observed by the market day. A directory rebuilt later
     observed its terms after that market day, so a contract with bars at the market day takes its earliest row; a contract
-    without bars there, not yet listed, has none."""
+    without bars there, not yet listed, has none. `barred`: whether it has bars there, read from them when not given."""
     found = _rows(market, market_day, symbol)
     if found:
         return max(found, key=lambda row: row["observed_at"])
-    if not any(batch.num_rows for batch in files.scan(market, market_day, "bar", [symbol])):
+    if barred is None:
+        barred = any(batch.num_rows for batch in files.scan(market, market_day, "bar", [symbol]))
+    if not barred:
         return None
     return min(_rows(market, None, symbol), key=lambda row: row["observed_at"], default=None)
 
 
-def terms(market: files.Market, market_day: str, symbol: str) -> dict:
+def terms(market: files.Market, market_day: str, symbol: str, barred: bool | None = None) -> dict:
     """market.terms: the terms row of `symbol` at the exact market day (`visible`)."""
-    found = visible(market, market_day, symbol)
+    found = visible(market, market_day, symbol, barred)
     if found is None:
         raise refuse("UNKNOWN_SYMBOL", f"{symbol} is no instrument at market day {market_day}", missing=(symbol,))
     return {key: found[key] for key in SNAPSHOT}
