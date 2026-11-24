@@ -13,11 +13,13 @@ knows the ledger or the strategy.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from market import coverage, files, history, instrument, series, universe
 from market.sources import DAY as DAY_MS, MINUTE
@@ -52,6 +54,25 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     return {"days": list(days), "btc": btc, "basket": basket}
 
 
+def _day_closes(market: files.Market, market_day: str, symbols: list[str], start_ms: int,
+                end_ms: int) -> Iterator[pa.RecordBatch]:
+    """The MARK bars opening at 23:59 UTC that files.scan would give for the request. The integer time filter, which
+    keeps one row in 1440, runs before any string is compared, and the strings are read as dictionaries: comparing
+    them row by row is most of a scan's cost."""
+    schema = files.BAR.schema
+    texts = [name for name in schema.names if schema.field(name).type == files.STRING]
+    end_ms = min(end_ms, files.day_end("bar", market_day))
+    wanted = pa.array(symbols, files.STRING)
+    for entry in files.entries(market, "bar", symbols, start_ms, end_ms):
+        reader = pq.ParquetFile(pa.BufferReader(files.file_bytes(market, entry)), read_dictionary=texts)
+        for batch in reader.iter_batches():
+            times = batch.column("ts_open").to_numpy()
+            closing = (times % DAY_MS == CLOSE_OFFSET_MS) & (times >= start_ms) & (times < end_ms)
+            found = batch.filter(pa.array(closing)).cast(schema)
+            yield found.filter(pc.and_(pc.equal(found.column("price_type"), "MARK"),
+                                       pc.is_in(found.column("symbol"), wanted)))
+
+
 def daily_returns(profile: dict, market_day: str, universe_rule: str | None, start: datetime,
                   end: datetime) -> dict:
     """market.daily_returns: the BTC perpetual's and the held members' equal-weight UTC daily returns over
@@ -77,9 +98,7 @@ def daily_returns(profile: dict, market_day: str, universe_rule: str | None, sta
     symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
     first_close = clock.day_ms(date.fromisoformat(days[0]) - DAY) + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
-    for batch in files.scan(market, market_day, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
-        marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
-        found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
+    for found in _day_closes(market, market_day, symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
                                           strict=True):
             closes.setdefault(symbol, {})[clock.ms_day(ts_open).isoformat()] = close
