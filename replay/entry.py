@@ -577,7 +577,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
                                         "export_content_sha256"))
         with db.connect(ledger, "writer") as conn:
             stored = trials.ingest_run(conn, trial_id, workdir, inputs["identity"], host_reasons=host,
-                                       checkout=checkout)
+                                       checkout=checkout, admit=registration_validation.require_unretried)
     except BaseException:
         if (workdir / execution.PROCESS).exists():
             print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)

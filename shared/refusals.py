@@ -275,7 +275,8 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                           "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
                           "control first. Validation retries keep the original candidate, window, universe "
                           "rule and test design; bind a retry the chain already holds instead of registering "
-                          "another. A poor result is no reason to retry.",),
+                          "another; a run refused because a retry was registered first is not stored again: bind that "
+                          "retry. A poor result is no reason to retry.",),
     "REGISTRATION_UNKNOWN": ("List validation registrations with `ledger sql` on the `validation_registration` table.",),
     "REGISTRATION_CONSUMED": ("Register a new validation; a bound registration stays consumed.",),
     "STALE_CHECKOUT": ("Fetch, move the checkout to origin/main with a clean work tree, then rerun.",),
