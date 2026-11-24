@@ -6,8 +6,7 @@ import { loader } from "./load.mjs";
 const paper = { paper_id: 7, candidate: "paper@1", symbols: ["BTCUSDT"] };
 async function navigation({ backtest = false, address } = {}) {
   const location = new URL(address ?? `https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
-  const saved = new Map();
-  const window = { location, addEventListener() {}, localStorage: { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) } };
+  const saved = new Map(), handlers = {}, window = { location, addEventListener: (name, handler) => { handlers[name] = handler; }, localStorage: { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) } };
   const context = createContext({ URL, URLSearchParams, window,
     history: { replaceState: (_state, _title, path) => { const { assign } = window.location; window.location = new URL(path, window.location.href); window.location.assign = assign; } },
     fetch: () => { throw new Error("Navigation cannot submit or read a service"); },
@@ -31,7 +30,8 @@ async function navigation({ backtest = false, address } = {}) {
   };
   const assigned = [];
   window.location.assign = (path) => assigned.push(path);
-  return { stage, shell, navigate, choice, arriveResearch, url: () => window.location, assigned, selected };
+  return { stage, shell, navigate, choice, arriveResearch, url: () => window.location, assigned, selected,
+    goTo: (hash) => { window.location.hash = hash; handlers.hashchange(); } };
 }
 
 for (const order of ["research-late", "paper-list-late"]) {
@@ -112,4 +112,44 @@ test("a replay picked in Details on the research page shows its backtest on the 
   h.navigate.showTrial(5);
   assert.equal(h.shell.shell.get().page, "runs");
   assert.deepEqual([h.choice().stage, h.choice().trial], ["backtest", 5]);
+});
+
+test("an address naming a version the line lacks says so until it is drawn, replaced or closed", async () => {
+  const open = async () => {
+    const h = await navigation({ address: "https://fixture.invalid/?line=line-a#new@2" });
+    h.arriveResearch();
+    return { ...h, state: () => [h.selected.selection.get(), h.selected.missing.get()] };
+  };
+  const drawn = await open();
+  assert.deepEqual(drawn.state(), ["paper@1", "new@2"]);
+  drawn.selected.initSelection(new Set(["paper@1"]), "paper@1");
+  assert.deepEqual(drawn.state(), ["paper@1", "new@2"], "a later view without it still says so");
+  drawn.selected.initSelection(new Set(["paper@1", "new@2"]), "paper@1");
+  assert.deepEqual(drawn.state(), ["new@2", null], "the page had a kept view; the fresh one holds the version");
+  drawn.selected.initSelection(new Set(["paper@1"]), "paper@1");
+  assert.deepEqual(drawn.state(), ["paper@1", "new@2"], "a view that drops the linked version says so");
+
+  const picked = await open();
+  picked.selected.select("live@1");
+  picked.selected.initSelection(new Set(["paper@1", "live@1", "new@2"]), "paper@1");
+  assert.deepEqual(picked.state(), ["live@1", null], "the reader's own choice stays");
+
+  const closed = await open();
+  closed.selected.missing.set(null);
+  closed.arriveResearch();
+  assert.deepEqual(closed.state(), ["paper@1", null], "a closed notice does not come back with the next view");
+  closed.goTo("#other@3");
+  assert.deepEqual(closed.state(), ["paper@1", "other@3"]);
+  closed.goTo("#50%");
+  assert.deepEqual(closed.state(), ["paper@1", "50%"], "a malformed address is one no line holds");
+  closed.goTo("#live@1");
+  assert.deepEqual(closed.state(), ["live@1", null]);
+});
+
+test("an address that names no version, or one the line holds, has nothing missing", async () => {
+  for (const [hash, shown] of [["", "paper@1"], ["#live@1", "live@1"]]) {
+    const h = await navigation({ address: `https://fixture.invalid/${hash}` });
+    h.arriveResearch();
+    assert.deepEqual([h.selected.selection.get(), h.selected.missing.get()], [shown, null]);
+  }
 });

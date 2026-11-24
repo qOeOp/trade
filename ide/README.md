@@ -269,14 +269,15 @@ Details and Trades follow the stage the page shows, the backtest (the version's 
 evidence) or a paper run: Details names it over its readings (a paper run's with its targets under them) and adds its
 Performance group (trades, by contract, trade stats, the calendar, profit and loss), on both pages; on the lineage the
 readings stay the last research run's. The first time it shows, the page opens Details and Trades. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
-back to the start of the axis; `#<version>` in the address opens on that version and follows the selection. The editor
+back to the start of the axis; `#<version>` in the address opens on that version and follows the selection; when the line does not hold that version,
+a notice says so and what the page shows instead. The editor
 follows the left tool window last chosen: with Versions it shows the lineage, with Sources the open file, one at a time
 and without tabs, under a header naming it. Double-clicking a version anywhere (canvas, Versions, Sources, or Enter in
 Sources), or Open source in its context menu, switches the left side to Sources and opens the version's source in place
 of the open one: read-only Python in CodeMirror with line numbers and IntelliJ's syntax colours, the island scrolling it.
 Compare with parent in the header is a toggle: while on, the file shows as its unified diff against its parent's source
 (deleted lines red and plain, inserted green, long unchanged stretches folded), and it stays on as other versions open. Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
-lineage), Show in details, Open source, Open runs, Copy version name and Copy link. Tool-window sides, sizes
+lineage), Show in details, Open source, Open runs, Copy version name and Copy link (the page's address, with the line and the version). Tool-window sides, sizes
 and the theme are kept in browser storage when it is available. The renderer rebuilds
 the page whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
