@@ -36,7 +36,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
-from market import coverage, files, history, instrument, lifecycle, series
+from market import coverage, files, history, instrument, lifecycle, series, universe
 from market.sources import DAY, MINUTE
 from shared import clock
 from shared.refusals import refuse
@@ -500,16 +500,18 @@ def _export_episode(job: dict, path: Path) -> dict:
     symbol, market_day, start_ns, end_ns = job["symbol"], job["market_day"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
     market = files.open_market(job["profile"], "reader")
-    terms = instrument.terms(market, market_day, symbol)
-    raw: dict[str, Any]
-    raw = {"last": coverage.read_bars(market, market_day, symbol, "LAST", start, end),
-           "mark": coverage.read_bars(market, market_day, symbol, "MARK", start, end),
-           "funding": coverage.read_funding(market, market_day, symbol, start, end)}
-    require_funding_files(market, symbol, raw["last"]["ts_open"])
     stored = job.get("history") or history.contract_history(
         market, market_day, {symbol: history.daily_cuts(job.get("episodes"))}, start, end)[symbol]
-    facts = coverage.coverage_facts(market, market_day, symbol, start, end, raw["last"], raw["mark"], raw["funding"],
-                                    stored["edges"])
+    terms = instrument.terms(market, market_day, symbol, any(first is not None for first, _ in stored["edges"].values()))
+    bars = coverage.read_series(market, market_day, symbol, start, end)
+    raw: dict[str, Any]
+    raw = {"last": bars["LAST"], "mark": bars["MARK"],
+           "funding": coverage.read_funding(market, market_day, symbol, start, end)}
+    require_funding_files(market, symbol, raw["last"]["ts_open"])
+    months = job["months"] if "months" in job else [month for month, member in universe.months_of(market, market_day)
+                                                    if member == symbol]
+    facts = coverage.coverage_facts(market_day, symbol, start, end, raw["last"], raw["mark"], raw["funding"],
+                                    stored["edges"], months)
     split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
     # Every complete UTC day before the window's end, inside the piece (daily_cuts): a contract listed late starts
     # once its warm-up holds.
@@ -608,10 +610,16 @@ def exporter_sha256() -> str:
 
 def files_read(market: files.Market, market_day: str, symbols: list[str], end_ms: int, optional: tuple[str, ...]) -> str:
     """The hash of the path, size and modification time of the files an export of `symbols` at `market_day` before
-    `end_ms` reads: a month filled in later changes what a market day holds, and the stat is all this costs."""
+    `end_ms` reads: a month filled in later changes what a market day holds, and the stat is all this costs. Of bar an
+    export reads every file through the market day (contract_history, data_end_stops), so those after `end_ms` count too,
+    but for the month the market day falls inside: each day's import writes that file again, and it refuses to change a
+    row held before (store._import), so no import changes what the market day reads of it."""
+    stops = {table: min(files.day_end(table, market_day), end_ms)
+             for table in ("instrument", "bar", "funding", *optional)}
+    stops["bar"] = max(stops["bar"], clock.day_ms(clock.ms_day(files.day_end("bar", market_day)).replace(day=1)))
     stats = []
-    for table in ("instrument", "bar", "funding", *optional):
-        for entry in files.entries(market, table, symbols, None, files._visible(table, market_day, end_ms)):
+    for table, stop in stops.items():
+        for entry in files.entries(market, table, symbols, None, stop):
             found = (market.root / entry.relative).stat()
             stats.append((entry.relative, found.st_size, found.st_mtime_ns))
     return hashlib.sha256(json.dumps(stats).encode()).hexdigest()
@@ -635,11 +643,6 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         raise refuse("EMPTY_SYMBOLS", "export needs each contract once", missing=("symbols",))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
-    # A contract no bundle lists whose stored trades stopped ends at its stop (market.data_end_stops).
-    stops = history.data_end_stops(market, market_day, [symbol for symbol in symbols if symbol not in (episodes or {})],
-                                   end_ns // 1_000_000)
-    episodes = {**(episodes or {}), **{symbol: [lifecycle.derived_episode(symbol, native_symbol(symbol), stop * 1_000_000)]
-                                       for symbol, stop in stops.items()}}
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)
@@ -650,8 +653,6 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         key += files_read(market, market_day, symbols, end_ns // 1_000_000, tuple(
             table for table, wanted in (("quote", include_quotes), ("agg_trade", include_trades),
                                         ("metrics", include_metrics)) if wanted))[:16]
-        if stops:
-            key += "-s" + hashlib.sha256(json.dumps(stops, sort_keys=True).encode()).hexdigest()[:16]
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -664,11 +665,23 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             receipts[symbol] = found
         else:
             jobs.append({"profile": profile, "market_day": market_day, "symbol": symbol, "start_ns": start_ns,
-                         "end_ns": end_ns, "path": str(window / symbol),
-                         "episodes": episodes.get(symbol), "include_quotes": include_quotes,
+                         "end_ns": end_ns, "path": str(window / symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades, "include_metrics": include_metrics})
     try:
         if jobs:
+            missed = [job["symbol"] for job in jobs]
+            # A contract no bundle lists whose stored trades stopped ends at its stop (market.data_end_stops).
+            stops = history.data_end_stops(market, market_day, [symbol for symbol in missed if symbol not in (episodes or {})],
+                                           end_ns // 1_000_000)
+            derived = {symbol: [lifecycle.derived_episode(symbol, native_symbol(symbol), stop * 1_000_000)]
+                       for symbol, stop in stops.items()}
+            months: dict[str, list] = {symbol: [] for symbol in missed}
+            for month, member in universe.months_of(market, market_day):
+                if member in months:
+                    months[member].append(month)
+            for job in jobs:
+                job["episodes"] = (episodes or {}).get(job["symbol"]) or derived.get(job["symbol"])
+                job["months"] = months[job["symbol"]]
             # spawn: Linux's default forkserver chmods a socket under TMPDIR, which paper's TMPDIR, a macOS bind
             # mount, refuses (EINVAL, measured).
             with ProcessPoolExecutor(max(1, workers), mp_context=multiprocessing.get_context("spawn")) as pool:

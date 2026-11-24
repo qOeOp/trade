@@ -300,7 +300,10 @@ complete inside it. A contract no bundle lists whose last traded minute (LAST vo
 through the market day closes before the window's end and at least 7 days before the market day's end stops there
 (`history.data_end_stops`, docs/rd W.3.2.2): its one piece stays the contract and carries a derived episode
 (`lifecycle.derived_episode`: one InstrumentStatus CLOSE at that close, no price, `start_ns` 0, no `sources`), and
-nothing after the stop is exported. The export cache key holds these stops, which depend on data after the window. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
+nothing after the stop is exported. The stops depend on data after the window, so the export cache key holds the whole
+bar months after it through the market day too, and only a contract not in the cache has its stop derived. Of the month
+the market day falls inside it holds nothing when the window ends before it: each day's import writes that file again
+and refuses to change a row it held. A non-ASCII coin is spelled by its UTF-8 bytes in the native ID. MARK updates are
 written at the precision their prices need (Binance mark prices carry 8 decimals).
 
 Input preparation follows the declared execution environment: bars does not read or convert stored

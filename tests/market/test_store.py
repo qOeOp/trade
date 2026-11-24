@@ -162,14 +162,14 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["market_day"], "BBBUSDT")["observed_at"])
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
-        assert_refused(self, "INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty,
-                       empty, [], {})
-        assert_refused(self, "MARKET_DAY_UNRESOLVED", coverage.coverage_facts, market, "head", "BTCUSDT", 0, MINUTE,
-                       empty, empty, [], {})
+        assert_refused(self, "INTERVAL_INVALID", coverage.coverage_facts, market_day, "BTCUSDT", 1, 2, empty,
+                       empty, [], {}, [])
+        assert_refused(self, "MARKET_DAY_UNRESOLVED", coverage.coverage_facts, "head", "BTCUSDT", 0, MINUTE,
+                       empty, empty, [], {}, [])
         assert_refused(self, "UNKNOWN_SYMBOL", coverage.diagnose_coverage, self.profile, None, ["ZZZUSDT"],
                        "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
-        assert_refused(self, "SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
-                       {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [], {})
+        assert_refused(self, "SOURCE_SHAPE", coverage.coverage_facts, market_day, "BTCUSDT", 0, 3 * MINUTE,
+                       {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [], {}, [])
         assert_refused(self, "EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [],
                        "2025-02-09T00:00:00Z", "2025-02-11T00:00:00Z", None)
         assert_refused(self, "INTERVAL_INVALID", coverage.diagnose_coverage, self.profile, None, ["BTCUSDT"],
@@ -183,7 +183,7 @@ class ImportTests(unittest.TestCase):
             read_files.append(entry.relative)
             return source(market, entry)
         with patch.object(files, "file_source", reading), \
-                patch.object(coverage, "read_bars", side_effect=AssertionError("a read per contract")):
+                patch.object(coverage, "read_series", side_effect=AssertionError("a read per contract")):
             found = coverage.diagnose_coverage(self.profile, None, symbols, "2025-01-15T00:00:00Z",
                                                "2025-03-20T00:00:00Z", None)
         self.assertEqual(sorted(read_files), ["bar/2025-01.parquet", "bar/2025-02.parquet", "bar/2025-03.parquet"])
@@ -192,9 +192,10 @@ class ImportTests(unittest.TestCase):
         for facts in found["coverage"]:
             symbol = facts["symbol"]
             whole = coverage.coverage_facts(
-                market, at, symbol, start, end, coverage.read_bars(market, at, symbol, "LAST", start, end),
+                at, symbol, start, end, coverage.read_bars(market, at, symbol, "LAST", start, end),
                 coverage.read_bars(market, at, symbol, "MARK", start, end),
-                coverage.read_funding(market, at, symbol, start, end), stored[symbol]["edges"])
+                coverage.read_funding(market, at, symbol, start, end), stored[symbol]["edges"],
+                [month for month, member in universe.months_of(market, at) if member == symbol])
             self.assertEqual({**{key: facts[key] for key in whole},
                               "funding": {key: facts["funding"][key] for key in whole["funding"]}}, whole)
         self.assertEqual([facts["last"]["gap_intervals_ms"] for facts in found["coverage"]],
@@ -311,6 +312,47 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(export.export_episode(job), first)
         self.assertEqual(sorted(path.name for path in (root / "market_day").iterdir()), ["key"], "no work directory is left")
         self.assertEqual([path.name for path in (root / "market_day" / "key").iterdir()], ["BTCUSDT"])
+
+    def test_a_cached_export_reads_no_bar_file_and_one_missed_reads_each_once(self):
+        start, end, day, scope = ns(FEB), ns(date(2025, 2, 15)), self.market_days[MAR], ["CCCUSDT", "BTCUSDT"]
+        root = tempdir(self.addCleanup, prefix="market-export-test-")
+        done = export.export_catalogs(self.profile, day, scope, start, end, root=root)
+        self.assertIsNotNone(done["receipts"]["CCCUSDT"]["pieces"][0]["episode"])
+        with patch.object(history, "data_end_stops", side_effect=AssertionError("bars read on a cache hit")), \
+                patch.object(universe, "months_of", side_effect=AssertionError("members read on a cache hit")):
+            again = export.export_catalogs(self.profile, day, scope, start, end, root=root)
+            self.assertEqual((again["cached"], again["receipts"]), (2, done["receipts"]))
+        market = files.open_market(self.profile, "reader")
+        job = {"profile": self.profile, "market_day": day, "symbol": "BTCUSDT", "start_ns": start, "end_ns": end,
+               "path": str(root / "one" / "BTCUSDT"), "include_quotes": False, "months": [FEB, MAR],
+               "history": history.contract_history(market, day, {"BTCUSDT": [(0, None)]}, start // 10**6,
+                                                   end // 10**6)["BTCUSDT"]}
+        read, batches = [], files.file_batches
+
+        def reading(data, table, *args, **kwargs):
+            read.append(table)
+            return batches(data, table, *args, **kwargs)
+        with patch.object(files, "file_batches", reading):
+            self.assertEqual(export.export_episode(job), done["receipts"]["BTCUSDT"])
+        self.assertEqual((read.count(files.BAR), read.count(files.UNIVERSE_MONTH)), (1, 0))
+
+    def test_the_cache_key_covers_whole_bar_months_after_the_window_but_not_the_one_the_market_day_is_inside(self):
+        root = tempdir(self.addCleanup, prefix="market-export-key-")
+        (root / "bar").mkdir()
+        market = files.open_market({"root": str(root)}, "reader")
+        for month in ("2025-01", "2025-02", "2025-03", "2025-04"):
+            (root / "bar" / f"{month}.parquet").touch()
+
+        def changed(month: str, market_day: str, end: date) -> bool:
+            before = export.files_read(market, market_day, ["BTCUSDT"], day_ms(end), ())
+            path = root / "bar" / f"{month}.parquet"
+            path.write_bytes(path.read_bytes() + b".")
+            return export.files_read(market, market_day, ["BTCUSDT"], day_ms(end), ()) != before
+        for expected, *case in ((True, "2025-01", "2025-03-20", FEB), (True, "2025-02", "2025-03-20", FEB),
+                                (False, "2025-03", "2025-03-20", FEB), (True, "2025-03", "2025-03-31", FEB),
+                                (True, "2025-03", "2025-03-20", date(2025, 3, 2)), (False, "2025-04", "2025-03-31", FEB)):
+            with self.subTest(case=case):
+                self.assertEqual(changed(*case), expected)
 
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
