@@ -29,17 +29,18 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
 
 ## Full audit
 
-1. **Pin.** Your first message gives a time and token budget; at the limit stop, and the rest is not
-   examined. Fetch; judge `origin/main`, not the session's checkout. Beside the passes rerun the proofs of
-   open `agent-finding` issues on the same objects, and `doctor.py recheck` those closed longest without a
-   held comment; name the ones left.
+1. **Pin.** Your first message gives a time and token budget, this session's own tokens included; past 70%
+   start no new pass, at the limit stop, and the rest is not examined. Fetch; judge `origin/main`, not
+   the session's checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same
+   objects, and `doctor.py recheck` those closed longest without a held comment; name the ones left.
 2. **Map and pass.** List the objects from the tree (packages, processes, stores, external parties,
    timers, published artifacts) and pair them with the perspectives in
    [lenses.md](references/lenses.md). Take what changed since the last audit, then the longest
    unexamined. One pass finds only part of what is there, and repeating its question finds little
    more: give each pass to a fresh sub-agent with one perspective and one object, evidence paths, the
    audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, and no suspects of
-   yours. Anything a script can read takes no agent.
+   yours. Run at most four passes at once and one heavy load (replay, build, cost measurement) among
+   them. Anything a script can read takes no agent.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`,
    whose control must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`,
    a rate, not one time (`--help` says the forms; run as
@@ -50,9 +51,9 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    was out of reach, the subject is *not examined*, with what stopped it; a stand-in, a passing unit
    test or reading the code does not examine it, unless the lens asks for a fake. Any such subject
    makes the audit partial: never `pass`, `clean` or `full`.
-5. **Challenge quiet choices.** Each full audit takes several choices that raised no alarm. A fresh
-   sub-agent designs from the need before reading the code; a run on a scratch copy measures the
-   difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot
+5. **Challenge quiet choices.** Each full audit takes several choices that raised no alarm, beside the
+   first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy
+   measures the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot
    tell. The `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
 6. **Refute.** A fresh sub-agent gets each claim, step 5's included, without your proof and tries
    to break it: confirmed, by design, false or undecided. Confirmed reaches an issue; keep its count, and the
