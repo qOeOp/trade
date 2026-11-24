@@ -74,7 +74,7 @@ that costs.
   terms rows (a delisting contract reported SETTLING without a contract type) are recorded and never
   reclassify it. A symbol Binance gives to another contract, one whose `onboardDate` is after that
   observation, is classified anew from the month it lists in (`universe.contract_in_month`); a month the two
-  contracts share is imported only when both are eligible. A contract first seen in premarket stays excluded.
+  contracts share is imported only when both are eligible. A premarket contract stays excluded when it graduates.
 - **Bars.** Only 1-minute LAST and MARK of eligible contracts; prices are integers x 10^8, volumes
   x 10^4 (`series.PRICE_SCALE`, `series.VOLUME_SCALE`). The daily warm-up bars are derived at export (`series.derive_bars`); a strategy aggregates any other timeframe natively from the 1-minute bars.
 - **Sources, stitched invisibly.** Monthly archives, daily archives for months without one and for
