@@ -9,7 +9,7 @@ The product's reports (`replay report --trial-id RUN`, `hypothesis compare --reg
 RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
 compute yourself under these rules from `report.runs.tables(trial_id, ledger=None, at=None)` (None: the
 active ledger, its head; cycles under key `positions`; the docstring lists the rest) or, as JSON key
-`tables`, `python -m cli.main replay report --trial-id RUN --tables`.
+`tables`, `python -m cli.main replay report --trial-id RUN --tables [--ledger L] [--at COMMIT]`.
 
 ## Rules
 
