@@ -3,7 +3,10 @@
 STRATEGY_STUB = '''{header}
 from decimal import Decimal
 
+from nautilus_trader.model import BarType, Position
 from nautilus_trader.trading import Strategy
+
+MINUTE_NS = 60 * 10**9
 
 
 class {entry_class}(Strategy):
@@ -19,12 +22,39 @@ class {entry_class}(Strategy):
         self.instrument_id = instrument_id
         self.trade_start_ns = trade_start_ns
 
-    def equity(self):
-        """Account equity in the instrument's quote currency: portfolio.equity(venue=...) maps each
-        currency to Money, keyed by Currency (not by its code)."""
-        instrument = self.cache.instrument(self.instrument_id)
-        found = self.portfolio.equity(venue=self.instrument_id.venue).get(instrument.quote_currency)
-        return found.as_decimal() if found is not None else Decimal(0)
+    def equity(self, event_ns):
+        """Account equity in the instrument's quote currency, for a decision on the minute close nearest `event_ns` (a
+        closed bar's ts_event): no fill of that close, positions at the one-minute LAST close before it. Paper and its
+        replay then read one value; portfolio.equity values positions at MARK, and its MARKs and other contracts'
+        same-minute fills depend on when it is read. They part after a funding settlement with a position open (Paper's
+        account books none) or a fill more than half a minute from its close. None when a position has no such bar:
+        every instance subscribes to its one-minute LAST bars, and WARMUP {{1: 1}} covers a resume. Read it only to
+        size: its cost grows with the run."""
+        close_ns = (event_ns + MINUTE_NS // 2) // MINUTE_NS * MINUTE_NS
+        before_ns = close_ns - MINUTE_NS // 2  # orders of one close fill within seconds of it: cut between closes
+        venue, account = self.instrument_id.venue, self.cache.account_for_venue(self.instrument_id.venue)
+        states = account.events
+        state = next((state for state in reversed(states) if state.ts_event < before_ns), states[0])
+        currency = self.cache.instrument(self.instrument_id).quote_currency
+        equity = next((found.total.as_decimal() for found in state.balances if found.currency == currency), Decimal(0))
+        for position in self.cache.positions(venue=venue):
+            if position.ts_closed is not None and position.ts_closed < before_ns:
+                continue
+            fills = [fill for fill in position.events() if fill.ts_event < before_ns]
+            if not fills:
+                continue
+            held = Position(self.cache.instrument(position.instrument_id), fills[0])
+            for fill in fills[1:]:
+                held.apply(fill)
+            bars = BarType.from_str(f"{{position.instrument_id}}-1-MINUTE-LAST-EXTERNAL")
+            index, last = 0, self.cache.bar(bars)
+            while last is not None and last.ts_event >= close_ns - 10**6:
+                index += 1
+                last = self.cache.bar(bars, index)
+            if last is None:
+                return None
+            equity += held.unrealized_pnl(last.close).as_decimal()
+        return equity
 
     def order_quantity(self, quantity, price=None):
         """`quantity` rounded down to the size precision (decimal places), or None when it is below the increment,
