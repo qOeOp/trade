@@ -70,6 +70,41 @@ class PairedTests(unittest.TestCase):
                     self.assertEqual(found.dtype, np.int64)
                 self.assertEqual(drawn.bit_generator.state, expected.bit_generator.state)
 
+    def test_the_basic_and_studentized_intervals_are_the_textbook_ones(self):
+        """#3550: both computed here with plain loops from the pinned block draws, on a skewed series whose plain
+        percentile interval differs from them."""
+        logs = [(7 * k * k % 23) ** 2 / 20_000 - 0.005 for k in range(23)]
+        design = {**DESIGN, "resamples": 999, "inner_resamples": 99, "block_days": 2, "alpha": 0.1}
+        found = comparison.paired([0.0] * 23, [math.expm1(value) for value in logs], design, 1)
+
+        def mean(values):
+            return sum(values) / len(values)
+
+        def deviation(values):
+            return math.sqrt(sum((value - mean(values)) ** 2 for value in values) / (len(values) - 1))
+
+        def quantile(values, q):  # linear between the order statistics
+            ordered, at = sorted(values), q * (len(values) - 1)
+            low = math.floor(at)
+            high = min(low + 1, len(ordered) - 1)
+            return ordered[low] + (at - low) * (ordered[high] - ordered[low])
+
+        outer = comparison.block_indices(np.random.default_rng(11), 23, 2, 999)
+        inner, observed = np.random.default_rng([11, 1]), mean(logs)
+        means, t = [], []
+        for row in outer:
+            sample = [logs[i] for i in row]
+            means.append(mean(sample))
+            nested = [mean([sample[i] for i in drawn]) for drawn in comparison.block_indices(inner, 23, 2, 99)]
+            t.append((means[-1] - observed) / deviation(nested))
+        error = deviation(means)
+        basic = [2 * observed - quantile(means, 0.95), 2 * observed - quantile(means, 0.05)]
+        studentized = [observed - quantile(t, 0.95) * error, observed - quantile(t, 0.05) * error]
+        self.assertGreater(abs(basic[0] - quantile(means, 0.05)), 1e-5, "the percentile interval is another one")
+        for name, expected in (("mean_log_basic_interval", basic), ("mean_log_studentized_interval", studentized)):
+            for value, wanted in zip(found[name], expected, strict=True):
+                self.assertAlmostEqual(value, wanted, places=12, msg=name)
+
     def test_the_detectable_difference_is_a_power_reading_in_annual_return_units(self):
         left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
         right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]
