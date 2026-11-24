@@ -575,6 +575,38 @@ class LaterImportTests(unittest.TestCase):
                 self.assertNotIn("CCCUSDT", done["per_symbol"])
                 self.assertEqual(done["universe_members"], ["BBBUSDT", "BTCUSDT"])
 
+    def test_the_months_of_a_coin_before_an_equity_took_its_symbol_are_imported_on_its_own_terms(self):
+        scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT", "DDDUSDT"]
+        profile = directory(self.addCleanup)
+        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, self.cache, True)
+        found, low = exchange(), day_ms(date(2025, 3, 5))
+        found.server_time = day_ms(APR)  # a directory built after the equity listed
+        found.contract("CCCUSDT", onboard=low, tick="0.5", step="10", contract_type="TRADIFI_PERPETUAL", underlying="EQUITY")
+        for kind in ("LAST", "MARK"):
+            found.klines("monthly", kind, "CCCUSDT", "2025-03", minutes(low, day_ms(APR), mark=kind == "MARK"))
+        # An equity never a coin before, with marks and funding published before it lists, as Binance does.
+        found.contract("DDDUSDT", onboard=low, contract_type="TRADIFI_PERPETUAL", underlying="EQUITY")
+        found.klines("monthly", "MARK", "DDDUSDT", "2025-02", minutes(low - 8 * DAY, day_ms(MAR), mark=True))
+        found.funding_month("DDDUSDT", "2025-02", [(low - 8 * DAY, "0.0001")])
+        found.rest[("LAST1d", "CCCUSDT")] = minutes(low, day_ms(APR))  # REST serves the equity alone
+        with serving(found):
+            first, second, third = (store.import_month(profile, month, self.cache, 1, scope, log=lambda line: None)
+                                    for month in (JAN, FEB, MAR))
+        self.assertEqual([item["excluded"] for item in (first, second, third)],
+                         [{}, {}, dict.fromkeys(("CCCUSDT", "DDDUSDT"), "contract_type:TRADIFI_PERPETUAL")])
+        self.assertEqual((second["per_symbol"]["DDDUSDT"]["rows"], second["per_symbol"]["DDDUSDT"]["funding"]), (0, 0))
+        self.assertEqual((first["per_symbol"]["CCCUSDT"]["rows"], second["per_symbol"]["CCCUSDT"]["rows"]),
+                         (2 * 31 * 1440, 2 * 9 * 1440))
+        self.assertEqual((first["inferred_terms"], second["gaps"], first["derived_findings"]), (["CCCUSDT"], {}, {}))
+        self.assertEqual(second["universe_members"], ["BTCUSDT", "CCCUSDT"])
+        self.assertEqual(third["universe_members"], ["BBBUSDT", "BTCUSDT"])
+        self.assertEqual(rows(profile, "instrument", ["CCCUSDT"])["terms_source"].to_pylist(), ["inferred", "exchange_info"])
+        market = files.open_market(profile, "reader")
+        for market_day in ("2025-02-28", "2025-03-31"):  # before and after the equity's terms were observed
+            terms = instrument.terms(market, market_day, "CCCUSDT")
+            self.assertEqual((terms["terms_source"], terms["price_increment"]), ("inferred", "0.01"))
+
     def test_a_coin_listed_again_is_still_imported(self):
         profile, found, _ = self.database(scope=("BBBUSDT", "BTCUSDT", "CCCUSDT"))
         done = self.reused(profile, found, listed=date(2025, 3, 5))
@@ -589,6 +621,7 @@ class LaterImportTests(unittest.TestCase):
             return {"symbol": "XUSDT", "contract_type": kind, "underlying_type": underlying, "base_asset": "X",
                     "onboard_date": day_ms(onboard)}
         coin, equity = ("PERPETUAL", "COIN"), ("TRADIFI_PERPETUAL", "EQUITY")
+        inferred = {"observed_at": day_ms(date(2025, 4, 10)), "classification": None}
         seen_coin, seen_equity = row(FEB, *coin), row(FEB, *equity)
         old, new = date(2025, 1, 5), date(2025, 3, 5)
         for label, seen, now, expected in (  # eligible in February, March, April
@@ -619,9 +652,19 @@ class LaterImportTests(unittest.TestCase):
                  (False, False, False)),
                 ("premarket graduates, gone", [row(FEB, "PERPETUAL", "PREMARKET"), row(new, *coin)], None,
                  (False, False, False)),
-                ("never seen", [], item(*equity, new), (False, False, False))):
+                ("never seen, after an earlier contract", [], item(*equity, new), (True, False, False)),
+                ("never seen premarket", [], item("PERPETUAL", "PREMARKET", new), (False, False, False)),
+                ("never seen, delivering", [], item("PERPETUAL_DELIVERING", "COIN", new), (False, False, False)),
+                ("never seen, not yet listed", [], item(*equity, date(2025, 4, 11)), (True, True, False)),
+                ("equity seen after it listed", [row(APR, *equity)], item(*equity, new), (True, False, False)),
+                ("equity seen, gone", [row(APR, *equity)], None, (False, False, False)),
+                ("earlier coin inferred", [inferred], item(*equity, new), (True, False, False)),
+                ("earlier coin inferred, equity gone", [inferred, row(date(2026, 1, 1), *equity)], None,
+                 (False, False, False)),
+                ("earlier coin inferred, listed coin", [inferred], item(*coin, new), (True, True, True))):
             with self.subTest(label):
-                self.assertEqual(tuple(universe.contract_in_month("XUSDT", seen, now, at)["eligible"] for at in (FEB, MAR, APR)),
+                self.assertEqual(tuple(universe.contract_in_month("XUSDT", seen, now, at)["eligible"]
+                                       for at in (FEB, MAR, APR)),
                                  expected)
 
     def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001", absent: int | None = None):

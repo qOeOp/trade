@@ -160,9 +160,7 @@ def _prepare(job: dict) -> dict:
               "derived_findings": None, "bars": None}
     if job["held"] is None and not any(job["resumed"].values()) and series.no_source(
             cache, symbol, job["start"], end, job["onboard"], trading):  # nothing to stitch: no REST asked
-        return {**report, "rows": dict.fromkeys(series.PRICE_TYPES, 0), "funding_reread": [], "funding": [],
-                "gaps": {kind: [] for kind in series.PRICE_TYPES}, "seconds": 0.0,
-                "source_rows": {kind: dict.fromkeys(series.SOURCES, 0) for kind in series.PRICE_TYPES}}
+        return _nothing(report)
     batches, last = [], None
     for price_type in ("LAST", "MARK"):
         table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end,
@@ -170,6 +168,10 @@ def _prepare(job: dict) -> dict:
         report["gaps"][price_type], report["source_rows"][price_type] = gaps, used
         if price_type == "LAST":
             last = table
+            if job["earlier"] and not table.num_rows:
+                # An earlier contract's month has its trades: Binance publishes marks and funding of a contract
+                # about to list from before its onboard time, and those are not the earlier contract's.
+                return _nothing(report)
         bars, rounded = bar_rows(table, symbol, price_type) if table.num_rows else (_empty_bars(), 0)
         report["rounded_volumes"] += rounded
         if price_type == "LAST" and table.num_rows:
@@ -193,6 +195,13 @@ def _prepare(job: dict) -> dict:
     report["funding"] = [row for row in found if row[0] >= held]
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
+
+
+def _nothing(report: dict) -> dict:
+    """The report of a contract's month with no rows to store."""
+    return {**report, "rows": dict.fromkeys(series.PRICE_TYPES, 0), "funding_reread": [], "funding": [],
+            "gaps": {kind: [] for kind in series.PRICE_TYPES}, "seconds": 0.0,
+            "source_rows": {kind: dict.fromkeys(series.SOURCES, 0) for kind in series.PRICE_TYPES}}
 
 
 def _empty_bars() -> dict[str, np.ndarray]:
@@ -236,7 +245,8 @@ def _compare_bars(job: dict, price_type: str, reread: dict[str, np.ndarray]) -> 
 
 def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list[dict] | None:
     """market.check_derived of the month's derived daily LAST bars against the exchange's native daily
-    klines over the whole days held; None when the exchange no longer serves the contract."""
+    klines over the whole days held; None when the exchange no longer serves the contract (REST serves
+    only the contract now listed under its symbol)."""
     first = -(-int(bars["ts_open"][0]) // DAY) * DAY
     last = (int(bars["ts_open"][-1]) + MINUTE) // DAY * DAY
     if first >= last:
@@ -249,6 +259,8 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
         if exc.code == "SOURCE_UNKNOWN_SYMBOL" and not trading:
             return None
         raise
+    if not rows and job["earlier"]:
+        return None
     native = bar_rows(sources.rows_table([(*row[:6], row[0] + MINUTE - 1) for row in rows]), symbol, "LAST")[0] \
         if rows else _empty_bars()
     terms = job["terms"] or {}
@@ -408,6 +420,10 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
                   for symbol in candidates}
     excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
     eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
+    onboard = {item["symbol"]: item["onboard_date"] for item in listed}
+    earlier = {symbol for symbol, item in by_symbol.items() if universe.precedes(item, month)}
+    # A month before a listing is an earlier contract's: exchangeInfo states nothing of the one that bears the symbol then.
+    by_symbol = {symbol: item for symbol, item in by_symbol.items() if symbol not in earlier}
     log(f"{label}: {len(eligible)} eligible contracts, {len(excluded)} excluded")
 
     appended_terms = []
@@ -426,13 +442,14 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
         empty = (0, hashlib.sha256().hexdigest())
         for symbol in eligible:
             item = by_symbol.get(symbol)
-            terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
+            coins = universe.coin_rows(symbol, seen.get(symbol, []))
+            terms = listed_terms(item) if item is not None else coins[-1] if coins else None
             jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "start": start_ms, "end": end_ms,
                          "held": held_ms, "root": str(market.root),
                          "stored": {kind: stored_bars.get((symbol, kind), empty) for kind in ("LAST", "MARK")},
                          "resumed": {kind: (symbol, kind) in resumed for kind in ("LAST", "MARK")},
-                         "trading": item is not None and item["status"] == "TRADING",
-                         "onboard": item.get("onboard_date") if item is not None else None,
+                         "earlier": symbol in earlier, "trading": item is not None and item["status"] == "TRADING",
+                         "onboard": onboard.get(symbol),
                          "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None})
     stored_funding = _stored_funding(market, start_ms, held_ms) if held_ms is not None and jobs else {}
 

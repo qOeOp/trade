@@ -67,24 +67,42 @@ def item_of(symbol: str, row: dict) -> dict | None:
             "base_asset": symbol[:-len(quote)] if quote and symbol.endswith(quote) else symbol}
 
 
+def coin_rows(symbol: str, rows: list[dict]) -> list[dict]:
+    """Of a symbol's stored terms rows, those that can be of the contract the market holds bars of: they name the
+    underlying type COIN, or none (inferred terms). Only coins' bars are imported, so a row of another type is of
+    another contract of the symbol."""
+    return [row for row in rows if (item := item_of(symbol, row)) is None or item["underlying_type"] == "COIN"]
+
+
+def precedes(item: dict | None, month: date) -> bool:
+    """The whole month lies before the listing of `item`'s contract, an equity or other non-coin: what bears the symbol
+    then, if anything, is an earlier contract, with neither the item's terms nor its status. Only a stated type says
+    so: a delisting coin has none, a premarket one is the coin it becomes, and an index keeps its name."""
+    return (item is not None and item["onboard_date"] is not None and _states_type(item)
+            and item["underlying_type"] not in ("COIN", "PREMARKET", "INDEX")
+            and clock.day_ms(clock.next_month(month)) <= item["onboard_date"])
+
+
 def contract_in_month(symbol: str, seen: list[dict], item: dict | None, month: date) -> dict:
     """The classification (classify_contract's) of the contract that bears `symbol` in `month`; `seen` are its stored
     terms rows, the earliest observed first, and `item` its exchangeInfo contract.
 
     A symbol never seen is classified by `item`, a seen one by its earliest row: a later row of the same contract is
-    recorded and never reclassifies it. A contract listed after that row is another one, classified by `item` from
+    recorded and never reclassifies it. The months before a non-coin listed (`precedes`)
+    are an earlier contract's, of which nothing is recorded: classified by name, as any contract exchangeInfo no
+    longer lists, until its inferred terms are stored. A contract listed after that row is another one, classified by `item` from
     its onboard month; without its onboard time (exchangeInfo dropped it), by the rows that name another underlying
     type, from the month of the row. A month two contracts share is imported only when both are eligible. A delisting
     contract (its type not stated, or delivering) keeps the class its stored rows give it, and a premarket one
     is never reclassified: it keeps its symbol when it graduates."""
-    if not seen:
-        return classify_contract(symbol, item)
-    earliest = item_of(symbol, seen[0])
+    start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
+    earliest = item_of(symbol, seen[0]) if seen else item
     first = classify_contract(symbol, earliest)
-    underlying = earliest["underlying_type"] if earliest is not None else "COIN"
     onboard = item["onboard_date"] if item is not None else None
-    if onboard is not None and onboard <= seen[0]["observed_at"]:
-        return first
+    # Inferred terms (earliest None) are of a contract exchangeInfo did not state: never `item`'s.
+    if not seen or earliest is not None and onboard is not None and onboard <= seen[0]["observed_at"]:
+        return classify_contract(symbol, None) if precedes(item, month) else first
+    underlying = earliest["underlying_type"] if earliest is not None else "COIN"
     # (time, underlying type, classification) of each contract, as stored
     contracts = [(seen[0]["observed_at"], underlying, first)]
     newest = {underlying: first}  # each underlying type's classification by its newest row that states a type
@@ -95,7 +113,9 @@ def contract_in_month(symbol: str, seen: list[dict], item: dict | None, month: d
         kind, found = stated["underlying_type"], classify_contract(symbol, stated)
         newest[kind] = found
         if kind != contracts[-1][1] != "PREMARKET":
-            contracts.append((row["observed_at"], kind, found))
+            # After inferred terms, a row is stored in its contract's onboard month at the earliest (store._import):
+            # every month still to import is the contract's, however late a rebuild observed it.
+            contracts.append((0 if earliest is None and len(contracts) == 1 else row["observed_at"], kind, found))
     if item is not None and onboard is not None:
         kind = item["underlying_type"]
         listed = newest[kind] if kind in newest and not _states_type(item) else classify_contract(symbol, item)
@@ -104,7 +124,6 @@ def contract_in_month(symbol: str, seen: list[dict], item: dict | None, month: d
         if len(contracts) > 1 and contracts[-1][1] == kind:
             contracts.pop()  # the listed contract itself: its onboard time is known
         contracts.append((onboard, kind, listed))
-    start, end = clock.day_ms(month), clock.day_ms(clock.next_month(month))
     bears = first
     for at, _, found in contracts[1:]:
         if at < end and (at <= start or bears["eligible"]):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from market import files
+from market import files, universe
 from shared.refusals import refuse
 
 
@@ -23,22 +23,25 @@ ASSUMED = {"maker_fee": "0.0002", "taker_fee": "0.0005", "margin_init": "0.1", "
 APPROXIMATION = "CURRENT_SNAPSHOT_APPROXIMATION"
 
 
-def _rows(market: files.Market, market_day: str | None, symbol: str) -> list[dict]:
-    return [row for batch in files.read_table(market, market_day, "instrument", [symbol]) for row in batch.to_pylist()]
+def _rows(market: files.Market, symbol: str) -> list[dict]:
+    """The symbol's terms rows, without another contract's when some are of the contract the bars are of."""
+    rows = [row for batch in files.read_table(market, None, "instrument", [symbol]) for row in batch.to_pylist()]
+    return universe.coin_rows(symbol, rows) or rows
 
 
 def visible(market: files.Market, market_day: str, symbol: str, barred: bool | None = None) -> dict | None:
     """The terms row a replay of the market day trades on: the latest observed by the market day. A directory rebuilt later
     observed its terms after that market day, so a contract with bars at the market day takes its earliest row; a contract
     without bars there, not yet listed, has none. `barred`: whether it has bars there, read from them when not given."""
-    found = _rows(market, market_day, symbol)
+    rows, stop = _rows(market, symbol), files._visible("instrument", market_day, None)
+    found = [row for row in rows if row["observed_at"] < stop]
     if found:
         return max(found, key=lambda row: row["observed_at"])
     if barred is None:
         barred = any(batch.num_rows for batch in files.scan(market, market_day, "bar", [symbol]))
     if not barred:
         return None
-    return min(_rows(market, None, symbol), key=lambda row: row["observed_at"], default=None)
+    return min(rows, key=lambda row: row["observed_at"], default=None)
 
 
 def terms(market: files.Market, market_day: str, symbol: str, barred: bool | None = None) -> dict:
