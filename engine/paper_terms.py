@@ -5,7 +5,8 @@ day, on the instrument the loader gave at start and on Binance's terms read for 
 As Live's account observation, an entry's read runs off the node's thread: the entry waits in QUEUE, unsent, while
 bars, timers and reduce-only orders go on, and the recorder's tick (`release`) sends it, or refuses it, once its read is
 done, entries in the order they came. An entry its source cancels while it waits is never sent: once its read is
-done it ends as CANCELED (engine.unsent), after the source's callback as a venue's answer would come."""
+done it ends as CANCELED (engine.unsent), after the source's callback as a venue's answer would come. The end goes
+through another strategy, so a market exit the source is in does not deny it."""
 
 from __future__ import annotations
 
@@ -160,3 +161,10 @@ class Waiting:
                    lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
         return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only,  # type: ignore[misc]
                                          params)
+
+    def market_exit(self):
+        """The native exit cancels the orders in its cache; the entries that wait are the source's working orders too.
+        A call natively ignored (not running, or exiting already) cancels none."""
+        if self.is_running() and not self.is_exiting():  # type: ignore[attr-defined]
+            cancel(self._paper_instrument_id, lambda order: True)
+        return super().market_exit()  # type: ignore[misc]
