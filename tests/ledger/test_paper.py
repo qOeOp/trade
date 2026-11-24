@@ -333,6 +333,9 @@ class RecordTests(unittest.TestCase):
         listed = paper.paper_runs(self.conn)
         self.assertEqual([(run["paper_id"], run["symbols"], run["seal"]) for run in listed],
                          [(opened["paper_id"], ["BTCUSDT"], {"status": "complete"}), (second["paper_id"], ["BTCUSDT"], None)])
+        with mock.patch.object(self.conn.raw, "cursor", wraps=self.conn.raw.cursor) as ran:
+            paper.paper_runs(self.conn)
+        self.assertEqual(ran.call_count, 1, "one statement whatever the number of runs")
 
     def test_a_reader_takes_only_the_sealed_files_it_names(self):
         """CF-24: a log or the journal is read without the rest of the capture (its recovery dump above all)."""

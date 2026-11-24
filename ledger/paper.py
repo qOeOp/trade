@@ -117,8 +117,9 @@ def seal_of(conn: db.LedgerConnection, paper_id: int) -> dict | None:
 
 def paper_runs(conn: db.LedgerConnection) -> list[dict]:
     """Every declared run, oldest first, with its seal readings once sealed."""
-    rows = [_row(row) for row in conn.dicts("SELECT * FROM paper_run ORDER BY paper_id")]
-    return [{**row, "seal": seal_of(conn, row["paper_id"])} for row in rows]
+    rows = conn.dicts("SELECT r.*, f.content AS seal FROM paper_run r LEFT JOIN paper_file f ON f.paper_id = r.paper_id "
+                      "AND f.path = 'seal.json' ORDER BY r.paper_id")
+    return [{**_row(row), "seal": None if row["seal"] is None else json.loads(bytes(row["seal"]))} for row in rows]
 
 
 def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict | None:
