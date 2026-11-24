@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 from paper import compare
-from replay import comparison as shared, rerun
+from replay import comparison as shared, equity, rerun
 from tests.helpers import refused
 
 
@@ -217,7 +217,7 @@ class Compare(unittest.TestCase):
                          START + 2 * MINUTE: Decimal("99.85")}
         run_equity = [(START, Decimal(100)), (START + MINUTE, Decimal(100)),
                       (START + 2 * MINUTE, Decimal("99.9"))]
-        explained = shared.equity_differences(run_equity, replay_equity, groups, cuts)
+        explained = equity.equity_differences(run_equity, replay_equity, groups, cuts)
         self.assertEqual([(item["minute_ns"], item["cause"], item["orders"]) for item in explained],
                          [(START + MINUTE, "fill_timing", ["P-1"]), (START + 2 * MINUTE, "unexplained", [])])
         self.assertEqual(found["summary"]["equity_unexplained_minutes"], 0)  # no replay reports: no replay equity
@@ -245,9 +245,9 @@ class Compare(unittest.TestCase):
             run, replay = (shared.groups(shared.orders(trade(name, scaled))) for name in ("P", "R"))
             compared = [shared.compare_group(a, b, {}, {}) for a, b in shared.pair(run, replay)]
             self.assertEqual([group["class"] for group in compared], ["same"])
-            given = {"taken": taken, "marks": marks, "places": shared.price_places(
+            given = {"taken": taken, "marks": marks, "places": equity.price_places(
                 [{"instrument_id": xrp, "close": "0.9320"}])} | changed
-            return [item["cause"] for item in shared.equity_differences(
+            return [item["cause"] for item in equity.equity_differences(
                 [(minute, replayed[minute] + gap) for minute, gap in zip(closes, gaps, strict=True)], replayed, compared,
                 **given)]
 
@@ -262,7 +262,7 @@ class Compare(unittest.TestCase):
                               ("a finer grid", {"places": {"XRPUSDT": 5}})):
             with self.subTest(name):
                 self.assertEqual(causes(real, **changed), ["unexplained"] * 4)
-        self.assertEqual(shared.price_places([{"instrument_id": xrp, "close": close} for close in ("0.93", "0.932")]), {})
+        self.assertEqual(equity.price_places([{"instrument_id": xrp, "close": close} for close in ("0.93", "0.932")]), {})
 
     def test_a_held_runs_value_of_a_minute_it_was_down_in_is_the_holds(self):
         """Paper runs 3 and 4 (2026-11-18): the minute a held run paused in is valued at a mark from before its
@@ -280,7 +280,7 @@ class Compare(unittest.TestCase):
         for held, causes in ((resumed, ["unexplained", "held", "unexplained"]), (None, ["unexplained"] * 3)):
             with self.subTest(held=held):
                 run = record(lines, [], held=held)
-                explained = shared.equity_differences(run_equity, replayed, [], run["taken"], run["paused"])
+                explained = equity.equity_differences(run_equity, replayed, [], run["taken"], run["paused"])
                 self.assertEqual([(item["minute_ns"], item["cause"]) for item in explained],
                                  list(zip((START + MINUTE, START + 2 * MINUTE, START + 4 * MINUTE), causes,
                                           strict=True)))
@@ -300,7 +300,7 @@ class Compare(unittest.TestCase):
                 writer.writerow(["ts_event_ns", "position_id", "notional_value", "unrealized_pnl", "realized_pnl"])
                 writer.writerow([close_of(1), "P", "1000 USDT", "2.25 USDT", "0 USDT"])
                 writer.writerow([close_of(1), "Q", "1000 USDT", "-0.25 USDT", "0 USDT"])
-            found = shared.replay_equity(reports, [START, START + MINUTE])
+            found = equity.replay_equity(reports, [START, START + MINUTE])
         self.assertEqual(found, [[START, "100000.00"], [START + MINUTE, "100001.50"]])
 
 

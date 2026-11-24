@@ -166,7 +166,7 @@ its held recovery went live, so the minute it paused in is valued at a mark from
 
 Nautilus writes a live mark at its instrument's price precision, half to even, while a replay values a minute at the
 archive's MARK close of up to eight decimals: a few 1e-5 USDT on BTC, up to USDT on a coarse tick (short 21413.2 XRP:
-0.89 in one minute). A minute whose difference is exactly that rounding on the open positions (`replay.comparison`
+0.89 in one minute). A minute whose difference is exactly that rounding on the open positions (`replay.equity`
 mark_rounding: each position's quantity and entry price from the fills both sides made, the archive's MARK close of the
 minute, the precision of the run's own bars) names `mark_rounding` (user 2026-11-24, 「授权全部按建议修」). Nothing is
 tolerated: another amount, a minute with no archived MARK or a mark the run no longer received in it stays `unexplained`.
