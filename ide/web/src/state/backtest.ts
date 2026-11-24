@@ -12,7 +12,7 @@ import { useView } from "../model/view";
 import { atom, useAtom } from "./atom";
 import { useShown } from "./shown";
 
-/** Being read; read; refused by the product (its code and words); or not served by this page's server. */
+/** Being read; read; refused by the product (its code and words); or not to be had, with why. */
 export type Loaded = { kind: "reading" } | { kind: "ready"; b: Backtest } | { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
 type Read = { row: string; at: string; answer: Loaded };
 const reads = atom<ReadonlyMap<number, Read>>(new Map());
@@ -37,11 +37,11 @@ export function useBacktest(): Loaded | null {
   return at ? all.get(trial.trial_id)?.answer ?? { kind: "reading" } : { kind: "absent", message: "the view names no ledger commit" };
 }
 
-/** What the chart says of a backtest it does not draw: being read, refused, not served, or no equity. */
+/** What the chart says of a backtest it does not draw: being read, refused, why it is not to be had, or no equity. */
 export function backtestNote(l: Loaded | null, trial: number): string | null {
   if (!l) return null;
   if (l.kind === "reading") return `Reading trial ${trial}…`;
-  if (l.kind === "absent") return "Backtest data not served by this IDE";
+  if (l.kind === "absent") return `Backtest · ${l.message}`;
   if (l.kind === "refused") return `Backtest · ${l.code}: ${l.message}`;
   return l.b.starting === null ? `Backtest · trial ${trial} · starting balance not recorded` : null;
 }

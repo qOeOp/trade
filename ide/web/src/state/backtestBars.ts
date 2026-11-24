@@ -9,7 +9,7 @@ import { DAY_MS } from "../lib/time";
 import type { Backtest } from "../model/backtest";
 import { atom, useAtom } from "./atom";
 
-/** Being read; read; refused by the product (its code and words); or not served by this page's server. */
+/** Being read; read; refused by the product (its code and words); or not to be had, with why. */
 export type LoadedBars = { kind: "reading" } | { kind: "ready"; candles: Candle[] } | { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
 const loaded = atom<ReadonlyMap<string, LoadedBars>>(new Map());
 const put = (key: string, value: LoadedBars) => loaded.set(new Map(loaded.get()).set(key, value));
@@ -64,10 +64,10 @@ export function useBacktestBars(symbol: string, b: Backtest | null, market: stri
   return key ? all.get(key) ?? { kind: "reading" } : { kind: "absent", message: "the line names no market day" };
 }
 
-/** What the contract chart says of the backtest's bars it does not draw: being read, refused, not served. */
+/** What the contract chart says of the backtest's bars it does not draw: being read, refused, why they are not to be had. */
 export function barsNote(l: LoadedBars | null): string | null {
   if (!l || l.kind === "ready") return null;
   if (l.kind === "reading") return "Reading daily bars…";
-  if (l.kind === "absent") return "Backtest bars not served by this IDE";
+  if (l.kind === "absent") return `Backtest bars · ${l.message}`;
   return `Backtest bars · ${l.code}: ${l.message}`;
 }

@@ -66,7 +66,7 @@ export async function serviceApi<T>(name: string, url: string, init: { method?: 
   return body as T;
 }
 
-/** A read the page's server did not answer with its JSON: the product's refusal, or nothing served (no such route,
+/** A read the page's server did not answer with its JSON: the product's refusal, or why there is none (no such route,
  *  the product did not answer, the page offline). */
 export type Unread = { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
 
@@ -80,7 +80,8 @@ export async function getJson<T>(url: string): Promise<{ kind: "ready"; body: T 
     const body = await response.json().catch(() => null) as (T & { code?: string; message?: string }) | null;
     if (response.ok && body) return { kind: "ready", body };
     if (body?.code && !SERVED.has(body.code)) return { kind: "refused", code: body.code, message: body.message ?? "" };
-    return { kind: "absent", message: body?.message ?? `HTTP ${response.status}` };
+    if (body?.code === "NOT_FOUND") return { kind: "absent", message: `${body.message} is not served by this IDE` };
+    return { kind: "absent", message: body?.message ?? (response.ok ? "the answer is not JSON" : `HTTP ${response.status}`) };
   } catch (error) {
     return { kind: "absent", message: String(error) };
   }
