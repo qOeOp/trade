@@ -252,7 +252,7 @@ class ValidationTests(unittest.TestCase):
         # 100 ms windows, one per registration, each opening seconds after its own witness however slow the
         # earlier registrations were: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
-                  "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "drawn", "released")
+                  "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "drawn", "released", "chain")
         cls.windows, cls.registered = {}, {}
         opens = datetime.now(UTC)
         for label in labels:
@@ -486,6 +486,45 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(found["family"]["size"], 1)
         self.assertIn(trial_id, [item["trial_id"] for item in found["window_read_before_binding"]],
                       "the consumed attempt traded the window after the original registration")
+
+    def test_a_retry_chain_takes_one_retry_at_a_time_and_none_after_one_passed(self):
+        original = self.registered["chain"]
+        start, end = self.windows["chain"]
+        window = {"window_start": start, "window_end": end}
+        self.world.seal_run(self.bind("chain"), "invalid")
+        # The other writer's retry commits between this one's reads and its write.
+        write, won, lost, outcomes = db.write, "chain-a", "chain-b", {}
+
+        def overtaken(*args, **kwargs):
+            if not outcomes:
+                outcomes[won] = None
+                outcomes[won] = self.register(won, retry_of=original["registration_id"], **window)
+            return write(*args, **kwargs)
+
+        with patch.object(db, "write", overtaken):
+            self.assertEqual(refused(self.register, lost, retry_of=original["registration_id"], **window).code,
+                             "RETRY_NOT_ALLOWED")
+        self.registered[won], self.windows[won] = outcomes[won], (start, end)
+        retry = outcomes[won]["registration_id"]
+        seq = self.world.seq()
+
+        def refused_retries(state):
+            for retry_of in (original["registration_id"], retry):
+                with self.subTest(state=state, retry_of=retry_of):
+                    self.assertEqual(refused(self.register, lost, retry_of=retry_of, **window).code,
+                                     "RETRY_NOT_ALLOWED")
+                    self.assertEqual(self.world.seq(), seq)
+
+        refused_retries("unbound")
+        self.assertTrue(self.register(won, retry_of=original["registration_id"], **window)["replayed"])
+        trial_id = self.bind(won)
+        seq = self.world.seq()
+        refused_retries("running")
+        self.world.seal_run(trial_id)
+        seq = self.world.seq()
+        refused_retries("passed")
+        found = comparison.validation_report(self.world.profile, retry)
+        self.assertEqual([member["latest_attempt"] for member in found["family"]["members"]], [retry])
 
     def test_a_bound_registration_without_a_run_is_retried_only_after_its_capture(self):
         original = self.registered["interrupted"]
