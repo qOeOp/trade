@@ -10,6 +10,7 @@ import { CardGroup, Section } from "../../ui/Section";
 import { Calendar } from "../paper/Calendar";
 import { PnlBridge } from "../paper/Bridge";
 import { MarketExposure, PeriodsAndRegimes } from "../paper/MarketExposure";
+import { CostsAndCapacity, Reliability } from "../paper/Reliability";
 import { Performance } from "../paper/Performance";
 
 const BARS = [35, -25, 60, 20, -45, 80, -15, 40, -55, 30, 70, -30, 25, -40, 50, 15, -65, 45, -20, 55, 30, -35, 65, -25];
@@ -98,15 +99,17 @@ export function StagePerformance() {
   const tested = stage === "backtest" && backtest?.kind === "ready" ? backtest.b : null;
   const paper = stage === "paper" && data && data.run.paper_id === run?.paper_id ? data : null;
   const testedBridge = useMemo(() => (tested?.account ? bridge(tested.account, tested.cycles.map((c) => ({ symbol: c.symbol, pnl: c.pnl ?? 0, gross: c.gross }))) : null), [tested]);
-  const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, exposures: tested.exposures, periods: tested.periods, fills: null, of: "backtest" as const }
-    : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, exposures: [], periods: null, fills: paper.fills, of: "paper" as const } : null;
+  const shown = tested?.account && tested.stats ? { a: tested.account, stats: tested.stats, bridge: testedBridge, exposures: tested.exposures, tested, periods: tested.periods, fills: null, of: "backtest" as const }
+    : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, exposures: [], tested: null, periods: null, fills: paper.fills, of: "paper" as const } : null;
   if (!shown && !reading) return null;
   return (
     <CardGroup title="Performance" actions={<span className="min-w-0 truncate text-fg-faint">{name ?? (reading ? <Skeleton className="w-24" /> : null)}</span>}>
       <Eased>
         {shown ? (
           <div className="space-y-2">
-            <Performance a={shown.a} stats={shown.stats} />
+            <Performance a={shown.a} stats={shown.stats} exitNet={shown.tested?.exitNet} />
+            {shown.tested && <Reliability trial={shown.tested.trial} interval={shown.tested.annualInterval} />}
+            {shown.tested && <CostsAndCapacity c={shown.tested.costs} />}
             <MarketExposure rows={shown.exposures} />
             {shown.periods && <PeriodsAndRegimes p={shown.periods} />}
             <Calendar a={shown.a} fills={shown.fills} stage={shown.of} />

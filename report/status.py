@@ -446,9 +446,9 @@ def _stamp(conn: db.LedgerConnection, registration_id: int):
 
 # The comparison table
 
-def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: list,
-                          window: tuple[datetime, datetime] | None = None, universe_rule: object = None,
-                          line_ids: Sequence[int] | None = None) -> tuple[list[dict], list[dict]]:
+def passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: list,
+                         window: tuple[datetime, datetime] | None = None, universe_rule: object = None,
+                         line_ids: Sequence[int] | None = None) -> tuple[list[dict], list[dict]]:
     """(with, without) economic evidence: every passed research run in trial order, as {candidate, trial_id,
     trade_start, trade_end, universe_rule} (`without` adds the reasons). With `window`, only runs of that trading
     window and `universe_rule`: a line's comparison table. With `line_ids`, only the runs of those lines. The one
@@ -522,7 +522,7 @@ def comparison_table(conn: db.LedgerConnection, line: str | int, checker: Mappin
     identities = _identities(conn)
     current = line_identity(conn, record["line_id"], identities)
     own = set(lines.line_trials(conn, record["line_id"])["trials"])
-    passed, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
+    passed, without = passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
     candidates = sorted({row["candidate"] for row in passed if _same(identities[row["trial_id"]], current)
                          and (row["trial_id"] in own or row["candidate"] == record["start"])})
     read = {trial_id: (measures.derive_measures(facts, market=measures.market_for(facts), wanted=TABLE_MEASURES),
@@ -587,7 +587,7 @@ def _identity_groups(found: list[dict], identities: Mapping[int, dict]) -> dict[
 def research_runs(ledger, at: str | None = None, line: str | None = None, by: str | None = None,
                   limit: int | None = None) -> dict:
     """Every passed research run with economic evidence of the open lines (L11) or, with `line`, that line's
-    comparison table (the same population, _passed_research_runs), each with RUN_MEASURES as its single-run report derives
+    comparison table (the same population, passed_research_runs), each with RUN_MEASURES as its single-run report derives
     them, the lines it belongs to (ledger.line_trials) and an execution-identity group. Ordered by trial ID, or by
     the one measure `by` (one of RUN_MEASURES) names: drawdown ascending, the others descending, nulls last,
     ties by trial ID. A listing by one measure, not the comparison table, a recommendation or a score: runs of
@@ -601,10 +601,10 @@ def research_runs(ledger, at: str | None = None, line: str | None = None, by: st
         records = precheck.review_records(conn)
         if line is not None:
             record = lines.read_line(conn, line)  # LINE_UNKNOWN for a bad name
-            found, without = _passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
+            found, without = passed_research_runs(conn, checker, records, lines.dev_window(record), record["universe_rule"])
         else:  # L11: the open lines' runs
             opened = [item["line_id"] for item in lines.lines(conn, open_only=True)]
-            found, without = _passed_research_runs(conn, checker, records, line_ids=opened)
+            found, without = passed_research_runs(conn, checker, records, line_ids=opened)
         identities = _identities(conn, {row["trial_id"] for row in found})
         groups = _identity_groups(found, identities)
         line_ids = {item["name"]: item["line_id"] for item in lines.lines(conn)}

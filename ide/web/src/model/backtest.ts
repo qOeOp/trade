@@ -44,6 +44,17 @@ export type PeriodBreakdown = {
   /** The window's annual return without its best whole development year. */
   exBestYearAnnual: number | null;
 };
+/** The annual return's bootstrap interval: its ends, its coverage (0.95), the days and the block it resamples them in. */
+export type AnnualInterval = { low: number; high: number; coverage: number; days: number; block: number };
+/** How far the fills reach: the fee multiple that would take the whole profit, the notional traded a day over the starting
+ *  balance, and the fills' shares of their minute's volume (null when the seal could not read them). */
+export type Costs = {
+  breakeven: number | null; breakevenNote: string | null; turnover: number | null; turnoverNote: string | null;
+  participation: { execution: string | null; fills: number; median: number | null; p95: number | null; p99: number | null; max: number | null;
+                   minuteMax: number | null; above: number; zero: number; noBar: number; engine: number } | null;
+};
+/** The closed cycles' net by the order type that closed them. */
+type ExitNet = { type: string; net: number | null };
 /** A day: its start (s), return, closing equity, gross exposure (share of equity), cycles held and the
  *  equal-weight basket's growth of 1 from the window's start to its close (null without the basket). */
 type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number; basket: number | null };
@@ -58,6 +69,7 @@ export type Backtest = {
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
   exposures: MarketExposure[];
   periods: PeriodBreakdown | null;
+  costs: Costs; annualInterval: AnnualInterval | null; exitNet: ExitNet[];
   /** What the basket is, or why the report gives none (null without either). */
   basketNote: string | null;
 };
@@ -66,7 +78,8 @@ export type Backtest = {
 const ms = (text: string) => utcInstant(text) ?? Number.NaN;
 const value = (m: { value: number | string | null } | null | undefined) => amount(m?.value ?? null);
 /** The report's measure `name` of its slice `id`. */
-const sliced = (r: TrialReport, id: string, name: string) => value(r.slices?.find((s) => s.id === id)?.measures[name]);
+const measure = (r: TrialReport, id: string, name: string) => r.slices?.find((s) => s.id === id)?.measures[name];
+const sliced = (r: TrialReport, id: string, name: string) => value(measure(r, id, name));
 
 export function backtest(r: TrialReport): Backtest {
   const window: [number, number] = [ms(r.trade_window.trade_start), ms(r.trade_window.trade_end)];
@@ -96,7 +109,7 @@ export function backtest(r: TrialReport): Backtest {
   const dd = r.drawdown, depth = value(dd?.["mark_max_drawdown"]), peak = dd?.["peak_utc"]?.value, trough = dd?.["trough_utc"]?.value;
   const drawdown = depth !== null && typeof peak === "string" && typeof trough === "string" ? { depth, peak: ms(peak) / 1000, trough: ms(trough) / 1000 } : null;
   const account = starting === null || !days.length ? null : accountOf(r, starting, days, cycles, window, depth);
-  const inMarket = value(r.capital?.["time_in_market"]), trade = (name: string) => sliced(r, "trade_structure", name);
+  const inMarket = value(r.capital?.time_in_market), trade = (name: string) => sliced(r, "trade_structure", name);
   return {
     trial: r.trial_id, starting: days.length ? starting : null, days, cycles, drawdown, window, market: r.market_day ?? null,
     image: r.runtime?.image_digest ?? null, execution: r.cost_basis?.account?.execution ?? null,
@@ -104,8 +117,25 @@ export function backtest(r: TrialReport): Backtest {
                                  avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },
     exposures: marketExposures(r),
     periods: periodsOf(r),
+    costs: costsOf(r), annualInterval: annualInterval(r),
+    exitNet: Object.entries(measure(r, "trade_structure", "top_exit_share")?.exit_net ?? {}).map(([type, net]) => ({ type, net: amount(net) })),
     basketNote: r.basket?.null_reason ?? r.basket?.definition_note ?? null,
   };
+}
+
+function costsOf(r: TrialReport): Costs {
+  const breakeven = measure(r, "fee_stress", "breakeven_fee_multiple"), turnover = measure(r, "fee_stress", "daily_turnover");
+  const p = r.capital?.participation?.value;
+  return {
+    breakeven: value(breakeven), breakevenNote: breakeven?.null_reason ?? null, turnover: value(turnover), turnoverNote: turnover?.null_reason ?? null,
+    participation: p ? { execution: p.execution, fills: p.fills, median: p.median, p95: p.p95, p99: p.p99, max: p.max, minuteMax: p.minute_max,
+                         above: p.above_volume, zero: p.zero_volume, noBar: p.no_bar, engine: p.engine_fills } : null,
+  };
+}
+
+function annualInterval(r: TrialReport): AnnualInterval | null {
+  const i = r.annual_return_interval;
+  return i ? { low: i.interval[0], high: i.interval[1], coverage: i.coverage, days: i.days, block: i.block_days } : null;
 }
 
 /** Reads the `market_exposure` slice (`beta_basket`, `alpha_basket`, `beta_btc`, `alpha_btc`) when present. */
