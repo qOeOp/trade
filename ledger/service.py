@@ -17,9 +17,11 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 - its schema version is checked before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
-- service.json (no socket: a service compose runs) and the profile are written last.
+- the profile and then service.json (no socket: a service compose runs) are written last, after a new ledger is on
+  `main`: until then `check` fails, and every start that finds service.json finds a published ledger.
 
-A bootstrap that fails removes what it made (the directories were empty) and raises. With a
+A bootstrap that fails or is stopped removes what it made (the directories were empty) and raises; one killed midway
+leaves files without service.json, so later starts are BOOTSTRAP_REFUSED (deploy/README.md, First start). With a
 service.json it checks before serving: every recorded database, the schema version of each profile's
 database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
@@ -201,19 +203,21 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 config["databases"][LEDGER] = accounts
         finally:
             conn.close()
-        profiles.private_write(service_root / "service.json", config)
         made = db.LedgerProfile(name=LEDGER, database=LEDGER, service_root=service_root, kind=kind,
                                 backup_root=backup_root / LEDGER)
-        profiles.private_write(profile, made.as_json())
         if new:
             say(f"publishing the new ledger to {origin}" + (" in place of the earlier line's" if replacing else ""))
             # A key or repository that cannot take it stops here, with nothing lost.
-            (publish.replace if replacing else publish.publish)(made)
+            (publish.replace if replacing else publish.publish)(made, config)
+        profiles.private_write(profile, made.as_json())
+        profiles.private_write(service_root / "service.json", config)
         say("bootstrapped")
         return process, config
     except BaseException:
         if process is not None:
             server.stop(process)
+        # First: killed while clearing, it must not leave a service.json over cleared data.
+        (service_root / "service.json").unlink(missing_ok=True)
         profile.unlink(missing_ok=True)
         _clear(data_dir, kept[data_dir])
         _clear(service_root, kept[service_root])
