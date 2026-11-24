@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from cli import research_commands
-from ledger import admin, lines, strategies
+from ledger import admin, execution, lines, strategies
 from registration import precheck
 from replay import entry, history, seams as replay_seams
 from report import graph, history as report_history, measures, runs, status
@@ -360,7 +360,10 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(history.run_history(world.profile, world.market, MARKET_DAY, line)["ran"], [],
                          "a rerun resumes: nothing is left")
 
-        read = report_history.research_history(world.profile, world.market, line=line)["lines"][0]
+        one_at_a_time = AssertionError("one run read at a time")
+        with patch.object(execution, "read_capture", side_effect=one_at_a_time), \
+                patch.object(measures, "run_facts", side_effect=one_at_a_time):
+            read = report_history.research_history(world.profile, world.market, line=line)["lines"][0]
         self.assertEqual(read["participants"], 1)
         (row,) = read["rows"]
         self.assertEqual(row["run"], passed["trial_id"])
@@ -411,6 +414,52 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual([item["trial_id"] for item in status.research_runs(world.profile, line=line)["runs"]],
                          [passed["trial_id"]])
         self.assertEqual(status.research_status(world.profile, line=line)["research_attempts"], 1)
+
+    def test_a_corrupt_captured_file_no_reading_uses_refuses_the_test(self):
+        """The reading, and with it the validation and Live gates (require_unfalsified), checks every captured byte of
+        every run it reads: the research run, each segment, and a control that did not pass."""
+        world = self.world
+        line = world.line["line"]
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        registration, (ref,) = registered_grid(world, ["kept"])
+        research = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s", (research["trial_id"],))
+
+        def run(segments, **scenario):
+            world.scenario = {"returns": [0.002, -0.001], **scenario}
+            return [item["status"] for item in
+                    history.run_history(world.profile, world.market, MARKET_DAY, line, limit=segments)["ran"]]
+
+        def tamper(statement, params):
+            conn = world.service.admin(world.profile)
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                    cursor.execute(statement, params)
+                    cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes')")
+            finally:
+                conn.close()
+
+        def check():
+            trials = world.conn.dicts("SELECT MAX(t.trial_id) AS trial_id FROM trial t JOIN run r ON r.trial_id = "
+                                      "t.trial_id GROUP BY t.purpose, t.trade_start, t.trade_end ORDER BY trial_id")
+            for trial in trials:  # the latest of each segment; a superseded run is not read
+                stored = world.conn.one(
+                    "SELECT c.sha256, c.content FROM evidence e JOIN evidence_content c ON c.sha256 = e.sha256 "
+                    "WHERE e.bundle = %s AND e.path = 'reports/summary.json'", (f"trial-{trial['trial_id']}-capture",))
+                with self.subTest(**trial):
+                    tamper("DELETE FROM evidence_content WHERE sha256 = %s", (stored["sha256"],))
+                    for read in (lambda: report_history.research_history(world.profile, world.market, line=line),
+                                 lambda: report_history.require_unfalsified(world.conn, source["source_sha256"],
+                                                                            world.market)):
+                        self.assertEqual(refused(read).code, "LEDGER_CORRUPT")
+                    tamper("INSERT INTO evidence_content (content) VALUES (%s)", (stored["content"],))
+            report_history.research_history(world.profile, world.market, line=line)
+
+        self.assertEqual([*run(1), *run(1, audit_passed=False, audit_exit=1)], ["passed", "invalid"])
+        check()  # with an invalid control
+        self.assertEqual(run(None), ["passed", "passed"])
+        check()  # the rerun control and the holdout passed
 
     def test_a_grid_point_registered_before_the_closing_runs_no_more(self):
         """The first history trial fixed the candidates, so a grid point still unrun takes no research run."""

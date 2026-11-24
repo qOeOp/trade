@@ -4,6 +4,7 @@ only."""
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from ledger import db, judgments, strategies, trials
 from tests.ledger.dolt import (BINARY, RUNTIME, SKIP, Service, binder, context, coverage, grid_point, select_line,
@@ -93,6 +94,17 @@ class JudgmentTests(unittest.TestCase):
                               ({"role": "boss", "candidate": "a@1"}, "SUBJECT_ROLE_MISMATCH")):
             with self.subTest(subject=subject):
                 self.assertEqual(self.code(subjects=[subject]), code)
+
+    def test_a_candidate_whose_stored_source_fails_its_hash_is_refused(self):
+        real = db.LedgerConnection.one
+
+        def corrupt(conn, *args):
+            row = real(conn, *args)
+            return {**row, "source": bytes(row["source"]) + b"#"} if row and "source" in row else row
+
+        with patch.object(db.LedgerConnection, "one", corrupt):
+            self.assertEqual(self.code(subjects=[{"role": "about", "candidate": "a@1"}]), "SUBJECT_UNKNOWN")
+        self.add(body="the same subject read intact", subjects=[{"role": "about", "candidate": "a@1"}])
 
     def test_a_trial_or_registration_subject_needs_no_role_but_a_candidate_does(self):
         written = self.add(body="without a role", subjects=[{"trial_id": self.trial["trial_id"]}, {

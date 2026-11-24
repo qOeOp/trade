@@ -13,11 +13,12 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from ledger import admin, db, witness
+from ledger import admin, db, execution, witness
 from shared import paths
 from registration import validation
 from replay import entry
 from report import comparison, review
+from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, RUNNER_ARGV, World
@@ -232,7 +233,8 @@ class SealedTamperTests(unittest.TestCase):
             conn.close()
 
     def test_1_a_clean_ledger_without_a_backup_says_rewritten_history_was_not_checked(self):
-        found = self.review()
+        with patch.object(execution, "read_capture", side_effect=AssertionError("one capture read at a time")):
+            found = self.review()
         self.assertEqual((found["findings"], found["runs_checked"]), ([], 2))
         self.assertEqual((found["history"]["status"], found["limitations"]), ("no_backup", [review.HISTORY_UNCHECKED]))
 
@@ -292,3 +294,24 @@ class SealedTamperTests(unittest.TestCase):
         found = [(item["code"], item["table"], item["record_id"]) for item in self.review()["findings"]
                  if item["code"] == "READING_REPLACED_OUTSIDE_RESEAL"]
         self.assertEqual(found, [("READING_REPLACED_OUTSIDE_RESEAL", "run_reading", str(trial_id))])
+
+    def test_6_a_capture_the_server_cannot_read_is_its_own_runs_finding(self):
+        real, late = execution.read_captures, self.late["trial_id"]
+
+        def read(conn, trial_ids, **kwargs):
+            if late in trial_ids:
+                raise refuse("DOLT_SQL_ERROR", "a chunk cannot be read")
+            return real(conn, trial_ids, **kwargs)
+
+        with patch.object(execution, "read_captures", read):
+            found = self.review()
+        self.assertEqual([item["record_id"] for item in found["findings"] if item["code"] == "CAPTURE_UNREADABLE"],
+                         [str(late)])
+
+    def test_7_a_captured_file_no_reading_uses_is_still_checked(self):
+        bundle = f"trial-{self.late['trial_id']}-capture"
+        self.admin_sql("SET FOREIGN_KEY_CHECKS = 0", "DELETE FROM evidence_content WHERE sha256 = (SELECT sha256 FROM "
+                       "evidence WHERE bundle = %s AND path = 'reports/summary.json')",
+                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: captured bytes')", params=(bundle,))
+        found = [item["record_id"] for item in self.review()["findings"] if item["code"] == "CAPTURE_UNREADABLE"]
+        self.assertIn(str(self.late["trial_id"]), found)
