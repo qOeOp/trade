@@ -269,6 +269,30 @@ class ReleaseTests(unittest.TestCase):
         self.release.recover()
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
 
+    def test_rollback_starts_a_stopped_previous_web_before_the_route_returns_to_it(self):
+        self.release.journal(WEB + B, WEB + A)
+        self.host.containers.update({WEB + A: False, WEB + B: True})
+        self.host.disk = self.host.live = WEB + B
+        self.release.recover()
+        self.assertTrue(self.host.containers[WEB + A])
+        self.assertLess(self.host.calls.index(("start", WEB + A)), self.host.calls.index(("route", WEB + A)))
+        self.assertEqual(self.host.live, WEB + A)
+
+    def test_rollback_keeps_the_journal_when_the_previous_web_is_not_the_recorded_one_or_serves_without_login(self):
+        for step in ("checked", "auth_denied"):
+            with self.subTest(step):
+                self.release.journal(WEB + B, WEB + A)
+                self.host.containers.update({WEB + A: True, WEB + B: True})
+                self.host.disk = self.host.live = WEB + B
+                routed = len(self.host.calls)
+                with patch.object(self.host, step, side_effect=RuntimeError(step)), \
+                        self.assertRaisesRegex(RuntimeError, step):
+                    self.release.recover()
+                self.assertTrue(self.release.transaction.exists())
+                if step == "checked":
+                    self.assertEqual(self.host.calls[routed:], [], "nothing is touched before the previous Web is checked")
+                self.release.transaction.unlink()
+
     def test_failed_rollback_or_independent_route_change_preserves_journal_and_candidate(self):
         self.release.journal(WEB + B, WEB + A)
         self.host.containers[WEB + B] = True
