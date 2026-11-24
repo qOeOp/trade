@@ -90,7 +90,9 @@ and reload:
   may name the wrong directory, or `service.json` was lost, so look before removing anything. A bootstrap killed
   midway leaves files too. When you are sure no ledger lived there (a published one stays on DoltHub), run
   `docker compose -f deploy/compose.yaml down`, empty `$D/dolt` and `$D/ledgers`, run `docker volume rm
-  trade-ide_trade-dolt-data`, and make the directories again.
+  trade-ide_trade-dolt-data`, and make the directories again. Move `$D/dolt-backups/paper` aside when it
+  exists, and keep it: it belongs to the Paper database that went with the volume, and backing the new one up into it
+  is refused (`BACKUP_DIVERGED`, only in the ledger service's log).
 
 The other first-start refusals are in [Troubleshooting](../docs/operator/troubleshooting.md#first-start).
 
