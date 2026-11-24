@@ -6,7 +6,8 @@ As Live's account observation, an entry's read runs off the node's thread: the e
 bars, timers and reduce-only orders go on, and the recorder's tick (`release`) sends it, or refuses it, once its read is
 done, entries in the order they came. An entry its source cancels while it waits is never sent: once its read is
 done it ends as CANCELED (engine.unsent), after the source's callback as a venue's answer would come. The end goes
-through another strategy, so a market exit the source is in does not deny it."""
+through another strategy, so a market exit the source is in does not deny it. An entry the source submits during its
+market exit does not wait: Nautilus denies it at once, as in a replay."""
 
 from __future__ import annotations
 
@@ -56,6 +57,9 @@ def entry(market_terms: dict, instrument_id: str, proxy_url: str | None) -> list
         return terms_changed(market_terms[klines.symbol(instrument_id)], klines.terms(instrument_id, proxy_url))
     except Exception as exc:  # the network, or an answer without the contract's filters
         return [f"Binance's terms were not read ({type(exc).__name__}: {exc})"]
+
+
+MARKET_EXIT_TAG = "MARKET_EXIT"  # the native exit's own orders: rc7 does not deny an order that carries it
 
 
 @dataclass
@@ -132,6 +136,11 @@ class Waiting:
     def _wait(self, order, send, end) -> None:
         queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
 
+    def _denied_exiting(self, order) -> bool:
+        """Nautilus denies the entry (MARKET_EXIT_IN_PROGRESS): it is never sent, so no terms are read for it. The
+        native flag, past a name of the source's own."""
+        return Strategy.is_exiting(self) and MARKET_EXIT_TAG not in (order.tags or ())  # type: ignore[arg-type]
+
     def _end_waiting(self, order, position_id, client_id, params) -> None:
         """End a cancelled entry. An unsent order keeps the order rules too, as in a replay, which checks it before
         its cancel."""
@@ -165,6 +174,6 @@ class Waiting:
     def market_exit(self):
         """The native exit cancels the orders in its cache; the entries that wait are the source's working orders too.
         A call natively ignored (not running, or exiting already) cancels none."""
-        if self.is_running() and not self.is_exiting():  # type: ignore[attr-defined]
+        if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]
             cancel(self._paper_instrument_id, lambda order: True)
         return super().market_exit()  # type: ignore[misc]
