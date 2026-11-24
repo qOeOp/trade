@@ -21,7 +21,7 @@ from ledger import db, evidence, judgments, lines, metrics, problems, strategies
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
-from report import measures, runs, seams, status, testing
+from report import measures, runs, seams, splits, status, testing
 from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture, config
 from tests.replay.world import ReplayWorld, registered_grid
@@ -317,6 +317,39 @@ class DominanceTests(unittest.TestCase):
                          "a higher win rate alone is no dominance")
 
 
+class RobustnessTests(unittest.TestCase):
+    """20261122-21: a one-year window has quarter columns, and a run of several contracts its net without the top one."""
+
+    TOP = {"value": "2.00000000", "instrument": "SOLUSDT"}
+
+    def facts(self, start: datetime, end: datetime, instruments=("BTCUSDT", "ETHUSDT", "SOLUSDT")) -> dict:
+        begin, finish = clock.moment_ns(start), clock.moment_ns(end)
+        return {"trade_start_ns": begin, "trade_end_ns": finish, "trial": {"instruments": list(instruments)}, "returns": [
+            (ts, 0.002 if k < 92 else -0.0005, None) for k, ts in enumerate(range(begin, finish, metrics.DAY_NS))]}
+
+    def test_a_one_year_window_of_several_contracts(self):
+        facts = self.facts(datetime(2025, 10, 1), datetime(2026, 10, 1))
+        found, quarters = splits.table_columns(facts, self.TOP), splits.dev_quarters(facts)
+        self.assertEqual((found["worst_dev_year_return"], found["return_without_best_year"]), (None, None))
+        self.assertEqual((found["worst_dev_quarter_return"], found["return_without_best_quarter"]),
+                         (quarters["worst_quarter_return"], quarters["return_without_best_quarter"]))
+        self.assertLess(found["return_without_best_quarter"], 0)
+        self.assertEqual((found["net_without_top_instrument"], found["top_instrument"]), ("2.00000000", "SOLUSDT"))
+
+    def test_one_contract_has_no_net_without_it(self):
+        found = splits.table_columns(self.facts(datetime(2025, 10, 1), datetime(2026, 10, 1), ("SOLUSDT",)), self.TOP)
+        self.assertEqual((found["net_without_top_instrument"], found["top_instrument"]), (None, None))
+
+    def test_two_years_are_read_by_year(self):
+        found = splits.table_columns(self.facts(datetime(2024, 10, 1), datetime(2026, 10, 1)), self.TOP)
+        self.assertIsNotNone(found["worst_dev_year_return"])
+        self.assertEqual([found[name] for name in splits.DEV_QUARTER_COLUMNS], [None, None])
+
+    def test_between_one_and_two_years_both_are_given(self):
+        found = splits.table_columns(self.facts(datetime(2025, 1, 1), datetime(2026, 10, 1)), self.TOP)
+        self.assertNotIn(None, [found[name] for name in (*splits.DEV_YEAR_COLUMNS, *splits.DEV_QUARTER_COLUMNS)])
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ComparisonTableTests(unittest.TestCase):
     @classmethod
@@ -386,6 +419,12 @@ class ComparisonTableTests(unittest.TestCase):
                              "the single-run report's measures, not a recomputation")
             self.assertEqual((item["worst_dev_year_return"], item["return_without_best_year"]), (None, None),
                              "a one-month window has no development years")
+            self.assertEqual([item[name] for name in splits.DEV_QUARTER_COLUMNS], [None, None],
+                             "nor development quarters")
+            top = measured_["net_without_top_instrument"]
+            self.assertIsNotNone(top["value"])
+            self.assertEqual((item["net_without_top_instrument"], item["top_instrument"]),
+                             (top["value"], top["instrument"]), "a run of several contracts")
         first, second = table["runs"]
         for item, other in ((first, second), (second, first)):
             dominated = status._dominates(other["measures"], item["measures"])

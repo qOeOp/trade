@@ -706,7 +706,9 @@ COMMANDS = [
         "beta_basket; alpha_basket and beta_basket with pnl_sum, their USDT split of the daily PnL sum), deflated_sharpe "
         "{effective_trials, trials_with_sweeps} (the run's deflated Sharpe at each multiple_testing count with its "
         "daily_sharpe_variance; null without that reading), worst_dev_year_return and return_without_best_year "
-        "(replay report dev_years, display only), dominated_by, non_dominated}] (dominance only within one "
+        "(replay report dev_years), worst_dev_quarter_return and return_without_best_quarter (dev_quarters, null as "
+        "there), net_without_top_instrument (closed-cycle net PnL in USDT without top_instrument, the contract that "
+        "contributes most in the direction of the total; both null for one contract or no closed cycle), all display only, dominated_by, non_dominated}] (dominance only within one "
         "identity and only on dominance_measures: annual_return, mark_max_drawdown, sharpe_365; the plan win rate, "
         "breakeven_fee_multiple, alpha_basket and beta_basket are shown only), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
