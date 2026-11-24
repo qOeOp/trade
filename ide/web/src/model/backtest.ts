@@ -119,9 +119,9 @@ function marketExposures(r: TrialReport): MarketExposure[] {
   return specs.flatMap(([benchmark, label, bKey, aKey]): MarketExposure[] => {
     const b = m[bKey], a = m[aKey];
     const beta = value(b), alpha = value(a);
-    if (beta === null && alpha === null) return [];
+    if (!b && !a) return [];
     return [{
-      benchmark, label, note: a?.definition_note ?? b?.definition_note ?? null, days: amount(a?.sample_size ?? b?.sample_size ?? null),
+      benchmark, label, note: a?.null_reason ?? b?.null_reason ?? a?.definition_note ?? b?.definition_note ?? null, days: amount(a?.sample_size ?? b?.sample_size ?? null),
       beta, alpha, alphaSe: amount(a?.standard_error ?? null),
       betaReturn: amount(b?.return_sum ?? null), alphaReturn: amount(a?.return_sum ?? null),
     }];

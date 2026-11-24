@@ -64,6 +64,10 @@ function SplitBar({ betaReturn, alphaReturn }: { betaReturn: number | null; alph
 export function MarketExposure({ rows }: { rows: readonly ExposureRow[] }) {
   if (!rows.length) return null;
   const primary = rows[0]!;
+  // With no value of either, why: the report's own reason, in the card's place.
+  if (rows.every((r) => r.beta === null && r.alpha === null)) return (
+    <Section title="Alpha and beta"><p className="text-dense text-fg-muted">{primary.note ?? "The report gives no alpha or beta."}</p></Section>
+  );
   return (
     <Section title="Alpha and beta" aside={primary.days ? `${primary.days} fitted days, Dimson 1d lag` : "Dimson 1d lag"}>
       <div className="flex flex-col gap-2">

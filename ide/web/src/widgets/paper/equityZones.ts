@@ -1,7 +1,5 @@
-// The equity chart's pane in bands, top to bottom, so no layer runs into another's: in the backtest stage,
-// which draws one stretch and names it in the legend, each year as a unit unitHigh px (its scorecard's LINE px
-// lines, equityYears, beside its P&L bars by contract, equityShares); elsewhere the stretches' names
-// (stretchCaptions' BELOW, omitted when a lone stretch is named in the legend); which way the run held
+// The equity chart's pane in bands, top to bottom, so no layer runs into another's: the stretches' names
+// (stretchCaptions' BELOW, omitted when a lone stretch is named in the legend), which way the run held
 // (equityBands' sideTrack, just over the dots), and the drawdown dots hanging from them down to CEILING of
 // the pane; the plot, which the value axis fits and in which every priced layer is drawn, clipped to it (the
 // line and its fills, the pace, the buy and hold, the floor, the drawdowns and the closes' arrows); the day
@@ -16,14 +14,10 @@ import { BELOW } from "./stretchCaptions";
 
 /** The plot's top and bottom, px from the pane's top. */
 export type Plot = { top: number; bottom: number };
-const GAP = 4, FADE = 32, LONE = 11, UNDER = 11;  // px: around the plot, the edges' fade, where the dots start with no names or years, from the years to the dots (the side track between)
-export const UNIT_TOP = 4, LINE = 12;  // px: a year's unit's top, a line of its scorecard
-/** A year's unit's height (px) for a scorecard of `lines` lines: two lines' at least, for its P&L bars. */
-export const unitHigh = (lines: number) => LINE * Math.max(2, lines);
+const GAP = 4, FADE = 32, LONE = 11;  // px: around the plot, the edges' fade, where the dots start with no stretch names
 
-/** Where the drawdown dots start (px from the pane's top): under the years when drawn (`years` lines to a
- *  scorecard, 0 when none), else BELOW the stretch names when drawn, else LONE. */
-export const headOf = (captions: boolean, years = 0): number => (years ? UNIT_TOP + unitHigh(years) + UNDER : captions ? BELOW : LONE);
+/** Where the drawdown dots start (px from the pane's top): BELOW the stretch names when drawn, else LONE. */
+export const headOf = (captions: boolean): number => (captions ? BELOW : LONE);
 
 /** The plot of a pane `h` px high whose visible drawdown dots take `dots` px under `head` (headOf) and
  *  whose foot holds `foot` px of exposure and `bars` px of day bars. */
