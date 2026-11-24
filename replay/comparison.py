@@ -53,7 +53,7 @@ from collections.abc import Iterable, Mapping
 import ast
 import csv
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 import gzip
 import itertools
 import json
@@ -65,7 +65,7 @@ from engine.kline_events import LATE_NS, received
 from ledger import metrics
 
 
-FORMAT = "run-comparison@2026-11-21.1"
+FORMAT = "run-comparison@2026-11-24.1"
 MINUTE_NS = 60 * 10**9
 MILLISECOND_NS = 10**6
 ON_TIME_NS = MINUTE_NS  # a decision or fill within one bar of its counterpart is on time
@@ -685,14 +685,58 @@ def replay_equity(reports: Path, minutes: list[int]) -> list[list]:
     return path
 
 
+def price_places(run_bars: Iterable[Mapping]) -> dict[str, int]:
+    """Per contract, the decimals the run's bars write their prices at: its instrument's price precision, on which the
+    run also received its marks; a contract whose bars show several is left out."""
+    found: dict[str, set[int]] = {}
+    for line in run_bars:
+        found.setdefault(symbol_of(line["instrument_id"]), set()).add(len(line["close"].partition(".")[2]))
+    return {symbol: places.pop() for symbol, places in found.items() if len(places) == 1}
+
+
+def mark_rounding(compared: Iterable[Mapping], minute: int, cut: int, marks: Mapping[str, Mapping[int, Decimal]],
+                  places: Mapping[str, int]) -> Decimal | None:
+    """The equity the run has over the replay at `minute` only because Nautilus writes a live mark at its instrument's
+    precision, half to even (rc7 parse_mark_price, Price.from_decimal_dp), while a replay's MARK is the archive's
+    close: over the positions open at `cut`, each one's profit at the rounded close less that at the close, rounded as
+    Nautilus rounds money. None when an open position's entry, the archive's close of that minute (`marks`: {symbol:
+    {minute: close}}) or the contract's precision is unknown. For groups that agree, whose fills are the replay's."""
+    total = Decimal(0)
+    for group in compared:
+        sign = 1 if group["side"] == "BUY" else -1
+        quantity, opened = Decimal(0), None
+        for row in group["orders"]:
+            fill = (row["run"] or {}).get("fill")
+            if not fill or fill["ts_ns"] > cut:
+                continue
+            opening = row["side"] == group["side"]
+            quantity += sign * Decimal(fill["qty"]) * (1 if opening else -1)
+            if opening:
+                opened = Decimal(fill["px"])
+        if not quantity:
+            continue
+        symbol = symbol_of(group["instrument"])
+        close = (marks.get(symbol) or {}).get(minute)
+        if opened is None or close is None or symbol not in places:
+            return None
+        rounded = close.quantize(Decimal(1).scaleb(-places[symbol]), ROUND_HALF_EVEN)
+        at_rounded, at_close = ((quantity * (mark - opened)).quantize(metrics.MONEY, ROUND_HALF_EVEN)
+                                for mark in (rounded, close))
+        total += at_rounded - at_close
+    return total
+
+
 def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[int, Decimal],
                        compared: list[dict] | None, taken: Mapping[int, int],
-                       paused: Iterable[tuple[int, int]] = ()) -> list[dict]:
+                       paused: Iterable[tuple[int, int]] = (), marks: Mapping[str, Mapping[int, Decimal]] | None = None,
+                       places: Mapping[str, int] | None = None) -> list[dict]:
     """Each minute whose equities differ by more than metrics.MONEY, with what the comparison knows of it (`cause`):
     `orders_differ` when a group that differs has a fill on either side by then (the equity follows the order
     differences already attributed), else `fill_timing` when an order filled on both sides is counted in the minute on
     one side only, else `held` when a held Paper run was down in the minute (`paused`: the [pause, resume] of each held
-    interruption, paper.compare), else `unexplained`; `orders` names the run's orders of that cause. A run values a
+    interruption, paper.compare), else `mark_rounding` when Paper took the minute's value (`taken`) and the difference
+    is exactly the one its price-precision marks make on the open positions (mark_rounding, to metrics.MONEY; user
+    2026-11-24, 「授权全部按建议修」), else `unexplained`; `orders` names the run's orders of that cause. A run values a
     minute at the last mark it received in it, and from its pause until its held recovery went live after the resume
     it received none, so it values the minute it paused in at a mark from before then, not at the minute's last mark
     (Paper runs 3 and 4, 2026-11-18).
@@ -724,6 +768,10 @@ def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[
         down = any(minute <= resume and minute + MINUTE_NS > pause for pause, resume in paused)
         cause, orders = (("orders_differ", differ) if differ else ("fill_timing", timing) if timing
                          else ("held", []) if down else ("unexplained", []))
+        if cause == "unexplained" and compared is not None and minute in taken:
+            rounding = mark_rounding(compared, minute, run_cut, marks or {}, places or {})
+            if rounding is not None and abs(value - replayed[minute] - rounding) <= metrics.MONEY:
+                cause = "mark_rounding"
         found.append({"minute": utc_text(minute), "minute_ns": minute, "run": str(value),
                       "replay": str(replayed[minute]), "difference": str(value - replayed[minute]), "cause": cause,
                       "orders": orders[:LISTED]})
@@ -748,11 +796,12 @@ def _listed_metrics(item: Mapping) -> dict:
 def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str, list[list]],
             reports: Path | None, start: int, end: int, *, archived_warmup: Mapping | None = None,
             replay_terms: Mapping | None = None, replay_fees: Mapping | None = None,
-            archived_metrics: Mapping | None = None) -> dict:
+            archived_metrics: Mapping | None = None, archived_marks: Mapping | None = None) -> dict:
     """A run against its replay. `run`: {bars, warmup ({instrument: {period: digest}}), metrics (rows received and
     unsubscribes), late_aggregates (late_aggregate rows), events (native order events), settlements (funding), equity
     ([(minute, value)]), taken ({minute: the run clock when it took that value}, equity_differences), terms ({symbol:
     terms}), fees ({symbol: {maker, taker}})}.
+    `archived_marks`: {symbol: {minute: the archive's MARK close}}, for Paper's equity (mark_rounding).
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end, run.get("kline_events") or [],
                  run.get("kline_sockets") or [], run.get("side_starts") or [])
@@ -826,7 +875,8 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     replayed = {minute: Decimal(value) for minute, value in equity["replay"]}
     gaps = [abs(value - replayed[minute]) for minute, value in run_equity if minute in replayed]
     summary["equity_max_difference"] = str(max(gaps)) if gaps else None
-    explained = equity_differences(run_equity, replayed, compared, run.get("taken") or {}, run.get("paused") or ())
+    explained = equity_differences(run_equity, replayed, compared, run.get("taken") or {}, run.get("paused") or (),
+                                   archived_marks, price_places(run.get("bars") or []))
     # The list stops at LISTED; the count is complete.
     equity["differences"] = explained[:LISTED]
     summary["equity_unexplained_minutes"] = sum(item["cause"] == "unexplained" for item in explained)

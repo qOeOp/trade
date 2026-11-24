@@ -222,6 +222,48 @@ class Compare(unittest.TestCase):
                          [(START + MINUTE, "fill_timing", ["P-1"]), (START + 2 * MINUTE, "unexplained", [])])
         self.assertEqual(found["summary"]["equity_unexplained_minutes"], 0)  # no replay reports: no replay equity
 
+    def test_an_equity_difference_is_mark_rounding_only_when_it_is_exactly_the_marks_rounding(self):
+        """Issue #3617, a real Paper run: short 21413.2 XRP from 0.934, its marks on the 0.0001 grid, the archive's MARK
+        closes finer. Any other amount, also one within a tick of the position, stays unexplained."""
+        xrp = "XRPUSDT-PERP.BINANCE"
+
+        def trade(name: str, scaled: bool = False) -> list[dict]:
+            events = [initialized(name, "ENTRY", "SELL"), filled(name, START, "0.9340", "21413.2", "SELL")]
+            if scaled:  # half of it closed in the second minute
+                events += [initialized(name + "X", "TAKE_PROFIT") | {"reduce_only": True},
+                           filled(name + "X", START + 2 * MINUTE - 10**9, "0.9330", "10706.6")]
+            return [event | {"instrument_id": xrp, "position_id": "S"} for event in events]
+
+        closes = {START: "0.93241752", START + MINUTE: "0.93314173", START + 2 * MINUTE: "0.93302071",
+                  START + 3 * MINUTE: "0.93305"}  # the last a midpoint, which goes to the even 0.9330
+        real = [Decimal("0.37515926"), Decimal("0.89357284"), Decimal("0.44346737"), Decimal("1.07066000")]
+        marks = {"XRPUSDT": {minute: Decimal(close) for minute, close in closes.items()}}
+        taken = {minute: minute + MINUTE + 10**8 for minute in closes}
+        replayed = {minute: Decimal(100000) for minute in closes}
+
+        def causes(gaps, scaled=False, **changed) -> list[str]:
+            run, replay = (shared.groups(shared.orders(trade(name, scaled))) for name in ("P", "R"))
+            compared = [shared.compare_group(a, b, {}, {}) for a, b in shared.pair(run, replay)]
+            self.assertEqual([group["class"] for group in compared], ["same"])
+            given = {"taken": taken, "marks": marks, "places": shared.price_places(
+                [{"instrument_id": xrp, "close": "0.9320"}])} | changed
+            return [item["cause"] for item in shared.equity_differences(
+                [(minute, replayed[minute] + gap) for minute, gap in zip(closes, gaps, strict=True)], replayed, compared,
+                **given)]
+
+        self.assertEqual(causes(real), ["mark_rounding"] * 4)
+        self.assertEqual(causes([real[0], *(gap / 2 for gap in real[1:])], scaled=True), ["mark_rounding"] * 4)
+        for wrong in (Decimal("0.00000002"), Decimal("-0.00000002"), Decimal("0.01"), Decimal(-1)):
+            with self.subTest(wrong=wrong):
+                self.assertEqual(causes([gap + wrong for gap in real]), ["unexplained"] * 4)
+        self.assertEqual(causes([-gap for gap in real]), ["unexplained"] * 4)
+        for name, changed in (("no archived MARK", {"marks": {}}), ("no bar of the run", {"places": {}}),
+                              ("a run that did not value the minute at its marks", {"taken": {}}),
+                              ("a finer grid", {"places": {"XRPUSDT": 5}})):
+            with self.subTest(name):
+                self.assertEqual(causes(real, **changed), ["unexplained"] * 4)
+        self.assertEqual(shared.price_places([{"instrument_id": xrp, "close": close} for close in ("0.93", "0.932")]), {})
+
     def test_a_held_runs_value_of_a_minute_it_was_down_in_is_the_holds(self):
         """Paper runs 3 and 4 (2026-11-18): the minute a held run paused in is valued at a mark from before its
         recovery went live, not at the minute's last mark (run 4's 02:18 at 64199.16, the archive's MARK close
@@ -313,6 +355,14 @@ class InputTests(unittest.TestCase):
         # the five minutes before 17:26 lie inside them); daily bars come from the market's own.
         self.assertEqual(argv[argv.index("--start") + 1], "2026-10-25T15:00:00Z")
         self.assertEqual((result["summary"]["same"], len(result["groups"])), (1, 1))
+
+    def test_the_comparison_reads_the_archives_marks_for_the_papers_equity(self):
+        from unittest import mock
+        with mock.patch("market.read.stored_bars",
+                        return_value={"bars": {"rows": archived(1, {0: "0.93241752"})}}) as stored:
+            self.assertEqual(rerun.archive_marks({}, "2026-10-25", "BTCUSDT", START, START + MINUTE),
+                             {START: Decimal("0.93241752")})
+        self.assertEqual(stored.call_args.args[3], "MARK")
 
     def test_a_replay_without_order_events_has_no_order_comparison(self):
         _, result = self.compared_run(False)
