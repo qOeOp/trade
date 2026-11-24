@@ -505,11 +505,12 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (registration is not None and s["research_registration_id"] == registration)
             for s in subjects.get(row["judgment_id"], []))), None)
-        if research and research[-1]["eligible"] is False:  # a recommendation does not outlive lost evidence
+        ran = [t for t in research if t["status"] is not None]  # an open or killed trial says nothing yet
+        if ran and ran[-1]["eligible"] is False:  # a recommendation does not outlive lost evidence
             state = "masked"
         elif key in chosen:
             state = "recommended"
-        elif not research:
+        elif not ran:
             state = "precheck_failed" if any(r["verdict"] == "failed" for r in reviews) else "unrun"
         else:
             state = "superseded"
