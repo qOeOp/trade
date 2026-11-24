@@ -61,3 +61,13 @@ test("the legend offers the basket with its return under the pointer, and says w
   assert.ok(!drawn({ ...props, basket: null }).includes("<button"), "no toggle");
   assert.ok(!drawn({ ...props, basket: null, basketNote: null }).includes("basket"), "nothing on a paper run");
 });
+
+test("alpha and beta the market does not cover keep their card, with the report's reason", async () => {
+  const { MarketExposure } = await alone("widgets/paper/MarketExposure.tsx");
+  const gap = { value: null, null_reason: "MARKET_RETURNS_INCOMPLETE: no basket return on 2022-01-01" };
+  const b = backtest({ ...report(null), slices: [{ id: "market_exposure", measures: { beta_basket: gap, alpha_basket: gap, beta_btc: gap, alpha_btc: gap } }] });
+  const text = renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(MarketExposure, { rows: b.exposures }))).split(/<[^>]*>/).join("");
+  assert.match(text, /Alpha and beta/);
+  assert.match(text, /no basket return on 2022-01-01/);
+  assert.deepEqual(backtest(report(null)).exposures, [], "no card where the report has no such slice");
+});
