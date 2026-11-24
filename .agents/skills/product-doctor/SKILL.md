@@ -29,9 +29,10 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
 
 ## Full audit
 
-1. **Pin.** Your first message gives a time and token budget, this session's own tokens included; past 70%
-   start no new pass, at the limit stop, and the rest is not examined. Fetch; judge `origin/main`, not
-   the session's checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same
+1. **Pin.** Your first message gives a time and token budget, this session's own tokens included. It limits how
+   many objects are taken beyond the listed lines, past 70% none, and cuts no line of the list, second pass,
+   refutation, challenge or rerun of old proofs the audit can make. What a host limit cuts is not examined.
+   Fetch; judge `origin/main`, not the session's checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same
    objects, and `doctor.py recheck` those closed longest without a held comment; name the ones left.
 2. **Map and pass.** List the objects from the tree (packages, processes, stores, external parties,
    timers, published artifacts) and pair them with the perspectives in
@@ -39,9 +40,9 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    unexamined. One pass finds only part of what is there, and repeating its question finds little
    more: give each pass to a fresh sub-agent with one perspective and one object, evidence paths, the
    audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, and no suspects of
-   yours, and no cap on findings. Run at most four passes at once and one heavy load (replay, build, cost
-   measurement) among them. Anything a script can read takes no agent. Depth before breadth: finish fewer
-   objects and leave the rest to the next audit. A pass ends when its object's paths are exercised, not
+   yours, and no cap on findings. Run at most four passes at once and one heavy load (replay, build) among
+   them; measure costs with nothing else of the audit running. Anything a script can read takes no agent.
+   Depth before breadth: finish fewer objects and leave the rest to the next audit. A pass ends when its object's paths are exercised, not
    at its first findings; an object with a `shown` finding gets a second fresh pass, from another
    perspective, before a new object is taken.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`,
@@ -51,9 +52,11 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    Only `shown` proves; otherwise say unverified. A help call or a script alone is not a defect.
    Evidence names no credential and is never edited: a wrong row is named in the report.
 4. **Examined means exercised.** Where the real dependency (network, container, browser, host, account)
-   was out of reach, the subject is *not examined*, with what stopped it; a stand-in, a passing unit
+   was out of reach, the subject is *not examined*, with what stopped it, once a temporary container of the
+   product's own image and a read-only public source could not reach it either; a stand-in, a passing unit
    test or reading the code does not examine it, unless the lens asks for a fake. Any such subject
-   makes the audit partial: never `pass`, `clean` or `full`.
+   makes the audit partial: never `pass`, `clean` or `full`. Only trading on the real account and changing the
+   release host, which AGENTS.md keeps from Agents, do not: list them as outside every audit, never as examined.
 5. **Challenge quiet choices.** Each full audit takes several choices that raised no alarm, beside the
    first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy
    measures the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot
@@ -70,4 +73,5 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
    budget, tokens per confirmed finding; and the listed objects no pass took, since one subject of an
    `any` line examines that object alone. For an audit of one session, tell the user only of perspectives
    its objects touch; the record keeps the report whole. Absence of findings says only what was tried.
-   Trend claims need repairs that held. Stop the audit's own processes and remove its copies.
+   Trend claims need repairs that held. Read the `doctor.py report` and rerun what it calls not exercised while the
+   temporary ledgers, markets and containers still exist; then stop the audit's own processes and remove its copies.

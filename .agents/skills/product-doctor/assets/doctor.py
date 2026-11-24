@@ -32,7 +32,7 @@ from typing import Any
 
 LENSES = Path(__file__).resolve().parents[1] / "references/lenses.md"
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
-ROTATING, ANY = "rotating", "any"
+ANY = "any"
 NOT_PRODUCT = ("tests/", "docs/", "changelog.d/", ".agents/")
 REPEATS = 3
 SHOWN = 400  # characters of a value kept
@@ -164,12 +164,17 @@ def known(item: str, subject: str) -> None:
     subjects = items().get(item)
     if subjects is None:
         raise SystemExit(f"{item} is not an audit item: {', '.join(items())}")
-    if subjects not in ([ANY], [ROTATING]) and subject not in subjects:
+    if subjects != [ANY] and subject not in subjects:
         raise SystemExit(f"{item} covers {', '.join(subjects)}, not {subject}")
+
+
+def written(path: Path | None) -> int | None:
+    return path.stat().st_mtime_ns if path and path.is_file() else None
 
 
 def run(args: argparse.Namespace) -> None:
     known(args.item, args.subject)
+    before = written(args.artifact)
     began = time.monotonic()
     try:
         done = subprocess.run(args.command, capture_output=True, timeout=args.timeout, check=False)
@@ -181,7 +186,8 @@ def run(args: argparse.Namespace) -> None:
     digest = hashlib.sha256(output).hexdigest()
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     (args.directory / f"{digest[:16]}.out").write_bytes(output)
-    shown = args.artifact.read_bytes() if args.artifact and args.artifact.is_file() else None
+    # A file the command did not write (its own script, an earlier run's page) shows nothing of this run.
+    shown = args.artifact.read_bytes() if written(args.artifact) != before else None
     keep(args.directory, {
         "kind": "run", "item": args.item, "subject": args.subject, "command": args.command, "cwd": str(Path.cwd()),
         "checkout": commit("HEAD"), "dirty": bool(git("status", "--porcelain").strip()), "exit": status,
@@ -326,17 +332,12 @@ def coverage(found: list[dict]) -> tuple[dict[str, dict[str, list[tuple[dict, st
     def done(item: str, subject: str) -> bool:
         return any(said in ("examined", "failed") for _, said in table[item].get(subject, []))
 
-    missing, rotating = [], False
+    missing = []
     for item, subjects in items().items():
-        if subjects in ([ANY], [ROTATING]):
-            any_done = any(done(item, subject) for subject in table[item])
-            rotating |= subjects == [ROTATING] and any_done
-            if subjects == [ANY] and not any_done:
-                missing.append(item)
+        if subjects == [ANY]:
+            missing += [] if any(done(item, subject) for subject in table[item]) else [item]
         else:
             missing += [f"{item}/{subject}" for subject in subjects if not done(item, subject)]
-    if not rotating:
-        missing.append("a rotating item")
     return table, missing
 
 
@@ -390,7 +391,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     one = add("run", run, "record a command that exercises an audit item; after `--`, the command", 3600)
     one.add_argument("item")
     one.add_argument("subject")
-    one.add_argument("--artifact", type=Path, help="the file that shows the result (a page's text)")
+    one.add_argument("--artifact", type=Path, help="the file the command writes that shows the result (a page's text)")
     one = add("probe", probe, "judge a finding's probe against its control", 600)
     one.add_argument("id")
     one.add_argument("probe", type=Path)
