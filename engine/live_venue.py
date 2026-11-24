@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from uuid import UUID
 
 from engine.config import terms_changed, venue_terms
 from engine.live_errors import LiveRefusal as Refusal
@@ -33,6 +34,7 @@ CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests us
 # that keeps sending (USDⓈ-M general info, "Limits").
 READ_ATTEMPTS = 3
 RETRY_AFTER_LIMIT_SECONDS = 5
+BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 MANIFEST_FORMAT = "live-run-6"  # one definition: the host writes it, the runner's image refuses any other
 # Each Live environment's Binance USD-M hosts (the manifest's config.environment): REST and the public streams. "demo" is
 # Binance Demo Trading, its own account, keys, order book, prices and funding. It publishes no /futures/data, so a run
@@ -230,6 +232,21 @@ def require_own_symbol(snapshot: dict, manifest: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply complete position/order observations") from exc
     if foreign:
         raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "an entry requires no position or open order on a symbol outside the run")
+
+
+def wire_id(client_order_id) -> str:
+    """The client order ID Binance holds for a native UUID one: rc7's Binance adapter sends it as its futures broker
+    prefix and the UUID in base62 (crates/adapters/binance/src/common/encoder.rs), which it does not expose to Python."""
+    text = str(client_order_id)
+    try:
+        value = UUID(text).int
+    except ValueError:
+        return text
+    digits = ""
+    for _ in range(22):
+        value, digit = divmod(value, 62)
+        digits = BASE62[digit] + digits
+    return f"x-aHRE4BCj-{'U' if '-' in text else 'u'}{digits}"
 
 
 def require_account_mode(snapshot: dict, manifest: dict, *, read_ns: int | None = None) -> None:

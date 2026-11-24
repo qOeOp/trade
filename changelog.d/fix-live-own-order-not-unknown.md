@@ -1,0 +1,1 @@
+- A Live run no longer cancels every order on a contract, protective stops included, because one of its own orders closed, was being changed or was not yet acknowledged when Binance's open orders were read; a closed order Binance still shows at the next read, and one the run does not know, are cancelled as before.

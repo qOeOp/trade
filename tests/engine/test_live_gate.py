@@ -12,7 +12,7 @@ from unittest import mock
 from nautilus_trader.common import SocketState
 from nautilus_trader.model import BarType, InstrumentId, OrderSide, OrderStatus, OrderType, PositionSide, TimeInForce
 
-from engine import live, live_commands as commands, live_connection, live_source
+from engine import live, live_commands as commands, live_connection, live_source, live_venue
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
@@ -39,8 +39,9 @@ class Cache:
         return list(self._orders)
 
 
-def order(venue_id, status=OrderStatus.ACCEPTED, strategy=None, closed=False):
-    return SimpleNamespace(venue_order_id=venue_id, status=status, is_closed=closed, client_order_id="O-" + str(venue_id),
+def order(venue_id, status=OrderStatus.ACCEPTED, strategy=None, closed=False, former=()):
+    ids = [*former, *([] if venue_id is None else [venue_id])]
+    return SimpleNamespace(venue_order_id=venue_id, venue_order_ids=ids, status=status, is_closed=closed, client_order_id="O-" + str(venue_id),
                            strategy_id=strategy)
 
 
@@ -92,6 +93,71 @@ class GateTests(unittest.TestCase):
             slow = live_connection.compare(snapshot, Cache([position], [stop]), self.session.manifest)
         self.assertEqual(slow, {"observation": ["LIVE_OBSERVATION_STALE"]})  # read again; not a held reason
         self.assertEqual(foreign, {"foreign": ["LIVE_ACCOUNT_NOT_FLAT"]})
+
+    def test_an_order_of_the_run_that_changed_after_the_read_is_not_unknown(self):
+        self.session.sources = {SYMBOL: mock.Mock()}
+        self.session.cancel_entries = mock.Mock()
+        entry = order(None, OrderStatus.SUBMITTED, self.strategy)
+        entry.client_order_id = "6ba7b810-9dad-41d1-80b4-00c04fd430c8"
+        row = {"symbol": SYMBOL, "orderId": 9}
+        flying = {"in_flight": ["O-9"]}
+        for name, held, at_venue, found in (
+                ("canceled", order("9", OrderStatus.CANCELED, closed=True), row, {"stale_orders": {SYMBOL: [["9"]]}}),
+                ("filled", order("9", OrderStatus.FILLED, closed=True), row, {"stale_orders": {SYMBOL: [["9"]]}}),
+                ("filled under its triggered ID", order("12", OrderStatus.FILLED, closed=True, former=["9"]),
+                 {"symbol": SYMBOL, "algoId": 9}, {"stale_orders": {SYMBOL: [["9"]]}}),
+                ("working under a new ID", order("12", former=["9"], strategy=self.strategy), row,
+                 {"stale_orders": {SYMBOL: [["9"]]}, "native_only": ["12"]}),
+                ("being canceled", order("9", OrderStatus.PENDING_CANCEL), row, flying),
+                ("being updated", order("9", OrderStatus.PENDING_UPDATE), row, flying),
+                ("submitted, not yet acknowledged", entry,
+                 dict(row, clientOrderId=live_venue.wire_id(entry.client_order_id)),
+                 {"in_flight": [entry.client_order_id]})):
+            with self.subTest(name), mock.patch.object(live_connection.Strategy, "cancel_all_orders") as cancel_all, \
+                    mock.patch("engine.live_venue.time.time_ns", return_value=self.snapshot["observed_ns"]):
+                self.session.connection = live_connection.Connection()
+                snapshot = dict(self.snapshot, orders=[at_venue] if "orderId" in at_venue else [],
+                                algo_orders=[] if "orderId" in at_venue else [at_venue])
+                self.assertEqual(live_connection.compare(snapshot, Cache([], [held]), self.session.manifest), found)
+                live_connection.judge(self.session, Cache([], [held]), snapshot)
+                cancel_all.assert_not_called()
+                self.assertEqual(self.session.connection.closed, {})
+                self.assertTrue(self.session.connection.suspect)
+                # Read again, still at Binance: an in-flight one only closes entries until it settles.
+                live_connection.judge(self.session, Cache([], [held]), snapshot)
+                self.assertEqual(cancel_all.called, "stale_orders" in found)
+                self.assertEqual(set(self.session.connection.closed),
+                                 {"unknown_orders" if "stale_orders" in found else "unverified"})
+                # Control: an order the cache does not hold is canceled at the first read, beside such a one.
+                self.session.connection = live_connection.Connection()
+                cancel_all.reset_mock()
+                live_connection.judge(self.session, Cache([], [held]), dict(
+                    snapshot, orders=[*snapshot["orders"], {"symbol": SYMBOL, "orderId": 5, "clientOrderId": "web_5"}]))
+                cancel_all.assert_called_once()
+                self.assertEqual(self.events()[-1]["orders"], {SYMBOL: [["5"]]})
+                self.assertEqual(self.session.connection.suspect, "stale_orders" in found)  # read again soon
+
+    def test_a_stale_order_must_show_in_two_reads_running_and_a_rejected_one_is_unknown_at_once(self):
+        self.session.sources = {SYMBOL: mock.Mock()}
+        self.session.cancel_entries = mock.Mock()
+        closed = [order(number, OrderStatus.CANCELED, closed=True) for number in ("8", "9")]
+        with mock.patch.object(live_connection.Strategy, "cancel_all_orders") as cancel_all, \
+                mock.patch("engine.live_venue.time.time_ns", return_value=self.snapshot["observed_ns"]):
+            for number in ("8", "9", None, "8"):  # another order each time, or gone between
+                live_connection.judge(self.session, Cache([], closed), dict(
+                    self.snapshot, orders=[{"symbol": SYMBOL, "orderId": number}] if number else []))
+            cancel_all.assert_not_called()
+            # An incomplete read says nothing: the next complete one still settles it.
+            live_connection.judge(self.session, Cache([], closed), dict(self.snapshot, orders=[{}]))
+            live_connection.judge(self.session, Cache([], closed), dict(
+                self.snapshot, orders=[{"symbol": SYMBOL, "orderId": "8"}]))
+            cancel_all.assert_called_once()
+            self.session.connection = live_connection.Connection()
+            rejected = order(None, OrderStatus.REJECTED, closed=True)  # never acknowledged, judged rejected locally
+            rejected.client_order_id = "6ba7b810-9dad-41d1-80b4-00c04fd430c8"
+            live_connection.judge(self.session, Cache([], [rejected]), dict(self.snapshot, orders=[
+                {"symbol": SYMBOL, "orderId": 9, "clientOrderId": live_venue.wire_id(rejected.client_order_id)}]))
+            self.assertEqual(cancel_all.call_count, 2)
 
     def pending(self, ts_init, gtd_seconds=None, bar_type=None):
         tif = TimeInForce.GTD if gtd_seconds is not None else TimeInForce.GTC

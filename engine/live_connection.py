@@ -19,7 +19,9 @@ COMPARE_SPACING_SECONDS apart, both agree: the strategy's positions and open ord
 and a live bar received since the reconnect with no bar missing. Native reconciliation (open orders every 10 s,
 positions every 30 s) repairs what a reconnect's replay misses; two agreeing reads a cycle apart are the barrier rc7 does
 not provide. Orders at the venue the cache does not know are canceled at once with every order on the contract, and
-entries stay closed for the rest of the run, as they do after a missing bar: no data is patched, and only a restart's
+entries stay closed for the rest of the run, as they do after a missing bar. An order the cache knows may have changed
+after the read and is not unknown: one in flight only disagrees until it settles, and one known only as closed, or by a
+former ID, is judged unknown when the next read shows it again. No data is patched, and only a restart's
 warm-up (design §3.3, §3.4) rebuilds the source's input. The same comparison runs every PERIODIC_SECONDS while entries are
 open, so a feed that looks connected but is dead is found too. While the account is flat, a connection near Binance's
 24 h cut is renewed natively between seconds 20 and 40 of a minute, away from the bar boundary.
@@ -41,7 +43,7 @@ from engine import history, protection
 from engine.live_errors import LiveRefusal as Refusal
 from engine.config import symbol_of
 from engine.live_records import contract as contract_id, keep, owned, strategy_ids
-from engine.live_venue import require_account_mode, require_clock, require_flat, require_own_symbol
+from engine.live_venue import require_account_mode, require_clock, require_flat, require_own_symbol, wire_id
 from engine.order_rules import GTD_LEAD_NS, native_cache
 
 COMPARE_SPACING_SECONDS = 31  # one native position check (30 s) and open-order check (10 s) between the two reads
@@ -81,6 +83,7 @@ class Connection:
     orphans_since: int | None = None  # observed_ns of the first agreeing read finding only reduce-only orders, flat
     phantom_ns: int | None = None  # observed_ns of the first comparison that found Binance flat, the cache not (phantom)
     held_cover: dict | None = None  # a held start's latest journalled verdict on its positions' stops (held_verdict)
+    stale_orders: dict[str, list[list[str]]] = field(default_factory=dict)  # compare's, of the latest complete read
     withdrawn_ns: int | None = None  # when a held start first asked for its inherited entries' cancels (held_withdraw)
     withdraw_failed: set[str] = field(default_factory=set)  # entries whose cancel request raised, journalled once
 
@@ -420,7 +423,8 @@ def venue_flat_exit(session, snapshot: dict) -> None:
 
 def compare(snapshot: dict, cache, manifest: dict) -> dict:
     """What the venue's REST read and the native cache disagree on, contract by contract; empty when they agree.
-    `unknown_orders` maps each contract to the venue's orders on it the cache does not know."""
+    `unknown_orders` maps each contract to the venue's orders on it the cache does not know; `stale_orders`, to those
+    it knows only as a closed order's or by a former ID (the read may be older than the cache)."""
     found: dict = {}
     strategies = strategy_ids(manifest)
     for check, name in ((require_account_mode, "account_mode"), (require_own_symbol, "foreign"),
@@ -433,11 +437,13 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict:
             found.setdefault("observation" if transient else name, []).append(exc.code)
     try:
         differences = position_differences(snapshot, cache, manifest)
-        at_venue: dict[str, list[set[str]]] = {symbol: [] for symbol in strategies}
+        at_venue: dict[str, list[tuple[set[str], str]]] = {symbol: [] for symbol in strategies}
         for row in (*snapshot["orders"], *snapshot["algo_orders"]):
             if row["symbol"] in at_venue:
-                at_venue[row["symbol"]].append({str(row[name]) for name in ("orderId", "algoId", "actualOrderId")
-                                                if row.get(name) not in (None, "", 0)})
+                at_venue[row["symbol"]].append((
+                    {str(row[name]) for name in ("orderId", "algoId", "actualOrderId")
+                     if row.get(name) not in (None, "", 0)},
+                    str(row.get("clientOrderId") or row.get("clientAlgoId") or "")))
     except (KeyError, TypeError, ValueError, ArithmeticError):
         return {"response": ["LIVE_ACCOUNT_RESPONSE"]}
     if differences:
@@ -447,20 +453,31 @@ def compare(snapshot: dict, cache, manifest: dict) -> dict:
         for position in cache.positions_open(instrument_id=instrument):
             if position.strategy_id != strategy:
                 found.setdefault("foreign", []).append(str(position.id))
-        ids: set[str] = set()
+        ids: set[str] = set()  # of working orders
+        in_flight: set[str] = set()  # in-flight orders' venue IDs and client IDs at Binance (one may have no venue ID yet)
+        former: set[str] = set()  # closed orders', and every order's former ones
         for order in cache.orders(instrument_id=instrument):
-            if order.is_closed or order.status == OrderStatus.INITIALIZED:
+            former.update(map(str, order.venue_order_ids))
+            current = None if order.venue_order_id is None else str(order.venue_order_id)
+            if order.is_closed:
+                if current is not None:
+                    former.add(current)
                 continue
-            if order.status in IN_FLIGHT or order.venue_order_id is None:
+            if order.status == OrderStatus.INITIALIZED:
+                continue
+            if order.status in IN_FLIGHT or current is None:
+                in_flight.update({wire_id(order.client_order_id), current or ""} - {""})
                 found.setdefault("in_flight", []).append(str(order.client_order_id))
                 continue
             if order.strategy_id != strategy:
                 found.setdefault("foreign", []).append(str(order.client_order_id))
-            ids.add(str(order.venue_order_id))
-        unknown = [sorted(row) for row in at_venue[symbol] if not row & ids]
-        if unknown:
-            found.setdefault("unknown_orders", {})[symbol] = unknown
-        missing = sorted(ids - set().union(*at_venue[symbol]))
+            ids.add(current)
+        for row, client in at_venue[symbol]:
+            if row & ids or row & in_flight or client in in_flight:
+                continue
+            found.setdefault("stale_orders" if row & former else "unknown_orders", {}).setdefault(
+                symbol, []).append(sorted(row))
+        missing = sorted(ids - set().union(*(row for row, _ in at_venue[symbol])))
         if missing:
             found.setdefault("native_only", []).extend(missing)
     return found
@@ -533,10 +550,24 @@ def contract(session, snapshot: dict) -> None:
                           status=status)
 
 
+def settle_stale(state: Connection, found: dict) -> None:
+    """A stale order that the previous complete read already showed was not changing then: it is an unknown one. One read
+    runs at a time, so this one began after the previous was judged."""
+    if "response" in found:
+        return  # says nothing about orders
+    previous, state.stale_orders = state.stale_orders, found.pop("stale_orders", {})
+    for symbol, rows in state.stale_orders.items():
+        before = {identity for row in previous.get(symbol, ()) for identity in row}
+        for row in rows:
+            name = "unknown_orders" if before.intersection(row) else "stale_orders"
+            found.setdefault(name, {}).setdefault(symbol, []).append(row)
+
+
 def judge(session, cache, snapshot: dict) -> None:
     state = session.connection
     contract(session, snapshot)
     found = compare(snapshot, cache, session.manifest)
+    settle_stale(state, found)
     if state.reconnected is not None and not state.bar_since_reconnect:
         found.setdefault("bars", []).append("no bar since the reconnect")
     rewarming = rewarm_pending(session, cache)
@@ -571,6 +602,7 @@ def judge(session, cache, snapshot: dict) -> None:
     else:
         state.phantom_ns = None
     if "unknown_orders" in found:
+        state.suspect = state.suspect or "stale_orders" in found  # another contract's: the next read settles it soon
         close_entries(session, "unknown_orders", orders=found["unknown_orders"])
         for symbol in found["unknown_orders"]:
             source = session.sources.get(symbol)
@@ -587,6 +619,8 @@ def judge(session, cache, snapshot: dict) -> None:
         if state.suspect:
             close_entries(session, "unverified")
         state.suspect = True
+    elif "stale_orders" in found:
+        state.suspect = True  # the next read settles it soon, whatever holds entries closed
 
 
 def orphans(session, cache, observed_ns: int) -> None:
