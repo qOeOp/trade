@@ -107,8 +107,8 @@ export function StagePerformance() {
       <Eased>
         {shown ? (
           <div className="space-y-2">
-            <Performance a={shown.a} stats={shown.stats} exitNet={shown.tested?.exitNet} />
-            {shown.tested && <Reliability trial={shown.tested.trial} interval={shown.tested.annualInterval} />}
+            <Performance a={shown.a} stats={shown.stats} exitNet={shown.tested?.exitNet} concentration={shown.tested?.concentration} />
+            {shown.tested && <Reliability trial={shown.tested.trial} interval={shown.tested.annualInterval} lo={shown.tested.sharpeLo} />}
             {shown.tested && <CostsAndCapacity c={shown.tested.costs} />}
             <MarketExposure rows={shown.exposures} />
             {shown.periods && <PeriodsAndRegimes p={shown.periods} />}

@@ -35,7 +35,9 @@ type RegimeStat = { regime: "high" | "low"; label: string; days: number; totalRe
 type DevYear = { start: string; end: string; ret: number; drawdown: number | null };
 /** The closed cycles of one UTC close year: their count, price move, fees paid and funding (account currency). */
 type ClosedYear = { year: string; closed: number; price: number | null; fees: number | null; funding: number | null };
-/** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled`, `dev_years` and `closed_by_year`. */
+/** One quarter of a window under two years, cut every three months from the trade start, or its last part quarter. */
+type DevQuarter = { start: string; end: string; ret: number; partial: boolean };
+/** Time and market-state breakdowns from `by_period`, `by_regime`, `capital_scaled`, `dev_years`, `dev_quarters` and `closed_by_year`. */
 export type PeriodBreakdown = {
   monthsWonShare: number | null; monthsCount: number | null; residualAfterTop5Days: number | null;
   upMonthNotional: number | null; downMonthNotional: number | null;
@@ -43,7 +45,15 @@ export type PeriodBreakdown = {
   regimes: RegimeStat[]; devYears: DevYear[]; closedYears: ClosedYear[];
   /** The window's annual return without its best whole development year. */
   exBestYearAnnual: number | null;
+  devQuarters: DevQuarter[];
+  /** The worst whole quarter's return and the window's annual return without its best whole quarter. */
+  worstQuarter: number | null; exBestQuarterAnnual: number | null;
 };
+/** Lo (2002)'s annual Sharpe ratio, which counts the daily returns' autocorrelations over `lags` days, or why there is none. */
+export type SharpeLo = { value: number | null; lags: number | null; note: string | null };
+/** How far the closed cycles' net rests on few contracts: how many contracts closed one, the net left without the contract
+ *  that adds most in the direction of the total, and the five largest absolute nets' share of them all. */
+export type Concentration = { contracts: number; top: string | null; withoutTop: number | null; top5Share: number | null };
 /** The annual return's bootstrap interval: its ends, its coverage (0.95), the days and the block it resamples them in. */
 export type AnnualInterval = { low: number; high: number; coverage: number; days: number; block: number };
 /** How far the fills reach: the fee multiple that would take the whole profit, the notional traded a day over the starting
@@ -69,7 +79,7 @@ export type Backtest = {
   image: string | null; execution: string | null; account: Account | null; stats: TradeStats | null;
   exposures: MarketExposure[];
   periods: PeriodBreakdown | null;
-  costs: Costs; annualInterval: AnnualInterval | null; exitNet: ExitNet[];
+  costs: Costs; annualInterval: AnnualInterval | null; sharpeLo: SharpeLo; exitNet: ExitNet[]; concentration: Concentration | null;
   /** What the basket is, or why the report gives none (null without either). */
   basketNote: string | null;
 };
@@ -117,7 +127,7 @@ export function backtest(r: TrialReport): Backtest {
                                  avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },
     exposures: marketExposures(r),
     periods: periodsOf(r),
-    costs: costsOf(r), annualInterval: annualInterval(r),
+    costs: costsOf(r), annualInterval: annualInterval(r), sharpeLo: sharpeLo(r), concentration: concentrationOf(r),
     exitNet: Object.entries(measure(r, "trade_structure", "top_exit_share")?.exit_net ?? {}).map(([type, net]) => ({ type, net: amount(net) })),
     basketNote: r.basket?.null_reason ?? r.basket?.definition_note ?? null,
   };
@@ -136,6 +146,17 @@ function costsOf(r: TrialReport): Costs {
 function annualInterval(r: TrialReport): AnnualInterval | null {
   const i = r.annual_return_interval;
   return i ? { low: i.interval[0], high: i.interval[1], coverage: i.coverage, days: i.days, block: i.block_days } : null;
+}
+
+function sharpeLo(r: TrialReport): SharpeLo {
+  const m = measure(r, "by_period", "sharpe_lo");
+  return { value: value(m), lags: m?.lags ?? null, note: m?.null_reason ?? null };
+}
+
+function concentrationOf(r: TrialReport): Concentration | null {
+  const without = measure(r, "by_instrument", "net_without_top_instrument"), contracts = without?.sample_size ?? 0;
+  return contracts ? { contracts, top: without!.instrument ? symbolOf(without!.instrument) : null, withoutTop: value(without),
+                       top5Share: sliced(r, "by_instrument", "top5_abs_share") } : null;
 }
 
 /** Reads the `market_exposure` slice (`beta_basket`, `alpha_basket`, `beta_btc`, `alpha_btc`) when present. */
@@ -158,7 +179,7 @@ function marketExposures(r: TrialReport): MarketExposure[] {
   });
 }
 
-/** Reads the time and market-state slices (`by_period`, `by_regime`, `capital_scaled`, `dev_years`, `closed_by_year`). */
+/** Reads the time and market-state slices (`by_period`, `by_regime`, `capital_scaled`, `dev_years`, `dev_quarters`, `closed_by_year`). */
 function periodsOf(r: TrialReport): PeriodBreakdown | null {
   const period = r.slices?.find((s) => s.id === "by_period")?.measures;
   const regime = r.slices?.find((s) => s.id === "by_regime")?.measures;
@@ -183,13 +204,16 @@ function periodsOf(r: TrialReport): PeriodBreakdown | null {
     year, closed: c.closed_trades, price: amount(c.price_pnl_usdt), fees: amount(c.fill_commissions_usdt), funding: amount(c.reported_funding_usdt),
   }));
   const exBestYearAnnual = r.dev_years?.return_without_best_year ?? null;
+  const devQuarters: DevQuarter[] = (r.dev_quarters?.quarters ?? []).map((q) => ({ start: q.start, end: q.end, ret: q.return, partial: q.partial }));
+  const worstQuarter = r.dev_quarters?.worst_quarter_return ?? null, exBestQuarterAnnual = r.dev_quarters?.return_without_best_quarter ?? null;
   if (
     monthsWonShare === null && residualAfterTop5Days === null && upMonthNotional === null && downMonthNotional === null
-    && levelTerm === null && timingTerm === null && !regimes.length && !devYears.length && !closedYears.length
+    && levelTerm === null && timingTerm === null && !regimes.length && !devYears.length && !devQuarters.length && !closedYears.length
   ) return null;
   return {
     monthsWonShare, monthsCount, residualAfterTop5Days, upMonthNotional, downMonthNotional,
     levelTerm, timingTerm, regimes, devYears, closedYears, exBestYearAnnual,
+    devQuarters, worstQuarter, exBestQuarterAnnual,
   };
 }
 

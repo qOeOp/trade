@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
-import { MISSING, pct, signedPct } from "../../lib/format";
-import type { AnnualInterval, Costs } from "../../model/backtest";
+import { MISSING, pct, ratio, signedPct } from "../../lib/format";
+import type { AnnualInterval, Costs, SharpeLo } from "../../model/backtest";
 import { useTesting } from "../../state/testing";
 import { Skeleton } from "../../ui/Missing";
 import { Section } from "../../ui/Section";
@@ -22,9 +22,9 @@ const range = (low: string, high: string) => `${low} to ${high}`;
 /** A probability in percent to one place; one that is not zero but rounds to it as <0.1%. */
 const chance = (p: number) => (p > 0 && p < 0.0005 ? "<0.1%" : p < 1 && p > 0.9995 ? ">99.9%" : `${(p * 100).toFixed(1)}%`);
 
-/** How much of a backtest's result chance could give: its annual return's bootstrap interval (the report's) and its
- *  deflated Sharpe at each of the line's trial counts, which move with the ledger and are read apart (state/testing.ts). */
-export function Reliability({ trial, interval }: { trial: number; interval: AnnualInterval | null }) {
+/** How much of a backtest's result chance could give: its annual return's bootstrap interval and its Sharpe counting
+ *  the daily returns' autocorrelations (the report's), and its deflated Sharpe at each of the line's trial counts, which move with the ledger and are read apart (state/testing.ts). */
+export function Reliability({ trial, interval, lo }: { trial: number; interval: AnnualInterval | null; lo: SharpeLo }) {
   const read = useTesting(), testing = read.kind === "ready" ? read.testing : null;
   // A run bound since the answer held is in the newer one being read.
   const reading = read.kind === "reading" || (read.kind === "ready" && read.newer && !(trial in read.testing.deflated_sharpe));
@@ -37,6 +37,11 @@ export function Reliability({ trial, interval }: { trial: number; interval: Annu
              tip="The block-bootstrap interval of the annual return, in the comparison design the run's registration declared; a run without one, or with days too few for its blocks, has none"
              detail={interval ? `${Math.round(interval.coverage * 100)}% interval · ${interval.days} days in ${interval.block}-day blocks` : "Not available for this run"}>
           {interval ? range(signedPct(interval.low, 1), signedPct(interval.high, 1)) : MISSING}
+        </Row>
+        <Row name="Sharpe (Lo-adjusted)"
+             tip="The annual Sharpe ratio counting the daily returns' autocorrelations (Lo 2002): closer to zero than the plain Sharpe when the days trend, further from it when they reverse"
+             detail={lo.note ?? (lo.lags === null ? null : `Autocorrelation over ${lo.lags} daily lags`)}>
+          {ratio(lo.value)}
         </Row>
         <Row name="Deflated Sharpe probability"
              tip="The probability that the run's Sharpe is above what the best of that many trials would show by chance: at every overlapping trial with the declared offline variants, and at the number of independent trials their correlation leaves. Only the line's research runs have one"

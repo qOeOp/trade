@@ -100,7 +100,7 @@ export function MarketExposure({ rows }: { rows: readonly ExposureRow[] }) {
 }
 
 /** Time and market-state decomposition from the report (`by_regime`, `by_period`, `capital_scaled`, `dev_years`,
- *  `closed_by_year`): performance across high/low basket volatility days, development years, closed cycles by
+ *  `dev_quarters`, `closed_by_year`): performance across high/low basket volatility days, development years and quarters, closed cycles by
  *  close year, month consistency, outlier-day dependence and exposure timing. The timing term takes no gain or
  *  loss colour: its sign alone does not identify sizing skill (`MEASURE_NOTES`). */
 export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
@@ -133,6 +133,18 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
                 <span className="text-fg-muted">{y.start} – {y.end}</span>
                 <span className={`text-right font-medium ${tone(y.ret)}`}>{signedPct(y.ret, 1)}</span>
                 <span className="text-right text-fg-muted">{pct(y.drawdown)}</span>
+              </Fragment>
+            ))}
+          </div>
+        )}
+        {p.devQuarters.length > 0 && (
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1">
+            <Head tip="A window under two years cut every three months from the trade start (UTC), each quarter's compound return; a last part quarter when the window ends between two">Development quarter</Head>
+            <Head right>Return</Head>
+            {p.devQuarters.map((q) => (
+              <Fragment key={q.start}>
+                <span className="text-fg-muted">{q.start} – {q.end}{q.partial && <span className="text-fg-faint"> (part)</span>}</span>
+                <span className={`text-right font-medium ${tone(q.ret)}`}>{signedPct(q.ret, 1)}</span>
               </Fragment>
             ))}
           </div>
@@ -176,6 +188,22 @@ export function PeriodsAndRegimes({ p }: { p: PeriodBreakdown }) {
                 <span className="text-fg-muted">Ex best year (annualized)</span>
               </Tip>
               <span className={`text-right ${tone(p.exBestYearAnnual)}`}>{signedPct(p.exBestYearAnnual, 1)}</span>
+            </>
+          )}
+          {p.worstQuarter !== null && (
+            <>
+              <Tip content="The lowest return of a whole development quarter; a part quarter is left out">
+                <span className="text-fg-muted">Worst whole quarter</span>
+              </Tip>
+              <span className={`text-right ${tone(p.worstQuarter)}`}>{signedPct(p.worstQuarter, 1)}</span>
+            </>
+          )}
+          {p.exBestQuarterAnnual !== null && (
+            <>
+              <Tip content="The window's annual return over its days without the best whole development quarter">
+                <span className="text-fg-muted">Ex best quarter (annualized)</span>
+              </Tip>
+              <span className={`text-right ${tone(p.exBestQuarterAnnual)}`}>{signedPct(p.exBestQuarterAnnual, 1)}</span>
             </>
           )}
           {(p.upMonthNotional !== null || p.downMonthNotional !== null) && (

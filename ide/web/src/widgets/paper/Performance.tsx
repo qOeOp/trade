@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { signed } from "../../lib/paperApi";
-import { MISSING } from "../../lib/format";
+import { MISSING, pct } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
 import type { Backtest } from "../../model/backtest";
 import { pnlClass } from "../../theme/roles";
@@ -11,7 +11,9 @@ import { TradeStrip } from "./TradeStrip";
 /** A paper run's performance as cards in Details: its closed trades one by one and how they ended, by
  *  side and by contract (with more than one). What they say stands in the version card (detail/Readings);
  *  what moved equity is Bridge.tsx. */
-export function Performance({ a, stats, exitNet = [] }: { a: Account; stats: TradeStats; exitNet?: Backtest["exitNet"] }) {
+export function Performance({ a, stats, exitNet = [], concentration = null }: {
+  a: Account; stats: TradeStats; exitNet?: Backtest["exitNet"]; concentration?: Backtest["concentration"];
+}) {
   const by = byContract(a.trades), closed = stats.sides.long.n + stats.sides.short.n > 0;
   return (
     <>
@@ -21,7 +23,10 @@ export function Performance({ a, stats, exitNet = [] }: { a: Account; stats: Tra
         {exitNet.length > 1 && <ExitNet rows={exitNet} />}
       </div></Section>
       {closed && <Section title="Long and short" aside="closed trades, after fees"><Sides sides={stats.sides} /></Section>}
-      {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
+      {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><div className="flex flex-col gap-3">
+        <Contracts by={by} />
+        {concentration && <Concentrated c={concentration} />}
+      </div></Section>}
     </>
   );
 }
@@ -117,6 +122,31 @@ function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
           </div>
         </Tip>
       ))}
+    </div>
+  );
+}
+
+/** What the closed net leans on (a backtest's report): the rest of it without the top contract, and with more than five
+ *  contracts (below, always all of it) the top five's share. */
+function Concentrated({ c }: { c: NonNullable<Backtest["concentration"]> }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 text-dense tabular-nums">
+      {c.top !== null && (
+        <>
+          <Tip content="The closed trades' net without the contract that adds most in the direction of the total: how far the result rests on it, not a reason to drop it">
+            <span className="min-w-0 justify-self-start text-fg-muted">Net without {c.top}</span>
+          </Tip>
+          <span className={`text-right ${c.withoutTop === null ? "text-fg-faint" : pnlClass(c.withoutTop)}`}>{signed(c.withoutTop)}</span>
+        </>
+      )}
+      {c.contracts > 5 && (
+        <>
+          <Tip content="The five largest contract nets, profit or loss, over the sum of every contract's, each counted by its size">
+            <span className="min-w-0 justify-self-start text-fg-muted">Top 5 contracts' share</span>
+          </Tip>
+          <span className="text-right text-fg">{pct(c.top5Share)}</span>
+        </>
+      )}
     </div>
   );
 }
