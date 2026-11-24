@@ -79,7 +79,6 @@ def _candidate_record(conn: db.LedgerConnection, row: Mapping, commit: str) -> d
             "difference": row["difference"], "created_at": row["created_at"], "ledger_commit": commit}
 
 
-
 def candidate_show(args):
     """The candidate record at a ledger version, without its source bytes."""
     strategies.parse_ref(args.candidate)
@@ -164,7 +163,6 @@ class {entry_class}(Strategy):
 '''
 
 
-
 def _header_block(template: str) -> str:
     """The docstring in strategy-header.md's text block, quotes included: the header a new source fills in."""
     block = template.split("```text\n", 1)[1].split("\n```", 1)[0].strip()
@@ -183,7 +181,6 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
                                            encoding="utf-8")
     notes = _workdir_notes(directory, f"{strategy_id}@<revision>")
     return {"output": str(directory), "files": ["strategy.py", *notes]}
-
 
 
 def _candidate_new(args):
@@ -267,7 +264,6 @@ def _subject(text: str) -> dict:
     if found:
         raise refuse("USAGE_ERROR", f"--subject has unknown keys {sorted(found)}")
     return subject
-
 
 
 def judgment_add(args):
@@ -359,7 +355,6 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
     return {**closed, "backup": {"ledger_commit": synced["ledger_commit"], "backup_path": synced["backup_path"]}}
 
 
-
 def _line_close(args):
     return line_close(_research(args), args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
                       profiles.market(args.market))
@@ -390,7 +385,6 @@ def hypothesis_compare(args):
 # `research runs --by`: report.status.RUN_MEASURES, named here so the parser imports no report code.
 RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
                 "daily_turnover", "alpha_basket", "beta_basket")
-
 
 
 def research_status(args):
@@ -689,8 +683,13 @@ COMMANDS = [
          option("--line", required=True, help="an open line research state lists under open_lines"),
          option("--summary", required=True,
                 help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, what was "
-                     "tried, results with their run IDs, failures and why, lessons and advice; numbers stay in the "
-                     "reports")),
+                     "tried, results with their run IDs, failures and why, lessons and advice; how the closing history "
+                     "test came out, veto and holdout apart, as a falsification test, never validation, without "
+                     "copying each candidate's verdicts (`research history` gives them); the holdout's earlier "
+                     "searches (holdout_prior_trials of `research history`, and outside this ledger: the three earlier "
+                     "ledger generations searched 2024-10 to 2026-10 about 3,100 times, which this ledger does not "
+                     "count); the date `line history` read the forward segment, after which only Paper and later data "
+                     "are unseen; other numbers stay in the reports")),
     command(registration_add, "registration", "add", "lock a registration", (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned market day (reader); the runtime image, resolved to its digest and probed",
