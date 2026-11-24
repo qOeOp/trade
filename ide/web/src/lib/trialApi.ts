@@ -43,7 +43,7 @@ export type TrialReport = {
    *  none with the reason when a day lacks it; what the basket is in `definition_note`. */
   basket?: { days: string[]; returns: number[] | null; null_reason: string | null; definition_note: string | null } | null;
 };
-/** The report; the product's refusal; or no report served here. */
+/** The report; the product's refusal; or why there is none. */
 export async function fetchTrial(trialId: number, at: string): Promise<{ kind: "report"; report: TrialReport } | Unread> {
   const read = await getJson<TrialReport>(`/api/trial?trial_id=${trialId}&at=${encodeURIComponent(at)}`);
   return read.kind === "ready" ? { kind: "report", report: read.body } : read;

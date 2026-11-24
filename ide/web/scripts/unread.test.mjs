@@ -37,6 +37,7 @@ const cases = [
   ["the page offline", async () => { throw new TypeError("Failed to fetch"); }, "TypeError: Failed to fetch"],
   ["the product silent", answer(400, { code: "PRODUCT_UNAVAILABLE", message: "replay report: timed out" }), "replay report: timed out"],
   ["no JSON", async () => new Response("<html>", { status: 502 }), "HTTP 502"],
+  ["an answer cut off", async () => new Response("{\"trial", { status: 200 }), "the answer is not JSON"],
   ["no such route", answer(404, { code: "NOT_FOUND", message: "/api/trial" }), "/api/trial is not served by this IDE"],
 ];
 for (const [name, fetch, why] of cases) test(`${name}: the notes say why`, async () => {

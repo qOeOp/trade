@@ -81,7 +81,7 @@ export async function getJson<T>(url: string): Promise<{ kind: "ready"; body: T 
     if (response.ok && body) return { kind: "ready", body };
     if (body?.code && !SERVED.has(body.code)) return { kind: "refused", code: body.code, message: body.message ?? "" };
     if (body?.code === "NOT_FOUND") return { kind: "absent", message: `${body.message} is not served by this IDE` };
-    return { kind: "absent", message: body?.message ?? `HTTP ${response.status}` };
+    return { kind: "absent", message: body?.message ?? (response.ok ? "the answer is not JSON" : `HTTP ${response.status}`) };
   } catch (error) {
     return { kind: "absent", message: String(error) };
   }

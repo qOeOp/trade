@@ -7,7 +7,7 @@ import { getJson, type Unread } from "./transport";
 type Bars = { bars: { columns: string[]; rows: (string | number)[][] } };
 
 /** `symbol`'s daily bars from UTC day `start` to `end` (left out) at market day `at`: the candles; the product's
- *  refusal; or no bars served here. */
+ *  refusal; or why there are none. */
 export async function fetchBars(symbol: string, start: string, end: string, at: string): Promise<{ kind: "bars"; candles: Candle[] } | Unread> {
   const read = await getJson<Bars>(`/api/bars?${new URLSearchParams({ symbol, timeframe: "1d", start, end, at })}`);
   if (read.kind !== "ready" || !read.body.bars) return read.kind === "ready" ? { kind: "absent", message: "no bars" } : read;
