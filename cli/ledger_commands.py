@@ -320,7 +320,7 @@ COMMANDS = [
          option("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)"),
          option("--backup-root", type=Path, help="run: the directory holding each database's backup"),
          option("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key"),
-         option("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to; the ledger is the repository's branch of this version's line (v0.<minor>, from 1.0 v<major>)"),
+         option("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to; its main is the ledger in use, and each earlier line's ledger is kept as the branch of its name (v0.<minor>, from 1.0 v<major>)"),
          option("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)"),
          option("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                 "containers that only read"),
@@ -341,8 +341,8 @@ COMMANDS = [
              ("readers", "a directory for the reader-only service.json of containers that only read"),
              ("controllers", "a private directory for the Paper controller's service and profile files"))),
          option("--research-origin", required=True,
-                help="the public DoltHub repository whose branch of this version's line (v0.<minor>, from 1.0 "
-                     "v<major>) the research mirror follows (file:// for isolated verification)"),
+                help="the public DoltHub repository whose main, the ledger in use, the research mirror follows "
+                     "(file:// for isolated verification)"),
          option("--port", type=int, default=13330, help="the Dolt port to listen on (default: 13330)"),
          option("--http-host", default="127.0.0.1", help="address of the internal sync API (default: 127.0.0.1)"),
          option("--http-port", type=int, default=8769, help="port of the internal sync API (default: 8769)"),
