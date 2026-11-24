@@ -954,6 +954,25 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.session.pending_entries, [])
         self.assertFalse(self.session.stopping or self.session.failed)
 
+    def test_an_entry_submitted_from_a_staged_denial_refuses_the_rest_and_ends_the_run_on_the_stop_path(self):
+        # The refusal empties the queue while deny_staged still goes through it (#3598).
+        made = []
+        self.on_denied(lambda source, event: made or (made.append(self.limit(price="93.00")), source.submit_order(made[0])))
+        first, _ = self.submit_pending(self.limit(price="95.00"))
+        second = self.limit(price="94.00")
+        self.source.submit_order(second)
+        live_connection.contract(self.session, self.contract("SETTLING"))
+        self.advance()
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.DENIED)
+        for unsent in (second, *made):
+            self.assertIsNone(self.engine.cache.order(unsent.client_order_id))
+        self.assertEqual({row["client_order_id"] for row in self.read_events("entry_refused")},
+                         {str(second.client_order_id), str(made[0].client_order_id)})
+        self.assertEqual(len(self.read_events("entry_denied")), 1)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertTrue(self.session.failed and self.session.stopping)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "entry_admission_failed")
+
     def test_an_entrys_own_read_finding_the_contract_not_trading_denies_it_natively(self):
         self.reader.snapshot_value = self.contract("PRE_SETTLE")
         entry, observation = self.submit_pending(self.limit(price="95.00"))
