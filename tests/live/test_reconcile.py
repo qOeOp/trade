@@ -26,7 +26,7 @@ def comparison(**changes) -> dict:
     """A comparison.json that reconciles, with `changes`."""
     value = {"data_source": "archive", "preliminary": None, "replay": {"status": "passed"},
              "summary": {"groups": 2, "look_ahead_suspects": 0, "equity_unexplained_minutes": 0},
-             "groups": [{"cause": None}, {"cause": "consequence"}]}
+             "groups": [{"class": "same"}, {"class": "differs", "cause": "consequence"}]}
     for key, item in changes.items():
         value[key] = {**value[key], **item} if isinstance(item, dict) and isinstance(value.get(key), dict) else item
     return value
@@ -46,7 +46,9 @@ class BarTests(unittest.TestCase):
                 ({"replay": {"status": "invalid"}}, "did not pass"),
                 ({"summary": {"groups": None}}, "did not pass"),
                 ({"summary": {"groups": 0}, "groups": []}, "no order group"),
-                ({"groups": [{"cause": "unexplained"}, {"cause": None}]}, "1 order group"),
+                ({"groups": [{"class": "differs", "cause": "unexplained"}, {"class": "same"}]}, "1 order group"),
+                ({"groups": [{"class": "differs", "cause": "late_bar"}, {"class": "differs", "cause": "consequence"}]},
+                 "no order group agrees"),
                 ({"summary": {"look_ahead_suspects": 1}}, "look-ahead"),
                 ({"summary": {"equity_unexplained_minutes": 4}}, "4 equity minute")):
             with self.subTest(changes=changes):
