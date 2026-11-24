@@ -329,7 +329,7 @@ class Session:
                 callback()
             # Until the back-filled bars are handed over and their orders checked, the recovery is not ready: a refusal
             # stops it as a pause, without cancelling (engine.paper.pausing), and publishes no checkpoint.
-            self.refused = self.backfill()
+            self.refused = self.refused or self.backfill()
             if self.refused:
                 return
             self.ready = True
@@ -436,10 +436,19 @@ class Session:
         return found
 
     def commanded(self, close: bool = False) -> str | None:
-        """Why a cancel, or a position close or a market exit (`close`), the source sends is not sent, or None: nothing
-        is once the recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
+        """Why a cancel, or a position close (`close`), the source sends is not sent, or None: nothing is once the
+        recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
         if close:
             return self.submitted(None)
+        return self.refused
+
+    def exiting(self) -> str | None:
+        """Why a market exit the source begins is not begun, or None: as a close (`commanded`), and one before the
+        back-fill has ended refuses the recovery. rc7 closes again every 100 ms while a position is open, past the
+        source's overrides, and Python cannot end a running exit: timer events already queued outlive a cancelled
+        timer. So it would go on sending if the back-fill then refused the recovery."""
+        if self.commanded(close=True) is None and self.since and not self.ready:
+            self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
         return self.refused
 
     def due(self, cache, now: int) -> str | None:

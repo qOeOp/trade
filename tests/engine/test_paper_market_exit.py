@@ -234,18 +234,18 @@ class MarketExitTests(Clocked):
         self.release()
         self.feed(self.now + MINUTE)
         self.source.submit_order(waiting)
-        session = SimpleNamespace(commanded=mock.Mock(return_value="an order cannot wait for T"), callback=nullcontext)
+        session = SimpleNamespace(exiting=mock.Mock(return_value="an order cannot wait for T"), callback=nullcontext)
         with mock.patch.object(paper, "SESSION", session):
             self.on_next_bar(lambda source: source.market_exit())
             self.feed(self.now + 2 * MINUTE)
-        session.commanded.assert_called_once_with(close=True)
+        session.exiting.assert_called_once_with()
         self.assertFalse(self.source.is_exiting())
         self.assertEqual(len(self.engine.cache.positions_open()), 1)
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders_open()],
                          [resting.client_order_id])
         self.assertEqual([item.canceled for item in paper_terms.QUEUE], [False])
         # The same call without the refusal exits (control).
-        session.commanded.return_value = None
+        session.exiting.return_value = None
         with mock.patch.object(paper, "SESSION", session):
             self.on_next_bar(lambda source: source.market_exit())
             self.release()

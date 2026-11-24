@@ -363,13 +363,13 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
                        quote_quantity=None, params=None):
         """A close on a back-filled bar is a MARKET order the recovery refuses; after a refusal no cancel or close is sent
-        (engine.paper_session.Session.commanded). A market exit, native past these overrides, is gated as a close."""
+        (engine.paper_session.Session.commanded). A market exit is native past these overrides (Session.exiting)."""
         if SESSION and SESSION.commanded(close=True):
             return None
         return super().close_position(position, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
 
     def market_exit(self):
-        if SESSION and SESSION.commanded(close=True):
+        if SESSION and SESSION.exiting():
             return None
         return super().market_exit()
 
