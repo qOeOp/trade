@@ -6,7 +6,7 @@ in-flight check, and the run asks the venue for it (engine.live_session.follow_s
 import time
 import unittest
 
-from engine import live_session
+from engine import live_session, live_venue
 from tests.live_loopback.harness import SYMBOL, TERMS, Loopback
 
 UNKNOWN = {"code": -1007, "msg": "Timeout waiting for response from backend server. Send status unknown; "
@@ -29,6 +29,8 @@ class UnknownSubmitTests(unittest.TestCase):
             time.sleep(45)
             [submitted] = run.native("OrderSubmitted")
             self.assertEqual(closed["client_order_id"], submitted["client_order_id"])
+            self.assertIn(live_venue.wire_id(submitted["client_order_id"]),  # how the comparison knows such an order
+                          [order.client_id for order in run.venue.orders.values()])
             self.assertEqual([found["type"] for found in run.native("OrderRejected")], [])
             run.venue.clear_faults()
             run.venue.mute_user_streams(False)
@@ -36,7 +38,9 @@ class UnknownSubmitTests(unittest.TestCase):
                                           if found["client_order_id"] == submitted["client_order_id"]), None),
                             timeout=2 * live_session.SUBMISSION_QUERY_SECONDS, what="the entry's own fill")
             self.assertEqual((fill["strategy_id"], fill["last_qty"]), (str(run.strategy_id), "0.002"))
-            run.wait(lambda: run.venue.open_algos(), what="the entry's stop at the venue")
+            [stop] = run.wait(lambda: run.venue.open_algos(), what="the entry's stop at the venue")
+            self.assertIn(stop.client_id, [live_venue.wire_id(found["client_order_id"])
+                                           for found in run.native("OrderSubmitted")])
             self.assertEqual(run.named("submission_unresolved"), [])
             run.stop()
             run.wait_exit()
