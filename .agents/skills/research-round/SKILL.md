@@ -76,7 +76,8 @@ never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments except the window to every precheck, registration and replay,
-and the runtime the precheck returned (`image_ref`) to every registration and replay. The
+and the runtime the precheck returned (`image_ref`) to `registration add --runtime`;
+`replay run --registration` inherits it. The
 environment is part of the effective configuration: a control and its candidate share it. `bars` models no
 liquidation, so decide from the source's designed distance to liquidation: the adverse move at
 which its largest allowed position reaches maintenance margin (a short of entry notional N on
