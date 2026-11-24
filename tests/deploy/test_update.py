@@ -138,6 +138,7 @@ class Workstation(Fake):
         self.moves = True  # whether its publish moves a ledger 0.5.3 left onto main
         self.health = "healthy"  # the version's ledger container's health, "" without a check
         self.first_start = ""  # the state its first-start port answers, "" without one
+        self.before = "healthy"  # the health of the ledger container an `up` finds
         self.main = True  # whether the version publishes on main (0.5.4 and later)
 
     def __call__(self, *args: str, check: bool = True) -> str:
@@ -147,7 +148,7 @@ class Workstation(Fake):
         if args[:2] == ("volume", "rm"):
             self.volumes.discard(args[2])
         if args[0] == "inspect":
-            health = self.health if self.started else "healthy"
+            health = self.health if self.started else self.before
             return f"{health}\n" if any("State.Health" in arg for arg in args) else "1000:1000\n"
         if args[0] == "run" and "deploy.generation" in args:
             command = [str(self.volume) if item == generation.MOUNTED else item
@@ -446,7 +447,7 @@ class CutoverTests(unittest.TestCase):
     def test_a_first_start_that_failed_is_started_again_by_the_next_update(self):
         self.cutover.assess(self.running)
         archived = {**self.cutover.begin({}, check=False), "phase": "archived"}
-        for state, again in (("waiting", True), ("blocked", True), ("running", False), ("done", False), ("", False)):
+        for state, again in (("waiting", True), ("blocked", True), ("done", False), ("", False)):
             with self.subTest(state=state):
                 self.cutover.journal.write_text(json.dumps(archived))
                 self.docker.first_start = state
@@ -478,6 +479,56 @@ class CutoverTests(unittest.TestCase):
         self.docker.health = ""  # no health check
         self.cutover.run(archived, ["compose"])
         self.assertFalse(self.cutover.journal.exists())
+
+    def test_a_first_start_under_way_ends_before_another_definition_starts(self):
+        self.cutover.assess(self.running)
+        archived = {**self.cutover.begin({}, check=False), "phase": "archived"}
+        answers = {"running": "running", "failed": "waiting", "served": "done", "unanswered": ""}
+
+        def ups() -> list:
+            return [call for call in self.docker.calls if "up" in call]
+
+        def resume(then: list[tuple[str, str]], first: str = "running") -> None:
+            """Run from `archived` over a ledger in state `first`; `then`: its state and health at each later look."""
+            steps = iter(then)
+
+            def sleep(seconds: float) -> None:
+                self.sleep(seconds)
+                self.assertFalse(ups(), "not while it is under way")
+                step, self.docker.before = next(steps, ("running", "starting"))
+                self.docker.first_start = answers[step]
+
+            self.cutover.sleep = sleep
+            self.cutover.journal.write_text(json.dumps(archived))
+            self.docker.first_start, self.docker.before = answers[first], "starting"
+            self.docker.started = False
+            self.docker.calls.clear()
+            self.now = 0.0
+            self.cutover.run(archived, ["compose"])
+
+        for name, then, stopped in (
+                ("it succeeds", [("running", "starting"), ("served", "starting")], False),
+                ("it fails", [("failed", "starting")], True),
+                ("a look fails", [("unanswered", "starting"), ("served", "starting")], False),
+                ("it restarted and serves", [("unanswered", "healthy")], False),
+                ("its container is gone", [("unanswered", "")], False)):
+            with self.subTest(name):
+                resume(then)
+                self.assertEqual(self.now, 20 * len(then))
+                self.assertEqual(("stop", LEDGER) in self.docker.calls, stopped)
+                self.assertTrue(ups())
+        with self.subTest("its port opens after the first look"):
+            resume([("running", "starting"), ("served", "healthy")], "unanswered")
+            self.assertEqual(self.now, 40)
+        with self.subTest("it never answers and is no first start seen under way"):
+            resume([("unanswered", "starting")] * 5, "unanswered")
+            self.assertEqual(self.now, 60)
+        with self.assertRaisesRegex(RuntimeError, "still under way after 1800 s.*update again once it ends"):
+            resume([])
+        self.assertEqual(self.now, 1800)
+        self.assertFalse(ups())
+        self.assertNotIn(("stop", LEDGER), self.docker.calls)
+        self.assertTrue(self.cutover.journal.exists())
 
     def test_a_cutover_pending_for_another_line_is_left_to_the_operator(self):
         self.cutover.assess(self.running)

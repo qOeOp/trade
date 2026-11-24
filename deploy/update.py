@@ -48,7 +48,8 @@ REPLAY_AGE = timedelta(hours=1)  # a replay removes its own container right afte
 # Run in the ledger's container: what its first start's port answers (ledger/first_run.py; compose.yaml --setup).
 FIRST_START = ("import http.client, json\nc = http.client.HTTPConnection('ledger', 8770, timeout=10)\n"
                "c.request('GET', '/api/setup/')\nprint(json.load(c.getresponse())['state'])")
-MOVE_SECONDS, MOVE_POLL = 1800, 20  # how long a move waits for the ledger to track main, and how often it looks
+MOVE_SECONDS, MOVE_POLL = 1800, 20  # how long a wait for the ledger lasts, and how often it looks
+PORT_SECONDS = 60  # how long a ledger container just started may take to open its first-start port or be healthy
 
 
 class Docker:
@@ -340,12 +341,32 @@ class Cutover:
                                    "cannot publish before the cutover; look at its log and update again")
             self.sleep(MOVE_POLL)
 
-    def stop_failed_first_start(self) -> None:
-        """Stop a ledger whose first start failed, for the `up` that follows to start again from this definition: it
-        runs on and waits for the IDE's page, which the cutover stopped. A first start under way is not stopped, since
-        that could kill it between its steps, nor is a ledger that serves (no first-start port)."""
-        answer = self.docker.result("exec", LEDGER, "python", "-c", FIRST_START)
-        if answer.returncode == 0 and answer.stdout.strip() in ("waiting", "blocked"):
+    def settle_first_start(self) -> None:
+        """Before the `up` that follows: wait for a first start under way to end, since `up` recreates the container of
+        another definition (a new version, a changed env file) and could kill it between its steps; then stop a ledger
+        whose first start failed, for `up` to start it again: it runs on and waits for the IDE's page, which the
+        cutover stopped. A ledger that serves (no first-start port) goes on to `up` as it is."""
+        begun, seen = self.clock(), False
+        while True:
+            answer = self.docker.result("exec", LEDGER, "python", "-c", FIRST_START)
+            state = answer.stdout.strip() if answer.returncode == 0 else ""
+            if state in ("waiting", "blocked", "done"):
+                break
+            # An unanswered look says nothing while the container is short of healthy: one under way missed it, or the
+            # container just started and its port is not open yet (a serving ledger is healthy well within PORT_SECONDS).
+            if not state and not ((seen or self.clock() - begun < PORT_SECONDS) and self.docker(
+                    "inspect", "--format", "{{.State.Health.Status}}", LEDGER, check=False).strip() == "starting"):
+                break
+            if self.clock() - begun >= MOVE_SECONDS:
+                raise RuntimeError(f"the ledger's first start is still under way after {MOVE_SECONDS} s, and replacing "
+                                   f"its container could kill it between its steps; follow its log (docker logs "
+                                   f"--follow {LEDGER}) and update again once it ends (the cutover resumes here). One that is "
+                                   f"stuck: docker stop --time 600 {LEDGER} lets it clean up, then update again")
+            if state and not seen:
+                print(f"The ledger's first start is under way; waiting up to {MOVE_SECONDS} s for it to end", flush=True)
+            seen = seen or bool(state)
+            self.sleep(MOVE_POLL)
+        if state in ("waiting", "blocked"):
             print("The ledger's first start failed before (its log says why); starting it again", flush=True)
             self.docker("stop", LEDGER)
 
@@ -449,7 +470,7 @@ class Cutover:
         self.docker(*base, "pull", "--quiet")
         # The ledger alone first: its first start refuses a profile directory holding any profile, and the other
         # services read market.json, which goes back once it is up.
-        self.stop_failed_first_start()
+        self.settle_first_start()
         self.docker(*base, "up", "--detach", "--wait", "--wait-timeout", "1800", "ledger")
         # Compose's `--wait` can time out and still exit 0 on a health check that never passed.
         health = self.docker("inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}",
