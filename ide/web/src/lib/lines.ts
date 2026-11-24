@@ -7,11 +7,12 @@ export function lineHref(href: string, line: string): string {
   return `${url.pathname}${url.search}`;
 }
 
-/** This page on line `line` with `version` selected. A page opened without a line has none in its address, and
- *  which line it draws changes with the open ones, so a link to the version always names it. */
+/** This page on line `line` with `version` selected and no run, stage or replay named. A page opened without
+ *  a line has none in its address, and which line it draws changes with the open ones, so a link names it. */
 export function versionHref(href: string, line: string, version: string): string {
   const url = new URL(href);
   url.searchParams.set("line", line);
+  for (const other of ["live", "run", "stage", "trial"]) url.searchParams.delete(other);
   url.hash = encodeURI(version);
   return url.href;
 }

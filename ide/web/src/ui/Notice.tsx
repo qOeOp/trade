@@ -5,7 +5,7 @@ import { Pressable } from "./Pressable";
 /** A notice over the page until it is closed, its icon in the colour of what it says. */
 export function Notice({ tone, title, children, onClose }: { tone: "fail" | "misses"; title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div role="alert" className="flex items-start gap-3 rounded-popup border border-line-strong bg-popup px-4 py-3 text-dense shadow-popup">
+    <div role={tone === "fail" ? "alert" : "status"} className="flex items-start gap-3 rounded-popup border border-line-strong bg-popup px-4 py-3 text-dense shadow-popup">
       <Icon name="warning" size={16} tone={tone} className="mt-0.5 shrink-0" />
       <div className="min-w-0 wrap-anywhere">
         <p className="font-medium text-fg">{title}</p>

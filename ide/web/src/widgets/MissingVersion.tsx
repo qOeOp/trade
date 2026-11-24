@@ -8,8 +8,8 @@ import { Notice } from "../ui/Notice";
 export function MissingVersion() {
   const { line } = useView(), id = useAtom(missing), shown = useSelection();
   return id && line.name && (
-    <Notice tone="misses" title={`${id} is not on this line`} onClose={() => missing.set(null)}>
-      <p className="text-fg-muted">{line.name}, as drawn here, does not hold it.{shown && ` Showing ${shown} instead.`}</p>
+    <Notice tone="misses" title={`${id} is not on ${line.name}`} onClose={() => missing.set(null)}>
+      {shown && <p className="text-fg-muted">Showing {shown} instead.</p>}
     </Notice>
   );
 }

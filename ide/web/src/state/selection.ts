@@ -3,7 +3,10 @@ import { useSyncExternalStore } from "react";
 import { atom, useAtom } from "./atom";
 import { requestFocus } from "./linking";
 
-const fromHash = () => decodeURIComponent(window.location.hash.slice(1)) || null;
+const fromHash = () => {
+  const named = window.location.hash.slice(1);
+  try { return decodeURIComponent(named) || null; } catch { return named; }  // a malformed escape names no version
+};
 
 export const selection = atom<string | null>(null);
 

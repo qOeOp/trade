@@ -17,7 +17,7 @@ import { detectLiveTrading, liveTrading } from "./state/liveTrading";
 import { detectPaperService, paperRuns } from "./state/paper";
 import { showLiveRun } from "./state/liveWorkspace";
 import { phoneNow } from "./state/phone";
-import { initSelection, selection } from "./state/selection";
+import { initSelection, missing, selection } from "./state/selection";
 import { choiceOf, choices as runChoices, restoreLiveRun, restoreStage, pickWanted } from "./state/stage";
 import { viewStatus, type Choice } from "./state/update";
 import "virtual:harmonyos-sans-sc.css";
@@ -38,6 +38,8 @@ function show(next: View | null): void {
   const lineage = view.widgets.find((w) => w.type === "lineage") as LineageWidget | undefined;
   const detail = view.widgets.find((w) => w.type === "candidate-detail") as DetailWidget | undefined;
   const prior = choiceOf(runChoices.get(), selection.get());
+  // A stage or run the reader chose of the version shown instead of the linked one makes it their version.
+  if (Object.keys(prior).length) missing.set(null);
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   // A late research response must not replace the independently selected Live run.
   if (prior.stage === "live") {

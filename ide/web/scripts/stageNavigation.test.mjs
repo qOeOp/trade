@@ -140,6 +140,8 @@ test("an address naming a version the line lacks says so until it is drawn, repl
   assert.deepEqual(closed.state(), ["paper@1", null], "a closed notice does not come back with the next view");
   closed.goTo("#other@3");
   assert.deepEqual(closed.state(), ["paper@1", "other@3"]);
+  closed.goTo("#50%");
+  assert.deepEqual(closed.state(), ["paper@1", "50%"], "a malformed address is one no line holds");
   closed.goTo("#live@1");
   assert.deepEqual(closed.state(), ["live@1", null]);
 });
