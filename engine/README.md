@@ -134,8 +134,9 @@ market's latest day. For an entry both read Binance's `fapi/v1/exchangeInfo` the
 rc7 does not reload a loaded instrument mid-run, off the node's thread: the entry waits unsent while bars, timers and
 reduce-only orders go on (`engine.paper_terms`), and a Paper checkpoint is not cut while one waits. An entry
 its source cancels while it waits (a market exit cancels it too) is never sent and ends `CANCELED` natively
-(`engine.unsent`): in Paper once its read is done, in Live on the Observer's next tick. A difference is `TERMS_CHANGED`, with both values: the entry is not
-sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
+(`engine.unsent`): in Paper once its read is done, in Live on the Observer's next tick. One a source submits
+during its market exit does not wait in Paper: Nautilus denies it at once, as in a replay. A difference is
+`TERMS_CHANGED`, with both values: the entry is not sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
 same way. A replay never meets a change: it trades the whole window on one terms snapshot per contract
 (`market.instrument`). Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
 replace an instrument), so it keeps the loader's 0.1 and sets its leverage to `--leverage` x 0.1, which locks the

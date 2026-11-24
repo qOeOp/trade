@@ -156,3 +156,69 @@ class MarketExitTests(Clocked):
         self.on_next_bar(act)
         self.release()
         self.assertEqual((self.source.denials, self.source.cancels), (["MARKET_EXIT_IN_PROGRESS"], []))
+
+    def entry_during_exit(self, *, after: bool, waiting: bool = True, tags: list[str] | None = None):
+        """The end of an entry the source submits during its exit of a held position; its read, if any, is done while
+        the exit runs, or `after` it has ended."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        if not waiting:
+            self.source._paper_entry_terms = None  # sent at once, as a replay sends it
+        order = self.source.order_factory.limit(fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("0.010"),
+                                                Price.from_str("100.50"), tags=tags)
+
+        def act(source):
+            source.market_exit()
+            source.submit_order(order)
+        self.on_next_bar(act)
+        if after:
+            self.feed(self.now + MINUTE)
+        self.assertIs(self.source.is_exiting(), not after)
+        self.release()
+        self.feed(self.now + 2 * MINUTE)
+        self.assertFalse(self.source.is_exiting())
+        self.assertEqual((strategy_runtime.BREACHES, paper_terms.QUEUE), ([], []))
+        found = self.engine.cache.order(order.client_order_id)
+        return found.status.name, self.source.denials
+
+    def test_an_entry_during_the_exit_is_denied_as_a_replay_denies_it(self):
+        for after, waiting in ((True, True), (False, True), (False, False)):
+            with self.subTest(after=after, waiting=waiting):
+                self.assertEqual(self.entry_during_exit(after=after, waiting=waiting),
+                                 ("DENIED", ["MARKET_EXIT_IN_PROGRESS"]))
+            self.doCleanups()
+            self.setUp()
+
+    def test_changed_terms_still_refuse_an_entry_the_exit_does_not_deny(self):
+        """Nautilus sends an entry with its exit's tag, so that one still waits for its terms read."""
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.changed = ["price_increment: market 0.10, exchange 0.01"]
+        order = self.source.order_factory.limit(fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("0.010"),
+                                                Price.from_str("100.50"), tags=[paper_terms.MARKET_EXIT_TAG])
+
+        def act(source):
+            source.market_exit()
+            source.submit_order(order)
+        self.on_next_bar(act)
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
+        self.assertIsNone(self.engine.cache.order(order.client_order_id))
+
+    def test_a_sources_own_is_exiting_is_not_the_native_flag(self):
+        for own in (lambda _: True, False):
+            with self.subTest(own), mock.patch.object(type(self.source), "is_exiting", own):
+                order = self.entry("limit")
+                self.on_next_bar(lambda source, order=order: source.submit_order(order))
+                self.assertEqual([item.order for item in paper_terms.QUEUE], [order])
+                self.release()
+
+    def test_a_replay_sends_an_entry_with_the_exits_tag(self):
+        self.assertEqual(self.entry_during_exit(after=False, waiting=False, tags=[paper_terms.MARKET_EXIT_TAG]),
+                         ("FILLED", []))

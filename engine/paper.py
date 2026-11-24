@@ -336,8 +336,9 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
         on and the contract only reduces (coverage U9). An order on a back-filled bar that cannot wait for T is not
-        sent either: the recovery is refused (engine.paper_session.Session.submitted). Any other entry waits for its
-        terms read (engine.paper_terms.queue). The order rules see every order sent."""
+        sent either: the recovery is refused (engine.paper_session.Session.submitted). An entry Nautilus denies (its
+        source is exiting, engine.paper_terms) goes to it at once; any other waits for its terms read
+        (engine.paper_terms.queue). The order rules see every order sent."""
         now = NOW()
         if not order.is_reduce_only and not self._paper_membership.member_at(now):
             journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
@@ -346,7 +347,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         if SESSION and SESSION.submitted(order):
             return None
         send = functools.partial(super().submit_order, order, position_id, client_id, params)
-        if order.is_reduce_only or not self._paper_entry_terms:
+        if order.is_reduce_only or not self._paper_entry_terms or self._denied_exiting(order):
             return send()
         return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
 
