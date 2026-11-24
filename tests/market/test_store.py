@@ -552,6 +552,78 @@ class LaterImportTests(unittest.TestCase):
         found = rows(profile, "instrument", ["BTCUSDT"])["classification"].to_pylist()
         self.assertEqual([json.loads(item)["contract_type"] for item in found], ["PERPETUAL", ""])  # recorded
 
+    def reused(self, profile, found: Exchange, *, listed: date, **contract) -> dict:
+        """CCCUSDT, which stopped in February, is listed again as another contract and trades in March."""
+        low = day_ms(listed)
+        found.info = [item for item in found.info if item["symbol"] != "CCCUSDT"]
+        found.contract("CCCUSDT", onboard=low, **contract)
+        found.klines("monthly", "LAST", "CCCUSDT", "2025-03", minutes(low, day_ms(APR)))
+        found.klines("monthly", "MARK", "CCCUSDT", "2025-03", minutes(low, day_ms(APR), mark=True))
+        found.funding_month("CCCUSDT", "2025-03", [(at + 3, "0.0001") for at in range(low, day_ms(APR), EIGHT_HOURS)])
+        found.rest[("LAST1d", "CCCUSDT")] = minutes(low, day_ms(APR))
+        with serving(found):
+            return store.import_month(profile, MAR, self.cache, 1, ["BBBUSDT", "BTCUSDT", "CCCUSDT"],
+                                      log=lambda line: None)
+
+    def test_a_symbol_given_to_an_equity_stops_being_imported(self):
+        equity = {"contract_type": "TRADIFI_PERPETUAL", "underlying": "EQUITY"}
+        for status in ("TRADING", "BREAK"):
+            with self.subTest(status=status):
+                profile, found, _ = self.database(scope=("BBBUSDT", "BTCUSDT", "CCCUSDT"))
+                done = self.reused(profile, found, listed=date(2025, 3, 5), status=status, **equity)
+                self.assertEqual(done["excluded"], {"CCCUSDT": "contract_type:TRADIFI_PERPETUAL"})
+                self.assertNotIn("CCCUSDT", done["per_symbol"])
+                self.assertEqual(done["universe_members"], ["BBBUSDT", "BTCUSDT"])
+
+    def test_a_coin_listed_again_is_still_imported(self):
+        profile, found, _ = self.database(scope=("BBBUSDT", "BTCUSDT", "CCCUSDT"))
+        done = self.reused(profile, found, listed=date(2025, 3, 5))
+        self.assertEqual((done["excluded"], done["per_symbol"]["CCCUSDT"]["bars"]["LAST"]), ({}, 27 * 1440))
+
+    def test_which_contract_bears_a_symbol_in_a_month(self):
+        def row(at: date, kind: str, underlying: str) -> dict:
+            return {"observed_at": day_ms(at), "classification": json.dumps({
+                "contract_type": kind, "quote_asset": "USDT", "underlying_type": underlying})}
+
+        def item(kind: str, underlying: str, onboard: date) -> dict:
+            return {"symbol": "XUSDT", "contract_type": kind, "underlying_type": underlying, "base_asset": "X",
+                    "onboard_date": day_ms(onboard)}
+        coin, equity = ("PERPETUAL", "COIN"), ("TRADIFI_PERPETUAL", "EQUITY")
+        seen_coin, seen_equity = row(FEB, *coin), row(FEB, *equity)
+        old, new = date(2025, 1, 5), date(2025, 3, 5)
+        for label, seen, now, expected in (  # eligible in February, March, April
+                ("coin then equity", [seen_coin], item(*equity, new), (True, False, False)),
+                ("equity then coin", [seen_equity], item(*coin, new), (False, False, True)),
+                ("same contract, other type", [seen_coin], item("PERPETUAL_DELIVERING", "COIN", old), (True, True, True)),
+                ("premarket graduates", [row(FEB, "PERPETUAL", "PREMARKET")], item(*coin, old), (False, False, False)),
+                ("settling", [seen_coin], item("", "COIN", new), (True, True, True)),
+                ("gone", [seen_coin], None, (True, True, True)),
+                ("equity gone again", [seen_coin, row(new, *equity)], None, (True, False, False)),
+                ("equity settling", [seen_coin, row(new, *equity)], item("", "EQUITY", new), (True, False, False)),
+                ("coin delivering, gone", [seen_coin, row(new, "PERPETUAL_DELIVERING", "COIN")], None, (True, True, True)),
+                ("relisted coin delivering", [seen_coin], item("PERPETUAL_DELIVERING", "COIN", new), (True, True, True)),
+                ("equity, then coin settling", [seen_equity, row(new, *coin)], item("", "COIN", new), (False, False, True)),
+                ("equity between two coins, gone", [seen_coin, row(new, *equity), row(date(2025, 4, 5), *coin)], None,
+                 (True, False, False)),
+                ("equity, then a coin again", [seen_coin, row(new, *equity), row(date(2025, 3, 20), *coin)],
+                 item(*coin, date(2025, 3, 20)), (True, False, True)),
+                ("coin, equity never stored with a type", [seen_coin], item("", "EQUITY", new), (True, False, False)),
+                ("equity settling, seen after the month", [seen_coin, row(date(2025, 4, 2), *equity)],
+                 item("", "EQUITY", new), (True, False, False)),
+                ("equity announced for April", [seen_coin, row(new, *equity)], item(*equity, APR), (True, True, False)),
+                ("coin, then premarket graduates", [seen_coin, row(new, "PERPETUAL", "PREMARKET"), row(APR, *coin)],
+                 item(*coin, new), (True, False, False)),
+                ("first seen settling, relisted, settling", [row(FEB, "", "COIN"), row(new, *coin)],
+                 item("", "COIN", new), (False, False, True)),
+                ("premarket seen pending graduates", [row(FEB, "PERPETUAL", "PREMARKET")], item(*coin, new),
+                 (False, False, False)),
+                ("premarket graduates, gone", [row(FEB, "PERPETUAL", "PREMARKET"), row(new, *coin)], None,
+                 (False, False, False)),
+                ("never seen", [], item(*equity, new), (False, False, False))):
+            with self.subTest(label):
+                self.assertEqual(tuple(universe.contract_in_month("XUSDT", seen, now, at)["eligible"] for at in (FEB, MAR, APR)),
+                                 expected)
+
     def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001", absent: int | None = None):
         """March from public REST only through 2025-03-10 (no March archive published yet)."""
         march = {key: value for key, value in found.archives.items() if "2025-03" in key}
