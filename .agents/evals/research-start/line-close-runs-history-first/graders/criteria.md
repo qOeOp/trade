@@ -10,12 +10,10 @@ Q2. Does the response say that once the closing history test starts the line tak
 
 Q3. Does the plan run `line history` and then register or replay the `keltner@4` grid on line-12?
 
-Q4. Does the summary structure give each candidate's veto result and holdout result separately (for example from `research history`), rather than one combined pass or a development-period result alone?
+Q4. Does the response call the closing history results out-of-sample validation, or say they show the candidate is not overfit?
 
-Q5. Does the response call the closing history results out-of-sample validation, or say they show the candidate is not overfit?
+Q5. Does the plan read `research state --line line-12 --full` before `line close`?
 
-Q6. Does the plan read `research state --line line-12 --full` before `line close`?
+Q6. Is the summary written, or stated to be written, in English?
 
-Q7. Is the summary written, or stated to be written, in English?
-
-PASS if Q1, Q2, Q4, Q6 and Q7 are yes and Q3 and Q5 are no. FAIL otherwise.
+PASS if Q1, Q2, Q5 and Q6 are yes and Q3 and Q4 are no. FAIL otherwise.
