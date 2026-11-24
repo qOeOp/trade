@@ -11,11 +11,14 @@ services only, never the active ledger."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -28,6 +31,45 @@ from ledger import admin, db, publish, server, service, strategies
 from shared import profiles
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 from tests.helpers import refused, tempdir
+
+
+# A first start of line v9 in its own process, which kills itself at one point: argv is that point, then
+# service.start's. Its Dolt server is in the same process group, killed by the test (a container takes it along).
+KILLED = """
+import os, signal, sys
+from pathlib import Path
+from ledger import db, publish, service
+from shared import profiles
+
+point, service_root, data, backups, credentials, origin, port, binary = sys.argv[1:]
+publish.LINE, publish.TAG, db.line_tag = "v9", "line/v9", lambda: "line/v9"
+service.LISTEN = "127.0.0.1"
+
+
+def die():
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+push, write = publish._push, profiles.private_write
+
+
+def pushing(cursor, profile, url, ref, force=False):
+    if point == ("before main" if force else "before tag"):
+        die()
+    push(cursor, profile, url, ref, force)
+    if force and point == "after main":
+        die()
+
+
+def writing(path, value):
+    write(path, value)
+    if point == "after profile" and Path(path).name == "research.json":
+        die()
+
+
+publish._push, profiles.private_write = pushing, writing
+service.start(Path(service_root), Path(data), Path(backups), Path(credentials), origin, int(port), binary, "isolated")
+"""
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -305,6 +347,74 @@ class RunTests(unittest.TestCase):
         published = publish.publish(profile)["head"]
         self.assertEqual(self.remote(origin)["branches"][publish.line(publish.product_version())], self.published)
         self.assertEqual(self.remote(origin)["branches"]["main"], published)
+
+    def came_up(self, origin: Path) -> None:
+        """A first start brings up a ledger of line v9 that is `main` of `origin`, with the old line's main archived."""
+        process, _ = self.start(origin=origin.as_uri())
+        profile = db.load_profile("research")
+        with db.read_as_of(profile) as conn:
+            head = conn.resolved_commit
+        self.assertEqual(publish.publish(profile)["head"], head)
+        self.assertEqual(self.remote(origin)["branches"], {
+            "main": head, "v0.0": self.other, publish.line(publish.product_version()): self.published})
+        server.stop(process)
+
+    def test_a_later_line_killed_midway_is_never_served_and_comes_up_once_emptied(self):
+        """Killed around its push, a first start left service.json and a profile: later starts then served a ledger
+        that could never publish."""
+        self.later()
+        for point in ("before tag", "before main", "after main", "after profile"):
+            with self.subTest(killed=point):
+                origin = self.copy(point.replace(" ", "-"))
+                child = subprocess.Popen(
+                    [sys.executable, "-c", KILLED, point, *map(str, (
+                        self.service_root, self.data, self.backups, self.credentials, origin.as_uri(), self.port,
+                        BINARY))], start_new_session=True, stdout=self.log, stderr=self.log,
+                    cwd=Path(service.__file__).parents[1])
+                try:
+                    child.wait(120)
+                finally:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(child.pid, signal.SIGKILL)
+                    child.wait()
+                self.assertEqual(child.returncode, -signal.SIGKILL, "it got to that point")
+                after = self.remote(origin)["branches"]
+                self.assertEqual(after[publish.line(publish.product_version())], self.published, "archived first")
+                self.assertEqual(after["main"] != self.published, point.startswith("after"))
+                self.assertFalse((self.service_root / "service.json").exists())
+                self.assertEqual(refused(self.start, origin=origin.as_uri()).code, "BOOTSTRAP_REFUSED")
+                self.assertEqual(self.remote(origin)["branches"], after, "refused before anything is pushed")
+                self.reset()
+                self.came_up(origin)
+                if point.startswith("after"):
+                    self.assertEqual(self.remote(origin)["branches"]["main"], after["main"], "fetched, not made again")
+                self.reset()
+
+    def reset(self) -> None:
+        """The documented reset (deploy/README.md, First start)."""
+        for directory in (self.service_root, self.data, profiles.home()):
+            shutil.rmtree(directory, True)  # a killed start may not have made it
+
+    def test_a_later_line_whose_push_fails_is_not_healthy_meanwhile_and_the_next_start_resumes(self):
+        self.later()
+        push = publish._push
+        for point in ("tag", "main", "after main"):
+            with self.subTest(failed=point):
+                origin = self.copy(f"failing-{point.replace(' ', '-')}")
+
+                def failing(cursor, profile, url, ref, force=False):
+                    self.assertEqual(refused(db.load_profile, "research").code, "LEDGER_UNKNOWN", "check fails")
+                    self.assertFalse((self.service_root / "service.json").exists())
+                    if point == "after main" or (point == "main" and not force):
+                        push(cursor, profile, url, ref, force)
+                    if point == "tag" or force:
+                        raise publish.refuse("PUBLISH_FAILED", "the network is gone")
+
+                with patch.object(publish, "_push", failing):
+                    self.assertEqual(refused(self.start, origin=origin.as_uri()).code, "PUBLISH_FAILED")
+                self.assertEqual(list(self.data.iterdir()), [])
+                self.came_up(origin)
+                self.reset()
 
     def test_a_mirror_of_a_replaced_main_holds_the_new_line_alone(self):
         origin = self.copy("fresh")

@@ -235,9 +235,14 @@ authority for that rewrite. When another workstation already put the line's ledg
 The update puts `market.json` back into `ledgers`, removes every older archive it made, and goes on as above. The
 market directory has no generation and stays. `$TRADE_DATA/deploy/generation.json` records the step and the line: an
 interrupted cutover is finished by the next update of that line, from that step (a version of another line is
-refused), and an interrupted first start resumes, since pushing the archive branch again changes nothing. `--check`
-says whether the version starts a new generation and changes nothing. Every refusal comes before the env file names the
-new images. The release host waits for this publication before its own cutover
+refused), and a first start that fails removes what it made, so after `docker restart trade-ide-ledger-1` (it waits
+instead of trying again by itself) the next update goes on: pushing the archive branch again changes nothing. One
+killed midway (out of memory, a power loss, a stop that took longer than Docker waits) leaves files without
+`service.json`: `ledger service check` fails, the log says `BOOTSTRAP_REFUSED` and the update fails after its 30-minute
+wait, until you reset it as [First start](#first-start) says and update again (the old ledger is in the archive and on
+its line's branch; the new one is made again, or fetched when `main` already holds it). `--check` says whether the
+version starts a new generation and changes nothing. Every refusal comes before the env file names the new images. The
+release host waits for this publication before its own cutover
 ([remote/README.md](remote/README.md#a-version-that-starts-a-new-data-generation)).
 
 The first update to 0.5.4 or later moves the v0.5 ledger, which 0.5.3 published as the repository's branch `v0.5`,

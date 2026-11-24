@@ -329,14 +329,15 @@ def _timer(seconds: dict):
     return timed
 
 
-def publish(profile: db.LedgerProfile) -> dict:
+def publish(profile: db.LedgerProfile, config: dict | None = None) -> dict:
     """Push the branch and check by a fetch that the remote's head contains the local one read before the
     push, holding the database's publish lock. `head` of the result is the remote's head after that check;
     `seconds` is the wall time of each stage (waiting for the lock, the branch push, the fetches). The first
-    publication to a remote without `main` pushes the ledger's line tag first."""
+    publication to a remote without `main` pushes the ledger's line tag first. `config` is the service's while a
+    first start has not written its service.json."""
     seconds = dict.fromkeys(("lock", "push", "fetch"), 0.0)
     timed = _timer(seconds)
-    conn = server.admin(profile)
+    conn = server.admin(profile, config)
     try:
         with conn.cursor() as cursor:
             url = server.origin(cursor)
@@ -374,13 +375,14 @@ def publish(profile: db.LedgerProfile) -> dict:
             "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}
 
 
-def replace(profile: db.LedgerProfile) -> dict:
+def replace(profile: db.LedgerProfile, config: dict | None = None) -> dict:
     """Make the new ledger of this line the remote's `main` in place of the previous line's, which `archive` has
     pushed to that line's branch and checked: its line tag first, so `main` never holds it untagged, then `main`
-    forced, then a fetch must show the local head. Only a new ledger's first start calls this (ledger/service.py)."""
+    forced, then a fetch must show the local head. Only a new ledger's first start calls this (ledger/service.py),
+    with the service's `config`: it has written no service.json yet."""
     seconds = dict.fromkeys(("lock", "push", "fetch"), 0.0)
     timed = _timer(seconds)
-    conn = server.admin(profile)
+    conn = server.admin(profile, config)
     try:
         with conn.cursor() as cursor:
             url = server.origin(cursor)

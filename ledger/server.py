@@ -251,10 +251,11 @@ def connect_root(config: dict, password: str | None = None, database: str | None
                               connect_timeout=5, max_allowed_packet=1 << 30)
 
 
-def admin(profile) -> pymysql.Connection:
-    """The service administrator's connection to a profile's database (its service_root and database); a service
-    that does not accept it is connection_error's refusal."""
-    config = known_service(profile.service_root)
+def admin(profile, config: dict | None = None) -> pymysql.Connection:
+    """The service administrator's connection to a profile's database (its service_root and database), from its
+    service.json, or from `config` while a first start has not written one; a service that does not accept it is
+    connection_error's refusal."""
+    config = config or known_service(profile.service_root)
     try:
         return connect_root(config, database=profile.database)
     except pymysql.MySQLError as exc:
