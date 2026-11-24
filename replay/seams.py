@@ -15,9 +15,17 @@ import threading
 from runtime import container
 
 
-def _copy(pipe, sink) -> None:
+def _copy(pipe, sink, failures: list[Exception]) -> None:
+    """Drain `pipe` into `sink`. After a failed write (kept in `failures`) it only drains, so that the container
+    never blocks on a full pipe."""
+    failed = False
     for chunk in iter(lambda: pipe.read1(1 << 16), b""):
-        sink.write(chunk)
+        if not failed:
+            try:
+                sink.write(chunk)
+            except Exception as exc:  # noqa: BLE001 (raised by _run once the container ended)
+                failures.append(exc)
+                failed = True
 
 
 class MemoryLimit(Exception):
@@ -52,11 +60,13 @@ def _remove(name: str) -> bool:
 def _run(command: list[str], stdout, stderr, timeout: float | None) -> int:
     """Run one container to its end, handing its output to `stdout` and `stderr` (each with write(bytes)) as
     it arrives; subprocess.TimeoutExpired once `timeout` seconds pass, and any exception kills the client. A
-    container the command keeps is removed afterwards, and MemoryLimit raised when it ended at its memory limit."""
+    container the command keeps is removed afterwards, and MemoryLimit raised when it ended at its memory limit;
+    otherwise a failed write of its output is raised."""
     name, code = _name(command), None
+    failures: list[Exception] = []
     try:
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
-            copies = [threading.Thread(target=_copy, args=pair, daemon=True)
+            copies = [threading.Thread(target=_copy, args=(*pair, failures), daemon=True)
                       for pair in ((process.stdout, stdout), (process.stderr, stderr))]
             for copy in copies:
                 copy.start()
@@ -72,6 +82,8 @@ def _run(command: list[str], stdout, stderr, timeout: float | None) -> int:
         killed = name is not None and _remove(name)
     if killed:
         raise MemoryLimit(code)
+    if failures:
+        raise failures[0]
     return code
 
 

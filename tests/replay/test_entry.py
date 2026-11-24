@@ -672,3 +672,14 @@ class StageLogTests(unittest.TestCase):
         self.assertEqual((code, kept[0], kept[-1]), (0, b"[WARN] skipped fill 0", b"[WARN] skipped fill 199999"))
         self.assertTrue(any(line.startswith(b"[replay entry: ") for line in kept))
         self.assertEqual((root / "err.txt").read_bytes(), b"to stderr\n")
+
+    def test_a_failed_log_write_is_raised_after_the_container_ended(self):
+        """#3545: the copy ended with its write, the pipe filled and the container never did."""
+        class Full:
+            def write(self, data):
+                raise OSError(28, "No space left on device")
+
+        script = "import sys\nsys.stdout.write('x' * 4_000_000)"
+        for sinks in ((Full(), io.BytesIO()), (Full(), Full())):
+            with self.assertRaisesRegex(OSError, "No space left"):  # 20 s: a failed write must not reach the timeout
+                seams.DEFAULT.run([sys.executable, "-c", script], *sinks, 20)
