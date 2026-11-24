@@ -130,6 +130,9 @@ def failure_summary(error: Exception) -> str:
             return "protected container changed"  # a ledger, Docker API or Paper container restarted mid-release
         if message.startswith("compose service did not start on its image: "):  # DockerHost.recreate: a fixed name
             return f"{message.rpartition(': ')[2]} did not start on its image"
+        if message.startswith("compose service is ") and " after its wait: " in message:  # a Docker health status
+            status, _, service = message.removeprefix("compose service is ").partition(" after its wait: ")
+            return f"{service} is {status} after its wait"
         return known.get(message) or f"unclassified runtime failure ({failure_origin(error)})"
     return f"unexpected release failure ({failure_origin(error)})"
 
