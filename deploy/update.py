@@ -451,6 +451,12 @@ class Cutover:
         # services read market.json, which goes back once it is up.
         self.stop_failed_first_start()
         self.docker(*base, "up", "--detach", "--wait", "--wait-timeout", "1800", "ledger")
+        # Compose's `--wait` can time out and still exit 0 on a health check that never passed.
+        health = self.docker("inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}",
+                             LEDGER).strip()
+        if health not in ("", "healthy"):
+            raise RuntimeError(f"the line's ledger is {health} after its wait, so its first start is not done; look at "
+                               "its log and update again (the cutover resumes here)")
         market = self.data / "ledgers" / "market.json"
         kept = archive / "ledgers" / "market.json"
         if kept.is_file() and not market.exists():

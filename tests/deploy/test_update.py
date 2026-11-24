@@ -136,6 +136,7 @@ class Workstation(Fake):
         self.volumes = {generation.VOLUME}
         self.started = False  # whether the version's ledger runs
         self.moves = True  # whether its publish moves a ledger 0.5.3 left onto main
+        self.health = "healthy"  # the version's ledger container's health, "" without a check
         self.first_start = ""  # the state its first-start port answers, "" without one
         self.main = True  # whether the version publishes on main (0.5.4 and later)
 
@@ -146,7 +147,8 @@ class Workstation(Fake):
         if args[:2] == ("volume", "rm"):
             self.volumes.discard(args[2])
         if args[0] == "inspect":
-            return "healthy\n" if "{{.State.Health.Status}}" in args else "1000:1000\n"
+            health = self.health if self.started else "healthy"
+            return f"{health}\n" if any("State.Health" in arg for arg in args) else "1000:1000\n"
         if args[0] == "run" and "deploy.generation" in args:
             command = [str(self.volume) if item == generation.MOUNTED else item
                        for item in args[args.index("deploy.generation") + 1:]]
@@ -455,6 +457,27 @@ class CutoverTests(unittest.TestCase):
                 if again:
                     self.assertLess(stops[0], next(index for index, call in enumerate(self.docker.calls)
                                                       if "up" in call))
+
+    def test_a_ledger_not_healthy_after_compose_s_wait_keeps_the_cutover_pending(self):
+        # Compose's wait can time out and exit 0.
+        self.cutover.assess(self.running)
+        archived = {**self.cutover.begin({}, check=False), "phase": "archived"}
+        kept = self.data / generation.ARCHIVE / archived["archive"] / "ledgers" / "market.json"
+        kept.parent.mkdir(parents=True)
+        kept.write_text("{}")
+        market = self.data / "ledgers" / "market.json"
+        market.unlink(missing_ok=True)
+        for health in ("starting", "unhealthy"):
+            with self.subTest(health=health):
+                self.cutover.journal.write_text(json.dumps(archived))
+                self.docker.health = health
+                with self.assertRaisesRegex(RuntimeError, f"ledger is {health} after its wait"):
+                    self.cutover.run(archived, ["compose"])
+                self.assertEqual(self.cutover.pending(), archived)
+                self.assertFalse(market.exists(), "a first start refuses a directory holding any profile")
+        self.docker.health = ""  # no health check
+        self.cutover.run(archived, ["compose"])
+        self.assertFalse(self.cutover.journal.exists())
 
     def test_a_cutover_pending_for_another_line_is_left_to_the_operator(self):
         self.cutover.assess(self.running)

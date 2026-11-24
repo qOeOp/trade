@@ -1781,7 +1781,8 @@ class RecreateTests(unittest.TestCase):
         done = subprocess.CompletedProcess([], 0, "", "")
         with patch("deploy.release_host.subprocess.run", return_value=done) as run, \
                 patch.object(DockerHost, "inspect", return_value={"image": TARGET["service"], "running": True,
-                                                                  "restarts": 0}):
+                                                                  "restarts": 0}), \
+                patch.object(DockerHost, "condition", return_value={"health": "healthy"}):
             host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE, self.ENV)
         command, env = run.call_args.args[0], run.call_args.kwargs["env"]
         self.assertEqual((env["TRADE_SERVICE_IMAGE"], env["TRADE_DOCKER_API_IMAGE"]), (TARGET["service"], PROXY))
@@ -1799,6 +1800,24 @@ class RecreateTests(unittest.TestCase):
                                                                   "restarts": 0}):
             with self.assertRaisesRegex(RuntimeError, "did not start"):
                 host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False, COMPOSE, self.ENV)
+
+    def test_a_service_not_healthy_after_compose_s_wait_did_not_start(self):
+        # Compose's wait can time out and exit 0.
+        host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
+        self.addCleanup(shutil.rmtree, host.state)
+        started = {"image": TARGET["service"], "running": True, "restarts": 0}
+        with patch("deploy.release_host.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
+                patch("deploy.release_host.time.sleep"), patch.object(DockerHost, "inspect", return_value=started), \
+                patch.object(DockerHost, "condition") as condition:
+            for health in ("starting", "unhealthy"):
+                condition.return_value = {"health": health}
+                with self.subTest(health=health), self.assertRaises(RuntimeError) as raised:
+                    host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE, self.ENV)
+                self.assertEqual(failure_summary(raised.exception), f"ledger is {health} after its wait")
+            condition.return_value = {"health": "unhealthy"}  # market-import's says the data lags, not that it failed
+            host.recreate("market-import", MARKET_IMPORT, TARGET["service"], False, COMPOSE, self.ENV)
+            condition.return_value = {"health": None}  # no health check
+            host.recreate("ledger", LEDGER, TARGET["service"], True, COMPOSE, self.ENV)
 
     def test_a_third_party_image_pinned_by_the_definition_is_pulled_by_compose(self):
         host = DockerHost(Config(state=Path(tempfile.mkdtemp())))
