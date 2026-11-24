@@ -117,9 +117,11 @@ class DoctorTests(unittest.TestCase):
 
     def test_coverage_counts_only_commands_that_ran_and_showed_something_of_their_own(self):
         page = self.home / "page.txt"
-        page.write_text("the first page")
+        draw = f"open({str(page)!r}, 'w').write('the first page')"
         shell = (sys.executable, "-c")
-        for item, subject, artifact, code in (("pages", "empty", page, "print(1)"), ("pages", "records", page, "print(2)"),
+        for item, subject, artifact, code in (("pages", "empty", page, draw + "; print(1)"),
+                                              ("pages", "records", page, draw + "; print(2)"),
+                                              ("pages", "reload", page, "print(5)"),
                                               ("gates", "empty", None, ""), ("gates", "failed", None, "print('skipped=3')"),
                                               ("faults", "live", None, "print('x'); raise SystemExit(1)"),
                                               ("faults", "docker", self.home / "none", "print(3)"),
@@ -129,12 +131,13 @@ class DoctorTests(unittest.TestCase):
         said = {(row["item"], row["subject"]): doctor.state(row, doctor.rows(self.evidence))
                 for row in doctor.rows(self.evidence)}
         self.assertEqual(said, {("pages", "empty"): "same as another", ("pages", "records"): "same as another",
+                                ("pages", "reload"): "no artifact",
                                 ("gates", "empty"): "empty", ("gates", "failed"): "skipped tests",
                                 ("faults", "live"): "failed", ("faults", "docker"): "no artifact",
                                 ("consumers", "cli"): "examined"})
         text = self.call("report")
         self.assertTrue(text.startswith("# Partial audit"))
-        for missing in ("pages/empty", "gates/partial", "cost/replay", "interrupt", "a rotating item"):
+        for missing in ("pages/empty", "gates/partial", "cost/replay", "interrupt", "governance"):
             self.assertIn(missing, text.splitlines()[2])
         self.assertNotIn("faults/live", text.splitlines()[2])
         self.assertIn("| faults | live | failed |", text)
@@ -143,12 +146,15 @@ class DoctorTests(unittest.TestCase):
 
     def test_everything_recorded_is_a_full_audit(self):
         for item, subjects in doctor.items().items():
-            for subject in ["x"] if subjects in (["any"], ["rotating"]) else subjects:
+            for subject in ["x"] if subjects == ["any"] else subjects:
                 doctor.keep(self.evidence, {"kind": "run", "item": item, "subject": subject, "command": ["true"],
                                             "checkout": "c" * 40, "dirty": False, "exit": 0, "output_bytes": 1,
                                             "output_sha256": subject, "skipped": 0, "artifact": None,
                                             "artifact_sha256": None})
         self.assertTrue(self.call("report").startswith("# Full audit"))
+        kept = self.evidence / "evidence.jsonl"
+        kept.write_text("".join(line for line in kept.read_text().splitlines(True) if '"governance"' not in line))
+        self.assertTrue(self.call("report").startswith("# Partial audit\n\nNot exercised: governance."))
 
     def test_a_cost_is_a_growth_rate_only_when_the_sizes_are_apart(self):
         quadratic = doctor.read_cost({n: [9.0, n * n, n * n * 1.01, n * n * 1.02] for n in (1, 2, 4)})
@@ -158,4 +164,3 @@ class DoctorTests(unittest.TestCase):
 
     def test_the_real_audit_list_is_readable(self):
         self.assertIn("interrupt", doctor.items())
-        self.assertGreaterEqual(sum(subjects == ["rotating"] for subjects in doctor.items().values()), 1)
