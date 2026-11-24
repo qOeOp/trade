@@ -10,12 +10,21 @@ type Measure = {
   sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
   /** `top_exit_share` alone: each closing order type's closed-cycle net. */
   exit_net?: Record<string, string>;
+  /** `net_without_top_instrument` alone: the contract left out. */
+  instrument?: string | null;
+  /** `sharpe_lo` alone: the daily autocorrelations it counts. */
+  lags?: number;
 } | undefined;
 /** One development year, cut at the trade start's anniversaries (`dev_years`), or the window's last
  *  part year (`partial`): its UTC dates, compound return and sealed bar-close MARK drawdown (null when the reading has none). */
 type DevYear = { start: string; end: string; return: number; mark_max_drawdown?: number | null; partial: boolean };
 /** The development years, the worst year's return and the window's annual return without the best year. */
 type DevYears = { years: DevYear[]; worst_year_return: number; return_without_best_year: number } | null;
+/** The quarters of a window under two years (`dev_quarters`), a last part quarter `partial`: each one's compound return, the
+ *  worst whole quarter's and the window's annual return without the best one. */
+type DevQuarters = {
+  quarters: { start: string; end: string; return: number; partial: boolean }[]; worst_quarter_return: number; return_without_best_quarter: number;
+} | null;
 /** Closed cycles of one UTC close year, by that year (`splits.closed_by_year`): money as decimal text. */
 type ClosedYear = { closed_trades: number; price_pnl_usdt: string; fill_commissions_usdt: string; reported_funding_usdt: string };
 /** One cycle of `run_cycle`: open to close of one position (no close while it was still open at the
@@ -43,6 +52,7 @@ export type TrialReport = {
   /** The annual return's block-bootstrap interval in the registered comparison design; null without one. */
   annual_return_interval?: { interval: [number, number]; coverage: number; days: number; block_days: number } | null;
   dev_years?: DevYears;
+  dev_quarters?: DevQuarters;
   closed_by_year?: Record<string, ClosedYear> | null;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;
   availability: { economic_evidence_available: boolean; reasons: string[] } | null;

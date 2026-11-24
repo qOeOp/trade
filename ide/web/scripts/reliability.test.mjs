@@ -24,6 +24,7 @@ const report = (over = {}) => ({
 });
 const TESTING = { kind: "ready", newer: false, testing: { multiple_testing: { effective_trials: 56.168, trials_with_sweeps: 377 },
                                             deflated_sharpe: { 9: { effective_trials: 0.478, trials_with_sweeps: 0.0908 } } } };
+const NO_LO = { value: null, lags: null, note: null };
 async function text(name, props, read = TESTING) {
   const cards = await alone("widgets/paper/Reliability.tsx", { stubs: { "state/testing": { useTesting: () => read }, "ui/Section": { Section: ({ title, children }) => createElement("section", null, title, children) } } });
   return renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(cards[name], props))).split(/<[^>]*>/).join("|").replace(/\|+/g, "|");
@@ -32,7 +33,7 @@ async function text(name, props, read = TESTING) {
 test("the report's readings reach the cards", async () => {
   const b = backtest(report());
   assert.deepEqual(JSON.parse(JSON.stringify(b.exitNet)), [{ type: "LIMIT", net: 20 }, { type: "STOP_MARKET", net: -4 }]);
-  const reliable = await text("Reliability", { trial: 9, interval: b.annualInterval });
+  const reliable = await text("Reliability", { trial: 9, interval: b.annualInterval, lo: b.sharpeLo });
   assert.match(reliable, /\+9\.7% to \+63\.0%/);
   assert.match(reliable, /9\.1% to 47\.8%/, "the range runs from every trial to the independent ones");
   assert.match(reliable, /377 trials \(low\) · 56\.2 independent \(high\)/);
@@ -43,18 +44,20 @@ test("the report's readings reach the cards", async () => {
 
 test("what is missing says why instead of a number", async () => {
   const b = backtest(report({ capital: null, annual_return_interval: null, slices: [
-    { id: "fee_stress", measures: { breakeven_fee_multiple: { value: null, null_reason: "NO_FEES: the run paid no fees" } } }] }));
+    { id: "fee_stress", measures: { breakeven_fee_multiple: { value: null, null_reason: "NO_FEES: the run paid no fees" } } },
+    { id: "by_period", measures: { sharpe_lo: { value: null, null_reason: "NOT_COMPUTABLE: too few days" } } }] }));
   assert.deepEqual([...b.exitNet], []);
   const costs = await text("CostsAndCapacity", { c: b.costs });
   assert.match(costs, /NO_FEES/);
   assert.match(costs, /not recorded/);
-  const reliable = await text("Reliability", { trial: 9, interval: null }, { kind: "refused", code: "LINE_UNKNOWN", message: "no line" });
+  const reliable = await text("Reliability", { trial: 9, interval: null, lo: b.sharpeLo }, { kind: "refused", code: "LINE_UNKNOWN", message: "no line" });
   assert.match(reliable, /Not available for this run/);
   assert.match(reliable, /no line/);
+  assert.match(reliable, /NOT_COMPUTABLE/);
 });
 
 test("a run the held answer lacks waits for the newer read, then says it has none", async () => {
-  const of = (newer) => text("Reliability", { trial: 10, interval: null }, { ...TESTING, newer });
+  const of = (newer) => text("Reliability", { trial: 10, interval: null, lo: NO_LO }, { ...TESTING, newer });
   assert.doesNotMatch(await of(true), /377 trials|Not available for this run.*Not available/);
   assert.match(await of(false), /Not available for this run.*Not available for this run/);
 });
@@ -72,4 +75,55 @@ test("a refused read of the line is read again when the cards open again", async
   await open(); await open(); await open();
   assert.equal(asked.length, 2, "read again after a refusal, not after an answer");
   assert.equal(useTesting().kind, "ready");
+});
+
+// Shapes and values as `replay report` gives them (by_period, by_instrument, dev_quarters).
+const SLICES = [
+  { id: "by_period", measures: { sharpe_lo: { value: 1.5753, sample_size: 1004, null_reason: null, eta: 12.87, lags: 6 } } },
+  { id: "by_instrument", measures: { net_without_top_instrument: { value: "-126.50", sample_size: 6, null_reason: null, instrument: "SOLUSDT-PERP.BINANCE" },
+                                     top5_abs_share: { value: 0.973, sample_size: 6, null_reason: null } } },
+];
+const QUARTERS = { quarters: [{ start: "2025-10-01", end: "2026-01-01", return: 0.0402, partial: false }, { start: "2026-01-01", end: "2026-02-10", return: -0.081, partial: true }],
+                   worst_quarter_return: 0.0402, return_without_best_quarter: -0.5371 };
+
+test("#3496: a one-year window's quarters and the Lo-adjusted Sharpe are shown", async () => {
+  const b = backtest(report({ slices: SLICES, dev_years: null, dev_quarters: QUARTERS }));
+  const { PeriodsAndRegimes } = await alone("widgets/paper/MarketExposure.tsx", { stubs: { "ui/Section": { Section: ({ children }) => children } } });
+  const periods = renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(PeriodsAndRegimes, { p: b.periods }))).split(/<[^>]*>/).join("|").replace(/\|+/g, "|");
+  for (const part of [/2025-10-01 – 2026-01-01\|\+4\.0%/, /2026-01-01 – 2026-02-10\| \(part\)\|−8\.1%/, /Worst whole quarter\|\+4\.0%/, /Ex best quarter \(annualized\)\|−53\.7%/]) assert.match(periods, part);
+  const reliable = await text("Reliability", { trial: 9, interval: null, lo: b.sharpeLo });
+  assert.match(reliable, /Sharpe \(Lo-adjusted\)\|1\.58\|autocorrelation over 6 daily lags/);
+});
+
+test("#3496: contract concentration stands under the contracts, the top five's share only past five", async () => {
+  const { Performance } = await alone("widgets/paper/Performance.tsx", { stubs: { "ui/Section": { Section: ({ children }) => children }, "widgets/paper/TradeStrip": { TradeStrip: () => null } } });
+  const trade = (symbol, pnl) => ({ id: symbol, symbol, long: true, pnl, opened: 0, closed: 1, how: "target" });
+  const stats = { sides: { long: { n: 2, won: 1, pnl: 1 }, short: { n: 0, won: 0, pnl: 0 } }, exits: { target: 2, stop: 0, other: 0 } };
+  const shown = (trades, contracts) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(Performance, {
+    a: { trades }, stats, concentration: { ...backtest(report({ slices: SLICES })).concentration, contracts } }))).split(/<[^>]*>/).join("|").replace(/\|+/g, "|");
+  const two = [trade("SOLUSDT", 5), trade("BTCUSDT", -4)];
+  assert.match(shown(two, 6), /Net without (\||)SOLUSDT\|−126\.50/);
+  assert.match(shown(two, 6), /97\.30%/);
+  assert.doesNotMatch(shown(two, 2), /Top 5/);
+  assert.doesNotMatch(shown([trade("SOLUSDT", 5)], 1), /Net without/, "one contract leaves nothing to read");
+});
+
+test("#3496: Picked from gives the independent trials once its tip reads them", async () => {
+  let read = TESTING, open = true;
+  const { Recommendation } = await alone("widgets/Recommendation.tsx", { stubs: {
+    "state/testing": { useTesting: () => { assert.ok(open, "nothing is read while the tip is closed"); return read; } }, "ui/Tip": { Tip: ({ content, children }) => createElement("p", null, children, open && content) },
+    "@number-flow/react": { default: ({ value }) => value },
+  } });
+  const shown = () => renderToStaticMarkup(createElement(Recommendation, { widget: { status: "recommended", research_runs: 4,
+    trial_counts: { research_trials: 120, all_purpose_trials: 240, sweep_variants: 137, trials_with_sweeps: 377 } } }));
+  assert.match(shown(), /amount to 56\.2 independent trials/);
+  read = { kind: "reading" };
+  assert.match(shown(), /being read/);
+  read = { ...TESTING, newer: true };
+  assert.match(shown(), /being read/, "an older commit's number never stands beside the newer counts");
+  open = false;
+  assert.match(shown(), /Picked from/);
+  open = true;
+  read = { kind: "absent", message: "down" };
+  assert.match(shown(), /not available/);
 });
