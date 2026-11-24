@@ -8,6 +8,8 @@ import { getJson, type Unread } from "./transport";
 type Measure = {
   value: number | string | null; standard_error?: number | null; return_sum?: number | null;
   sample_size?: number | null; null_reason?: string | null; definition_note?: string | null;
+  /** `top_exit_share` alone: each closing order type's closed-cycle net. */
+  exit_net?: Record<string, string>;
 } | undefined;
 /** One development year, cut at the trade start's anniversaries (`dev_years`), or the window's last
  *  part year (`partial`): its UTC dates, compound return and sealed bar-close MARK drawdown (null when the reading has none). */
@@ -24,6 +26,12 @@ type Cycle = {
 };
 /** One account day: its return (null when the starting balance was not recorded) and mean gross notional. */
 type DailyReturn = { ts_event_ns: number; native_return: number | null; mean_gross_notional: string | null };
+/** The capital block's `participation` (ledger/metrics.py): each fill's share of its minute's LAST volume, the largest
+ *  share one contract's fills of one minute make together, and the fills counted apart. */
+type Participation = {
+  execution: string | null; fills: number; median: number | null; p95: number | null; p99: number | null; max: number | null;
+  minute_max: number | null; no_bar: number; zero_volume: number; above_volume: number; engine_fills: number;
+};
 export type TrialReport = {
   trial_id: number;
   trade_window: { input_start: string; trade_start: string; trade_end: string };
@@ -31,7 +39,9 @@ export type TrialReport = {
   market_day?: string | null;
   runtime: { image_digest: string | null } | null;
   drawdown: Record<string, Measure> | null;
-  capital: Record<string, Measure> | null;
+  capital: { time_in_market?: Measure; participation?: { value: Participation | null } } | null;
+  /** The annual return's block-bootstrap interval in the registered comparison design; null without one. */
+  annual_return_interval?: { interval: [number, number]; coverage: number; days: number; block_days: number } | null;
   dev_years?: DevYears;
   closed_by_year?: Record<string, ClosedYear> | null;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;

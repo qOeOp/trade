@@ -63,6 +63,7 @@ class FakeProduct:
         self.asked: list[tuple[str, str, str]] = []
         self.compared: list[tuple[int, int, str]] = []
         self.stated: list[tuple[str, str]] = []
+        self.tested: list[tuple[str, str]] = []
         self.trial_counts: dict | None = {"research_trials": 3, "all_purpose_trials": 9}
         self.counted: list[tuple[str, str]] = []
         self.counts_failure: dict | None = None  # `research counts` refuses with this
@@ -79,6 +80,13 @@ class FakeProduct:
         if self.counts_failure is not None:
             raise serve.ProductError(self.counts_failure)
         return {"trial_counts": self.trial_counts, "ledger_commit": commit}
+
+    def testing(self, line, commit):
+        self.tested.append((line, commit))
+        if line == "unknown":
+            raise serve.ProductError({"code": "LINE_UNKNOWN", "message": "no line unknown"})
+        return {"ledger_commit": commit, "multiple_testing": None,
+                "deflated_sharpe": {"3": {"effective_trials": 0.5, "trials_with_sweeps": 0.1}}}
 
     def unchanged(self, line, since, commit):
         self.asked.append((line, since, commit))
@@ -780,6 +788,17 @@ class HttpTests(unittest.TestCase):
         self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "LINE_UNKNOWN"))
         for query in (f"at={at}", "line=line-a", "line=line-a&at=main"):
             self.assertEqual(self.get(f"/api/state?{query}").status, 400, query)
+
+    def test_a_line_multiple_testing_reading_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
+        at = "c" * 32
+        for _ in range(2):
+            response = self.get(f"/api/testing?line=line-a&at={at}")
+            self.assertEqual((response.status, json.loads(response.read())["deflated_sharpe"]),
+                             (200, {"3": {"effective_trials": 0.5, "trials_with_sweeps": 0.1}}))
+        self.assertEqual(self.hub.product.tested, [("line-a", at)])
+        response = self.get(f"/api/testing?line=unknown&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "LINE_UNKNOWN"))
+        self.assertEqual(self.get("/api/testing?line=line-a&at=main").status, 400)
 
     def test_the_line_state_reads_research_state_without_an_image_and_keeps_what_the_menu_reads(self):
         product = serve.Product.__new__(serve.Product)

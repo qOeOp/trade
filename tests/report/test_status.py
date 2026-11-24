@@ -362,6 +362,15 @@ class ComparisonTableTests(unittest.TestCase):
                 for name in ("effective_trials", "trials_with_sweeps")}, "each end at one count, over the trade window")
             self.assertIsNotNone(item["deflated_sharpe"]["effective_trials"])
 
+    def test_the_line_reading_alone_gives_the_status_reading_and_each_run_of_the_line_its_range(self):
+        counts = status.research_status(self.world.profile)
+        found = status.line_testing(self.world.profile, self.world.line["line"])
+        self.assertEqual((found["ledger_commit"], found["multiple_testing"]),
+                         (counts["ledger_commit"], counts["multiple_testing"]))
+        self.assertEqual(found["deflated_sharpe"], {str(item["trial_id"]): item["deflated_sharpe"]
+                                                    for item in counts["comparison"]["runs"]})
+        self.assertEqual(refused(status.line_testing, self.world.profile, "no-such-line").code, "LINE_UNKNOWN")
+
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):
         table = status.research_status(self.world.profile)["comparison"]
         self.assertEqual((table["line"], table["dev_start"], table["dev_end"], table["universe_rule"]),

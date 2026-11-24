@@ -21,7 +21,7 @@ holds of the line (kept under the new commit), or the one a page's browser kept 
 it; the page is then told `unchanged`). Every other answer goes the same way as without them. Up to 8 successful views
 stay in memory, keyed by commit, line and `since`, retaining a scope's newest live completion before its older
 duplicates, so a named live page can show it while a newer head is still drawing.
-Every other product read (a trial's report, a version's comparison, a line's state or counts, the line index,
+Every other product read (a trial's report, a version's comparison, a line's state, counts or multiple-testing reading, the line index,
 `research history` for `/api/history`, the lines with their recommendations for `/api/readings`, a contract's daily
 bars, the market directory's contracts, read once per UTC day) is kept by what it was read for in one cache of at most `KEPT` bytes of JSON, least recently used dropped first,
 and the ledger's state `/api/about` gives (`ledger service status`) for the head for up to `STATUS_SECONDS`.
@@ -347,6 +347,11 @@ class Product:
         line's latest comparisons, which the graph above leaves out."""
         found = self.run("research", "state", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}", "--without-image")
         return {key: found.get(key) for key in STATE_KEYS}
+
+    def testing(self, line: str, commit: str) -> dict:
+        """A line's multiple-testing reading with its runs' deflated Sharpe ranges, read when a page shows a backtest:
+        they move with every overlapping trial, so neither a run's report nor the graph carries them."""
+        return self.run("research", "multiple-testing", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}")
 
     def unchanged(self, line: str, since: str, commit: str) -> dict:
         return self.run("research", "unchanged", f"--ledger={self.ledger}", f"--line={line}", f"--since={since}", f"--at={commit}")
@@ -1011,7 +1016,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.comparison(query)
                 return
             if url.path == "/api/state":
-                self.state(query)
+                self.line_read("state", query)
+                return
+            if url.path == "/api/testing":
+                self.line_read("testing", query)
                 return
             if url.path == "/api/bars":
                 self.bars(query)
@@ -1089,13 +1097,13 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             self.kept("comparison", int(registration), int(trial_id), at)
 
-        def state(self, query: dict[str, str]) -> None:
-            """A line's gates and review readings at a full ledger commit (immutable, so kept), or the product's refusal."""
+        def line_read(self, read: str, query: dict[str, str]) -> None:
+            """The product's `read` of a line at a full ledger commit (immutable, so kept), or its refusal."""
             line, at = query.get("line", ""), query.get("at", "")
             if not line or not COMMIT.fullmatch(at):
                 self.json(400, _failure("BAD_REQUEST", "give line and at, a full ledger commit"))
                 return
-            self.kept("state", line, at)
+            self.kept(read, line, at)
 
         def bars(self, query: dict[str, str]) -> None:
             """A contract's daily bars over whole UTC days at a market day (kept), or the product's refusal."""

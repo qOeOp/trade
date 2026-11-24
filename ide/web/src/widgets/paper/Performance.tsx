@@ -1,6 +1,8 @@
+import { Fragment } from "react";
 import { signed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
+import type { Backtest } from "../../model/backtest";
 import { pnlClass } from "../../theme/roles";
 import { Section } from "../../ui/Section";
 import { Tip } from "../../ui/Tip";
@@ -9,13 +11,14 @@ import { TradeStrip } from "./TradeStrip";
 /** A paper run's performance as cards in Details: its closed trades one by one and how they ended, by
  *  side and by contract (with more than one). What they say stands in the version card (detail/Readings);
  *  what moved equity is Bridge.tsx. */
-export function Performance({ a, stats }: { a: Account; stats: TradeStats }) {
+export function Performance({ a, stats, exitNet = [] }: { a: Account; stats: TradeStats; exitNet?: Backtest["exitNet"] }) {
   const by = byContract(a.trades), closed = stats.sides.long.n + stats.sides.short.n > 0;
   return (
     <>
       <Section title="Trades" open={closed}><div className="flex flex-col gap-3">
         <TradeStrip trades={a.trades} />
         <Exits exits={stats.exits} />
+        {exitNet.length > 0 && <ExitNet rows={exitNet} />}
       </div></Section>
       {closed && <Section title="Long and short" aside="closed trades, after fees"><Sides sides={stats.sides} /></Section>}
       {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
@@ -39,6 +42,22 @@ function Exits({ exits }: { exits: TradeStats["exits"] }) {
       <div className="flex h-1 gap-px overflow-hidden rounded-full">
         {EXITS.map(([key, , tone]) => exits[key] > 0 && <i key={key} className={`glide ${tone}`} style={{ flexGrow: exits[key] }} />)}
       </div>
+    </div>
+  );
+}
+
+/** The closed cycles' net by the order type that closed them (a backtest's report). */
+function ExitNet({ rows }: { rows: Backtest["exitNet"] }) {
+  const words = (type: string) => { const s = type.toLowerCase().replace(/_/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-dense tabular-nums">
+      <span className="text-small text-fg-faint">Closing order</span><span className="text-right text-small text-fg-faint">Net P&L</span>
+      {rows.map((r) => (
+        <Fragment key={r.type}>
+          <span className="text-fg-muted">{words(r.type)}</span>
+          <span className={`text-right ${r.net === null ? "text-fg-faint" : pnlClass(r.net)}`}>{signed(r.net)}</span>
+        </Fragment>
+      ))}
     </div>
   );
 }

@@ -423,6 +423,11 @@ def research_counts(args):
     return graph.line_counts(_research(args), args.line, args.at)
 
 
+def research_multiple_testing(args):
+    from report import status
+    return status.line_testing(_research(args), args.line, args.at)
+
+
 def research_graph(args):
     from report import graph
     return graph.research_graph(_research(args), args.line, args.at, since=args.since, workers=args.workers,
@@ -877,6 +882,18 @@ COMMANDS = [
          option("--line", required=True, help="research line name"), AT,
          epilog="They cover the whole ledger's trials on the line's contracts, so they move with trials the rest of "
                 "the graph never reads. Lets the IDE keep a graph it holds and still show them. Writes nothing."),
+    command(research_multiple_testing, "research", "multiple-testing",
+            "a line's multiple-testing reading and its runs' deflated Sharpe ranges, as `research status` gives them", (
+        "every counted trial with its capture manifest, the overlapping research runs' daily returns and the line's "
+        "passed research runs at --at (reader)",
+        "nothing",
+        "ledger_commit; multiple_testing (as `research status`; null before the line's first research trial); "
+        "deflated_sharpe (by trial ID, each of the line's passed research runs with economic evidence: "
+        "{effective_trials, trials_with_sweeps}, null before the line's first research trial)",
+        "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"), LEDGER,
+         option("--line", required=True, help="research line name"), AT,
+         epilog="Without the comparison table and the market read behind it: lets the IDE show them beside a run. "
+                "Writes nothing."),
     command(research_graph, "research", "graph", "the line as a research-graph@4 document, read from the ledger only", (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",

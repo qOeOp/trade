@@ -17,7 +17,7 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash> --without-comparisons --without-counts` for a graph, `research counts` for its summary's
-trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?registration=&trial_id=&at=`, `research state --without-image` for the line menu, under `/api/state?line=&at=`) and imports no product package. The page keeps a
+trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?registration=&trial_id=&at=`, `research state --without-image` for the line menu, under `/api/state?line=&at=`, `research multiple-testing` for the shown backtest's deflated Sharpe range, under `/api/testing?line=&at=`) and imports no product package. The page keeps a
 comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, 503 the failure while no head can be read; a refused graph reaches the page as an
@@ -267,7 +267,8 @@ and `]` once the chart has the focus, shows that one, `F` fits the view to it an
 Unattributed) after the line and ledger widgets, with ■ or ▶, the run's equity, return and state, and its delete.
 Details and Trades follow the stage the page shows, the backtest (the version's last research run with economic
 evidence) or a paper run: Details names it over its readings (a paper run's with its targets under them) and adds its
-Performance group (trades, by contract, trade stats, the calendar, profit and loss), on both pages; on the lineage the
+Performance group (trades, by contract, trade stats, the calendar, profit and loss; a backtest's also its net by closing order,
+its annual return's interval and deflated Sharpe range, its costs and its fills' shares of their minute's volume), on both pages; on the lineage the
 readings stay the last research run's. The first time it shows, the page opens Details and Trades. Hovering any mark highlights its version everywhere; `⌘K` jumps to a version or runs a command; `Home` goes
 back to the start of the axis; `#<version>` in the address opens on that version and follows the selection; when the line does not hold that version,
 a notice says so and what the page shows instead. The editor
