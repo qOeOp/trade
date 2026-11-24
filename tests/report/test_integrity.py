@@ -200,7 +200,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual(counted["valid_research_runs"] + counted["diagnostic_only_research_runs"]
                          + counted["invalid_research_runs"] + counted["unfinished_research_attempts"],
                          counted["research_attempts"])
-        state = status.research_state(self.profile)
+        state = status.research_state(self.profile, full=True)
         facts = [fact for item in state["interpretations"] for fact in item["facts"]
                  if (fact.get("trial") or {}).get("trial_id") == trial_id]
         self.assertEqual((facts[0]["availability"]["economic_evidence_available"], facts[0]["headline"]), (False, None))

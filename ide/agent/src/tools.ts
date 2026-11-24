@@ -25,8 +25,8 @@ const opt = (name: string, value: string | number | undefined) => (value === und
 /** Each tool's command and how its input becomes arguments (exported for the tests). */
 export const COMMANDS = {
   research_state: {
-    description: "A research line (default: the only open one): its record, targets and current judgments with read-time facts; with no line named it lists the open lines. Start here.",
-    input: z.object({ line, at, full: z.boolean().optional().describe("every interpretation and the candidate list") }),
+    description: "A research line (default: the only open one): its record, targets and current judgments; with no line named it lists the open lines. Start here.",
+    input: z.object({ line, at, full: z.boolean().optional().describe("every interpretation, the judgments' read-time facts and the candidate list") }),
     argv: (i: { line?: string; at?: string; full?: boolean }) => ["research", "state", ...opt("line", i.line), ...opt("at", i.at), ...flag("full", i.full)],
   },
   research_status: {

@@ -22,7 +22,7 @@ export function usePicked(lines: readonly HistoryLine[]): Picked {
   return participant ? { version, trial: trial?.trial_id ?? null } : { version: null, trial: null };
 }
 
-/** A closed line's closing summary (`line list --all`), folded under its header: the strip's width, sticking left as it does,
+/** A closed line's closing summary (`line list --all --full`), folded under its header: the strip's width, sticking left as it does,
  *  its paragraphs and lists as written, scrolling within a bounded height. */
 export function LineSummary({ text, colSpan }: { text: string; colSpan: number }) {
   return (

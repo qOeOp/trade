@@ -105,16 +105,16 @@ def set_targets(conn: db.LedgerConnection, line_id: int | None, max_drawdown, an
             "written": not written["replayed"], "commit": written["commit"]}
 
 
-LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "summary")
+LISTED = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed")
 
 
-def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool = False) -> dict:
+def list_lines(profile: db.LedgerProfile, at: str | None = None, *, every: bool = False, full: bool = False) -> dict:
     """The open line declarations (L11), or with `every` the closed ones too, and their open/closed state at one
-    pinned ledger commit; no market read."""
+    pinned ledger commit, with `full` each with its closing summary (null while open); no market read."""
     with db.read_as_of(profile, at) as conn:
         targets = line_targets.targets_by_line(conn)
         return {"ledger_commit": db.head_commit(conn),
-                "lines": [{**{key: line[key] for key in LISTED}, "targets": targets(line["line_id"])}
+                "lines": [{**{key: line[key] for key in (*LISTED, *(("summary",) if full else ()))}, "targets": targets(line["line_id"])}
                           for line in lines(conn, open_only=not every)]}
 
 
