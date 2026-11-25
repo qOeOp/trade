@@ -1,0 +1,1 @@
+- A replay whose stage log cannot be written is sealed as a host failure, no longer as the container's exit code 127.

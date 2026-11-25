@@ -714,3 +714,20 @@ class StageLogTests(unittest.TestCase):
         for sinks in ((Full(), io.BytesIO()), (Full(), Full())):
             with self.assertRaisesRegex(OSError, "No space left"):  # 20 s: a failed write must not reach the timeout
                 seams.DEFAULT.run([sys.executable, "-c", script], *sinks, 20)
+
+    def test_a_stage_ends_127_only_when_its_client_cannot_start(self):
+        """#3656: a log that could not be written was sealed as the container's exit code 127."""
+        root = tempdir(self.addCleanup)
+        stop = patch.object(entry, "_stop")
+        stop.start()
+        self.addCleanup(stop.stop)
+        self.assertEqual(entry._stage([str(root / "no-docker")], "c", root, "native", None, None), 127)
+        self.assertIn("no-docker", (root / "native.stderr.txt").read_text())
+        write = entry.StageLog.write
+
+        def full(log, data):
+            if log.stream.name.endswith("stdout.txt"):
+                raise OSError(28, "No space left on device")
+            write(log, data)
+        with patch.object(entry.StageLog, "write", full), self.assertRaisesRegex(OSError, "No space left"):
+            entry._stage([sys.executable, "-c", "print('x')"], "c", root, "native", 20, None)

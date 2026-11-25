@@ -267,9 +267,6 @@ def _stage(command: list[str], container: str, workdir: Path, name: str, left: f
         return seams.current.run(command, out, err, left)
     except seams.MemoryLimit:
         raise  # the container is gone; the caller records the stage's exit
-    except OSError as exc:
-        err.write(str(exc).encode("utf-8", errors="replace"))
-        return 127
     except subprocess.TimeoutExpired as exc:
         _stop(container)
         raise refuse("REPLAY_TIMEOUT", f"the replay exceeded its timeout of {timeout} s in stage {name}",
