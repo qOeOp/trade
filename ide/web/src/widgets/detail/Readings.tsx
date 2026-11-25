@@ -6,7 +6,7 @@ import { useRunData } from "../../state/runData";
 import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { useStageReading } from "../../state/stageReading";
-import { stageName } from "../../model/stage";
+import { lastRun, stageName } from "../../model/stage";
 import { Eased } from "../../ui/Eased";
 import { Board, type Facts } from "./ReadingsBoard";
 
@@ -52,7 +52,7 @@ export function Readings({ c, targets, loading = false }: { c: Candidate; target
   if (runs) return <StageReadings targets={targets} loading={loading} />;
   if (loading) return <Readout of={{ annual: null, maxDrawdown: null, sharpe: null, winRate: null, plans: true, reading: true }} targets={targets} basis={SEALED} full stale ended />;
   if (version === c.id && trial) return <><Name>{stageName("backtest", trial, null)}</Name><Tested targets={targets} /></>;
-  const t = (c.trials ?? []).filter((x) => x.purpose === "research").at(-1);
+  const t = lastRun(c);
   return <Readout of={{ annual: t?.annual_return, maxDrawdown: t?.max_drawdown, sharpe: t?.sharpe, winRate: t?.plan_win_rate, plans: true }} targets={targets} basis={SEALED} />;
 }
 

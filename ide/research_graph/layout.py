@@ -54,19 +54,24 @@ def research_runs(candidate: dict) -> list[dict]:
     return [t for t in candidate.get("trials") or [] if t["purpose"] == "research"]
 
 
+def last_run(candidate: dict) -> dict:
+    """The research trial its readings come from: the latest with a run (a trial still open or killed says nothing);
+    empty without one."""
+    return next((t for t in reversed(research_runs(candidate)) if t.get("status", "") is not None), {})
+
+
 def status(candidate: dict, targets: dict) -> str:
     """masked | recommended | precheck_failed | unrun | meets_targets | below_targets. Eligibility first: a version
     the recommendation still names whose latest research run lost its economic evidence is masked now, and the
     summary keeps the recommendation apart from it (CF-08)."""
-    runs = research_runs(candidate)
-    last = runs[-1] if runs else None
-    if candidate.get("status") == "masked" or (last and last.get("eligible") is False):
+    last = last_run(candidate)
+    if candidate.get("status") == "masked" or last.get("eligible") is False:
         return "masked"
     if candidate.get("status") == "recommended":
         return "recommended"
     if candidate.get("status") == "precheck_failed":
         return "precheck_failed"
-    if not last or last.get("annual_return") is None:
+    if last.get("annual_return") is None:
         return "unrun"
     meets = ((targets.get("annual_return") is None or last["annual_return"] >= targets["annual_return"])
              and (targets.get("max_drawdown") is None or (last.get("max_drawdown") is not None
@@ -169,8 +174,7 @@ def build_view(graph: dict) -> dict:
 
     nodes = []
     for c in candidates:
-        runs = research_runs(c)
-        last = runs[-1] if runs else {}
+        last = last_run(c)
         nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
                       "role": c.get("status"), "change": c.get("change"),
                       "prediction": prediction(c), "failed_predictions": failed_predictions(c), "trials": [t["trial_id"] for t in c.get("trials") or []],
@@ -198,12 +202,12 @@ def build_view(graph: dict) -> dict:
         streak -= 1
     held_since = gap(recs[streak]["at"]) if recs else None
     runs = [t for c in candidates for t in research_runs(c)]
-    best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
+    best = last_run(next(c for c in candidates if c["id"] == current)) if current else {}
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
     priority = next((e for e in reversed(graph["events"]) if e["kind"] in PRIORITY_KINDS), None)
     widgets = [
         {"type": "summary", "targets": targets,
-         "recommended": current, "reading": {k: best[0].get(k) for k in MEASURES}
+         "recommended": current, "reading": {k: best.get(k) for k in MEASURES}
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
@@ -234,7 +238,7 @@ def build_view(graph: dict) -> dict:
         {"type": "table", "targets": targets,
          "rows": [{"id": c["id"], "parent": c.get("parent"), "role": c.get("status"), "status": status_of[c["id"]],
                    "prediction": prediction_of[c["id"]], "failed_predictions": failed_predictions(c), "first_trial": first_trial(c), "runs": len(research_runs(c)),
-                   **{k: (research_runs(c)[-1:] or [{}])[0].get(k) for k in MEASURES}}
+                   **{k: last_run(c).get(k) for k in MEASURES}}
                   for c in candidates]},
         {"type": "notes", "items": graph["gaps"]},
         {"type": "candidate-detail",

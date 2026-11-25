@@ -99,6 +99,22 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((summary["recommended"], summary["status"]), ("a@1", "masked"),
                          "the latest recommendation still names it; its status says it is ineligible now")
 
+    def test_an_open_or_killed_retry_leaves_a_version_its_last_run_readings(self):
+        """#3681: a trial without a run has no reading and takes none away, as in the graph's own status (#3549)."""
+        graph = copy.deepcopy(GRAPH)
+        for c in graph["candidates"][1:]:
+            for t in c["trials"]:
+                t["status"] = None if t["purpose"] == "precheck" else "passed"
+            c["trials"].append({"trial_id": c["trials"][-1]["trial_id"] + 10, "purpose": "research", "status": None,
+                                "annual_return": None, "max_drawdown": None, "eligible": None})
+        self.assertEqual(contract.check_graph(graph), [])
+        before = {w["type"]: w for w in layout.build_view(GRAPH)["widgets"]}
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
+        self.assertEqual([(n["status"], n["reading"]) for n in widgets["lineage"]["nodes"]],
+                         [(n["status"], n["reading"]) for n in before["lineage"]["nodes"]])
+        self.assertEqual(widgets["summary"]["reading"], before["summary"]["reading"])
+        self.assertEqual([r["annual_return"] for r in widgets["table"]["rows"]], [0.1, 0.25, 0.18])
+
     def test_other_lines_trials_take_no_room_on_the_axis(self):
         graph = copy.deepcopy(GRAPH)
         numbers = iter([10, 20, 103, 140, 250])  # trials 1-5 renumbered as if other lines ran in between

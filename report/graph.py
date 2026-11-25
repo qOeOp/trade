@@ -457,8 +457,10 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                     source_checks[row["trial_id"]] = check
             trials_of[key].append(trial)
         plans: dict[str, tuple[int, dict]] = {}
-        for key, trials in trials_of.items():  # the registration the latest run was bound through
-            registration = next((attempts[t["trial_id"]] for t in reversed(trials) if t["trial_id"] in attempts), None)
+        for key, trials in trials_of.items():  # the registration the latest run was bound through, else the latest trial
+            ran = [t for t in trials if t["status"] is not None]
+            registration = next((attempts[t["trial_id"]] for t in (*reversed(ran), *reversed(trials))
+                                 if t["trial_id"] in attempts), None)
             if registration is not None:
                 plans[key] = (registration, register.load_registration(conn, registration))
 
@@ -475,6 +477,7 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
         key = f"{row['strategy_id']}@{row['revision']}"
         trials = trials_of[key]
         research = [t for t in trials if t["purpose"] == "research"]
+        ran = [t for t in research if t["status"] is not None]  # an open or killed trial says nothing yet
         registration, plan = plans.get(key, (None, {}))
         body = plan.get("body") or {}
         reviews = []
@@ -501,13 +504,12 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                 text += "".join(f"; not counted for {ids}: {reason}" for reason, ids in kept.items())
                 events.append({"at": _iso(rec["created_at"]), "kind": "eligibility_change",
                                "ref": f"source review {rec['review_id']}", "text": text, "recommends": None})
-        if research and research[-1]["status"] == "passed" and research[-1]["trial_id"] in attempts:
-            jobs.append((len(candidates), attempts[research[-1]["trial_id"]], research[-1]["trial_id"]))
+        if ran and ran[-1]["status"] == "passed" and ran[-1]["trial_id"] in attempts:
+            jobs.append((len(candidates), attempts[ran[-1]["trial_id"]], ran[-1]["trial_id"]))
         trial_ids = {t["trial_id"] for t in trials}
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (registration is not None and s["research_registration_id"] == registration)
             for s in subjects.get(row["judgment_id"], []))), None)
-        ran = [t for t in research if t["status"] is not None]  # an open or killed trial says nothing yet
         if ran and ran[-1]["eligible"] is False:  # a recommendation does not outlive lost evidence
             state = "masked"
         elif key in chosen:
