@@ -701,8 +701,9 @@ class Hub:
 
 
 def market_import(path: Path, now: datetime) -> tuple[int, dict]:
-    """The market-import service's status file as it is, with the time it was read and whether its round is
-    older than STALE; 503 when there is no file or it is not a status."""
+    """The market-import service's status file as it is, with the time it was read and whether it is stale by
+    market.follow.check()'s rule (the round in progress, else the last round, began longer ago than STALE); 503 when
+    there is no file or it is not a status."""
     try:
         status = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -710,7 +711,8 @@ def market_import(path: Path, now: datetime) -> tuple[int, dict]:
     except ValueError as exc:
         return 503, _failure("MARKET_IMPORT_UNREADABLE", f"{path}: {exc}")
     try:
-        stale = now - datetime.fromisoformat(status["at"]) > STALE
+        at, running = datetime.fromisoformat(status["at"]), status.get("running_since")
+        stale = now - (at if running is None else datetime.fromisoformat(running)) > STALE
     except (KeyError, TypeError, ValueError) as exc:
         return 503, _failure("MARKET_IMPORT_UNREADABLE", f"{path}: no round time ({type(exc).__name__}: {exc})")
     return 200, {"read_at": now.isoformat(), "stale": stale, "status": status}
