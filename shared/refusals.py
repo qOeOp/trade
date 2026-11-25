@@ -287,9 +287,9 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "COVERAGE_INCOMPLETE": ("Export the market inputs for the whole warm-up and trading interval again.",),
     # Export and backup (ledger/admin.py)
     "EXPORT_PATH_INVALID": ("Choose a new directory outside the service directory and any checkout, or this ledger's "
-                            "earlier export. A directory holding `backup` and no `reproduce/manifest.json` is a first "
-                            "export that was interrupted: check that nothing else is in it, then the operator may move "
-                            "or delete it and the export be rerun.",),
+                            "earlier export. A directory holding `backup` or `backup.partial` and no "
+                            "`reproduce/manifest.json` is a first export that was interrupted: check that "
+                            "nothing else is in it, then the operator may move or delete it and the export be rerun.",),
     "DOLT_BACKUP": ("Check the backup directory and the service, then rerun the export.",),
     "BACKUP_DIVERGED": ("Run `ledger review` and report the finding; a backup is replaced "
                         "only with the user's authority.",),

@@ -531,6 +531,29 @@ class RunTests(unittest.TestCase):
             service._back_up_paper(synced)
         self.assertEqual(syncing.call_count, 1, "an unchanged head is not synced again")
 
+    def test_a_first_paper_backup_that_failed_partway_is_made_again(self):
+        self.start()
+        execution = db.load_profile("paper")
+        target = admin.backup_path(execution)
+        with db.read_as_of(execution) as conn:
+            head = db.head_commit(conn)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.chmod(0o500)
+        failed = refused(admin.sync_backup, execution, target, head)
+        target.parent.chmod(0o700)
+        self.assertEqual(failed.code, "DOLT_BACKUP")
+        self.assertIn("permission denied", failed.message, "the reason Dolt gave")
+        # What Dolt leaves when its first sync fails: files, no manifest.
+        partial = target.with_name("backup.partial")
+        (partial / "oldgen").mkdir(parents=True)
+        for path in (partial / "LOCK", partial / "oldgen" / "LOCK"):
+            path.touch()
+        with patch.object(admin, "backup_head", wraps=admin.backup_head) as reading:
+            admin.sync_backup(execution, target, head)
+        reading.assert_called_once_with(target)
+        self.assertEqual(admin.backup_head(target), head)
+        self.assertFalse(partial.exists())
+
     def test_a_new_ledger_its_copy_refuses_leaves_nothing_it_made(self):
         origin = self.remotes / f"refusing-{self.port}"
         origin.mkdir()
