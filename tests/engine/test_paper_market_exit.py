@@ -221,6 +221,18 @@ class MarketExitTests(Clocked):
                 self.assertEqual([item.order for item in paper_terms.QUEUE], [order])
                 self.release()
 
+    def test_a_cancel_of_another_instances_waiting_entry_breaks_the_order_rules(self):
+        """#3659: the native cache does not hold it, so the native cancel raised RuntimeError."""
+        other = self.entry("limit")
+        for command in (lambda source: source.cancel_order(other.client_order_id),
+                        lambda source: source.cancel_orders(iter([other.client_order_id]))):
+            paper_terms.queue(lambda _: [], "BBBUSDT-PERP.BINANCE", other, mock.Mock(), mock.Mock())
+            self.on_next_bar(command)
+            self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+            self.assertEqual([item.canceled for item in paper_terms.QUEUE], [False])
+            self.release()
+            strategy_runtime.BREACHES.clear()
+
     def test_a_replay_sends_an_entry_with_the_exits_tag(self):
         self.assertEqual(self.entry_during_exit(after=False, waiting=False, tags=[order_rules.MARKET_EXIT_TAG]),
                          ("FILLED", []))
