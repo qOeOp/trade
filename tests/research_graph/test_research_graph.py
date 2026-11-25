@@ -129,6 +129,29 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((tree["trail"][0]["x0"], tree["axis"]["max"]), (4.5, 6.0))
         self.assertEqual(widgets["summary"]["runs_since_recommendation_changed"], 1)
 
+    def test_a_recommendation_that_names_no_version_retracts_the_one_before(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["candidates"][1]["status"] = "superseded"
+        graph["events"].append({"at": "2026-01-01T12:40:00Z", "kind": "recommendation", "ref": "judgment 9",
+                                "recommends": None})
+        self.assertEqual(contract.check_graph(graph), [])
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
+        summary = widgets["summary"]
+        self.assertEqual((summary["recommended"], summary["reading"], summary["status"], summary["recommendations"],
+                          summary["recommendations_unchanged"], summary["runs_since_recommendation_changed"]),
+                         (None, None, None, 2, 0, 0))
+        self.assertEqual(widgets["lineage"]["trail"], [{"candidate": "a@1", "x0": 4.5, "judgments": [4.5]}],
+                         "the version it was is still on the trail")
+        self.assertEqual(widgets["candidate-detail"]["default"], "root@1")
+        graph["events"].append({"at": "2026-01-01T12:50:00Z", "kind": "recommendation", "ref": "judgment 10",
+                                "recommends": "a@1"})
+        widgets = {w["type"]: w for w in layout.build_view(graph)["widgets"]}
+        self.assertEqual([t["judgments"] for t in widgets["lineage"]["trail"]], [[4.5], [5.5]])
+        summary = widgets["summary"]
+        self.assertEqual((summary["recommended"], summary["recommendations"], summary["recommendations_unchanged"],
+                          summary["runs_since_recommendation_changed"]), ("a@1", 3, 1, 0),
+                         "named again, it holds from the judgment that named it again")
+
     def test_the_summary_keeps_the_line_own_runs_beside_the_trials_behind_them(self):
         graph = copy.deepcopy(GRAPH)
         graph["line"]["trial_counts"] = {"research_trials": 546, "all_purpose_trials": 1181}
