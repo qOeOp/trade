@@ -103,8 +103,8 @@ DefiLlama's stablecoins, Coinbase, Binance spot, Kraken, Upbit and Deribit; it k
 
 With `--market-import=FILE` (the status file `market follow` writes; in compose the `trade-market-import`
 volume, mounted read-only), `/api/market-import` answers that file as it is, read at each request, with
-`stale` when its round is older than 26 hours (`market.follow.check()`'s rule); 503 without a readable
-status. The status bar then names the service's state (`Market: caught up`, `waiting`, `lagging`,
+`stale` when the round in progress, else the last one, began over 26 hours ago (`market.follow.check()`'s
+rule); 503 without a readable status. The status bar then names the service's state (`Market: caught up`, `waiting`, `lagging`,
 `stopped — CODE`), and clicking it lists each kind and contract as the file has them.
 
 The Research line menu lists every line, including closed lines, through `/api/lines?at=<commit>`

@@ -1,6 +1,7 @@
 // The market-import service's status as `/api/market-import` answers it: the file `market follow` writes
-// (market/follow.py, run_round and follow), the time the page's server read it and whether its round is
-// older than 26 hours. The status bar's one line and the table's rows are read from it as they are.
+// (market/follow.py, run_round and follow), the time the page's server read it and whether the round in
+// progress, else the last one, began over 26 hours ago. The status bar's one line and the table's rows are
+// read from it as they are.
 
 export type Refusal = { code: string; message?: string };
 export type Entry = {

@@ -988,9 +988,14 @@ class MarketImportTests(unittest.TestCase):
         from market import follow
         self.assertEqual(serve.STALE, follow.STALE)
         now = datetime.now(UTC)
-        for age, stale in ((timedelta(hours=25), False), (timedelta(hours=27), True)):
-            status = {"at": (now - age).isoformat(), "kinds": {"bars": {"scope": {"state": "caught_up"}}}}
+        for age, running, stale in ((25, None, False), (27, None, True),  # hours; a round in progress, as check()
+                                    (30, 6, False), (50, 27, True)):
+            status = {"at": (now - timedelta(hours=age)).isoformat(),
+                      "kinds": {"bars": {"scope": {"state": "caught_up"}}}}
+            if running is not None:
+                status["running_since"] = (now - timedelta(hours=running)).isoformat()
             self.status.write_text(json.dumps(status))
+            self.assertEqual(follow.check(self.status, now, list().append), int(stale))
             response, body = self.get()
             self.assertEqual(response.status, 200)
             self.assertNotIn("Access-Control-Allow-Origin", response.headers)
