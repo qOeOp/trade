@@ -112,8 +112,8 @@ def dev_quarters(run: Mapping) -> dict | None:
     when it does not end on a cut, each quarter's compound return, the worst whole quarter's return and the window's
     annual return over its days without the best whole quarter. Not read against the annual target. A slice of
     one continuous run, like dev_years. None for a window of two whole years or more, or of one quarter or less."""
-    start = datetime.fromtimestamp(run["trade_start_ns"] // 10**9, UTC)
-    if run["trade_end_ns"] >= int(start.replace(year=start.year + 2, day=min(start.day, 28)).timestamp()) * 10**9:
+    start, end = (datetime.fromtimestamp(run[key] // 10**9, UTC) for key in ("trade_start_ns", "trade_end_ns"))
+    if (end.year - 2, *end.timetuple()[1:6]) >= start.timetuple()[:6]:
         return None
     if (cut := _segments(run, 3)) is None:
         return None
