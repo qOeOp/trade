@@ -24,7 +24,8 @@ subjects (`any`: at least one object, by SKILL.md step 2's order).
 - **cost** [replay import reports ledger]: each long path at three or more sizes (`doctor.py cost`).
 - **structure** [any]: layers, cycles, native capability rebuilt, one change that touches many places.
 - **size** [any]: net lines by area and type of change since the last audit, attributed to feature,
-  guard, patch on patch, residue or bypass; counts alone show nothing. A removal claim is a removal run.
+  guard, patch on patch, residue or bypass; counts alone show nothing. A removal claim is a removal run
+  ([slim.md](slim.md)).
 - **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one.
 - **delivery** [any]: what CI, release and merge cost and where they waited, failed or were
   repeated (GitHub's own records).

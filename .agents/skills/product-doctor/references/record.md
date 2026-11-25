@@ -23,7 +23,9 @@ component, id, proof or remedy.
 - `claimed` label and a comment `claimed by <agent/model>, <date>`, since all agents share one account; a
   claim under 2 days old is left alone. The fixer starts from the issue, not the session that found
   it, and reproduces it first; if it does not reproduce, it replies with the proof and fixes nothing.
-  One cause is one PR, with `Closes #N` and, where a test can catch it, a test that fails without the fix.
+  First read the object's other open findings: from three on, weigh one restatement that closes them together.
+  One cause is one PR, with `Closes #N` and, where a test can catch it, a test that fails without the fix, as a
+  case of an existing test where one fits.
 - Closed as completed is merged, not shown to hold. Held is a comment naming its evidence: a test that
   fails without the fix, or a later session that took the path without recurrence. A recurrence reopens
   the issue, with its new proof, cost and source in a comment. `none` or rejected is closed as not planned with a one-clause reason; `needs-evidence`
@@ -35,7 +37,7 @@ component, id, proof or remedy.
 
 ## Record file
 
-Write one only for a full audit, or a diagnosis whose examined scope no issue holds: in Chinese, as
+Write one only for a full or themed audit (theme, signals, what it left out), or a diagnosis whose examined scope no issue holds: in Chinese, as
 `docs/plans/doctor/<yyyy-mm-dd>-<topic>.zh.md`. It links findings and repeats none. Never edit it once
 written; later state belongs in the issues.
 
