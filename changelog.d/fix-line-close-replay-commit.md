@@ -1,0 +1,1 @@
+- `line close` run again with the same summary returns the closing `ledger_commit`, as its `--help` says.

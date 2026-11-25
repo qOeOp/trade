@@ -257,7 +257,8 @@ class ResearchLineTests(unittest.TestCase):
             self.assertEqual(open_names(pinned), ["ema-trend", "ema-trend-wider"],
                              "open before its closing commit")
         later = self.select(market=market(market_day="2026-03-06"), slug="ema-later")
-        self.assertTrue(lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS)["replayed"], "a later head too")
+        self.assertEqual(lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS), {**closed, "replayed": True},
+                         "a later head too")
         self.assertEqual(self.close_code("ema-trend", b"another summary"), "LINE_CLOSED")
         self.assertEqual(open_names(self.conn), ["ema-trend-wider", "ema-later"])
         self.assertTrue(self.select(slug="ema-trend-again")["created"], "a closed line's market and window are free")

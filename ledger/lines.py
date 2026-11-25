@@ -445,16 +445,16 @@ def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days
     with db.connect(profile, "writer") as conn:
         record = read_line(conn, line)
         if record["closed"]:
-            if record["summary"] == text:
-                return {"line": record["name"], "line_id": record["line_id"], "closed_at": record["closed_at"],
-                        "replayed": True}
-            raise refuse("LINE_CLOSED", f"{record['name']} is already closed", missing=(record["name"],))
-        left = [item for item in history_plan(conn, record["line_id"], *market_days, candidates(conn, record["line_id"]))
-                if item["window"] is not None and item["done"] is None]
-        if left:
-            raise refuse("HISTORY_INCOMPLETE", f"{len(left)} segments of the closing history test of {record['name']} "
-                                               "have no history run; run `line history` first",
-                         missing=tuple(f"{item['source_sha256'][:12]}:{item['label']}" for item in left[:20]))
+            if record["summary"] != text:
+                raise refuse("LINE_CLOSED", f"{record['name']} is already closed", missing=(record["name"],))
+        else:
+            left = [item for item in history_plan(conn, record["line_id"], *market_days,
+                                                  candidates(conn, record["line_id"]))
+                    if item["window"] is not None and item["done"] is None]
+            if left:
+                raise refuse("HISTORY_INCOMPLETE", f"{len(left)} segments of the closing history test of "
+                                                   f"{record['name']} have no history run; run `line history` first",
+                             missing=tuple(f"{item['source_sha256'][:12]}:{item['label']}" for item in left[:20]))
 
         def insert(c, op):
             c.rows("INSERT INTO line_close (line_id, summary, op_id) VALUES (%s, %s, %s)",
