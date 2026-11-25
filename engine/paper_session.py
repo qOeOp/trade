@@ -280,7 +280,8 @@ class Session:
         if self.held or not self.saved or not self.saved.get("sources"):
             return False
         following = list((self.saved.get("recorder") or {}).get("funding", {}).values())
-        following.extend(value["cadence"].get("next_funding_ns") for value in self.saved["sources"].values())
+        following.extend(cadence["next_funding_ns"] for value in self.saved["sources"].values()
+                         for cadence in value["cadence"].values())
         return any(value is not None and time.time_ns() >= value for value in following)
 
     @contextmanager
@@ -495,8 +496,7 @@ class Session:
         if not saved:
             return
         strategy.load({key: base64.b64decode(value, validate=True) for key, value in saved["state"].items()})
-        for key, value in saved["cadence"].items():
-            setattr(strategy._paper_cadence, key, value)
+        strategy._paper_cadence = {key: Cadence(**value) for key, value in saved["cadence"].items()}
 
     def restore_recorder(self, recorder) -> None:
         self.recorder = recorder
@@ -563,7 +563,7 @@ class Session:
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
                     raise checkpoint.fail("strategy save hooks must return string-to-bytes state")
                 sources[iid] = {"state": {key: base64.b64encode(value).decode() for key, value in source_state.items()},
-                                "cadence": asdict(strategy._paper_cadence)}
+                                "cadence": {key: asdict(value) for key, value in strategy._paper_cadence.items()}}
             self._restorable(cache)
             if (self.depth or strategy_runtime.FAILURES
                     or any(cast(Any, source)._paper_held or source.clock.timer_names()

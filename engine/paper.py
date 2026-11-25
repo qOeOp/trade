@@ -326,7 +326,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         self._paper_instrument_id = inputs.instrument_id
         self._paper_membership = inputs.universe_membership
         self._paper_entry_terms = inputs.entry_terms
-        self._paper_cadence = Cadence()
+        self._paper_cadence: dict[str, Cadence] = {}  # instrument ID -> its updates'
         self._paper_held: list = []  # data callbacks waiting for the execution their data caused (release_before)
         self._paper_released_ns = 0  # the clock at the latest dispatch whose held callbacks ran
         self._paper_subscriptions: set[str] = set()

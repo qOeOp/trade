@@ -43,11 +43,11 @@ class Cadence:
     @staticmethod
     def wrap(name: str, attribute: str, deliver: Callable[[Any, Any, Any], Any],
              skipped: Callable[[Any], Any] = lambda update: None) -> Callable[[Any, Any], Any]:
-        """The runner's `name` callback (on_mark_price or on_funding_rate): the instance's Cadence (its `attribute`)
-        decides which live update counts, `deliver(instance, passed, update)` takes the update the replay gives for it
-        and `skipped(update)` every other."""
+        """The runner's `name` callback (on_mark_price or on_funding_rate): the instance's Cadence of the update's
+        contract (its `attribute`, by instrument ID) decides which live update counts, `deliver(instance, passed,
+        update)` takes the update the replay gives for it and `skipped(update)` every other."""
         def callback(self, update):
-            cadence = getattr(self, attribute)
+            cadence = getattr(self, attribute).setdefault(str(update.instrument_id), Cadence())
             passed = (update if cadence.mark(update) else None) if name == "on_mark_price" else cadence.funding(update)
             return skipped(update) if passed is None else deliver(self, passed, update)
         return callback
