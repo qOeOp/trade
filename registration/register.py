@@ -421,10 +421,11 @@ def _check_retry(conn: db.LedgerConnection, chain: list[dict], plan: Mapping, ex
             consumed = True
             run = conn.one("SELECT status FROM run WHERE trial_id = %s", (trial_id,))
             if not retryable(conn, trial_id) and not (transition and run is not None and run["status"] == "passed"):
-                raise refuse("RETRY_NOT_ALLOWED", f"trial {trial_id} of registration {prior['registration_id']} was "
-                                                  "neither interrupted nor invalid and has economic evidence; "
-                                                  "rebuilding it on another image requires the same research "
-                                                  "declarations, source grid, configuration and inputs",
+                why = ("has neither an execution capture nor a run" if run is None else
+                       "was neither interrupted nor invalid and has economic evidence; rebuilding it on another image "
+                       "requires the same research declarations, source grid, configuration and inputs")
+                raise refuse("RETRY_NOT_ALLOWED",
+                             f"trial {trial_id} of registration {prior['registration_id']} {why}",
                              missing=(str(prior["registration_id"]), f"trial {trial_id}"))
         if transition and consumed:
             transitions.append(prior)

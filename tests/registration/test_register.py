@@ -769,7 +769,10 @@ class RetryTests(unittest.TestCase):
     def test_an_attempt_without_a_capture_is_not_retried_and_one_captured_without_a_run_is(self):
         first, _ = self.attempt(None, "invalid")
         second, unfinished = self.attempt(first, None)
-        self.assertEqual(self.code(second), "RETRY_NOT_ALLOWED")
+        exc = refused(self.world.register, {**self.body, "retry_of": second})
+        self.assertEqual((exc.code, exc.message), (
+            "RETRY_NOT_ALLOWED",
+            f"trial {unfinished} of registration {second} has neither an execution capture nor a run"))
         # CF-04 ("授权", 2026-11-11): a completed replay whose seal failed may be retried; its capture stays
         capture(self.world.conn, unfinished, source("root"), purpose="research", outcome="completed")
         self.assertFalse(self.world.register({**self.body, "retry_of": second})["replayed"])
