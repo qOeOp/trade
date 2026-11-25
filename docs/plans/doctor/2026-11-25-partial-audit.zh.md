@@ -1,12 +1,12 @@
-# 2026-11-25 全量审计
+# 2026-11-25 整体审计（覆盖不全）
 
 | Item | Value |
 |---|---|
 | Sessions | 无指定会话；`agents`、`burden`、`value` 扫描 2026-11-22 以来的 Claude Code、Antigravity、Codex 转录（Codex 无 11-22 后会话） |
 | Audit session | Antigravity，Gemini 4 Neon (Medium)，`3fd77426-5a94-4330-99ef-63261edfe986`；产品树为 `origin/main` 的独立 detached worktree，本会话只写本记录的 PR |
 | Checkout / ledger | `3f10104a1`（审计期间 `origin/main` 前进 1 个无关提交 `16e51a5dc` #3651）；活动账本只读，其余全部在临时账本与临时市场运行 |
-| Coverage | `# Full audit`；`Not exercised: nothing listed.`。各面未到之处：Live 真实账户与发布主机变更（按 `AGENTS.md` 位于所有审计之外）；真实 GHCR/DoltHub 远端推送、真实远端 systemd/Telegram 投递、真机 Docker OOM/SIGKILL 与宿主机 Redis 重启、`live` 凭证私有接口、长窗口（>1m）归档覆盖的 `paper compare`、`validation` 未来窗口绑定、`docs-site` 全量 `next build`、`claude plugin eval` 实时 LLM 评测。以下为 `doctor.py report` 覆盖表。 |
-| Cost | 本次审计约 52 分钟（预算 45 分钟）；主会话与 20+ 子代理 token 未由宿主精确统计（按预算控制，未超出清单额外扩展对象）；确认 75 条（64 个公开议题覆盖 74 条 + 1 条按 `SECURITY.md` 私下报告），独立反驳推翻 7/82 条。 |
+| Coverage | 覆盖不全：按 `SKILL.md` 步骤 4，真实依赖没够到的只算部分审计，所以不算全量；当时的 `doctor.py report` 还不能登记这类缺口，原样打印了 `# Full audit` 与 `Not exercised: nothing listed.`。步骤 1 要求的未结 issue 证明重跑没有做。各面未到之处：Live 真实账户与发布主机变更（按 `AGENTS.md` 位于所有审计之外）；真实 GHCR/DoltHub 远端推送、真实远端 systemd/Telegram 投递、真机 Docker OOM/SIGKILL 与宿主机 Redis 重启、`live` 凭证私有接口、长窗口（>1m）归档覆盖的 `paper compare`、`validation` 未来窗口绑定、`docs-site` 全量 `next build`、`claude plugin eval` 实时 LLM 评测。以下为 `doctor.py report` 覆盖表。 |
+| Cost | 本次审计从用户确认到结束约 113 分钟（2026-11-25 03:27:52–05:20:34 +09:00，预算 45 分钟，超支；合并前按会话转录更正，原写 52 分钟）；主会话与 29 个子代理的 token 未测量；确认 75 条（64 个公开议题覆盖 74 条 + 1 条按 `SECURITY.md` 私下报告），独立反驳推翻 7/82 条。 |
 | Net change | 提议均为缺陷修复、测试补齐、文档/契约对齐与 3 处非保留循环依赖拆解，不新增机制与存储字段；`cost` 4 项均为线性或亚线性（`import` 0.90、`ledger` 0.78、`reports` 0.70、`replay` 1.00）；2 项静默选择挑战经独立反驳确认为有意设计（不改）。 |
 
 | Item | Subject | State | Evidence |
@@ -169,8 +169,6 @@
 | structure-live-control-notify-cycle | shown | ['live.control -> live.notify', 'live.notify -> live.control'] | [] | [] | present |
 | structure-engine-live-4module-cycle | shown | ['engine.live_brake -> engine.live_commands', 'engine.live_commands -> engine.live_connection', 'engine.live_commands -> engine.live_session', 'engine.live_connection -> engine.live_commands', 'engine.live_session -> engine.live_brake', 'engine.live_session -> engine.live_commands', 'engine.live_session -> engine.live_connection'] | [] | [] | present |
 | structure-ide-web-format-time-cycle | shown | ['ide/web/src/lib/format.ts -> ide/web/src/lib/time.ts', 'ide/web/src/lib/time.ts -> ide/web/src/lib/format.ts'] | [] | [] | present |
-| docker-api-nested-field-smuggling | shown | 按 SECURITY.md 不公开 | | | present |
-| docker-api-unscoped-host-reach | shown | 按 SECURITY.md 不公开 | | | present |
 | http-negative-content-length-bypass | shown | {'ide_rejected_4xx': False, 'paper_rejected_4xx': False} | {'ide_rejected_4xx': True, 'paper_rejected_4xx': True} | {'ide_rejected_4xx': True, 'paper_rejected_4xx': True} | present |
 | runtime-symlink-comma-mount-injection | shown | False | True | True | present |
 | op-backup-enospc-wedge | shown | 'the backup at /var/folders/n3/7bzqqwbn019gzxk79l7h6pt40000gn/T/probe-bkp-txkh4svt/backup holds no Dolt manifest' | True | True | present |
@@ -210,7 +208,9 @@
 
 Shown: 84 of 84 probed. Of 78 datable ones, the last audit already had 77.
 
-独立反驳共复核 82 条主张（80 条去重后的 `shown` 探针 + 2 条步骤 5 的 `change` 建议），推翻 **7 条**（5 条 `by design`：`docker-api-unscoped-host-reach`、`usability-pnl-text-contrast`、`storage-backup-interrupted-first-export` [重复 #3547]、`challenge-paper-terms-queue`、`challenge-replay-fresh-catalog-export`；2 条 `false`：`research-dsr-invalid-inputs-silent`、`quotes-cross-day-time-reversal`），确认 **75 条**（1 条 `deploy/docker-api` 按 `SECURITY.md` 私下报告给用户，其余 74 条按单因单议题合并为 64 个 `agent-finding` 议题）。
+上一行是 `doctor.py` 的原始计数；其中 2 行属 `SECURITY.md` 范围，上表不列。
+
+独立反驳共复核 82 条主张（80 条去重后的 `shown` 探针 + 2 条步骤 5 的 `change` 建议），推翻 **7 条**（5 条 `by design`：`SECURITY.md` 范围内 1 条、`usability-pnl-text-contrast`、`storage-backup-interrupted-first-export` [重复 #3547]、`challenge-paper-terms-queue`、`challenge-replay-fresh-catalog-export`；2 条 `false`：`research-dsr-invalid-inputs-silent`、`quotes-cross-day-time-reversal`），确认 **75 条**（1 条按 `SECURITY.md` 私下报告给用户，其余 74 条按单因单议题合并为 64 个 `agent-finding` 议题）。
 
 已复验关闭议题：`#3549`（`676359f87`）、`#3497`（`f7a874109`）、`#3517`（`60a8a243b`）、`#3516`（`c77f5302c`）已加 `held` 评论；`#3532`（`55dfe5088`）无测试、`#3545`（`baae92c9d`）`undecided`；其余 60 个关闭且无 `held` 评论的 `agent-finding` 议题留待下次审计。
 
