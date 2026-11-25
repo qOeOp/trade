@@ -7,7 +7,8 @@ import { namespace } from "./load.mjs";
 async function page(replies) {
   const asked = [];
   const atom = (initial) => { let value = initial; return { get: () => value, set: (next) => { value = next; } }; };
-  const module = await namespace("state/comparison.ts", { sources: [], packages: [], stubs: {
+  const module = await namespace("state/comparison.ts", { sources: ["model/stage"], packages: [], stubs: {
+    "model/chain": { ACTIVE: new Set(), chainStart: () => null, createdNs: () => 0, latestOf: (run) => run },
     react: { useEffect: (f) => f() }, "state/atom": { atom, useAtom: (a) => a.get() },
     "model/view": { useView: () => ({ scope: { drawn_commit: "c1", ledger_commit: "c2", build: "b" } }) },
     "lib/storage": { keep: async () => {}, readKept: async () => null },
@@ -26,6 +27,15 @@ test("CF-30: a failed comparison is asked again when the version is opened again
   await settle();
   assert.deepEqual(p.useComparison(version), { kind: "ready", comparison: { p: 0.1 } });
   assert.deepEqual(p.asked.map((a) => a.join(" ")), ["4 9 c1", "4 9 c1"], "at the commit the graph was drawn at");
+});
+
+test("#3681: a retry still running leaves the version its run's comparison", async () => {
+  const p = await page([{ kind: "ready", comparison: { p: 0.1 } }]);
+  const retried = { ...version, trials: [...version.trials, { purpose: "research", status: null, trial_id: 10 }] };
+  p.useComparison(retried);
+  await settle();
+  assert.deepEqual(p.useComparison(retried), { kind: "ready", comparison: { p: 0.1 } });
+  assert.deepEqual(p.asked.map((a) => a.join(" ")), ["4 9 c1"]);
 });
 
 test("an answer is kept and not asked again", async () => {

@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { fetchComparison, type Fetched } from "../lib/comparisonApi";
 import { keep, readKept } from "../lib/storage";
+import { lastRun } from "../model/stage";
 import type { Candidate } from "../model/types";
 import { useView } from "../model/view";
 import { atom, useAtom } from "./atom";
@@ -30,8 +31,7 @@ async function read(key: string, registration: string, trial: number, at: string
 
 /** What the graph would have compared for this version: its registration and last research run, if that passed. */
 function job(c: Candidate): { registration: string; trial: number } | null {
-  const research = (c.trials ?? []).filter((t) => t.purpose === "research");
-  const last = research[research.length - 1];
+  const last = lastRun(c);
   return c.registration && last?.status === "passed" ? { registration: c.registration, trial: last.trial_id } : null;
 }
 

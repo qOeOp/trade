@@ -3,7 +3,7 @@
 // of runs, chain.ts, standing as one); what the user picked wins while it still exists.
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, chainStart, createdNs, latestOf } from "./chain";
-import type { Trial } from "./types";
+import type { Candidate, Trial } from "./types";
 import type { Backtest } from "./backtest";
 import type { Stretch } from "./stretches";
 
@@ -17,6 +17,9 @@ export function chartHistory(stage: Drawn, stretches: readonly Stretch[], backte
 }
 
 const startedNs = (r: PaperRun) => chainStart([r]) ?? createdNs(r);
+
+/** The research trial a version's readings come from: its latest with a run (one still open or killed says nothing). */
+export const lastRun = (c: Candidate): Trial | null => (c.trials ?? []).filter((t) => t.purpose === "research" && t.status !== null).at(-1) ?? null;
 
 /** The purposes whose replay seals a run (ledger.trials.RUN_PURPOSES); a precheck or explore replay seals none. */
 export const RUN_PURPOSES: ReadonlySet<string> = new Set(["research", "validation", "history"]);

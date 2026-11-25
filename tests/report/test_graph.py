@@ -17,10 +17,11 @@ from unittest.mock import patch
 from ledger import db, execution, lines, metrics, problems, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import precheck, register
+from registration import precheck, register, seams as registration_seams
 from replay import entry, seams
 from report import comparison, graph, status
 from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, market as line_market, pinned
+from tests.registration.test_register import OTHER_RUNTIME
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -361,4 +362,20 @@ class RetriedRegistrationTests(unittest.TestCase):
         (candidate,) = [c for c in found["candidates"] if c["id"] == ref]
         self.assertEqual([t["status"] for t in candidate["trials"] if t["purpose"] == "research"], ["invalid", "passed"],
                          f"the first attempt {failed['trial_id']} failed")
+        self.assertEqual((candidate["registration"], jobs), (str(retry), [(retry, passed["trial_id"])]))
+        # A rebuild on another image, still running: the version stays compared through its run (#3681).
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": passed["trial_id"]}])
+        data = published["source"]
+        rebuilt = world.open_precheck(data, runtime=OTHER_RUNTIME)
+        capture(world.conn, rebuilt, data)
+        review = precheck.record_review(world.profile, world.review_body(rebuilt), "reviewer-g")["review_id"]
+        with registration_seams.use(resolve_runtime=lambda ref: dict(OTHER_RUNTIME)):
+            rebuild = world.register({**body, "retry_of": retry, "prechecks": {ref: review}})["registration_id"]
+            world.research_trial(rebuild, data, runtime=OTHER_RUNTIME)
+        jobs.clear()
+        with patch.object(graph, "_comparisons", side_effect=comparisons):
+            found = graph.research_graph(world.profile)
+        (candidate,) = [c for c in found["candidates"] if c["id"] == ref]
+        self.assertEqual([t["status"] for t in candidate["trials"] if t["purpose"] == "research"],
+                         ["invalid", "passed", None])
         self.assertEqual((candidate["registration"], jobs), (str(retry), [(retry, passed["trial_id"])]))
