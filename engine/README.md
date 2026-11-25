@@ -335,7 +335,8 @@ strings, is the same in every process that runs a replay.
   workflow's replay paths equal.
 - **Execution image** ([`runtime/Dockerfile`](runtime/Dockerfile)) for Paper and Live: the replay image's steps
   unchanged, then the pinned Redis and the rest of `engine/`. It is built whenever an `engine/` file or another image
-  input changes. Tags: `exec-main`, `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
+  input changes, or the tests its check runs (`tests/engine/`, `tests/live_loopback/`). Tags: `exec-main`,
+  `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
   (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start` and `paper serve` default to `exec-main`;
   Live runs the release's digest, which each run freezes when it is prepared.
 
@@ -343,7 +344,8 @@ Each image's shared tags are published after both native checks pass and the rep
 (`tests.engine.test_fill_model.audited_replay`: a market entry with its reduce-only stop, written and audited by the
 product) compare across the two CPUs. Per-platform tags append `-arm64` or `-amd64`. The replay image's check proves
 it holds only its closure and that replay passes its audit; the execution image's also exercises the pinned Redis
-snapshot/reload and the engine tests.
+snapshot/reload, the engine tests and the Live loopback tests that start a run again on its Redis
+(`tests.live_loopback.harness.needs_redis`).
 They do not replace the paired CLI acceptance below, including nonzero funding and the intended strategy and market
 inputs.
 

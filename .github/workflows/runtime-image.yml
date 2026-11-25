@@ -12,9 +12,10 @@ name: runtime-image
 on:
   push:
     branches: [main]
-    # Rebuild when image inputs or the harness which qualifies the tested artifact (check-native-runtime.py; quality
-    # runs the test suites it executes on every PR) changes. Keep this aligned with the runtime input projection; the
-    # execution build's changes job selects these same paths, and the replay inputs (replay-changed.py) are a subset.
+    # Rebuild when image inputs, or the harness or tests which qualify the tested artifact (check-native-runtime.py;
+    # quality skips those that need the image's Redis) change. Keep this aligned with the runtime input projection,
+    # which leaves out the tests; the execution build's changes job selects these same paths, and the replay inputs
+    # (replay-changed.py) are a subset.
     paths:
       - .github/workflows/runtime-image.yml
       - engine/**/*.py
@@ -29,6 +30,8 @@ on:
       - .github/scripts/publish-platform-image.sh
       - .github/scripts/check-native-runtime.py
       - deploy/runtime_inputs.py
+      - tests/engine/**
+      - tests/live_loopback/**
   pull_request:
     branches: [main]
   workflow_dispatch:

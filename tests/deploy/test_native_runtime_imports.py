@@ -10,6 +10,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from tests.live_loopback.harness import MEMORY_CACHE
+
 
 SCRIPT = Path(__file__).resolve().parents[2] / ".github/scripts/check-native-runtime.py"
 CHECK = runpy.run_path(str(SCRIPT))
@@ -88,6 +90,17 @@ class NativeRuntimeImportTests(unittest.TestCase):
                 for foreign in ("deploy", "deploy.live_configuration"):
                     with self.subTest(foreign=foreign):
                         self.assertEqual(self.preimports(kind, foreign)[-1], foreign)
+
+    def test_the_runtime_check_runs_each_live_loopback_test_that_skips_without_redis(self):
+        root = SCRIPT.parents[2]
+        names = CHECK["redis_restart_tests"](root)
+        self.assertIn("tests.live_loopback.test_begun_stop.BegunStopTests."
+                      "test_an_open_position_is_closed_by_the_next_start", names)
+        if MEMORY_CACHE:  # where Redis is missing, unittest's own skip mark says which tests those are
+            suite = unittest.defaultTestLoader.discover(str(root / "tests/live_loopback"), top_level_dir=str(root))
+            skipped = {test.id() for test in CHECK["_cases"](suite) if getattr(test, "__unittest_skip__", False)
+                       or getattr(getattr(test, test._testMethodName), "__unittest_skip__", False)}
+            self.assertEqual(set(names), skipped)
 
     def test_runtime_preimports_remain_engine_only(self):
         self.assertEqual(self.preimports("runtime"), ["engine"])

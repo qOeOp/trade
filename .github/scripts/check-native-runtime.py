@@ -4,6 +4,8 @@ The small protected-entry replay is a packaging regression check, not the paired
 """
 
 import argparse
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 import importlib
 import json
@@ -168,6 +170,61 @@ def check_live_native_cache_failure() -> None:
         check=True, timeout=25)
 
 
+def _cases(suite: unittest.TestSuite) -> Iterator[unittest.TestCase]:
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from _cases(test)
+        else:
+            yield test
+
+
+def redis_restart_tests(root: Path) -> list[str]:
+    """The Live loopback tests that start a run again on its native cache (tests.live_loopback.harness.needs_redis).
+    Quality runs the others, and skips these: it has no Redis."""
+    suite = unittest.defaultTestLoader.discover(str(root / "tests/live_loopback"), top_level_dir=str(root))
+    names = []
+    for test in _cases(suite):
+        method = getattr(type(test), test._testMethodName, None)
+        if method is None:  # a module that does not import
+            test.debug()
+        if getattr(test, "needs_redis", False) or getattr(method, "needs_redis", False):
+            names.append(test.id())
+    return names
+
+
+def check_live_restarts(root: Path) -> None:
+    """Each test in its own process, as many at once as the runner has CPUs: they mostly wait on their runner. Engine
+    code is the image's; the tests, and the host packages they read a journal with, are the checkout's."""
+    environment = {**os.environ, "PYTHONPATH": os.pathsep.join(("/opt/trade", str(root))), "PYTHONSAFEPATH": "1"}
+
+    def python(*argv: str, timeout: int) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, *argv], cwd=root, env=environment, capture_output=True, text=True,
+                              check=False, timeout=timeout)
+
+    found = python("-c", "import engine; print(engine.__file__)", timeout=30)
+    assert found.stdout.strip() == "/opt/trade/engine/__init__.py", (found.stdout, found.stderr)
+
+    def run(name: str) -> tuple[str, subprocess.CompletedProcess, float]:
+        start = time.monotonic()
+        try:
+            done = python("-m", "unittest", name, timeout=600)
+        except subprocess.TimeoutExpired as exc:
+            done = subprocess.CompletedProcess(exc.cmd, 1, "", f"{exc}\n{exc.stderr!r}")
+        return name, done, time.monotonic() - start
+
+    names = redis_restart_tests(root)
+    assert names, "no Live loopback test needs Redis"
+    failed = []
+    with ThreadPoolExecutor(os.process_cpu_count() or 1) as pool:
+        for name, done, seconds in pool.map(run, names):
+            passed = done.returncode == 0 and "skipped=" not in done.stderr
+            print(f"=== {name}: {'ok' if passed else 'FAILED'} in {seconds:.1f} s", flush=True)
+            if not passed:
+                failed.append(name)
+                print(done.stdout + done.stderr, flush=True)
+    assert not failed, failed
+
+
 def check_replay_image(output: Path) -> None:
     """The replay image holds its closure and nothing Paper or Live runs; a protected-entry replay passes its audit."""
     from engine.config import AUDIT_PATH, RUNTIME_SOURCE_PATHS
@@ -266,10 +323,12 @@ def main() -> None:
         args.output.mkdir(parents=True, exist_ok=True)
         check_live_native_cache()
         check_live_native_cache_failure()
+        check_live_restarts(Path("/validation"))
         audit = audited_replay(args.output / "reports")
         assert audit["passed"], audit
         (args.output / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
-        print(f"Native {args.arch} Paper Redis snapshot/reload, Live native AOF reopen and protected-entry replay passed")
+        print(f"Native {args.arch} Paper Redis snapshot/reload, Live native AOF reopen, "
+              "Live restarts on it and protected-entry replay passed")
 
 
 if __name__ == "__main__":

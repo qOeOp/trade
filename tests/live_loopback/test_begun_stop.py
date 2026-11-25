@@ -5,12 +5,12 @@ import json
 import time
 import unittest
 
-from tests.live_loopback.harness import MEMORY_CACHE, SYMBOL, Loopback
+from tests.live_loopback.harness import SYMBOL, Loopback, needs_redis
 
 CLOSE = ("POST", "/fapi/v1/order")
 
 
-@unittest.skipIf(MEMORY_CACHE, "a start again needs the runtime image's Redis")
+@needs_redis
 class BegunStopTests(unittest.TestCase):
     def kill(self, run):
         run.process.kill()
