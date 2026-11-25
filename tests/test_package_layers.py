@@ -36,9 +36,7 @@ CYCLE_EDGES = frozenset({
     "engine.live_session -> engine.live_brake",
     "engine.live_session -> engine.live_commands",
     "engine.live_session -> engine.live_connection",
-    "live.control -> live.notify",
     "live.credentials -> live.runs",
-    "live.notify -> live.control",
     "live.runs -> live.credentials",
 })
 

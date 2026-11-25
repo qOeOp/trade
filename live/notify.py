@@ -24,7 +24,7 @@ import urllib.parse
 
 from deploy.telegram import TOKEN, Failure, settings as saved_settings, telegram
 from ledger import metrics
-from live import configuration, daily, runs, state
+from live import configuration, daily, runs, state, views
 
 
 ACTIONS = frozenset({"notify_save", "notify_test", "notify_remove"})
@@ -184,9 +184,8 @@ def _source_name(run: dict) -> str:
 
 
 def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
-    """The browser-safe view of each retained run not yet closed (control.run_view), with its source name and safe stop
+    """The browser-safe view of each retained run not yet closed (views.run_view), with its source name and safe stop
     reason."""
-    from live import control  # control imports this module
     directory = config.root / "runs"
     if directory.is_symlink() or not directory.is_dir():
         return []
@@ -195,7 +194,7 @@ def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
         if path.name in skip or not state.RUN_ID.fullmatch(path.name) or runs.earlier(path):
             continue
         try:
-            run = control.run_view(config, path.name, review=False)
+            run = views.run_view(config.root, path.name)
             reason = runs.stop_reason(path)
         except Exception:
             continue  # unknown this tick; never a reason to stop the others

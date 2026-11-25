@@ -1,7 +1,7 @@
 // Number and time formatting. A missing value is a plain hyphen; a negative number takes a true minus
 // sign (U+2212), as wide as the plus and set tight against the figures.
-import { dateTime, utcInstant, type TimeZone } from "./time";
-export const MISSING = "-";
+import { dateTime, MISSING, utcInstant, type TimeZone } from "./time";
+export { MISSING };
 const minus = (s: string) => s.replace(/^-/, "\u2212");
 // A value that rounds to zero prints as 0.00%, never −0.00%.
 export const pct = (v?: number | null) => (v == null ? MISSING : minus(`${(+(v * 100).toFixed(2) || 0).toFixed(2)}%`));

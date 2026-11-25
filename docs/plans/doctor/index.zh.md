@@ -10,4 +10,4 @@
 
 | 形状 | 理由 | 日期 | 决定 |
 |---|---|---|---|
-| `live` 包内 `credentials` 与 `runs` 互相导入（2026-11-11 认可时是 `authority`、`credentials`、`inventory`、`release`、`requests`、`runs` 六个模块的一个循环，之后拆得只剩这一对；`live.control` 与 `live.notify` 的循环不在此列，见 `tests/test_package_layers.py` 的 `CYCLE_EDGES`） | 它们共同管理同一次真实账户运行的状态，依赖本来就是双向的；拆开要在真钱代码里加一层转接，又不修任何缺陷 | 2026-11-11 | 用户在会话里认可，见本表加入时的 PR |
+| `live` 包内 `credentials` 与 `runs` 互相导入（2026-11-11 认可时是 `authority`、`credentials`、`inventory`、`release`、`requests`、`runs` 六个模块的一个循环，之后拆得只剩这一对） | 它们共同管理同一次真实账户运行的状态，依赖本来就是双向的；拆开要在真钱代码里加一层转接，又不修任何缺陷 | 2026-11-11 | 用户在会话里认可，见本表加入时的 PR |
