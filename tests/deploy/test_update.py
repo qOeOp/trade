@@ -360,6 +360,7 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in (self.data / "dolt").iterdir()), ["paper"])
         self.assertEqual([path.name for path in (self.data / "ledgers").iterdir()], ["market.json"],
                          "market.json is put back once the ledger started; nothing else")
+        self.assertEqual((self.data / "ledgers/market.json").read_text(), "{}")
         self.assertNotIn(generation.VOLUME, self.docker.volumes)
         self.assertFalse(older.exists())
         self.assertFalse(self.cutover.journal.exists())
@@ -463,9 +464,12 @@ class CutoverTests(unittest.TestCase):
         # Compose's wait can time out and exit 0.
         self.cutover.assess(self.running)
         archived = {**self.cutover.begin({}, check=False), "phase": "archived"}
-        kept = self.data / generation.ARCHIVE / archived["archive"] / "ledgers" / "market.json"
-        kept.parent.mkdir(parents=True)
-        kept.write_text("{}")
+        # On Linux the archive is root's: this user cannot read into it.
+        closed = self.data / generation.ARCHIVE / archived["archive"]
+        (closed / "ledgers").mkdir(parents=True)
+        (closed / "ledgers/market.json").write_text("{}")
+        closed.chmod(0)
+        self.addCleanup(closed.chmod, 0o700)
         market = self.data / "ledgers" / "market.json"
         market.unlink(missing_ok=True)
         for health in ("starting", "unhealthy"):
@@ -479,6 +483,7 @@ class CutoverTests(unittest.TestCase):
         self.docker.health = ""  # no health check
         self.cutover.run(archived, ["compose"])
         self.assertFalse(self.cutover.journal.exists())
+        self.assertEqual(market.read_text(), "{}")
 
     def test_a_first_start_under_way_ends_before_another_definition_starts(self):
         self.cutover.assess(self.running)

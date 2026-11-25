@@ -23,7 +23,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -231,7 +230,7 @@ class Cutover:
         if not self.journal.exists():
             return None
         value = json.loads(self.journal.read_text())
-        if (not isinstance(value, dict) or set(value) != {"revision", "line", "archive", "phase"}
+        if (not isinstance(value, dict) or set(value) != {"revision", "line", "archive", "phase", "market"}
                 or value["phase"] not in generation.PHASES[:2] or not generation.ARCHIVE_NAME.fullmatch(value["archive"])
                 or not isinstance(value["line"], str) or not generation.LINE.fullmatch(value["line"])):
             raise RuntimeError(f"{self.journal} is not a cutover journal this version writes; left as it is")
@@ -438,8 +437,10 @@ class Cutover:
               + ("fetched (it is already there)" if main == line else
                  f"made here; the ledger of line {main} on main goes to the branch {main} first" if state == "data"
                  else "made and published here"), flush=True)
+        market = self.data / "ledgers" / "market.json"
+        # Kept here: the archive is root's, which this user may not read.
         journal = {"revision": self.sha, "line": line, "archive": generation.archive_name(self.sha),
-                   "phase": "archiving"}
+                   "phase": "archiving", "market": market.read_text() if market.exists() else None}
         self.journal.parent.mkdir(parents=True, exist_ok=True)
         write_file(self.journal, json.dumps(journal) + "\n")
         return journal
@@ -479,9 +480,8 @@ class Cutover:
             raise RuntimeError(f"the line's ledger is {health} after its wait, so its first start is not done; look at "
                                "its log and update again (the cutover resumes here)")
         market = self.data / "ledgers" / "market.json"
-        kept = archive / "ledgers" / "market.json"
-        if kept.is_file() and not market.exists():
-            shutil.copy2(kept, market)
+        if journal["market"] is not None and not market.exists():
+            write_file(market, journal["market"])
         removed = self.docker(*generation.pruner(self.data, journal["archive"], self.service)).strip()
         self.journal.unlink()
         print(f"New data generation started; old data in {archive}"
