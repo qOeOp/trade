@@ -61,11 +61,17 @@ def _run(command: list[str], stdout, stderr, timeout: float | None) -> int:
     """Run one container to its end, handing its output to `stdout` and `stderr` (each with write(bytes)) as
     it arrives; subprocess.TimeoutExpired once `timeout` seconds pass, and any exception kills the client. A
     container the command keeps is removed afterwards, and MemoryLimit raised when it ended at its memory limit;
-    otherwise a failed write of its output is raised."""
+    otherwise a failed write of its output is raised. A client that cannot start is exit code 127, its error in
+    `stderr`."""
     name, code = _name(command), None
     failures: list[Exception] = []
     try:
-        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        client = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as exc:
+        stderr.write(str(exc).encode("utf-8", errors="replace"))
+        return 127
+    try:
+        with client as process:
             copies = [threading.Thread(target=_copy, args=(*pair, failures), daemon=True)
                       for pair in ((process.stdout, stdout), (process.stderr, stderr))]
             for copy in copies:
