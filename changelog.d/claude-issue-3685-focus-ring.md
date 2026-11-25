@@ -1,0 +1,1 @@
+- A version focused with the keyboard on the IDE lineage shows the focus ring (#3685).
