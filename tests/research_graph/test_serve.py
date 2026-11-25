@@ -1303,6 +1303,47 @@ class SetupForwardTests(unittest.TestCase):
         self.assertEqual(self.call("POST", serve.SETUP, b"{}", server=self.without, **{"Sec-Fetch-Site": "same-origin"}).status, 404)
 
 
+class MalformedAnswerTests(unittest.TestCase):
+    """A service that answers something other than HTTP (or stops inside an answer) is a 502, or a short answer, not a
+    dropped connection (#3691)."""
+
+    def answered(self, data: bytes) -> tuple[int, bytes]:
+        listener = socket.create_server(("127.0.0.1", 0))
+        self.addCleanup(listener.close)
+
+        def answer():
+            conn, _ = listener.accept()
+            with conn:
+                conn.recv(65536)
+                conn.sendall(data)
+
+        threading.Thread(target=answer, daemon=True).start()
+        server = serve.Server(("127.0.0.1", 0), serve.handler(
+            serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}),
+            setup=f"http://127.0.0.1:{listener.getsockname()[1]}"))
+        threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        conn = http.client.HTTPConnection(*server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        with mock.patch.object(server, "handle_error") as failed:
+            conn.request("GET", serve.SETUP, headers={"Host": "here:1"})
+            response = conn.getresponse()
+            found = response.status, response.read()
+            conn.close()
+            self.assertEqual(failed.call_count, 0)
+        return found
+
+    def test_an_answer_that_is_not_http_is_a_502(self):
+        for data in (b"not http\r\n\r\n", b""):
+            status, body = self.answered(data)
+            self.assertEqual((status, json.loads(body)["code"]), (502, "SETUP_UNAVAILABLE"), data)
+
+    def test_an_answer_cut_short_ends_the_page_answer(self):
+        self.assertEqual(self.answered(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n"
+                                       b"4\r\nhalf\r\n"), (200, b"half"))
+
+
 class OverviewForwardTests(unittest.TestCase):
     """A stand-in overview records what reaches it."""
 

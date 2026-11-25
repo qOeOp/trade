@@ -1,0 +1,1 @@
+- A sidecar that answers the IDE something other than HTTP gives a 502 with its refusal; the connection was dropped (#3691).
