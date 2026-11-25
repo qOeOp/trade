@@ -1410,6 +1410,17 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(acts, [])
         return position
 
+    def test_a_second_market_exit_ends_no_entry_that_waits(self):
+        """#3661: natively ignored, as in a replay and Paper; only an entry with the exit's tag waits during one."""
+        order = self.limit(tags=[order_rules.MARKET_EXIT_TAG])
+
+        def act(source, _):
+            source.submit_order(order)
+            source.market_exit()
+        self.during_exit(act)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [order])
+        self.assertEqual(self.session.source_canceled, [])
+
     def assert_denied_in_the_exit(self, *entries):
         for entry in entries:
             self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.DENIED)
