@@ -21,3 +21,15 @@ def begun_stop(rows: list[dict]) -> str | None:
         elif event == "stopping" and trading and row.get("reason") not in PASSING:
             return str(row.get("reason"))
     return None
+
+
+def first_stop(rows: list[dict]) -> str | None:
+    """The reason of the first stop; a later reconcile writes its own, and an end the run started again after is none,
+    nor is one to warm up again (engine.live_connection.rewarm)."""
+    reason = None
+    for row in rows:
+        if row.get("event") == "resuming" and reason in PASSING | {"held_flat"}:
+            reason = None
+        elif row.get("event") == "stopping" and reason is None and row.get("reason") != "rewarming":
+            reason = row.get("reason")
+    return reason

@@ -206,6 +206,11 @@ class LiveCustodyTests(LiveFixture):
         journal = self.directory / "out" / "events.jsonl"
         with patch.object(runs, "_outcome", return_value=("unresolved", 137)):
             self.assertIsNone(maintain(self.root, self.run_id)["stop_reason"])
+            for reason, shown in (("interrupted", "interrupted"), ("rewarming", None), ("held_flat", "held_flat")):
+                state.append(journal, "stopping", self.run_id, reason=reason)
+                self.assertEqual(maintain(self.root, self.run_id)["stop_reason"], shown)
+                state.append(journal, "resuming", self.run_id)  # the run goes on
+                self.assertIsNone(maintain(self.root, self.run_id)["stop_reason"])
             state.append(journal, "stopping", self.run_id, reason="drawdown")
             state.append(journal, "stopping", self.run_id, reason="requested")  # A later reconcile's own stop.
             self.assertEqual(maintain(self.root, self.run_id)["stop_reason"], "drawdown")
