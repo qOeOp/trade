@@ -40,7 +40,7 @@ the last two audits took it (harm aside); say why and what is left out:
 2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
    on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
-4. **Find** (`find`): otherwise. The object much changed or longest unexamined, outside parties and running state too,
+4. **Find** (`find`): otherwise. The object much changed or longest unexamined, `outside` too,
    under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
 
 Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
@@ -53,8 +53,10 @@ only some do) with `doctor.py scope` before any evidence, harm its objects alone
    limits only what is beyond those, and past 70% none is added. Fetch; judge `origin/main`, not the session's
    checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same objects, and `doctor.py
    recheck` those closed longest without a held comment; name the ones left.
-2. **Map and pass.** To `scan`'s objects add what the tree does not hold, each once (`@name`): services, timers, the
-   ledger, the market directory, Binance, DoltHub, images, the published site. Pair every line and every object, first
+2. **Map and pass.** To `scan`'s objects add what the tree does not hold (`@name`). Nobody has the list: first a fresh
+   sub-agent, given the tree and `scan`'s `outside`, works out what today's product runs, keeps, calls, publishes and
+   depends on, each with file and line, and what the bracketed scenarios of `lenses.md` miss or name in vain; a miss is
+   run too, and is a finding of this skill. A folded part that is a thing of its own gets its own pass. Pair every line and every object, first
    what changed since the last audit, then the longest unexamined. Give each pass to a fresh sub-agent with one
    perspective and one object, or two whose contract it checks (from what one produces to what the other assumes),
    evidence paths, the audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, no suspects of

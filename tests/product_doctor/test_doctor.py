@@ -156,8 +156,6 @@ class DoctorTests(unittest.TestCase):
             self.assertIn(missing, text.splitlines()[2])
         self.assertNotIn("faults/live", text.splitlines()[2])
         self.assertIn("| faults | shop:live | failed |", text)
-        with self.assertRaises(SystemExit):
-            self.call("run", "pages", "shop:market", "--", *shell, "1")
 
     def test_everything_recorded_is_a_full_audit(self):
         for item, subjects in doctor.items().items():
@@ -184,7 +182,7 @@ class DoctorTests(unittest.TestCase):
                 self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
         for subject in ("shop/price.py:x", "shop+@redis:x"):
             self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
-            self.assertIn("shop", doctor.covers(subject))
+            self.assertIn("shop", doctor.covers(subject, doctor.objects("HEAD")))
 
     def test_a_themed_audit_is_judged_only_against_the_scope_it_declared_first(self):
         with self.assertRaises(SystemExit):
@@ -214,18 +212,34 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial themed audit: harm"))
 
     def test_scan_lists_the_tree_and_when_the_records_last_exercised_it(self):
-        self.commit({"README.md": "", "notes/a.md": "", "docs/x.mdx": "",
+        self.commit({"README.md": "a\n", "notes/a.md": "a\n", "docs/x.mdx": "a\n",
                      "docs/plans/doctor/2026-01-02-a.zh.md": "| results | shop:sum | examined | x |\n"
-                                                             "| cost | tests:t | noisy | x |\n"})
+                                                             "| cost | tests:t | noisy | x |\n"
+                                                             "| external | gone/part+@venue:x | examined | x |\n"})
         os.chdir(self.repo / "shop")
         out = io.StringIO()
         with redirect_stdout(out):
             doctor.main(["scan", "--tree", "HEAD"])
         read = json.loads(out.getvalue())
-        self.assertEqual({name: row["examined"] for name, row in read["objects"].items()},
-                         {"docs": None, "root": None, "shop": "2026-01-02", "tests": None})
+        self.assertEqual({name: row["examined"] for name, row in read["objects"].items() if "/" not in name},
+                         {"docs": None, "notes": None, "root": None, "shop": "2026-01-02", "tests": None})
         self.assertEqual((read["items"]["results"], read["items"]["cost"]), ("2026-01-02", None))
         self.assertEqual(read["objects"]["shop"]["commits"], 2)
+        self.assertEqual(read["outside"], {"@venue": "2026-01-02"})
+        self.assertIn("in earlier records but not here: @venue.", self.call("report", "--tree", "HEAD"))
+
+    def test_every_file_belongs_to_one_object_in_any_layout(self):
+        self.git("rm", "-qr", ".")
+        big, small, tiny = "x\n" * 300, "x\n" * 30, "x\n"
+        rev = self.commit({"src/a/m.py": big, "src/b/deep/m.py": big, "src/c/m.py": small, "src/d/m.py": tiny,
+                           "src/top.py": tiny, "rules/only.md": tiny, "empty/.keep": "", "a name.txt": tiny})
+        found = doctor.objects(rev)
+        self.assertLessEqual({"root", "rules", "src", "src/a", "src/c"}, set(found))
+        self.assertEqual((found["src"]["folded"], found["root"]["folded"]), (["src/d"], ["empty"]))
+        paths = self.git("ls-tree", "-r", "--name-only", rev).splitlines()
+        self.assertEqual(sum(row["lines"] for row in found.values()), sum((self.repo / p).read_text().count("\n") for p in paths))
+        self.assertEqual(doctor.owner("src/d/m.py", found), "src")
+        self.assertNotIn("src/a", doctor.covers("src/top.py:x", found))
 
     def test_a_cost_is_a_growth_rate_only_when_the_sizes_are_apart(self):
         quadratic = doctor.read_cost({n: [9.0, n * n, n * n * 1.01, n * n * 1.02] for n in (1, 2, 4)})
