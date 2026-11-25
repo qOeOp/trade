@@ -17,7 +17,7 @@ The summary carries the latest priority judgment (the next direction). The axis 
 recording a decision the Agent made for the user, which the graph gives their own kinds (`decisions`, at their gap):
 a change of approach within the line, and a line decision (a replacement line the user delegated).
 The recommendation judgments form a trail over the recommended versions (one segment per
-stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress` holds the research runs' annual
+stretch the recommendation stayed on one version; one that recommends none ends it), and `trials` says which version each trial ran; `progress` holds the research runs' annual
 returns on the same x.
 """
 from __future__ import annotations
@@ -176,27 +176,30 @@ def build_view(graph: dict) -> dict:
                       "prediction": prediction(c), "failed_predictions": failed_predictions(c), "trials": [t["trial_id"] for t in c.get("trials") or []],
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
-    recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
-                  key=lambda e: seconds(e["at"]))
+    # One that names no version drawn (a retraction) ends what the earlier ones recommended.
+    recs = sorted((e for e in events if e["kind"] == "recommendation"), key=lambda e: seconds(e["at"]))
+    named = [e["recommends"] if e.get("recommends") in row else None for e in recs]
     decisions = [{"x": x, "kind": e["kind"], "at": e["at"], "ref": e.get("ref"), "text": e.get("text")}
                  for e in graph["events"] if e["kind"] in DECISION_KINDS and e.get("at") and (x := gap(e["at"])) is not None]
     timed = [gap(e["at"]) for e in events] + [d["x"] for d in decisions]
     xs = [n["x"] for n in nodes if n["x"] is not None] + [x for x in timed if x is not None]
     end = max(xs) + 1 if xs else 1.0
     trail: list[dict] = []  # one segment per stretch where the recommendation stayed on one version
-    for e in recs:
+    for n, (e, candidate) in enumerate(zip(recs, named, strict=True)):
         x = gap(e["at"])
-        if trail and trail[-1]["candidate"] == e["recommends"]:
+        if candidate is None:
+            continue
+        if n and named[n - 1] == candidate:
             trail[-1]["judgments"].append(x)
         else:
-            trail.append({"candidate": e["recommends"], "x0": x, "judgments": [x]})
+            trail.append({"candidate": candidate, "x0": x, "judgments": [x]})
     start = (graph.get("scope") or {}).get("start")
     status_of = {n["id"]: n["status"] for n in nodes}
-    current = recs[-1]["recommends"] if recs else None
+    current = named[-1] if named else None
     streak = len(recs)
-    while streak > 0 and recs[streak - 1]["recommends"] == current:
+    while streak > 0 and named[streak - 1] == current:
         streak -= 1
-    held_since = gap(recs[streak]["at"]) if recs else None
+    held_since = gap(recs[streak]["at"]) if current else None
     runs = [t for c in candidates for t in research_runs(c)]
     best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
@@ -205,7 +208,7 @@ def build_view(graph: dict) -> dict:
         {"type": "summary", "targets": targets,
          "recommended": current, "reading": {k: best[0].get(k) for k in MEASURES}
          if best else None, "status": status_of.get(current) if current else None,
-         "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
+         "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak if current else 0,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
          "candidates": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
          "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
@@ -238,7 +241,7 @@ def build_view(graph: dict) -> dict:
                   for c in candidates]},
         {"type": "notes", "items": graph["gaps"]},
         {"type": "candidate-detail",
-         "default": recs[-1]["recommends"] if recs else (candidates[0]["id"] if candidates else None),
+         "default": current or (candidates[0]["id"] if candidates else None),
          "items": [{**{k: v for k, v in c.items() if k != "source"}, "prediction_class": prediction_of[c["id"]]} for c in candidates]},
         {"type": "sources",
          "items": [{"id": c["id"], "parent": c.get("parent") if c.get("parent") in row else None, "source": c.get("source")}

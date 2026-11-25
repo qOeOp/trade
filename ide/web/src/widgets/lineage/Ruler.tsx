@@ -1,5 +1,6 @@
 import { useId, useMemo } from "react";
-import type { LineageWidget } from "../../model/types";
+import type { LineageWidget, SummaryWidget } from "../../model/types";
+import { useWidget } from "../../model/view";
 import { PURPOSE } from "../../model/semantics";
 import { runs, steps } from "../../lib/range";
 import { v, wash } from "../../theme/roles";
@@ -34,7 +35,7 @@ export function Ruler({ lineage, inset }: { lineage: LineageWidget; inset: numbe
     for (const d of lineage.decisions) at.set(d.x, [...(at.get(d.x) ?? []), d]);
     return [...at];
   }, [lineage]);
-  const recommended = lineage.trail.at(-1)?.candidate;
+  const recommended = useWidget<SummaryWidget>("summary")?.recommended;
   return (
     <div ref={ref} className="relative select-none bg-island" style={{ height: RULER }}>
       <svg width={width} height={RULER} className="absolute inset-0">
