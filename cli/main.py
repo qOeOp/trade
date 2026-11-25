@@ -89,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
                                                   separated)
         result, code = _dispatch(args, runner_argv)
     except Refusal as exc:
-        _print(sys.stderr, refusal_json(exc))
+        shown = refusal_json(exc)
+        if exc.code == "USAGE_ERROR" and exc.expected is None:  # the handler's own check; the parser's carries its own
+            shown["expected"] = args.command_parser.usage_error(exc.message).expected
+        _print(sys.stderr, shown)
         return 1
     except LiveRefusal as exc:
         _print(sys.stderr, {"code": exc.code, "message": exc.message})

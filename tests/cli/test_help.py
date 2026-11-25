@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from cli import main
+from shared.refusals import refuse
 from tests.helpers import refused
 
 
@@ -70,6 +71,21 @@ class UsageRefusalTests(unittest.TestCase):
         refusal = self.refused("candidate", "list", "--", "--start", "x")
         self.assertEqual(refusal["message"], "candidate list takes no runner arguments after --")
         self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main candidate list "))
+
+    def test_a_usage_error_a_handler_raises_carries_the_commands_options_too(self):
+        err = io.StringIO()
+        handler = mock.Mock(side_effect=refuse("USAGE_ERROR", "needs --output", missing=("--output",)))
+        dispatch = main._dispatch
+
+        def parsed(args, runner_argv):
+            args.run = handler
+            return dispatch(args, runner_argv)
+        with contextlib.redirect_stderr(err), mock.patch.object(main, "_dispatch", parsed):
+            self.assertEqual(main.main(["ledger", "export", "--kind", "reproduce"]), 1)
+        refusal = json.loads(err.getvalue())
+        self.assertEqual((refusal["code"], refusal["message"], refusal["missing"]),
+                         ("USAGE_ERROR", "needs --output", ["--output"]))
+        self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main ledger export "))
 
     def test_runner_arguments_without_the_separator_are_named(self):
         refusal = self.refused("replay", "precheck", "--candidate", "s@1", "--market-day", "head", "--output", "/tmp/o",
