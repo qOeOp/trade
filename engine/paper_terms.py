@@ -142,6 +142,13 @@ class Waiting:
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
+    def _foreign(self, client_order_ids) -> list:
+        """Another instance's waiting entry is a known order too (engine.order_rules rule 6)."""
+        ids = list(client_order_ids)
+        return super()._foreign(ids) + [str(item.order.client_order_id) for item in QUEUE  # type: ignore[misc]
+                                        if item.instrument_id != self._paper_instrument_id
+                                        and item.order.client_order_id in ids]
+
     def cancel_order(self, client_order_id, client_id=None, params=None):
         if not params and cancel(self._paper_instrument_id, lambda order: order.client_order_id == client_order_id):
             return None
