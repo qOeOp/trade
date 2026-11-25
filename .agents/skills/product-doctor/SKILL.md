@@ -25,7 +25,7 @@ Research conclusions and experiment choice belong to `research-round`.
 
 ## Focused diagnosis
 
-One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answers it and stop.
+One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examine what answers it and stop.
 
 ## Themed audit
 
@@ -37,19 +37,19 @@ the last two audits took it (harm aside); say why and what is left out:
 1. **Stop harm** (`harm`): an open finding that risks money, records or wrong results and is new, changed or not yet
    rechecked; one only waiting for authority or under a claim does not count. Merge by cause, order by reach and cost
    paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
-2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it. Net growth
-   only orders (a growing product always has some). Groups Shape and Audit, one or two objects: [slim.md](references/slim.md).
+2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
+   on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
 4. **Find** (`find`): otherwise. The object much changed or longest unexamined, outside parties and running state too,
    under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
 
-Declare one to three objects and the perspectives with `doctor.py scope` before any evidence; `report` judges against
-it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
+Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
+only some do) with `doctor.py scope` before any evidence, harm its objects alone; `report` judges against it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
 
 ## Full audit
 
 1. **Pin.** Your first message gives a time and token budget. Every line of [lenses.md](references/lenses.md) and every
-   object of `scan` runs, with the refutations, challenges and reruns of old proofs, whatever it costs; the budget
+   object of `scan` runs, with the second passes, refutations, challenges and reruns of old proofs, whatever it costs; the budget
    limits only what is beyond those, and past 70% none is added. Fetch; judge `origin/main`, not the session's
    checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same objects, and `doctor.py
    recheck` those closed longest without a held comment; name the ones left.
@@ -62,7 +62,7 @@ it. Then the steps below on those alone: step 1's "every line" and step 5 (slimm
    names what it did not reach with `doctor.py unexamined` and ends when the object's paths are exercised, not at its
    first findings. At most four passes at once, one of them heavy (replay, build); measure costs with nothing else
    running. A script gathers; a sub-agent still judges. Once every line and object has had its pass, each object with
-   a `shown` finding that is not minor gets one more, from another perspective. Suspects of yours still open after the
+   a `shown` finding not plainly minor (step 6) gets one more, from another perspective. Suspects of yours still open after the
    passes you probe yourself; no agent is briefed with them.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`, whose control
    must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`, a rate, not one time

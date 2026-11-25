@@ -179,12 +179,12 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("tests (object)", self.call("report", "--tree", "HEAD").splitlines()[2])
 
     def test_a_subject_names_an_object_of_the_tree_or_one_outside_it(self):
-        for subject in ("empty", "nowhere:x", "shop/none.py:x", "@:x", "shop:", "shop+tests+@redis:x"):
+        for subject in ("empty", "nowhere:x", "shop/none.py:x", "@:x", "shop:", "shop+tests+@redis:x", "shop/../tests:x"):
             with self.assertRaises(SystemExit):
                 self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
         for subject in ("shop/price.py:x", "shop+@redis:x"):
             self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
-            self.assertEqual(doctor.covers(subject), {"shop"})
+            self.assertIn("shop", doctor.covers(subject))
 
     def test_a_themed_audit_is_judged_only_against_the_scope_it_declared_first(self):
         with self.assertRaises(SystemExit):
@@ -195,23 +195,29 @@ class DoctorTests(unittest.TestCase):
         text = self.call("report", "--tree", "HEAD")
         self.assertTrue(text.startswith("# Partial themed audit: slim"))
         self.assertIn("Not exercised: pages/empty.", text)
+        self.call("run", "pages", "tests:empty", *shell, "print('elsewhere')")
+        self.assertIn("Not exercised: pages/empty.", self.call("report", "--tree", "HEAD"))
+        for _ in range(2):
+            self.call("run", "pages", "shop:empty", "--artifact", self.home / "none", *shell, "print(0)")
         self.call("run", "pages", "shop:empty", *shell, "print(2); raise SystemExit(1)")
         self.call("run", "pages", "shop:empty", *shell, "print(3)")
         text = self.call("report", "--tree", "HEAD")
         self.assertTrue(text.startswith("# Themed audit: slim"))
-        self.assertEqual(text.count("| pages | shop:empty |"), 1)
-        self.assertIn("(1 failed, 1 examined)", text)
+        self.assertIn("(of 4 attempts: 2 no artifact)", text)
+        self.assertEqual(text.count("| pages | shop:empty | failed |"), 1)  # a later success hides no failure
         with self.assertRaises(SystemExit):
             self.call("scope", "slim", "--items", "size", "--objects", "shop", "--tree", "HEAD")
 
     def test_a_harm_audit_without_a_probe_is_partial(self):
-        self.call("scope", "harm", "--tree", "HEAD")
+        self.call("scope", "harm", "--objects", "shop", "--tree", "HEAD")
+        self.probed("raise SystemExit", "--tree", "HEAD")
         self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial themed audit: harm"))
 
     def test_scan_lists_the_tree_and_when_the_records_last_exercised_it(self):
         self.commit({"README.md": "", "notes/a.md": "", "docs/x.mdx": "",
                      "docs/plans/doctor/2026-01-02-a.zh.md": "| results | shop:sum | examined | x |\n"
                                                              "| cost | tests:t | noisy | x |\n"})
+        os.chdir(self.repo / "shop")
         out = io.StringIO()
         with redirect_stdout(out):
             doctor.main(["scan", "--tree", "HEAD"])

@@ -93,7 +93,9 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps(seen))
 
 
 def git(*args: str) -> bytes:
-    done = subprocess.run(["git", *args], capture_output=True, check=False)
+    # From the top: ls-tree and archive read their paths, and their whole, from the current directory.
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+    done = subprocess.run(["git", *args], capture_output=True, check=False, cwd=top.stdout.strip() or None)
     if done.returncode:
         raise SystemExit(f"git {' '.join(args)}: {done.stderr.decode().strip()}")
     return done.stdout
@@ -140,7 +142,7 @@ def ask(root: Path, probe: Path, name: str, timeout: float) -> dict:
 
 
 def verdict(main: dict, control: dict | None) -> str:
-    if main["state"] == "broken" or (control and control["state"] == "broken"):
+    if main["state"] in ("broken", "none") or (control and control["state"] in ("broken", "none")):
         return "broken"
     if control is None:
         return "uncontrolled"
@@ -188,8 +190,8 @@ def split(subject: str) -> tuple[list[str], str]:
 
 
 def covers(subject: str) -> set[str]:
-    """The top-level objects a subject counts for."""
-    return {part.split("/", 1)[0] for part in split(subject)[0] if not part.startswith("@")}
+    """The objects a subject counts for: top-level ones of the tree, and what it names outside."""
+    return {part.split("/", 1)[0] for part in split(subject)[0]}
 
 
 def known(item: str, subject: str, rev: str) -> None:
@@ -203,7 +205,8 @@ def known(item: str, subject: str, rev: str) -> None:
     for part in parts:
         if re.fullmatch(r"@[\w.-]+", part) or part == ROOT:
             continue
-        if part.split("/", 1)[0] not in tops or not git("ls-tree", rev, "--", part.rstrip("/")).strip():
+        if part.split("/", 1)[0] not in tops or {".", ".."} & set(part.split("/")) \
+                or not git("ls-tree", rev, "--", part.rstrip("/")).strip():
             raise SystemExit(f"{part} is no path under {', '.join(tops)}; something outside the tree is written @name")
     if subjects != [ANY] and scenario not in subjects:
         raise SystemExit(f"{item} covers OBJECT:{', OBJECT:'.join(subjects)}, not {subject}")
@@ -229,10 +232,13 @@ def scan(args: argparse.Namespace) -> None:
     table: dict[str, dict[str, Any]] = {name: {"commits": 0, "fixes": 0, "added": 0, "removed": 0, "examined": by_object.get(name)}
                                         for name in objects(rev)}
     fixed: dict[str, int] = {}
-    log = git("log", "--no-renames", f"--since={args.days} days ago", "--numstat", "--format=\x01%s", rev)
+    # One change is one commit of the main line; a merge's title is the first line of its body.
+    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat",
+              "--format=%x01%s%x02%b%x03", rev)
     for change in log.decode(errors="replace").split("\x01")[1:]:
-        title, _, body = change.partition("\n")
-        is_fix = bool(re.match(r"fix(\(|:|!)", title))
+        message, _, body = change.partition("\x03")
+        title, _, rest = message.partition("\x02")
+        is_fix = bool(re.match(r"fix(\(|:|!)", rest.lstrip() if title.startswith("Merge ") else title))
         touched = set()
         for line in filter(None, body.splitlines()):
             added, removed, path = line.split("\t", 2)
@@ -242,7 +248,7 @@ def scan(args: argparse.Namespace) -> None:
             touched.add(name)
             table[name]["added"] += int(added) if added.isdigit() else 0
             table[name]["removed"] += int(removed) if removed.isdigit() else 0
-            if is_fix:
+            if is_fix and not path.endswith(".md"):
                 fixed[path] = fixed.get(path, 0) + 1
         for name in touched:
             table[name]["commits"] += 1
@@ -259,14 +265,14 @@ def scope(args: argparse.Namespace) -> None:
     rev = commit(args.tree)
     listed, tops = items(), objects(rev)
     for name in args.objects:
-        if name not in tops:
-            raise SystemExit(f"{name} is not an object of scan: {', '.join(tops)}")
+        if name not in tops and not re.fullmatch(r"@[\w.-]+", name):
+            raise SystemExit(f"{name} is neither @name nor an object of scan: {', '.join(tops)}")
     for wanted in args.items:
         item, _, scenario = wanted.partition("/")
         if item not in listed or scenario and scenario not in listed[item]:
             raise SystemExit(f"{wanted} is not an audit item, or ITEM/SCENARIO")
-    if args.theme != "harm" and not (args.items and args.objects):
-        raise SystemExit(f"{args.theme} names the items and objects it examines")
+    if not args.objects or not (args.items or args.theme == "harm"):
+        raise SystemExit(f"{args.theme} names the objects it examines{'' if args.theme == 'harm' else ' and the items'}")
     keep(args.directory, {"kind": "scope", "theme": args.theme, "items": args.items, "objects": args.objects, "tree": rev})
 
 
@@ -304,6 +310,8 @@ def unexamined(args: argparse.Namespace) -> None:
         raise SystemExit(f"{args.item} is not an audit item: {', '.join(items())}")
     if not args.why.strip():
         raise SystemExit("say what stopped it")
+    if args.item != "fixed":  # whose subjects are commits
+        known(args.item, args.subject, commit("HEAD"))
     keep(args.directory, {"kind": "unexamined", "item": args.item, "subject": args.subject, "why": args.why})
 
 
@@ -448,6 +456,10 @@ def coverage(found: list[dict], tops: list[str]) -> tuple[dict[tuple[str, str], 
             table.setdefault((row["item"], row["subject"]), []).append((row, state(row, found)))
     done = {key for key, entries in table.items() if any(said in ("examined", "failed") for _, said in entries)}
     declared = next((row for row in found if row["kind"] == "scope"), None)
+    if declared:  # an item counts on a declared object, and an object under a declared item
+        scoped = {wanted.partition("/")[0] for wanted in declared["items"]}
+        done = {(item, subject) for item, subject in done
+                if item in scoped and (item == "fixed" or covers(subject) & set(declared["objects"]))}
     missing = []
     for wanted in declared["items"] if declared else listed:
         item, _, only = wanted.partition("/")
@@ -457,8 +469,10 @@ def coverage(found: list[dict], tops: list[str]) -> tuple[dict[tuple[str, str], 
             reached = {split(subject)[1] for name, subject in done if name == item}
             missing += [f"{item}/{scenario}" for scenario in ([only] if only else listed[item]) if scenario not in reached]
     reached = {top for _, subject in done for top in covers(subject)}
-    missing += [f"{top} (object)" for top in (declared["objects"] if declared else tops) if top not in reached]
-    if declared and declared["theme"] == "harm" and not any(row["kind"] == "probe" for row in found):
+    wanted_tops = tops if not declared else declared["objects"] if declared["items"] else []
+    missing += [f"{top} (object)" for top in wanted_tops if top not in reached]
+    if declared and declared["theme"] == "harm" and not any(
+            row["kind"] == "probe" and row["verdict"] in ("shown", "absent") for row in found):
         missing.append("a probe of an open finding")
     return table, missing
 
@@ -509,15 +523,16 @@ def report(args: argparse.Namespace) -> None:
     print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
     order = list(items())
     for (item, subject), entries in sorted(table.items(), key=lambda pair: order.index(pair[0][0])):
-        # The last attempt that exercised it speaks, else the last one; the others are counted.
-        row, said = ([entry for entry in entries if entry[1] in ("examined", "failed")] or entries)[-1]
-        evidence = (f"`{cell(' '.join(row['command']))}` exit {row['exit']}, {row['checkout'][:9]}"
-                    f"{' with changes' if row['dirty'] else ''}" if row["kind"] == "run"
-                    else f"exponent {row.get('exponent')}, warm {row.get('warm_s')}" if row["kind"] == "cost"
-                    else f"{len(row['tests'])} telling tests")
-        states = [entry[1] for entry in entries]
-        tried = ", ".join(f"{states.count(one)} {one}" for one in dict.fromkeys(states))
-        print(f"| {item} | {cell(subject)} | {said} | {evidence}{f' ({tried})' if len(states) > 1 else ''} |")
+        # Every attempt that exercised it is printed; the others are only counted, and alone the last one speaks.
+        other = [said for _, said in entries if said not in ("examined", "failed")]
+        tried = ", ".join(f"{other.count(one)} {one}" for one in dict.fromkeys(other))
+        for row, said in [entry for entry in entries if entry[1] in ("examined", "failed")] or entries[-1:]:
+            evidence = (f"`{cell(' '.join(row['command']))}` exit {row['exit']}, {row['checkout'][:9]}"
+                        f"{' with changes' if row['dirty'] else ''}" if row["kind"] == "run"
+                        else f"exponent {row.get('exponent')}, warm {row.get('warm_s')}" if row["kind"] == "cost"
+                        else f"{len(row['tests'])} telling tests")
+            more = f" (of {len(entries)} attempts: {tried})" if tried and len(entries) > 1 else ""
+            print(f"| {item} | {cell(subject)} | {said} | {evidence}{more} |")
     probes = [row for row in found if row["kind"] == "probe"]
     latest = {row["id"]: row for row in probes}
     reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}
