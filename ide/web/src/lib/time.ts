@@ -1,4 +1,4 @@
-import { MISSING } from "./format";
+export const MISSING = "-";
 
 /** A day and a year of 365 days, in seconds and in ms: the pace and annual return compound over that year. */
 export const DAY_S = 86_400, DAY_MS = DAY_S * 1000, YEAR_S = 365 * DAY_S, YEAR_MS = YEAR_S * 1000;
