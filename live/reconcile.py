@@ -121,8 +121,9 @@ def compare_one(root: Path, paper_ledger: Path, market_root: Path, paper_id: int
             try:
                 found = compare(profile, {"holds": "market", "root": str(market_root)}, None, paper_id,
                                 attempt / "compare")
-            except Refusal as exc:  # the comparison was not done: compared again after RETRY_NS
-                return {"paper_id": paper_id, "market_day": None, "retry": True,
+            except Refusal as exc:  # the comparison was not done: compared again after RETRY_NS, unless the sealed
+                # run holds no interval to compare, which no later comparison changes
+                return {"paper_id": paper_id, "market_day": None, "retry": exc.code != "PAPER_COMPARE_EMPTY",
                         "reason": UNCOVERED if exc.code == "COMPARE_UNCOVERED" else f"{exc.code}: {exc.message}"}
             result = json.loads(Path(found["path"]).read_text(encoding="utf-8"))
             return {"paper_id": paper_id, "market_day": result["market_day"], "retry": False,
@@ -161,8 +162,9 @@ Key = tuple[str, tuple[str, ...]]  # a source hash and the contracts, in the run
 class Reconciliation:
     """The Paper reconciliation of each (source, contracts) asked about, derived in the background and held in memory
     only. Each run's comparison is kept for the control's life, except one that was not done (the market did not
-    cover the run yet, a refusal), which is compared again after RETRY_NS; the runs matching a key are listed again at every check, so a run sealed later
-    counts. The LIMIT most recently asked keys are kept."""
+    cover the run yet, a refusal a later comparison can pass), which is compared again after RETRY_NS; the runs
+    matching a key are listed again at every check, so a run sealed later counts. The LIMIT most recently asked keys
+    are kept."""
 
     RETRY_NS = 3600 * 1_000_000_000
     LIMIT = 32
