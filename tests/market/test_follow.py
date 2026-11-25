@@ -236,6 +236,28 @@ class MonthlyTests(unittest.TestCase):
         self.assertEqual((self.calls, found["BTCUSDT"]["filled"]), ([("quotes", FEB, ("BTCUSDT",))], ["2025-02"]))
 
 
+class RepublishedTests(unittest.TestCase):
+    def test_a_day_not_cached_leaves_no_later_day_stale(self):
+        keys = follow._keys("BTCUSDT", FEB, False)
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp)
+            for key in keys[1:]:
+                target, checksum = sources._cached(cache, key)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"held")
+                checksum.write_text("aa  held")
+
+            def remote(url):
+                return b"bb  new" if url.endswith(keys[-1] + ".CHECKSUM") else b"aa  held"
+            with patch.object(sources, "_get", side_effect=remote):
+                self.assertTrue(follow._republished(cache, "BTCUSDT", FEB, False))
+                self.assertEqual([key for key in keys if not sources._cached(cache, key)[0].exists()],
+                                 [keys[0], keys[-1]])
+                for key in (keys[0], keys[-1]):
+                    sources._cached(cache, key)[1].write_text("bb  new" if key == keys[-1] else "aa  held")
+                self.assertFalse(follow._republished(cache, "BTCUSDT", FEB, False))
+
+
 class BarsTests(unittest.TestCase):
     def setUp(self):
         self.ready: set[date] = set()
