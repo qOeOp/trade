@@ -339,6 +339,31 @@ class RestartTests(unittest.TestCase):
             daemon.start.assert_not_called()
             self.assertEqual(daemon.recovery_failures[1]["code"], "PAPER_RECOVERY_UNAVAILABLE")
 
+    def test_a_command_that_times_out_or_cannot_run_is_that_run_s_failure(self):
+        with tempfile.TemporaryDirectory() as name:
+            daemon = self.daemon(Path(name))
+            del daemon.cli  # the real one
+            daemon.ledger, daemon.product = "isolated", Path(name)
+            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "ended"} for i in (1, 2)]}
+            for error in (subprocess.TimeoutExpired(["paper", "--secret"], 1), OSError("no process")):
+                with self.subTest(error=error), redirect_stderr(io.StringIO()), \
+                        mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                        mock.patch.object(serve.subprocess, "run", side_effect=error) as command:
+                    daemon.seal_found()
+                    self.assertEqual(command.call_count, 2, "the second run is tried too")
+                    self.assertEqual(daemon.recovery_failures[1], {
+                        "code": "PAPER_FAILED", "message": f"paper resume failed: {type(error).__name__}"})
+
+    def test_a_failed_pass_does_not_end_the_sealing_thread(self):
+        with tempfile.TemporaryDirectory() as name:
+            daemon = self.daemon(Path(name))
+            daemon.runs.side_effect = OSError("no connection")
+            with redirect_stderr(io.StringIO()) as err, \
+                    mock.patch.object(serve.time, "sleep", side_effect=[None, None, KeyboardInterrupt]), \
+                    self.assertRaises(KeyboardInterrupt):
+                daemon.seal_ended()
+            self.assertEqual(err.getvalue().count("paper sealing: OSError"), 2)
+
     def test_the_runs_listing_carries_a_failed_recovery_on_ended_and_unsealed_runs_only(self):
         """The release tick's probe reads `recovery: {code, message}` from /api/paper/runs (#2628)."""
         failure = {"code": "PAPER_RECOVERY_UNAVAILABLE", "message": "journal has a tail"}
@@ -504,8 +529,17 @@ class CompareOutputTests(unittest.TestCase):
             self.assertEqual(daemon.compared(3)["state"], "none", "an older format is replayed again")
             (root / "3-20261109T000001Z" / "comparison.json").write_text(json.dumps({"format": comparison.FORMAT}))
 
-            self.compare(daemon, "20261109T000002Z", fails=subprocess.TimeoutExpired("paper compare", 1))
+            self.compare(daemon, "20261109T000002Z", fails=serve.Failure(500, "PAPER_FAILED", "TimeoutExpired"))
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
+
+            blocked = root / "blocked"
+            blocked.write_text("")  # a root that cannot be made, as on a full disk
+            daemon.compare_root = lambda: blocked
+            with self.assertRaises(FileExistsError):
+                self.compare(daemon, "20261109T000003Z")
+            blocked.unlink()
+            daemon.compare_root = lambda: root
+            self.assertNotEqual(daemon.compared(3)["state"], "comparing", "it can be asked again")
 
             daemon.cli = mock.Mock(return_value={"paper_id": 3})
             daemon.delete(3)
