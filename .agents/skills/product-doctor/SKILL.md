@@ -29,36 +29,41 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8). Examine what answer
 
 ## Themed audit
 
-An overall audit takes one theme; a full one runs when the user names it or before a new version line. A script
-reads the signals: open findings, fixes per file and net lines by area and commit type over two weeks, CI waits,
-audit records. Take the first that holds, unless the last two audits took it (harm aside); say why and what is left out:
+An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
+signals: `doctor.py scan` (the tree's objects, two weeks of changes and fixes, when each object and perspective was
+last exercised), the open findings and CI runs by `gh`, the last two records. Take the first theme that holds, unless
+the last two audits took it (harm aside); say why and what is left out:
 
-1. **Stop harm**: open findings that risk money, records or wrong results. Merge by cause, order by reach and cost
-   paid, recheck on `origin/main`; search for nothing new.
-2. **Slim**: an object fixed again and again, or whose tests outgrow it. Net growth only orders (a growing product
-   always has some). One or two objects: [slim.md](references/slim.md).
-3. **Find**: an object much changed or longest unexamined.
-4. **Friction**: what the user or Agents wait for, repeat or decode.
+1. **Stop harm** (`harm`): an open finding that risks money, records or wrong results and is new, changed or not yet
+   rechecked; one only waiting for authority or under a claim does not count. Merge by cause, order by reach and cost
+   paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
+2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it. Net growth
+   only orders (a growing product always has some). Groups Shape and Audit, one or two objects: [slim.md](references/slim.md).
+3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
+4. **Find** (`find`): otherwise. The object much changed or longest unexamined, outside parties and running state too,
+   under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
 
-Then the steps below on one to three objects, under the theme's perspectives.
+Declare one to three objects and the perspectives with `doctor.py scope` before any evidence; `report` judges against
+it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
 
 ## Full audit
 
-1. **Pin.** Your first message gives a time and token budget. Every line of [lenses.md](references/lenses.md) runs,
-   with its second passes, refutations, challenges and reruns of old proofs, whatever it costs; the budget limits
-   only the objects beyond those lines, and past 70% none is added. Fetch; judge `origin/main`, not the session's
+1. **Pin.** Your first message gives a time and token budget. Every line of [lenses.md](references/lenses.md) and every
+   object of `scan` runs, with the refutations, challenges and reruns of old proofs, whatever it costs; the budget
+   limits only what is beyond those, and past 70% none is added. Fetch; judge `origin/main`, not the session's
    checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same objects, and `doctor.py
    recheck` those closed longest without a held comment; name the ones left.
-2. **Map and pass.** List the objects, each once, under what owns it: code and entry points (`engine/`, `cli/`,
-   `ide/`); what runs or keeps state (services, timers, the ledger, the market directory); outside parties and what
-   is published (Binance, DoltHub, images, the site); `.github/`, `deploy/` and `tests/`; `docs/`, `.agents/` and
-   AGENTS.md. Pair them with the perspectives in `lenses.md`, first what changed since the last audit, then the
-   longest unexamined. Give each pass to a fresh sub-agent with one perspective and one object, evidence paths, the
-   audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, no suspects of yours and no cap
-   on findings. It names what it did not reach with `doctor.py unexamined` and ends when the object's paths are
-   exercised, not at its first findings. At most four passes at once, one of them heavy (replay, build); measure
-   costs with nothing else running. A script gathers; a sub-agent still judges. An object with a `shown` finding
-   next gets a second fresh pass, from another perspective, before any object or line not yet started.
+2. **Map and pass.** To `scan`'s objects add what the tree does not hold, each once (`@name`): services, timers, the
+   ledger, the market directory, Binance, DoltHub, images, the published site. Pair every line and every object, first
+   what changed since the last audit, then the longest unexamined. Give each pass to a fresh sub-agent with one
+   perspective and one object, or two whose contract it checks (from what one produces to what the other assumes),
+   evidence paths, the audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, no suspects of
+   yours and no cap on findings. It lists the object's modes, tracks and states from the code before it runs any. It
+   names what it did not reach with `doctor.py unexamined` and ends when the object's paths are exercised, not at its
+   first findings. At most four passes at once, one of them heavy (replay, build); measure costs with nothing else
+   running. A script gathers; a sub-agent still judges. Once every line and object has had its pass, each object with
+   a `shown` finding that is not minor gets one more, from another perspective. Suspects of yours still open after the
+   passes you probe yourself; no agent is briefed with them.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`, whose control
    must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`, a rate, not one time
    (`--help` says the forms; run as `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`). Only
@@ -76,8 +81,9 @@ Then the steps below on one to three objects, under the theme's perspectives.
    first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy measures
    the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot tell. The
    `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
-6. **Refute.** After the passes, a fresh sub-agent gets at most eight recorded claims, step 5's included, without
-   their proof (your own guesses are not recorded claims and never go to a refuter), and tries to break each: first
+6. **Refute.** After the passes, fresh sub-agents get the recorded claims, step 5's included, at most eight each and those
+   of one object together, as object, trigger, expected and observed, without their proof (your own guesses are not
+   recorded claims and never go to a refuter), and try to break each: first
    who calls it and whether normal use reaches the trigger; then whether a README, docstring, `docs/plans/` file or
    test states it on purpose (not enough alone against a step 5 claim); then a run of its own (code's behaviour
    through `doctor.py probe --refutes`). Confirmed, by design (cite where; not when its stated reason no longer
@@ -91,8 +97,7 @@ Then the steps below on one to three objects, under the theme's perspectives.
    CI gate is an `authority` item: ask the user.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report `doctor.py report`
    verbatim but for `SECURITY.md`'s rows, spent against budget (time at least its evidence span; tokens the host
-   hides are unknown), and the listed objects no pass took: one object is enough for an `[any]` line, so the
-   coverage table does not show the rest. For an audit of one session, tell the user only of perspectives its
+   hides are unknown), and the `@` objects no pass took. For an audit of one session, tell the user only of perspectives its
    objects touch; the record keeps the report whole. Absence of findings says only what was tried. Trend claims
    need repairs that held. Rerun what the report calls not exercised or not examined before the temporary ledgers,
    markets and containers go; then, with each probe in its issue, stop the audit's own processes and remove its
