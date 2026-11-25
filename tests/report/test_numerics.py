@@ -558,6 +558,14 @@ class DevYearTests(unittest.TestCase):
         self.assertIsNone(quarters(date(2024, 10, 1))[0], "12 quarters: dev_years reads the window")
         self.assertIsNone(quarters(date(2022, 1, 1))[0], "one quarter is the window itself")
 
+    def test_a_window_a_day_short_of_two_years_has_quarters_whatever_day_it_starts(self):
+        for start, short, whole in (((2024, 1, 28), (2026, 1, 27), (2026, 1, 28)),
+                                    ((2024, 1, 30), (2026, 1, 29), (2026, 1, 30))):
+            for end, count in ((short, 8), (whole, None)):
+                run = {**self.run, "trade_start_ns": self.ns(date(*start)), "trade_end_ns": self.ns(date(*end))}
+                found = splits.dev_quarters(run)
+                self.assertEqual(found and len(found["quarters"]), count, (start, end))
+
 
 class SerialCorrelationTests(unittest.TestCase):
     def test_lo_scales_the_daily_sharpe_by_eta_of_the_truncated_autocorrelations(self):
