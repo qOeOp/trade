@@ -8,14 +8,17 @@ import ast
 from decimal import Decimal
 import hashlib
 import re
+from types import SimpleNamespace
 from pathlib import Path
 import unittest
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+from nautilus_trader.core import UUID4
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import (
-    Bar, MarkPriceUpdate, OmsType, OrderSide, Price, Quantity, StrategyId,
+    AccountBalance, AccountId, AccountState, AccountType, Bar, Currency, MarginAccount, MarkPriceUpdate, Money, OmsType,
+    OrderSide, Price, Quantity, StrategyId,
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
@@ -114,3 +117,22 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual([[str(round(value - Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]), 2)) for value in found]
                           for found in read],
                          [["0.00"] * 3, ["-0.50"], ["9.50"] * 3, ["18.99", "9.50"]])
+
+    def test_equity_reads_the_newest_state_that_lists_the_currency(self):
+        def state(minute, code, amount):  # Binance's account update lists only the currencies that changed
+            currency, at = Currency.from_str(code), START + minute * BAR_NS + BAR_NS // 4
+            total = Money(amount, currency)
+            return AccountState(AccountId("BINANCE-001"), AccountType.MARGIN,
+                                [AccountBalance(total, Money(0, currency), total)], [], True, UUID4(), at, at)
+
+        def equity(*states):
+            account = MarginAccount(states[0], False)
+            for later in states[1:]:
+                account.apply(later)
+            cache = SimpleNamespace(account_for_venue=lambda venue: account, positions=lambda venue: [],
+                                    instrument=lambda instrument_id: INSTRUMENT)
+            return self.loaded.strategy_class.equity(SimpleNamespace(instrument_id=INSTRUMENT_ID, cache=cache),
+                                                     START + 4 * BAR_NS - 10**6)
+
+        self.assertEqual(equity(state(0, "USDT", 5000), state(1, "USDT", 4000), state(2, "BNB", 1)), 4000)
+        self.assertIsNone(equity(state(0, "BNB", 1)))
