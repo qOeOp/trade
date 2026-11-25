@@ -3,8 +3,8 @@
 // run's report changes only with that row (a later record masking it), not with each commit the research
 // adds, so it stays on the page and the server stays unasked while the ledger moves; when the row does
 // change the last answer stays until the new one is in. One that was no report is asked again at the view's
-// next commit, and one the IDE ran out of memory reading (OUT_OF_MEMORY) each time it is shown again. Where it is
-// not to be had, what the page says instead.
+// next commit and each time it is shown again, so a service that did not answer, or the IDE out of memory reading,
+// is no lasting answer. Where it is not to be had, what the page says instead.
 import { useEffect } from "react";
 import { fetchTrial } from "../lib/trialApi";
 import { backtest, type Backtest } from "../model/backtest";
@@ -14,17 +14,16 @@ import { useShown } from "./shown";
 
 /** Being read; read; refused by the product (its code and words); or not to be had, with why. */
 export type Loaded = { kind: "reading" } | { kind: "ready"; b: Backtest } | { kind: "refused"; code: string; message: string } | { kind: "absent"; message: string };
-type Read = { row: string; at: string; answer: Loaded };
+type Read = { row: string; answer: Loaded };
 const reads = atom<ReadonlyMap<number, Read>>(new Map());
 const put = (id: number, read: Read) => reads.set(new Map(reads.get()).set(id, read));
 
 function read(id: number, row: string, at: string): void {
-  const last = reads.get().get(id);
-  const retry = last?.answer.kind === "refused" && last.answer.code === "OUT_OF_MEMORY";
-  if (last?.row === row && !retry && (last.answer.kind === "ready" || last.answer.kind === "reading" || last.at === at)) return;
-  put(id, { row, at, answer: last?.answer ?? { kind: "reading" } });
+  const last = reads.get().get(id), kind = last?.answer.kind;
+  if (last?.row === row && (kind === "ready" || kind === "reading")) return;
+  put(id, { row, answer: last && kind === "ready" ? last.answer : { kind: "reading" } });
   void fetchTrial(id, at).then((r) => {
-    if (reads.get().get(id)?.row === row) put(id, { row, at, answer: r.kind === "report" ? { kind: "ready", b: backtest(r.report) } : r });
+    if (reads.get().get(id)?.row === row) put(id, { row, answer: r.kind === "report" ? { kind: "ready", b: backtest(r.report) } : r });
   });
 }
 

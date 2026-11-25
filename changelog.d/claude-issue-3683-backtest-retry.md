@@ -1,0 +1,1 @@
+- A backtest whose report could not be read is asked for again when its panel is shown again; it stayed failed until the ledger's next commit or a reload (#3683).
