@@ -3,6 +3,7 @@
 from contextlib import redirect_stdout
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -86,10 +87,10 @@ class DoctorTests(unittest.TestCase):
         self.probed(text, "--tree", self.broken)
         with self.assertRaises(SystemExit):
             self.probed(text, "--tree", self.broken, "--refutes")
-        self.assertIn("| none |", self.call("report"))
+        self.assertIn("| none |", self.call("report", "--tree", "HEAD"))
         row = self.probed(text.replace("(2), 4", "(3), 6"), "--tree", self.broken, "--refutes")
         self.assertEqual((row["kind"], row["verdict"]), ("refutation", "shown"))
-        text = self.call("report")
+        text = self.call("report", "--tree", "HEAD")
         self.assertIn("Shown: 1 of 1 probed.", text)
         self.assertIn("Shown by a refuter's own probe too: 1.", text)
 
@@ -133,53 +134,115 @@ class DoctorTests(unittest.TestCase):
         page = self.home / "page.txt"
         draw = f"open({str(page)!r}, 'w').write('the first page')"
         shell = (sys.executable, "-c")
-        for item, subject, artifact, code in (("pages", "empty", page, draw + "; print(1)"),
-                                              ("pages", "records", page, draw + "; print(2)"),
-                                              ("pages", "reload", page, "print(5)"),
-                                              ("gates", "empty", None, ""), ("gates", "failed", None, "print('skipped=3')"),
-                                              ("faults", "live", None, "print('x'); raise SystemExit(1)"),
-                                              ("faults", "docker", self.home / "none", "print(3)"),
-                                              ("consumers", "cli", None, "print(4)")):
+        for item, subject, artifact, code in (("pages", "shop:empty", page, draw + "; print(1)"),
+                                              ("pages", "shop:records", page, draw + "; print(2)"),
+                                              ("pages", "shop:reload", page, "print(5)"),
+                                              ("gates", "shop:empty", None, ""), ("gates", "shop:failed", None, "print('skipped=3')"),
+                                              ("faults", "shop:live", None, "print('x'); raise SystemExit(1)"),
+                                              ("faults", "shop:docker", self.home / "none", "print(3)"),
+                                              ("consumers", "shop:cli", None, "print(4)")):
             option = ("--artifact", artifact) if artifact else ()
             self.call("run", item, subject, *option, "--", *shell, code)
         said = {(row["item"], row["subject"]): doctor.state(row, doctor.rows(self.evidence))
                 for row in doctor.rows(self.evidence)}
-        self.assertEqual(said, {("pages", "empty"): "same as another", ("pages", "records"): "same as another",
-                                ("pages", "reload"): "no artifact",
-                                ("gates", "empty"): "empty", ("gates", "failed"): "skipped tests",
-                                ("faults", "live"): "failed", ("faults", "docker"): "no artifact",
-                                ("consumers", "cli"): "examined"})
-        text = self.call("report")
+        self.assertEqual(said, {("pages", "shop:empty"): "same as another", ("pages", "shop:records"): "same as another",
+                                ("pages", "shop:reload"): "no artifact",
+                                ("gates", "shop:empty"): "empty", ("gates", "shop:failed"): "skipped tests",
+                                ("faults", "shop:live"): "failed", ("faults", "shop:docker"): "no artifact",
+                                ("consumers", "shop:cli"): "examined"})
+        text = self.call("report", "--tree", "HEAD")
         self.assertTrue(text.startswith("# Partial audit"))
-        for missing in ("pages/empty", "gates/partial", "cost/replay", "interrupt", "governance"):
+        for missing in ("pages/empty", "gates/partial", "cost/replay", "interrupt", "governance", "tests (object)"):
             self.assertIn(missing, text.splitlines()[2])
         self.assertNotIn("faults/live", text.splitlines()[2])
-        self.assertIn("| faults | live | failed |", text)
+        self.assertIn("| faults | shop:live | failed |", text)
         with self.assertRaises(SystemExit):
-            self.call("run", "pages", "market", "--", *shell, "1")
+            self.call("run", "pages", "shop:market", "--", *shell, "1")
 
     def test_everything_recorded_is_a_full_audit(self):
         for item, subjects in doctor.items().items():
-            for subject in ["x"] if subjects == ["any"] else subjects:
+            for subject in ["shop:x"] if subjects == ["any"] else [f"shop+tests:{scenario}" for scenario in subjects]:
                 doctor.keep(self.evidence, {"kind": "run", "item": item, "subject": subject, "command": ["true"],
                                             "checkout": "c" * 40, "dirty": False, "exit": 0, "output_bytes": 1,
                                             "output_sha256": subject, "skipped": 0, "artifact": None,
                                             "artifact_sha256": None})
-        self.assertTrue(self.call("report").startswith("# Full audit"))
-        self.call("unexamined", "parity", "redis", "no server")
-        self.assertIn("Not examined: parity/redis (no server).", self.call("report"))
-        self.assertTrue(self.call("report").startswith("# Partial audit"))
-        self.call("run", "parity", "redis", "--", sys.executable, "-c", "print('restarted')")
-        self.assertTrue(self.call("report").startswith("# Full audit"))
+        self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Full audit"))
+        self.call("unexamined", "parity", "@redis:restart", "no server")
+        self.assertIn("Not examined: parity/@redis:restart (no server).", self.call("report", "--tree", "HEAD"))
+        self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial audit"))
+        self.call("run", "parity", "@redis:restart", "--", sys.executable, "-c", "print('restarted')")
+        self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Full audit"))
         kept = self.evidence / "evidence.jsonl"
         kept.write_text("".join(line for line in kept.read_text().splitlines(True) if '"governance"' not in line))
-        self.assertTrue(self.call("report").startswith("# Partial audit\n\nNot exercised: governance."))
+        self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial audit\n\nNot exercised: governance."))
+        kept.write_text("".join(line for line in kept.read_text().splitlines(True) if "shop+tests" not in line))
+        self.assertIn("tests (object)", self.call("report", "--tree", "HEAD").splitlines()[2])
+
+    def test_a_subject_names_an_object_of_the_tree_or_one_outside_it(self):
+        for subject in ("empty", "nowhere:x", "shop/none.py:x", "@:x", "shop:", "shop+tests+@redis:x", "shop/../tests:x"):
+            with self.assertRaises(SystemExit):
+                self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
+        for subject in ("shop/price.py:x", "shop+@redis:x"):
+            self.call("run", "parity", subject, "--", sys.executable, "-c", "print(1)")
+            self.assertIn("shop", doctor.covers(subject))
+
+    def test_a_themed_audit_is_judged_only_against_the_scope_it_declared_first(self):
+        with self.assertRaises(SystemExit):
+            self.call("scope", "slim", "--tree", "HEAD")
+        self.call("scope", "slim", "--items", "size,pages/empty", "--objects", "shop", "--tree", "HEAD")
+        shell = ("--", sys.executable, "-c")
+        self.call("run", "size", "shop:lines", *shell, "print(1)")
+        text = self.call("report", "--tree", "HEAD")
+        self.assertTrue(text.startswith("# Partial themed audit: slim"))
+        self.assertIn("Not exercised: pages/empty.", text)
+        self.call("run", "pages", "tests:empty", *shell, "print('elsewhere')")
+        self.assertIn("Not exercised: pages/empty.", self.call("report", "--tree", "HEAD"))
+        for _ in range(2):
+            self.call("run", "pages", "shop:empty", "--artifact", self.home / "none", *shell, "print(0)")
+        self.call("run", "pages", "shop:empty", *shell, "print(2); raise SystemExit(1)")
+        self.call("run", "pages", "shop:empty", *shell, "print(3)")
+        text = self.call("report", "--tree", "HEAD")
+        self.assertTrue(text.startswith("# Themed audit: slim"))
+        self.assertIn("(of 4 attempts: 2 no artifact)", text)
+        self.assertEqual(text.count("| pages | shop:empty | failed |"), 1)  # a later success hides no failure
+        with self.assertRaises(SystemExit):
+            self.call("scope", "slim", "--items", "size", "--objects", "shop", "--tree", "HEAD")
+
+    def test_a_harm_audit_without_a_probe_is_partial(self):
+        self.call("scope", "harm", "--objects", "shop", "--tree", "HEAD")
+        self.probed("raise SystemExit", "--tree", "HEAD")
+        self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial themed audit: harm"))
+
+    def test_scan_lists_the_tree_and_when_the_records_last_exercised_it(self):
+        self.commit({"README.md": "", "notes/a.md": "", "docs/x.mdx": "",
+                     "docs/plans/doctor/2026-01-02-a.zh.md": "| results | shop:sum | examined | x |\n"
+                                                             "| cost | tests:t | noisy | x |\n"})
+        os.chdir(self.repo / "shop")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["scan", "--tree", "HEAD"])
+        read = json.loads(out.getvalue())
+        self.assertEqual({name: row["examined"] for name, row in read["objects"].items()},
+                         {"docs": None, "root": None, "shop": "2026-01-02", "tests": None})
+        self.assertEqual((read["items"]["results"], read["items"]["cost"]), ("2026-01-02", None))
+        self.assertEqual(read["objects"]["shop"]["commits"], 2)
 
     def test_a_cost_is_a_growth_rate_only_when_the_sizes_are_apart(self):
         quadratic = doctor.read_cost({n: [9.0, n * n, n * n * 1.01, n * n * 1.02] for n in (1, 2, 4)})
         self.assertEqual((quadratic["verdict"], round(quadratic["exponent"])), ("measured", 2))
         cold_start = doctor.read_cost({3: [0.19, 0.04, 0.05, 0.04], 6: [0.04, 0.04, 0.05, 0.04], 12: [.04, .04, .05, .04]})
         self.assertEqual((cold_start["verdict"], cold_start["exponent"]), ("noisy", None))
+        steep = doctor.read_cost({1: [1, .172, .190, .172], 8: [1, 1.238, 1.267, 1.237], 64: [1, 13.894, 15.133, 12.91]})
+        self.assertEqual((steep["verdict"], steep["exponent"]), ("measured", 1.06))
+
+    def test_a_repair_of_a_skill_script_is_rechecked(self):
+        path = ".agents/skills/s/assets/tool.py"
+        test = ("import pathlib, unittest\nclass T(unittest.TestCase):\n"
+                "    def test_it(self): self.assertIn('2', pathlib.Path('" + path + "').read_text())\n")
+        self.commit({path: "x = 1\n"})
+        repair = self.commit({path: "x = 2\n", "tests/test_tool.py": test})
+        self.call("recheck", repair, "--tree", "HEAD")
+        self.assertEqual(doctor.rows(self.evidence)[-1]["verdict"], "confirmed")
 
     def test_the_real_audit_list_is_readable(self):
         self.assertIn("interrupt", doctor.items())
