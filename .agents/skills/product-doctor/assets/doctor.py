@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 import hashlib
 import io
 import json
@@ -197,7 +198,22 @@ def run(args: argparse.Namespace) -> None:
         "artifact_sha256": None if not shown else hashlib.sha256(shown).hexdigest()})
 
 
+def unexamined(args: argparse.Namespace) -> None:
+    if args.item not in items():
+        raise SystemExit(f"{args.item} is not an audit item: {', '.join(items())}")
+    if not args.why.strip():
+        raise SystemExit("say what stopped it")
+    keep(args.directory, {"kind": "unexamined", "item": args.item, "subject": args.subject, "why": args.why})
+
+
 def probe(args: argparse.Namespace) -> None:
+    data = args.probe.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if args.refutes and not any(row["kind"] == "probe" and row["id"] == args.id for row in rows(args.directory)):
+        raise SystemExit(f"{args.id} names no claim")
+    if args.refutes and any(row["kind"] == "probe" and row["id"] == args.id and row["probe_sha256"] == digest
+                            for row in rows(args.directory)):
+        raise SystemExit("this is the claim's own probe; a refutation is written without it")
     main_rev = commit(args.tree)
     with tree(main_rev) as root:
         main = ask(root, args.probe, "probe", args.timeout)
@@ -212,11 +228,11 @@ def probe(args: argparse.Namespace) -> None:
     if args.before:
         with tree(commit(args.before)) as root:
             before = ask(root, args.probe, "probe", args.timeout)["state"]
-    data = args.probe.read_bytes()
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (args.directory / f"{args.id}.py").write_bytes(data)
+    name = f"{args.id}{'.refutes' if args.refutes else ''}.py"
+    (args.directory / name).write_bytes(data)
     keep(args.directory, {
-        "kind": "probe", "id": args.id, "probe": f"{args.id}.py", "probe_sha256": hashlib.sha256(data).hexdigest(),
+        "kind": "refutation" if args.refutes else "probe", "id": args.id, "probe": name, "probe_sha256": digest,
         "tree": main_rev, "main": main, "control_tree": control_rev, "control": control,
         "verdict": verdict(main, control),
         # A probe an older tree cannot run says nothing about it.
@@ -326,7 +342,7 @@ def coverage(found: list[dict]) -> tuple[dict[str, dict[str, list[tuple[dict, st
     """({item: {subject: [(row, state)]}}, what is missing)."""
     table: dict[str, dict[str, list[tuple[dict, str]]]] = {name: {} for name in items()}
     for row in found:
-        if row.get("item") in table:
+        if row.get("item") in table and row["kind"] != "unexamined":
             table[row["item"]].setdefault(row["subject"], []).append((row, state(row, found)))
 
     def done(item: str, subject: str) -> bool:
@@ -341,6 +357,24 @@ def coverage(found: list[dict]) -> tuple[dict[str, dict[str, list[tuple[dict, st
     return table, missing
 
 
+def stopped(found: list[dict]) -> list[dict]:
+    """The subjects named unexamined that no later row exercised."""
+    late = {}
+    for row in found:
+        if row["kind"] == "unexamined":
+            late[row["item"], row["subject"]] = row
+        elif row.get("item") and state(row, found) in ("examined", "failed"):
+            late.pop((row["item"], row["subject"]), None)
+    return list(late.values())
+
+
+def spent(found: list[dict]) -> str:
+    if not found:
+        return "no evidence"
+    first, final = (datetime.strptime(found[at]["at"], "%Y-%m-%dT%H:%M:%SZ") for at in (0, -1))
+    return f"{found[0]['at']} to {found[-1]['at']}, {(final - first).total_seconds() / 60:.0f} minutes"
+
+
 def cell(value: object) -> str:
     return " ".join(str(value).split()).replace("|", "\\|")
 
@@ -353,8 +387,12 @@ def last(reading: dict) -> str:
 def report(args: argparse.Namespace) -> None:
     found = rows(args.directory)
     table, missing = coverage(found)
-    print("# " + ("Full audit" if not missing else "Partial audit") + "\n")
+    late = stopped(found)
+    print("# " + ("Full audit" if not missing and not late else "Partial audit") + "\n")
     print("Not exercised: " + (", ".join(missing) if missing else "nothing listed") + ".\n")
+    print("Not examined: " + ("; ".join(f"{row['item']}/{cell(row['subject'])} ({cell(row['why'])})" for row in late)
+                              or "nothing named") + ".\n")
+    print(f"Evidence: {spent(found)}.\n")
     print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
     for item, subjects in table.items():
         for subject, entries in subjects.items():
@@ -366,15 +404,19 @@ def report(args: argparse.Namespace) -> None:
                 print(f"| {item} | {cell(subject)} | {said} | {evidence} |")
     probes = [row for row in found if row["kind"] == "probe"]
     latest = {row["id"]: row for row in probes}
-    print("\n| Finding | Verdict | Observed | Expected | Control | At the last audit |\n|---|---|---|---|---|---|")
+    reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}
+    print("\n| Finding | Verdict | Observed | Expected | Control | At the last audit | Refuter's probe |\n"
+          "|---|---|---|---|---|---|---|")
     for name, row in latest.items():
         main, control = row["main"], row["control"] or {}
         print(f"| {cell(name)} | {row['verdict']} | {cell(main.get('observed', last(main)))} | "
               f"{cell(main.get('expected', '-'))} | {cell(control.get('observed', last(control)))} | "
-              f"{row['before'] or '-'} |")
+              f"{row['before'] or '-'} | {reruns[name]['verdict'] if name in reruns else 'none'} |")
     old = [row["before"] for row in latest.values() if row["verdict"] == "shown" and row["before"] not in (None, "unknown")]
     print(f"\nShown: {sum(row['verdict'] == 'shown' for row in latest.values())} of {len(latest)} probed. "
-          f"Of {len(old)} datable ones, the last audit already had {old.count('present')}.")
+          f"Of {len(old)} datable ones, the last audit already had {old.count('present')}. "
+          f"Shown by a refuter's own probe too: "
+          f"{sum(row['verdict'] == 'shown' and name in reruns and reruns[name]['verdict'] == 'shown' for name, row in latest.items())}.")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -397,6 +439,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     one.add_argument("probe", type=Path)
     one.add_argument("--control-tree", metavar="REV", help="run probe() there instead of control() here")
     one.add_argument("--before", metavar="REV", help="the last full audit's checkout: was it already there?")
+    one.add_argument("--refutes", action="store_true", help="a refuter's own probe of claim ID, beside the claim's")
     two = add("cost", cost, "time a cost probe at three or more sizes", 600)
     two.add_argument("subject")
     two.add_argument("probe", type=Path)
@@ -405,6 +448,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     three.add_argument("commit")
     for parsed in (one, two, three):
         parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
+    four = add("unexamined", unexamined, "name what a pass did not reach; the audit is then partial", 0)
+    four.add_argument("item")
+    four.add_argument("subject")
+    four.add_argument("why", help="what stopped it")
     add("report", report, "print coverage and findings from the evidence", 0)
     given = list(sys.argv[1:] if argv is None else argv)
     command: list[str] = []

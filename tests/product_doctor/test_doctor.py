@@ -79,6 +79,20 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual((row["verdict"], row["before"]), ("shown", "present"))
         self.assertEqual(self.probed(text, "--tree", self.fixed, "--control-tree", self.broken)["verdict"], "absent")
 
+    def test_a_refutation_is_a_probe_of_its_own_beside_the_claim(self):
+        text = "from shop import price\ndef probe(): return price.total(2), 4\ndef control(): return price.total(0), 0\n"
+        with self.assertRaises(SystemExit):
+            self.probed(text, "--tree", self.broken, "--refutes")
+        self.probed(text, "--tree", self.broken)
+        with self.assertRaises(SystemExit):
+            self.probed(text, "--tree", self.broken, "--refutes")
+        self.assertIn("| none |", self.call("report"))
+        row = self.probed(text.replace("(2), 4", "(3), 6"), "--tree", self.broken, "--refutes")
+        self.assertEqual((row["kind"], row["verdict"]), ("refutation", "shown"))
+        text = self.call("report")
+        self.assertIn("Shown: 1 of 1 probed.", text)
+        self.assertIn("Shown by a refuter's own probe too: 1.", text)
+
     def test_a_probe_that_crashes_exits_or_hangs_proves_nothing(self):
         for body in ("raise KeyError('prediction')", "raise SystemExit(0)", "__import__('os')._exit(0)",
                      "__import__('time').sleep(60)"):
@@ -151,6 +165,11 @@ class DoctorTests(unittest.TestCase):
                                             "checkout": "c" * 40, "dirty": False, "exit": 0, "output_bytes": 1,
                                             "output_sha256": subject, "skipped": 0, "artifact": None,
                                             "artifact_sha256": None})
+        self.assertTrue(self.call("report").startswith("# Full audit"))
+        self.call("unexamined", "parity", "redis", "no server")
+        self.assertIn("Not examined: parity/redis (no server).", self.call("report"))
+        self.assertTrue(self.call("report").startswith("# Partial audit"))
+        self.call("run", "parity", "redis", "--", sys.executable, "-c", "print('restarted')")
         self.assertTrue(self.call("report").startswith("# Full audit"))
         kept = self.evidence / "evidence.jsonl"
         kept.write_text("".join(line for line in kept.read_text().splitlines(True) if '"governance"' not in line))
