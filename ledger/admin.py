@@ -170,11 +170,15 @@ def _json(value) -> bytes:
 
 
 def sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
-    """Sync the whole history to `target`. An existing backup whose head is no commit of the branch's history (a rewritten commit, or another
+    """Sync the whole history to `target`; a first backup is made beside it and renamed once whole, since Dolt leaves
+    files without a manifest when its sync is interrupted or fails, which backup_head refuses. An existing backup whose head is no commit of the branch's history (a rewritten commit, or another
     database's backup) is BACKUP_DIVERGED: dolt_backup would overwrite it silently."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     existing = target.is_dir() and any(target.iterdir())
     previous = backup_head(target) if existing else None
+    made = target if existing else target.with_name(target.name + ".partial")
+    if not existing:
+        shutil.rmtree(made, ignore_errors=True)  # an interrupted first backup's
     admin = server.admin(profile)
     try:
         with admin.cursor() as cursor:
@@ -185,9 +189,12 @@ def sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
                     raise refuse("BACKUP_DIVERGED", f"the backup head {previous} at {target} is no commit of the "
                                                     f"history of {profile.database}; nothing was synced",
                                  missing=(str(target),))
-            cursor.execute("CALL DOLT_BACKUP('sync-url', %s)", (target.resolve().as_uri(),))
-    except pymysql.MySQLError as exc:
-        raise refuse("DOLT_BACKUP", f"dolt_backup sync to {target} failed", missing=(str(target),)) from exc
+            cursor.execute("CALL DOLT_BACKUP('sync-url', %s)", (made.resolve().as_uri(),))
+        if not existing:
+            made.replace(target)
+    except (pymysql.MySQLError, OSError) as exc:
+        raise refuse("DOLT_BACKUP", f"dolt_backup sync to {target} failed: {str(exc.args[-1])[-300:]}",
+                     missing=(str(target),)) from exc
     finally:
         admin.close()
     if backup_head(target) != head:
