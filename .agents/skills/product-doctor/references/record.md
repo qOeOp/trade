@@ -7,12 +7,17 @@ Every finding, authority recommendation and open evidence gap is a GitHub issue 
 only place a finding's state lives and its number is its id. Before opening one, search open and closed
 issues, and the old findings the header of `docs/plans/doctor/index.zh.md` links; observations with one
 cause and remedy are one issue. The repository is public: no credential, and no Live or remote
-Paper record.
+Paper record. A finding in `SECURITY.md`'s scope takes no issue: give it to the user privately to report as
+`SECURITY.md` says. Public records, the report's rows and `authority` lists included, give only their number: no
+component, id, proof or remedy.
 
 - Body: agent and model; proof on the current `origin/main` (commit, file:line chain, probe readings or
-  reproduction); consumer and decision; action (`fix`, `remove`, `skill`, `authority`, `measure`);
-  cost (`none`, `minutes`, `hours`, `wrong output`; `unknown` when not measured); source (`doctor`,
+  reproduction; the probe's source, and the refuter's, in a collapsed block without local paths); reach (who,
+  doing what in normal use, meets it); consumer and decision; action (`fix`, `remove`, `skill`, `authority`, `measure`);
+  cost already paid, with its evidence (`none`, `minutes`, `hours`, `wrong output`; `unknown` when not measured),
+  and what it could cost, apart; source (`doctor`,
   `attach`, `user` or `user-bot`, the last two with the `lenses.md` perspective that should have caught it).
+- Minor findings (SKILL.md step 6) are one issue per audit, titled so. A finding with no reach written is minor.
 - `authority` label: the remedy needs the user's authority. Nothing is done on it until the user's own
   words, quoted with the date in a comment, allow it: the issue, its label and other comments never do.
 - `claimed` label and a comment `claimed by <agent/model>, <date>`, since all agents share one account; a
