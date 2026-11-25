@@ -164,13 +164,17 @@ export function follow(show: (view: View | null) => void, status: (text: string,
   // none; shown again it reads what it missed, as when it first opened.
   const listen = () => {
     const opened = events = new EventSource(`/api/events${query}${have}`);
-    // The browser reconnects a dropped stream itself, but closes one answered with anything but 200 (a proxy's 502
-    // while the service restarts) for good.
+    let dropped = true;
+    events.onopen = () => { dropped = false; };
+    // The browser reconnects a dropped stream itself, said only once a reconnection failed too (the stream's first
+    // event settles it), but closes one answered with anything but 200 (a proxy's 502 while the service restarts) for good.
     events.onerror = () => {
-      if (events !== opened || opened.readyState !== EventSource.CLOSED) return;
-      events = latest = null;  // what it last said is of the service before it closed
-      if (shown !== null && !signedOut()) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: "The trade IDE service did not answer: the event stream closed." } });
-      window.setTimeout(() => void reopen(), RECONNECT_MS);
+      if (events !== opened) return;
+      const closed = opened.readyState === EventSource.CLOSED, again = dropped;
+      dropped = true;
+      if (closed) events = latest = null;  // what it last said is of the service before it closed
+      if ((closed || again) && shown !== null && !signedOut()) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: the event stream ${closed ? "closed" : "dropped"}.` } });
+      if (closed) window.setTimeout(() => void reopen(), RECONNECT_MS);
     };
     events.onmessage = (event) => {
       latest = JSON.parse(event.data) as State;
