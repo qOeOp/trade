@@ -705,9 +705,81 @@ class GateTests(unittest.TestCase):
         (order,), kwargs = owner.submit_order.call_args  # B: only the 0.002 Binance holds
         self.assertEqual((owner.order_factory.market.call_args.args[1:], kwargs["position_id"]),
                          ((OrderSide.SELL, Quantity.from_str("0.002")), "B"))
-        self.assertEqual(self.session.phantoms, {"B", "C"})  # C: nothing to send
+        self.assertEqual(self.session.phantoms, {"B": Decimal("0.001"), "C": Decimal("0.001")})  # C: nothing to send
         self.assertEqual([(row["position_id"], row["venue"]) for row in self.events() if row["event"] == "venue_closed"],
                          [("B", "0.002"), ("C", "0")])
+
+    def test_a_stop_waits_for_the_close_of_what_binance_still_held(self):
+        # #3653: the position was counted as gone with its close just sent, so the run ended venue_flat at once, or the
+        # next tick cancelled that close.
+        from nautilus_trader.model import Quantity
+        from engine import live_lifecycle
+        for resting in (False, True):
+            with self.subTest(resting=resting):
+                (self.session.output / "events.jsonl").unlink(missing_ok=True)
+                session = live.Session(self.session.manifest, self.session.output, "run", account_verified=True)
+                session.node, owner = mock.Mock(), mock.Mock()
+                session.sources = {SYMBOL: owner}
+                session.begin_stop("requested")
+                position = SimpleNamespace(id="P", strategy_id=self.strategy, side=PositionSide.LONG,
+                                           instrument_id=InstrumentId.from_str(f"{SYMBOL}-PERP.BINANCE"),
+                                           quantity=Quantity.from_str("0.003"))
+
+                def working(name, kind):
+                    return SimpleNamespace(client_order_id=name, strategy_id=self.strategy, is_reduce_only=True,
+                                           is_closed=False, status=OrderStatus.ACCEPTED, order_type=kind)
+                stop, close = working("stop", OrderType.STOP_MARKET), working("close", OrderType.MARKET)
+                orders = [stop] if resting else []
+                cache = mock.Mock(positions_open=lambda **_: [position], orders=lambda **_: orders,
+                                  orders_inflight=lambda **_: [], orders_active_local=lambda **_: [])
+                read = {"observed_ns": 1, "positions": [
+                    {"symbol": SYMBOL, "positionSide": "LONG", "positionAmt": "0.002"}]}
+                session.account_observation = SimpleNamespace(
+                    purpose="stop", deadline=time.monotonic() + 30,
+                    result=SimpleNamespace(done=lambda: True, result=lambda read=read: read, cancel=lambda: None))
+                observer = SimpleNamespace(session=session, last_query=time.monotonic(), cache=cache)
+                live_lifecycle.Observer.observe(observer)
+                orders.append(close)
+                for _ in range(2):  # its answer, or its rejection, has not come yet
+                    live_lifecycle.Observer.observe(observer)
+                owner.submit_order.assert_called_once()
+                owner.cancel_order.assert_not_called()
+                self.assertFalse(session.venue_flat)
+                session.node.handle.return_value.stop.assert_not_called()
+                whole, position.quantity = position.quantity, Quantity.from_str("0.001")
+                live_lifecycle.Observer.observe(observer)  # a stop's late fill of what was already gone: still in flight
+                self.assertFalse(session.venue_flat)
+                owner.cancel_order.assert_not_called()
+                position.quantity = whole
+                orders.remove(close)
+                live_lifecycle.Observer.observe(observer)  # rejected: not flat, left to the timeout
+                self.assertFalse(session.venue_flat)
+                owner.cancel_order.assert_not_called()
+                position.quantity = Quantity.from_str("0.001")  # filled: only what Binance never held is left
+                live_lifecycle.Observer.observe(observer)
+                self.assertEqual(owner.cancel_order.call_count, 1 if resting else 0)
+                orders.clear()
+                live_lifecycle.Observer.observe(observer)
+                self.assertTrue(session.venue_flat)
+                self.assertFalse(session.failed)
+
+    def test_a_stop_reads_what_binance_holds_only_once_its_entries_are_canceled(self):
+        # An entry that fills after the read adds what the read cannot show, which counted as not held at Binance.
+        from engine import live_lifecycle
+        self.session.begin_stop("requested")
+        self.session.sources = {SYMBOL: mock.Mock()}
+        entry = SimpleNamespace(client_order_id="entry", strategy_id=self.strategy, is_reduce_only=False, is_closed=False,
+                                status=OrderStatus.ACCEPTED, order_type=OrderType.LIMIT)
+        orders = [entry]
+        cache = mock.Mock(positions_open=lambda **_: [SimpleNamespace(id="P", strategy_id=self.strategy)],
+                          orders=lambda **_: orders, orders_inflight=lambda **_: [], orders_active_local=lambda **_: [])
+        observer = SimpleNamespace(session=self.session, last_query=time.monotonic(), cache=cache)
+        with mock.patch.object(live_lifecycle, "venue_held", return_value=None) as read:
+            live_lifecycle.Observer.observe(observer)
+            read.assert_not_called()
+            orders.clear()
+            live_lifecycle.Observer.observe(observer)
+            read.assert_called_once()
 
     def test_a_close_binance_certainly_did_not_take_is_closed_again_a_few_times(self):
         # Re-judge D-155: a rejected close was never sent again; the run ended unresolved with the position open.

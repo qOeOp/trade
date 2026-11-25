@@ -98,10 +98,10 @@ class Session:
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
     # The STOP path's read of Binance before its first close (engine.live_lifecycle.venue_held): the snapshot ({} when
-    # it failed), how much of each position Binance held then, and the positions it no longer held in full.
+    # it failed), how much of each position Binance held then, and the native quantity of each that it did not hold.
     stop_read: dict | None = None
     stop_held: dict = field(default_factory=dict)
-    phantoms: set[str] = field(default_factory=set)
+    phantoms: dict[str, Decimal] = field(default_factory=dict)
     priced: dict[str, float] = field(default_factory=dict)  # contract -> when a finishing start last asked for its bars
     resent: Counter = field(default_factory=Counter)  # position ID -> closes sent again after a rejection
     gaps: protection.Gaps = field(default_factory=lambda: protection.Gaps(PROTECTION_NS))  # position ID -> gap start
