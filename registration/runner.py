@@ -65,7 +65,9 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 
 class _RunnerParser(argparse.ArgumentParser):
     def error(self, message):
-        raise refuse("USAGE_ERROR", f"runner arguments: {message}", missing=("--start", "--end"))
+        raise refuse("USAGE_ERROR", f"runner arguments: {message}",
+                     expected="--start T --end T [--trade-start T] and the other runner arguments the command's "
+                              "--help lists")
 
 
 def runner_inputs(runner_argv: list[str]) -> dict:
@@ -84,8 +86,11 @@ def runner_inputs(runner_argv: list[str]) -> dict:
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
         raise refuse("TRADE_TICKS_NEED_QUOTES", "--trade-ticks needs --execution quotes", missing=("--execution",))
-    start, trade_start, end = (clock.moment_ns(clock.utc(text)) if text else None
-                               for text in (known.start, known.trade_start, known.end))
+    try:
+        start, trade_start, end = (clock.moment_ns(clock.utc(text)) if text else None
+                                   for text in (known.start, known.trade_start, known.end))
+    except ValueError as exc:
+        raise refuse("WINDOW_INVALID", f"runner arguments: {exc}", expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
     window = {"start": start, "trade_start": start if trade_start is None else trade_start, "end": end}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,

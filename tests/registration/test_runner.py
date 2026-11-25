@@ -24,8 +24,14 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(runner.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end",
                                                       "2026-02-01T00:00:00Z", "--execution=quotes"])["execution"],
                          "quotes")
-        with self.assertRaises(ValueError):
-            runner.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
+        for bad in ("2025-12-31T00:00:00", "2025-13-01T00:00:00Z", "yesterday"):
+            with self.subTest(time=bad):
+                caught = refused(runner.runner_inputs, ["--start", bad, "--end", "2026-02-01T00:00:00Z"])
+                self.assertEqual(caught.code, "WINDOW_INVALID")
+        caught = refused(runner.runner_inputs, ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
+                                                "--symbols"])
+        self.assertEqual((caught.code, caught.missing), ("USAGE_ERROR", ()))
+        self.assertIn("--help", caught.expected)
         # one unsplit string, as an unquoted shell variable gives
         caught = refused(runner.runner_inputs, ["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
         self.assertEqual(caught.code, "USAGE_ERROR")

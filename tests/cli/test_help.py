@@ -71,6 +71,15 @@ class UsageRefusalTests(unittest.TestCase):
         self.assertEqual(refusal["message"], "candidate list takes no runner arguments after --")
         self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main candidate list "))
 
+    def test_a_usage_error_a_handler_raises_carries_the_commands_options_too(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(main.main(["ledger", "export", "--kind", "reproduce"]), 1)
+        refusal = json.loads(err.getvalue())
+        self.assertEqual((refusal["code"], refusal["message"]),
+                         ("USAGE_ERROR", "ledger export --kind reproduce needs --output"))
+        self.assertTrue(refusal["expected"].startswith("usage: python -m cli.main ledger export "))
+
     def test_runner_arguments_without_the_separator_are_named(self):
         refusal = self.refused("replay", "precheck", "--candidate", "s@1", "--market-day", "head", "--output", "/tmp/o",
                                "--symbols", "BTCUSDT", "--start", "2024-01-01T00:00:00Z")
