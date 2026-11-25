@@ -139,9 +139,9 @@
   --code-decorator: light-dark(#9E880D, #B3AE60);
   --code-gutter: var(--fg-ghost);
   --diff-inserted: color-mix(in oklch, var(--meets) 13%, transparent);
-  /* light: a paler word tint and a darker comment grey on it, so a changed comment keeps its contrast */
+  /* light: a paler word tint. A comment in changed text is nearer the text colour, so it keeps 4.5:1 on the tint. */
   --diff-inserted-text: light-dark(color-mix(in oklch, var(--meets) 24%, transparent), color-mix(in oklch, var(--meets) 32%, transparent));
-  --code-comment-changed: light-dark(color-mix(in oklch, var(--code-comment) 45%, var(--fg)), var(--code-comment));
+  --code-comment-changed: light-dark(color-mix(in oklch, var(--code-comment) 45%, var(--fg)), color-mix(in oklch, var(--code-comment) 25%, var(--fg)));
   --diff-deleted: color-mix(in oklch, var(--fail) 11%, transparent);
   --diff-deleted-text: color-mix(in oklch, var(--fail) 30%, transparent);
 

@@ -1,0 +1,1 @@
+- Market heatmap labels and changed words of a comment in a dark source diff keep 4.5:1 contrast (#3686).
