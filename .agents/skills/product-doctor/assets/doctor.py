@@ -10,8 +10,9 @@ the defect, an exception or exit means the probe is broken. Its `control()` retu
 which both the state and the observed reading must be the other: one reading for every input proves nothing. A cost probe's `setup(n)` returns the callable to time at size n.
 
 A SUBJECT is OBJECT:SCENARIO. An object is a path of the tree, two joined with `+` for the contract between them, or
-`@name` for something outside the tree (`@binance`). Every path counts for its top-level directory; the files of the
-root are `root`. `scan` lists those from the tree, so an audit does not choose what it could have examined.
+`@name` for something outside the tree. A path counts for the object of `scan` that holds it; the files of the root are
+`.`, and `scan` percent-encodes what a subject gives a meaning. It divides the whole tree, so an audit does not choose
+what it could have examined and no layout hides a file.
 """
 
 from __future__ import annotations
@@ -38,7 +39,8 @@ from typing import Any
 LENSES = Path(__file__).resolve().parents[1] / "references/lenses.md"
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
 ANY = "any"
-ROOT = "root"
+ROOT = "."  # no path of a tree has this name
+SPLIT, ALONE = 0.1, 0.01  # shares of the tree's lines: above the first an object splits, above the second a part stands alone
 THEMES = ("harm", "slim", "find", "friction")
 RECORDS = "docs/plans/doctor/"
 RECORDED = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
@@ -171,16 +173,69 @@ def items() -> dict[str, list[str]]:
     return {name: subjects.split() for name, subjects in found}
 
 
-def objects(rev: str) -> list[str]:
-    """The tree's top-level directories that hold more than Markdown and links, and the files of its root."""
-    found = set()
-    for line in git("ls-tree", "-r", "-z", rev).decode().split("\0")[:-1]:
-        mode, path = line.split(" ", 1)[0], line.split("\t", 1)[1]
-        if "/" not in path:
-            found.add(ROOT)
-        elif mode.startswith("100") and not path.endswith(".md"):
-            found.add(path.split("/", 1)[0])
-    return sorted(found)
+def spelled(path: bytes) -> str:
+    """A path as a subject writes it: what a subject or a table gives a meaning is percent-encoded."""
+    return re.sub(r"[%+:|,@`\s\x00-\x1f\x7f\udc80-\udcff]",
+                  lambda found: "".join(f"%{byte:02X}" for byte in os.fsencode(found[0])), os.fsdecode(path))
+
+
+def tracked(rev: str) -> dict[str, int]:
+    """{path: lines} of everything the tree tracks; what is not text has none. Read from the blobs, so that no
+    attribute or state of the checkout changes it."""
+    entries = [entry.split(b"\t", 1) for entry in git("ls-tree", "-r", "-z", rev).split(b"\0") if entry]
+    blobs = [head.split()[2] for head, _ in entries]
+    answer = subprocess.run(["git", "cat-file", "--batch"], input=b"".join(blob + b"\n" for blob in blobs),
+                            capture_output=True, check=True).stdout
+    lines, at = {}, 0
+    for _, path in entries:
+        end = answer.index(b"\n", at)
+        head, at = answer[at:end].split(), end + 1
+        if head[-1] == b"missing" or head[1] != b"blob":  # a submodule
+            lines[spelled(path)] = 0
+            at += 0 if head[-1] == b"missing" else int(head[2]) + 1
+            continue
+        text = answer[at:at + int(head[2])]
+        lines[spelled(path)], at = 0 if b"\0" in text else text.count(b"\n"), at + int(head[2]) + 1
+    return lines
+
+
+def objects(rev: str) -> dict[str, dict[str, Any]]:
+    """{object: {lines, folded}}. Every tracked file belongs to one object, whatever the layout: the top-level
+    directories, and instead of one that holds much of the tree its children. What is too small to stand alone stays
+    with its parent, which names it, unless together those are much of the tree too."""
+    lines = tracked(rev)
+    total, found = sum(lines.values()), {}
+
+    def part(name: str, paths: list[str]) -> None:
+        size, start = sum(lines[path] for path in paths), 0 if name == ROOT else len(name) + 1
+        children: dict[str, list[str]] = {}
+        own = False
+        for path in paths:
+            if "/" in path[start:] and (name == ROOT or size > total * SPLIT):
+                children.setdefault(path[:path.index("/", start)], []).append(path)
+            else:
+                own = True
+        share = {child: sum(lines[path] for path in held) for child, held in children.items()}
+        small = [child for child in children if share[child] <= (0 if name == ROOT else total * ALONE)]
+        if sum(share[child] for child in small) > total * SPLIT:
+            small = []
+        for child in children.keys() - set(small):
+            size -= share[child]
+            part(child, children[child])
+        if own or small:
+            found[name] = {"lines": size, "folded": sorted(small)}
+
+    part(ROOT, list(lines))
+    return dict(sorted(found.items()))
+
+
+def owner(path: str, tops: dict[str, dict[str, Any]]) -> str | None:
+    """The object a path belongs to, or the outside name itself; none for what no object holds."""
+    if path.startswith("@") or path == ROOT:
+        return path
+    if path.split("/", 1)[0] in tops.get(ROOT, {}).get("folded", []):
+        return ROOT
+    return max((top for top in tops if path == top or path.startswith(top + "/")), key=len, default=None)
 
 
 def split(subject: str) -> tuple[list[str], str]:
@@ -189,9 +244,9 @@ def split(subject: str) -> tuple[list[str], str]:
     return [part for part in named.split("+") if scenario.strip()], scenario
 
 
-def covers(subject: str) -> set[str]:
-    """The objects a subject counts for: top-level ones of the tree, and what it names outside."""
-    return {part.split("/", 1)[0] for part in split(subject)[0]}
+def covers(subject: str, tops: dict[str, dict[str, Any]]) -> set[str]:
+    """The objects a subject counts for."""
+    return {found for part in split(subject)[0] if (found := owner(part.rstrip("/"), tops))}
 
 
 def known(item: str, subject: str, rev: str) -> None:
@@ -201,50 +256,62 @@ def known(item: str, subject: str, rev: str) -> None:
     parts, scenario = split(subject)
     if not parts or len(parts) > 2 or "|" in subject:
         raise SystemExit(f"{subject} is not OBJECT:SCENARIO, with one object or two joined by +")
-    tops = objects(rev)
+    tops, paths = objects(rev), tracked(rev)
     for part in parts:
         if re.fullmatch(r"@[\w.-]+", part) or part == ROOT:
             continue
-        if part.split("/", 1)[0] not in tops or {".", ".."} & set(part.split("/")) \
-                or not git("ls-tree", rev, "--", part.rstrip("/")).strip():
-            raise SystemExit(f"{part} is no path under {', '.join(tops)}; something outside the tree is written @name")
-    if subjects != [ANY] and scenario not in subjects:
-        raise SystemExit(f"{item} covers OBJECT:{', OBJECT:'.join(subjects)}, not {subject}")
+        name = part.rstrip("/")
+        if not any(path == name or path.startswith(name + "/") for path in paths):
+            raise SystemExit(f"{part} is no path of the tree; its top-level files are {ROOT}, something outside is @name")
+        if owner(name, tops) is None:
+            raise SystemExit(f"{part} is of {ROOT} or holds several objects; name one: {', '.join(tops)}")
 
 
-def history(rev: str) -> tuple[dict[str, str], dict[str, str]]:
+def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
     """({top-level object: date}, {item: date}) last exercised, from the audit records in the tree."""
     by_object: dict[str, str] = {}
     by_item: dict[str, str] = {}
-    for path in sorted(git("ls-tree", "--name-only", rev, "--", RECORDS).decode().split()):
+    paths = tracked(rev)
+
+    def there(name: str) -> bool:
+        return name.startswith("@") or name == ROOT or any(path == name or path.startswith(name + "/") for path in paths)
+
+    for path in sorted(path for path in paths if path.startswith(RECORDS) and path.endswith(".md")
+                       and "%" not in path):
         date = Path(path).name[:10]
         if not re.fullmatch(r"\d{4}-\d\d-\d\d", date):
             continue
-        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode()):
+        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode(errors="replace")):
             by_item[item] = date
-            by_object.update(dict.fromkeys(covers(subject.strip()), date))
+            parts, scenario = split(subject.strip())
+            kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
+            by_object.update(dict.fromkeys(covers(f"{kept}:{scenario}", tops), date))
     return by_object, by_item
 
 
 def scan(args: argparse.Namespace) -> None:
     rev = commit(args.tree)
-    by_object, by_item = history(rev)
-    table: dict[str, dict[str, Any]] = {name: {"commits": 0, "fixes": 0, "added": 0, "removed": 0, "examined": by_object.get(name)}
-                                        for name in objects(rev)}
+    tops = objects(rev)
+    by_object, by_item = history(rev, tops)
+    table: dict[str, dict[str, Any]] = {name: {**row, "commits": 0, "fixes": 0, "added": 0, "removed": 0,
+                                               "examined": by_object.get(name)} for name, row in tops.items()}
     fixed: dict[str, int] = {}
     # One change is one commit of the main line; a merge's title is the first line of its body.
-    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat",
+    table.setdefault(ROOT, {"lines": 0, "folded": [], "commits": 0, "fixes": 0, "added": 0, "removed": 0,
+                            "examined": by_object.get(ROOT)})  # also what the tree no longer holds
+    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat", "-z",
               "--format=%x01%s%x02%b%x03", rev)
-    for change in log.decode(errors="replace").split("\x01")[1:]:
-        message, _, body = change.partition("\x03")
-        title, _, rest = message.partition("\x02")
+    for change in log.split(b"\x01")[1:]:
+        message, _, body = change.partition(b"\x03")
+        title, _, rest = message.decode(errors="replace").partition("\x02")
         is_fix = bool(re.match(r"fix(\(|:|!)", rest.lstrip() if title.startswith("Merge ") else title))
         touched = set()
-        for line in filter(None, body.splitlines()):
-            added, removed, path = line.split("\t", 2)
-            name = path.split("/", 1)[0] if "/" in path else ROOT
-            if name not in table:
+        for line in body.split(b"\0"):
+            if line.count(b"\t") < 2:
                 continue
+            added, removed, raw = line.lstrip(b"\n").split(b"\t", 2)
+            path = spelled(raw)
+            name = owner(path, tops) or ROOT
             touched.add(name)
             table[name]["added"] += int(added) if added.isdigit() else 0
             table[name]["removed"] += int(removed) if removed.isdigit() else 0
@@ -255,6 +322,7 @@ def scan(args: argparse.Namespace) -> None:
             table[name]["fixes"] += is_fix
     print(json.dumps({"tree": rev, "days": args.days, "objects": table,
                       "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
+                      "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
                       "items": {name: by_item.get(name) for name in items()}}, indent=1))
 
 
@@ -269,7 +337,7 @@ def scope(args: argparse.Namespace) -> None:
             raise SystemExit(f"{name} is neither @name nor an object of scan: {', '.join(tops)}")
     for wanted in args.items:
         item, _, scenario = wanted.partition("/")
-        if item not in listed or scenario and scenario not in listed[item]:
+        if item not in listed or "/" in wanted and not scenario:
             raise SystemExit(f"{wanted} is not an audit item, or ITEM/SCENARIO")
     if not args.objects or not (args.items or args.theme == "harm"):
         raise SystemExit(f"{args.theme} names the objects it examines{'' if args.theme == 'harm' else ' and the items'}")
@@ -447,7 +515,7 @@ def state(row: dict, seen: list[dict]) -> str:
     return "failed" if row["exit"] else "examined"
 
 
-def coverage(found: list[dict], tops: list[str]) -> tuple[dict[tuple[str, str], list[tuple[dict, str]]], list[str]]:
+def coverage(found: list[dict], tops: dict[str, dict[str, Any]]) -> tuple[dict[tuple[str, str], list[tuple[dict, str]]], list[str]]:
     """({(item, subject): [(row, state)]}, what of the declared scope, or of everything, is missing)."""
     listed = items()
     table: dict[tuple[str, str], list[tuple[dict, str]]] = {}
@@ -459,16 +527,16 @@ def coverage(found: list[dict], tops: list[str]) -> tuple[dict[tuple[str, str], 
     if declared:  # an item counts on a declared object, and an object under a declared item
         scoped = {wanted.partition("/")[0] for wanted in declared["items"]}
         done = {(item, subject) for item, subject in done
-                if item in scoped and (item == "fixed" or covers(subject) & set(declared["objects"]))}
+                if item in scoped and (item == "fixed" or covers(subject, tops) & set(declared["objects"]))}
     missing = []
     for wanted in declared["items"] if declared else listed:
         item, _, only = wanted.partition("/")
-        if listed[item] == [ANY]:
+        if listed[item] == [ANY] and not only:
             missing += [] if any(name == item for name, _ in done) else [item]
         else:
             reached = {split(subject)[1] for name, subject in done if name == item}
             missing += [f"{item}/{scenario}" for scenario in ([only] if only else listed[item]) if scenario not in reached]
-    reached = {top for _, subject in done for top in covers(subject)}
+    reached = {top for _, subject in done for top in covers(subject, tops)}
     wanted_tops = tops if not declared else declared["objects"] if declared["items"] else []
     missing += [f"{top} (object)" for top in wanted_tops if top not in reached]
     if declared and declared["theme"] == "harm" and not any(
@@ -506,7 +574,9 @@ def last(reading: dict) -> str:
 
 def report(args: argparse.Namespace) -> None:
     found = rows(args.directory)
-    table, missing = coverage(found, objects(commit(args.tree)))
+    rev = commit(args.tree)
+    tops = objects(rev)
+    table, missing = coverage(found, tops)
     late = stopped(found)
     declared = next((row for row in found if row["kind"] == "scope"), None)
     whole = not missing and not late
@@ -519,6 +589,10 @@ def report(args: argparse.Namespace) -> None:
     print("Not exercised: " + (", ".join(missing) if missing else "nothing listed") + ".\n")
     print("Not examined: " + ("; ".join(f"{row['item']}/{cell(row['subject'])} ({cell(row['why'])})" for row in late)
                               or "nothing named") + ".\n")
+    if not declared:
+        named = {part for row in found if row.get("item") for part in split(row["subject"])[0]}
+        dropped = [name for name in history(rev, tops)[0] if name.startswith("@") and name not in named]
+        print("Outside the tree, in earlier records but not here: " + (", ".join(sorted(dropped)) or "none") + ".\n")
     print(f"Evidence: {spent(found)}.\n")
     print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
     order = list(items())

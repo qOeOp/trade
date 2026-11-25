@@ -1,7 +1,7 @@
 # Perspectives
 
 A full audit exercises each line, recorded with `doctor.py run DIR ITEM OBJECT:SCENARIO`; brackets name the scenarios
-that must run (`any`: one of the pass's choosing). Data that starts and ends together, one mode and the idle or
+that must run at least (`any`: one of the pass's choosing); today's product may have more. Data that starts and ends together, one mode and the idle or
 successful state alone leave an object unexamined: take the tracks that start apart, the modes that differ, what is
 running, cut short and at a limit.
 
