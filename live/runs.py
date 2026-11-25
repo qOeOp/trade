@@ -20,6 +20,7 @@ from typing import Any
 
 from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
+from engine.live_stop import first_stop
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
 from shared.errors import Refusal
@@ -708,14 +709,12 @@ def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: d
 
 
 def stop_reason(directory: Path) -> str | None:
-    """The first stop is the run's cause; a later reconcile writes its own, and a start that ended to warm up again
-    (engine.live_connection.rewarm) is none. A damaged journal must not hide the state."""
+    """The run's own cause (engine.live_stop.first_stop). A damaged journal must not hide the state."""
     try:
         rows = state.events(directory / "out" / "events.jsonl")
     except LiveRefusal:
         return None
-    return next((row.get("reason") for row in rows if row.get("event") == "stopping"
-                 and row.get("reason") != "rewarming"), None)
+    return first_stop(rows)
 
 
 def maintain_locked(root: Path, run_id: str) -> dict:
