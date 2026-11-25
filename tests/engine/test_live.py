@@ -940,6 +940,29 @@ class LiveTests(unittest.TestCase):
         session.lose_connection("venue_disconnected")
         self.assertEqual([row["event"] for row in self.events()], ["unresolved", "stopping"])
 
+    def test_a_held_start_that_failed_exits_as_a_failed_run_and_a_stopped_one_as_reconcile_does(self):
+        args = self.armed_run()
+
+        def ends(act):
+            def build(session, *_, **__):
+                node = session.node = mock.Mock()
+                node.cache.orders.return_value = node.cache.orders_open.return_value = []
+                node.cache.positions_open.return_value = [object()]
+                node.run.side_effect = lambda: act(session)
+                return node
+            return build
+
+        for act, expected in ((lambda session: session.lose_connection("connected_account_unverified"), (1, "unresolved")),
+                              (lambda session: session.begin_stop("requested"), (0, "reconcile_stopped"))):
+            with self.subTest(expected):
+                events = (self.output / "events.jsonl").read_text()
+                with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.held_snapshot()), \
+                        mock.patch.object(live, "LiveCache"), mock.patch.object(live, "source_outcome"), \
+                        mock.patch.object(live, "build_node", side_effect=ends(act)):
+                    status = live.execute(args)
+                self.assertEqual((status, self.events()[-1]["event"]), expected)
+                (self.output / "events.jsonl").write_text(events)
+
     def test_a_run_that_ended_venue_flat_exits_zero_unless_it_failed(self):
         args = self.armed_run()
 

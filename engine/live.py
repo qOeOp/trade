@@ -355,7 +355,7 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
         # Positions and their exchange stops stay; the control starts this run again (live.runs).
         start_ended(session)
         return INTERRUPTED
-    if session.mode in ("run", "finish"):
+    if session.mode in ("run", "finish") or session.mode == "held" and session.failed:
         session.event("unresolved", mode=args.mode)
         return 1
     final_snapshot = observer.snapshot(manifest["symbols"])
