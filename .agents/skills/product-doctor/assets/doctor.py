@@ -11,13 +11,14 @@ which both the state and the observed reading must be the other: one reading for
 
 A SUBJECT is OBJECT:SCENARIO. An object is a path of the tree, two joined with `+` for the contract between them, or
 `@name` for something outside the tree. A path counts for the object of `scan` that holds it; the files of the root are
-`root`. `scan` divides the whole tree, so an audit does not choose what it could have examined and no layout hides a file.
+`.`, and `scan` percent-encodes what a subject gives a meaning. It divides the whole tree, so an audit does not choose
+what it could have examined and no layout hides a file.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 import hashlib
@@ -38,7 +39,7 @@ from typing import Any
 LENSES = Path(__file__).resolve().parents[1] / "references/lenses.md"
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
 ANY = "any"
-ROOT = "root"
+ROOT = "."  # no path of a tree has this name
 SPLIT, ALONE = 0.1, 0.01  # shares of the tree's lines: above the first an object splits, above the second a part stands alone
 THEMES = ("harm", "slim", "find", "friction")
 RECORDS = "docs/plans/doctor/"
@@ -172,41 +173,68 @@ def items() -> dict[str, list[str]]:
     return {name: subjects.split() for name, subjects in found}
 
 
+def spelled(path: bytes) -> str:
+    """A path as a subject writes it: what a subject or a table gives a meaning is percent-encoded."""
+    return re.sub(r"[%+:|,@`\s\x00-\x1f\x7f\udc80-\udcff]",
+                  lambda found: "".join(f"%{byte:02X}" for byte in os.fsencode(found[0])), os.fsdecode(path))
+
+
+def tracked(rev: str) -> dict[str, int]:
+    """{path: lines} of everything the tree tracks; what is not text has none. Read from the blobs, so that no
+    attribute or state of the checkout changes it."""
+    entries = [entry.split(b"\t", 1) for entry in git("ls-tree", "-r", "-z", rev).split(b"\0") if entry]
+    blobs = [head.split()[2] for head, _ in entries]
+    answer = subprocess.run(["git", "cat-file", "--batch"], input=b"".join(blob + b"\n" for blob in blobs),
+                            capture_output=True, check=True).stdout
+    lines, at = {}, 0
+    for _, path in entries:
+        end = answer.index(b"\n", at)
+        head, at = answer[at:end].split(), end + 1
+        if head[-1] == b"missing" or head[1] != b"blob":  # a submodule
+            lines[spelled(path)] = 0
+            at += 0 if head[-1] == b"missing" else int(head[2]) + 1
+            continue
+        text = answer[at:at + int(head[2])]
+        lines[spelled(path)], at = 0 if b"\0" in text else text.count(b"\n"), at + int(head[2]) + 1
+    return lines
+
+
 def objects(rev: str) -> dict[str, dict[str, Any]]:
     """{object: {lines, folded}}. Every tracked file belongs to one object, whatever the layout: the top-level
     directories, and instead of one that holds much of the tree its children. What is too small to stand alone stays
-    with its parent, which names it."""
-    lines = dict.fromkeys(filter(None, git("ls-tree", "-r", "-z", "--name-only", rev).decode().split("\0")), 0)
-    for entry in git("grep", "-I", "-z", "-c", "", rev).decode().splitlines():
-        path, count = entry.split(":", 1)[1].rsplit("\0", 1)
-        lines[path] = int(count)
+    with its parent, which names it, unless together those are much of the tree too."""
+    lines = tracked(rev)
     total, found = sum(lines.values()), {}
 
     def part(name: str, paths: list[str]) -> None:
         size, start = sum(lines[path] for path in paths), 0 if name == ROOT else len(name) + 1
         children: dict[str, list[str]] = {}
+        own = False
         for path in paths:
             if "/" in path[start:] and (name == ROOT or size > total * SPLIT):
                 children.setdefault(path[:path.index("/", start)], []).append(path)
-        folded = []
-        for child, held in children.items():
-            share = sum(lines[path] for path in held)
-            if share > (0 if name == ROOT else total * ALONE):
-                size -= share
-                part(child, held)
             else:
-                folded.append(child)
-        if folded or any(path[:path.find("/", start)] not in children for path in paths):
-            found[name] = {"lines": size, "folded": folded}
+                own = True
+        share = {child: sum(lines[path] for path in held) for child, held in children.items()}
+        small = [child for child in children if share[child] <= (0 if name == ROOT else total * ALONE)]
+        if sum(share[child] for child in small) > total * SPLIT:
+            small = []
+        for child in children.keys() - set(small):
+            size -= share[child]
+            part(child, children[child])
+        if own or small:
+            found[name] = {"lines": size, "folded": sorted(small)}
 
     part(ROOT, list(lines))
     return dict(sorted(found.items()))
 
 
-def owner(path: str, tops: Iterable[str]) -> str | None:
-    """The object a path belongs to, or the outside name itself; none for what the tree no longer holds."""
+def owner(path: str, tops: dict[str, dict[str, Any]]) -> str | None:
+    """The object a path belongs to, or the outside name itself; none for what no object holds."""
     if path.startswith("@") or path == ROOT:
         return path
+    if path.split("/", 1)[0] in tops.get(ROOT, {}).get("folded", []):
+        return ROOT
     return max((top for top in tops if path == top or path.startswith(top + "/")), key=len, default=None)
 
 
@@ -216,7 +244,7 @@ def split(subject: str) -> tuple[list[str], str]:
     return [part for part in named.split("+") if scenario.strip()], scenario
 
 
-def covers(subject: str, tops: Iterable[str]) -> set[str]:
+def covers(subject: str, tops: dict[str, dict[str, Any]]) -> set[str]:
     """The objects a subject counts for."""
     return {found for part in split(subject)[0] if (found := owner(part.rstrip("/"), tops))}
 
@@ -228,27 +256,36 @@ def known(item: str, subject: str, rev: str) -> None:
     parts, scenario = split(subject)
     if not parts or len(parts) > 2 or "|" in subject:
         raise SystemExit(f"{subject} is not OBJECT:SCENARIO, with one object or two joined by +")
-    tops = objects(rev)
+    tops, paths = objects(rev), tracked(rev)
     for part in parts:
         if re.fullmatch(r"@[\w.-]+", part) or part == ROOT:
             continue
-        if {"", ".", ".."} & set(part.rstrip("/").split("/")) or not git("ls-tree", rev, "--", part.rstrip("/")).strip():
+        name = part.rstrip("/")
+        if not any(path == name or path.startswith(name + "/") for path in paths):
             raise SystemExit(f"{part} is no path of the tree; its top-level files are {ROOT}, something outside is @name")
-        if owner(part.rstrip("/"), tops) is None:
-            raise SystemExit(f"{part} belongs to several objects; name one: {', '.join(tops)}")
+        if owner(name, tops) is None:
+            raise SystemExit(f"{part} is of {ROOT} or holds several objects; name one: {', '.join(tops)}")
 
 
-def history(rev: str, tops: Iterable[str]) -> tuple[dict[str, str], dict[str, str]]:
+def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
     """({top-level object: date}, {item: date}) last exercised, from the audit records in the tree."""
     by_object: dict[str, str] = {}
     by_item: dict[str, str] = {}
-    for path in sorted(git("ls-tree", "--name-only", rev, "--", RECORDS).decode().split()):
+    paths = tracked(rev)
+
+    def there(name: str) -> bool:
+        return name.startswith("@") or name == ROOT or any(path == name or path.startswith(name + "/") for path in paths)
+
+    for path in sorted(path for path in paths if path.startswith(RECORDS) and path.endswith(".md")
+                       and "%" not in path):
         date = Path(path).name[:10]
         if not re.fullmatch(r"\d{4}-\d\d-\d\d", date):
             continue
-        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode()):
+        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode(errors="replace")):
             by_item[item] = date
-            by_object.update(dict.fromkeys(covers(subject.strip(), tops), date))
+            parts, scenario = split(subject.strip())
+            kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
+            by_object.update(dict.fromkeys(covers(f"{kept}:{scenario}", tops), date))
     return by_object, by_item
 
 
@@ -260,15 +297,20 @@ def scan(args: argparse.Namespace) -> None:
                                                "examined": by_object.get(name)} for name, row in tops.items()}
     fixed: dict[str, int] = {}
     # One change is one commit of the main line; a merge's title is the first line of its body.
-    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat",
+    table.setdefault(ROOT, {"lines": 0, "folded": [], "commits": 0, "fixes": 0, "added": 0, "removed": 0,
+                            "examined": by_object.get(ROOT)})  # also what the tree no longer holds
+    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat", "-z",
               "--format=%x01%s%x02%b%x03", rev)
-    for change in log.decode(errors="replace").split("\x01")[1:]:
-        message, _, body = change.partition("\x03")
-        title, _, rest = message.partition("\x02")
+    for change in log.split(b"\x01")[1:]:
+        message, _, body = change.partition(b"\x03")
+        title, _, rest = message.decode(errors="replace").partition("\x02")
         is_fix = bool(re.match(r"fix(\(|:|!)", rest.lstrip() if title.startswith("Merge ") else title))
         touched = set()
-        for line in filter(None, body.splitlines()):
-            added, removed, path = line.split("\t", 2)
+        for line in body.split(b"\0"):
+            if line.count(b"\t") < 2:
+                continue
+            added, removed, raw = line.lstrip(b"\n").split(b"\t", 2)
+            path = spelled(raw)
             name = owner(path, tops) or ROOT
             touched.add(name)
             table[name]["added"] += int(added) if added.isdigit() else 0
@@ -473,7 +515,7 @@ def state(row: dict, seen: list[dict]) -> str:
     return "failed" if row["exit"] else "examined"
 
 
-def coverage(found: list[dict], tops: Iterable[str]) -> tuple[dict[tuple[str, str], list[tuple[dict, str]]], list[str]]:
+def coverage(found: list[dict], tops: dict[str, dict[str, Any]]) -> tuple[dict[tuple[str, str], list[tuple[dict, str]]], list[str]]:
     """({(item, subject): [(row, state)]}, what of the declared scope, or of everything, is missing)."""
     listed = items()
     table: dict[tuple[str, str], list[tuple[dict, str]]] = {}

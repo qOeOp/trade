@@ -222,7 +222,7 @@ class DoctorTests(unittest.TestCase):
             doctor.main(["scan", "--tree", "HEAD"])
         read = json.loads(out.getvalue())
         self.assertEqual({name: row["examined"] for name, row in read["objects"].items() if "/" not in name},
-                         {"docs": None, "notes": None, "root": None, "shop": "2026-01-02", "tests": None})
+                         {"docs": None, "notes": None, ".": None, "shop": "2026-01-02", "tests": None})
         self.assertEqual((read["items"]["results"], read["items"]["cost"]), ("2026-01-02", None))
         self.assertEqual(read["objects"]["shop"]["commits"], 2)
         self.assertEqual(read["outside"], {"@venue": "2026-01-02"})
@@ -234,12 +234,31 @@ class DoctorTests(unittest.TestCase):
         rev = self.commit({"src/a/m.py": big, "src/b/deep/m.py": big, "src/c/m.py": small, "src/d/m.py": tiny,
                            "src/top.py": tiny, "rules/only.md": tiny, "empty/.keep": "", "a name.txt": tiny})
         found = doctor.objects(rev)
-        self.assertLessEqual({"root", "rules", "src", "src/a", "src/c"}, set(found))
-        self.assertEqual((found["src"]["folded"], found["root"]["folded"]), (["src/d"], ["empty"]))
+        self.assertLessEqual({".", "rules", "src", "src/a", "src/c"}, set(found))
+        self.assertEqual((found["src"]["folded"], found["."]["folded"]), (["src/d"], ["empty"]))
         paths = self.git("ls-tree", "-r", "--name-only", rev).splitlines()
         self.assertEqual(sum(row["lines"] for row in found.values()), sum((self.repo / p).read_text().count("\n") for p in paths))
         self.assertEqual(doctor.owner("src/d/m.py", found), "src")
         self.assertNotIn("src/a", doctor.covers("src/top.py:x", found))
+
+    def test_names_growth_and_moves_hide_no_file_and_credit_no_other(self):
+        self.git("rm", "-qr", ".")
+        rev = self.commit({"doc/a": "x\n", "docs": "x\n", "é/x": "x\n", "a+b/x": "x\n", "a/x": "x\n", "@x/y": "x\n",
+                           "root/x": "x\n", "new\nline": "x\n", "app/x": "x\n",
+                           **{f"many/p{n}/m.py": "x\n" * 20 for n in range(200)},
+                           "docs2/x": "x\n", ".gitattributes": "a/** binary\n"})
+        found = doctor.objects(rev)
+        self.assertEqual(sum(row["lines"] for row in found.values()), sum(doctor.tracked(rev).values()))
+        self.assertLessEqual({".", "doc", "é", "a%2Bb", "a", "%40x", "root", "many/p0", "many/p199"}, set(found))
+        self.assertEqual(doctor.covers("a%2Bb:s", found), {"a%2Bb"})
+        self.git("rm", "-qr", "doc", "docs")
+        self.commit({doctor.RECORDS + "2026-01-02 b.md": "", doctor.RECORDS + "2026-01-02-b.md":
+                     "| results | app/gone:s | examined | x |\n| results | a:s | examined | x |\n"})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["scan", "--tree", "HEAD"])
+        read = json.loads(out.getvalue())["objects"]
+        self.assertEqual((read["app"]["examined"], read["a"]["examined"], read["é"]["added"]), (None, "2026-01-02", 1))
 
     def test_a_cost_is_a_growth_rate_only_when_the_sizes_are_apart(self):
         quadratic = doctor.read_cost({n: [9.0, n * n, n * n * 1.01, n * n * 1.02] for n in (1, 2, 4)})
