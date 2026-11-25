@@ -82,7 +82,9 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
 
 
 def _replay_report(args):
-    return replay_report(_research(args), args.trial_id, args.directory, args.at, args.tables, args.reproduction,
+    # --directory alone reads no ledger, so it needs none to be found.
+    profile = None if args.directory is not None and args.trial_id is None else _research(args)
+    return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
                          args.reproduction_trial, args.account, args.exposures)
 
 

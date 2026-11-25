@@ -462,4 +462,10 @@ class CommandTests(unittest.TestCase):
         self.refused("USAGE_ERROR", "candidate", "publish", "--ledger", self.ledger)
         self.refused("USAGE_ERROR", "candidate", "list", "--ledger", self.ledger, "--", "--start", "x")
         self.refused("LEDGER_UNKNOWN", "candidate", "list", "--ledger", "no-such-profile")
+        empty = self.tmp / "no-reports"  # `replay report --directory` alone reads no ledger, so it looks for none (#3708)
+        empty.mkdir()
+        env = {"TRADE_LEDGER_HOME": str(self.tmp / "no-profiles")}
+        self.refused("NATIVE_SUMMARY_MISSING", "replay", "report", "--directory", str(empty), env=env)
+        for argv in (("--trial-id", "1"), ("--trial-id", "1", "--directory", str(empty)), ()):
+            self.refused("LEDGER_UNKNOWN", "replay", "report", *argv, env=env)
         self.refused("NOT_TEMPORARY_PATH", "ledger", "temp", "--root", str(NOT_TEMPORARY / "ledger"))
