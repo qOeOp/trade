@@ -44,49 +44,53 @@ Then the steps below on one to three objects, under the theme's perspectives.
 
 ## Full audit
 
-1. **Pin.** Your first message gives a time and token budget. It limits objects beyond the listed lines, past 70%
-   none, and cuts no line, second pass, refutation, challenge or rerun of old proofs. Fetch; judge `origin/main`,
-   not the session's checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same
-   objects, and `doctor.py recheck` those closed longest without a held comment; name the ones left.
-2. **Map and pass.** List the objects from the tree (packages, processes, stores, external parties, timers,
-   published artifacts) and pair them with the perspectives in [lenses.md](references/lenses.md), first what changed
-   since the last audit, then the longest unexamined. Give each pass to a fresh sub-agent with one perspective and
-   one object, evidence paths, the audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there,
-   no suspects of yours and no cap on findings. It names what it did not reach with `doctor.py unexamined` and ends
-   when the object's paths are exercised, not at its first findings. At most four passes at once, one of them heavy
-   (replay, build); measure costs with nothing else running. A script gathers; a sub-agent still judges. An object
-   with a `shown` finding gets a second fresh pass, from another perspective, before a new object is taken.
+1. **Pin.** Your first message gives a time and token budget. Every line of [lenses.md](references/lenses.md) runs,
+   with its second passes, refutations, challenges and reruns of old proofs, whatever it costs; the budget limits
+   only the objects beyond those lines, and past 70% none is added. Fetch; judge `origin/main`, not the session's
+   checkout. Beside the passes rerun the proofs of open `agent-finding` issues on the same objects, and `doctor.py
+   recheck` those closed longest without a held comment; name the ones left.
+2. **Map and pass.** List the objects, each once, under what owns it: code and entry points (`engine/`, `cli/`,
+   `ide/`); what runs or keeps state (services, timers, the ledger, the market directory); outside parties and what
+   is published (Binance, DoltHub, images, the site); `.github/`, `deploy/` and `tests/`; `docs/`, `.agents/` and
+   AGENTS.md. Pair them with the perspectives in `lenses.md`, first what changed since the last audit, then the
+   longest unexamined. Give each pass to a fresh sub-agent with one perspective and one object, evidence paths, the
+   audit's one evidence directory, the ITEM and SUBJECTs to `doctor.py run` there, no suspects of yours and no cap
+   on findings. It names what it did not reach with `doctor.py unexamined` and ends when the object's paths are
+   exercised, not at its first findings. At most four passes at once, one of them heavy (replay, build); measure
+   costs with nothing else running. A script gathers; a sub-agent still judges. An object with a `shown` finding
+   next gets a second fresh pass, from another perspective, before any object or line not yet started.
 3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`, whose control
    must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`, a rate, not one time
    (`--help` says the forms; run as `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`). Only
-   `shown` proves code's behaviour; otherwise say unverified. Findings of use, words or growth (**value**, **size**,
-   **delivery**, **agents**, **burden**, **governance**) are claimed from located counts, quotes or a removal run and
-   refuted from their sources; those passes judge, not only count. A help call or a script alone is not a defect.
-   Evidence names no credential and is never edited: a wrong row is named in the report.
+   `shown` proves code's behaviour; otherwise say unverified. Findings of use, words or growth (**value**,
+   **size**, **delivery**, **agents**, **burden**, **governance**) are claimed from located counts, quotes or a
+   removal run and refuted from their sources; those passes judge, not only count. A help call or a script alone is
+   not a defect. Evidence names no credential and is never edited: a wrong row is named in the report.
 4. **Examined means exercised.** A subject whose real dependency (network, container, browser, host, account) or
    other path was out of reach, also by a temporary container of the product's own image and a read-only public
-   source, is *not examined*: a `doctor.py unexamined` row with what stopped it. A stand-in, a passing unit test or
-   reading the code does not examine it, unless the lens asks for a fake. Any such row makes the audit partial:
-   never `pass`, `clean` or `full`. Trading on the real account and changing the release host are listed as outside
-   every audit, never as examined.
+   source, is *not examined*: a `doctor.py unexamined` row with what stopped it; a mention in the pass's summary is
+   not enough. A stand-in, a passing unit test or reading the code does not examine it, unless the lens asks for a
+   fake. Any such row makes the audit partial: never `pass`, `clean` or `full`. Trading on the real account and
+   changing the release host are listed as outside every audit, never as examined.
 5. **Challenge quiet choices.** Each full or slimming audit takes several choices that raised no alarm, beside the
-   first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy
-   measures the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot
-   tell. The `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
-6. **Refute.** After the passes, a fresh sub-agent gets at most eight recorded claims, step 5's included (a
-   suspect of yours is none), without their proof, and tries to break each: first who calls it and whether normal
-   use reaches the trigger, then a run of its own (code's behaviour through `doctor.py probe --refutes`).
-   Confirmed, by design, false, duplicate or undecided; reading alone leaves code's behaviour undecided. Confirmed
-   reaches an issue; report its count and the overturned ones. A trigger only a damaged file or a call nothing in
-   the product makes reaches is minor.
+   first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy measures
+   the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot tell. The
+   `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
+6. **Refute.** After the passes, a fresh sub-agent gets at most eight recorded claims, step 5's included, without
+   their proof (your own guesses are not recorded claims and never go to a refuter), and tries to break each: first
+   who calls it and whether normal use reaches the trigger, then a run of its own (code's behaviour through
+   `doctor.py probe --refutes`). Confirmed, by design, false, duplicate or undecided; reading alone leaves code's
+   behaviour undecided. Confirmed reaches an issue; report its count and the overturned ones. A defect is minor
+   when it takes a hand-damaged file, or a call that nothing in the product makes.
 7. **Remedy.** In order, saying why each earlier one does not fit: none; restate the mechanism so special cases
    merge; remove; add, only for a wrong output, a trust boundary or recurrence. Net mechanisms, rules and words
    must be stated. Any remedy that adds, tightens or relaxes a refusal, test bar or CI gate is an `authority` item:
    ask the user.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report `doctor.py report`
    verbatim but for `SECURITY.md`'s rows, spent against budget (time at least its evidence span; tokens the host
-   hides are unknown), and the listed objects no pass took. For an audit of one session, tell the user only of
-   perspectives its objects touch; the record keeps the report whole. Absence of findings says only what was tried.
-   Trend claims need repairs that held. Rerun what the report calls not exercised or not examined before the
-   temporary ledgers, markets and containers go; then, with each probe in its issue, stop the audit's own processes
-   and remove its copies.
+   hides are unknown), and the listed objects no pass took: one object is enough for an `[any]` line, so the
+   coverage table does not show the rest. For an audit of one session, tell the user only of perspectives its
+   objects touch; the record keeps the report whole. Absence of findings says only what was tried. Trend claims
+   need repairs that held. Rerun what the report calls not exercised or not examined before the temporary ledgers,
+   markets and containers go; then, with each probe in its issue, stop the audit's own processes and remove its
+   copies.
