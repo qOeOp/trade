@@ -231,14 +231,12 @@ def _clear(cache: Path, symbol: str, month: date) -> None:
 
 
 def _republished(cache: Path, symbol: str, month: date, earlier: bool) -> bool:
-    """Whether a hole month is worth importing again: its archives were never cached here, or Binance has
+    """Whether a hole month is worth importing again: one of its archives was never cached here, or Binance has
     published another checksum for one of them since (the stale copy is dropped). One small request a day."""
     changed = False
     for key in _keys(symbol, month, earlier):
-        found = sources.republished(cache, key)
-        if found is None:
-            return True
-        changed = found or changed
+        # Every key is asked: an archive not cached must not leave a later one's republished copy stale.
+        changed = sources.republished(cache, key) is not False or changed
     return changed
 
 
