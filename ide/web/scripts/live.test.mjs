@@ -36,6 +36,7 @@ async function page(stored = null, views = []) {
     requests, shown, notices, nexts, updates, flush, kept, urls, forgotten,
     streams: () => streams,
     hide: (hidden) => { document.hidden = hidden; visibility(); },
+    open: () => { events.readyState = 1; events.onopen(); },
     /** The stream failed: dropped (the browser reconnects it) or closed for good by an answer that is not 200. */
     fail: (closed) => { if (closed) events.close(); else events.readyState = 0; events.onerror(); },
     /** The page's delays have passed. */
@@ -273,6 +274,7 @@ test("a stream closed by an answer that is not 200 is said and reopened until it
   const p = await page();
   await p.answer(0, 200, view("a"));
   p.event({ state: "ready", ledger_commit: "a" });
+  p.open();
   p.fail(false);
   assert.equal(p.updates.at(-1), null, "a dropped stream is the browser's to reconnect");
   p.fail(true);
@@ -290,6 +292,25 @@ test("a stream closed by an answer that is not 200 is said and reopened until it
   assert.equal(p.updates.at(-1).stage, "failed", "said until the stream is served");
   p.event({ state: "ready", ledger_commit: "b" });
   assert.equal(p.updates.at(-1), null);
+});
+
+test("a dropped stream the browser cannot reconnect is said until it is served again", async () => {
+  const p = await page();
+  await p.answer(0, 200, view("a"));
+  p.open();
+  p.event({ state: "ready", ledger_commit: "a" });
+  for (let n = 0; n < 2; n++) {
+    p.fail(false);
+    assert.equal(p.updates.at(-1), null, "dropped once, reconnected at once as a rule");
+    p.fail(false);
+    assert.equal(p.updates.at(-1).stage, "failed");
+    assert.equal(p.updates.at(-1).error.code, "UNAVAILABLE");
+    p.open();
+    p.event({ state: "ready", ledger_commit: "a" });
+    assert.equal(p.updates.at(-1), null);
+  }
+  await p.wait();
+  assert.equal(p.urls.length, 1, "the browser reconnects it, not the page");
 });
 
 test("a closed stream is not reopened behind a hidden page, twice, or once the sign-in expired", async () => {
