@@ -422,7 +422,8 @@ def validation_registration(args):
         args.market_day, _json_file(args.design, "DESIGN_INVALID"), args.retry_of, args.op_id,
         market_profile=profiles.market(args.market), unfalsified=history.require_unfalsified, tsa_url=args.tsa_url)
     stamped = registered["witness"]
-    next_actions = [] if stamped["status"] == "stamped" else [
+    # A retry binds by its original registration's witness (registration.validation.validation_bind).
+    next_actions = [] if stamped["status"] == "stamped" or args.retry_of is not None else [
         "Run `ledger witness` before the window starts; a registration without a witness older than its window "
         "start is refused as REGISTRATION_TOO_LATE when a validation replay binds it."]
     return {"registration_id": registered["registration_id"], "candidate": args.candidate,
