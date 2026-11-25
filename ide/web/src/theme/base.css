@@ -65,6 +65,8 @@ body {
 
 .react-flow { --xy-background-color: var(--island); }
 .react-flow__attribution { display: none; }
+/* React Flow's own sheet, outside every layer, takes the keyboard ring off a version's node. */
+.react-flow .react-flow__node.selectable:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: var(--radius-control); }
 /* When a version joins and the rows below it move down, they and their edges glide together; a pan moves the
    viewport around them, so it does not lag. */
 .react-flow__edge-path { stroke: var(--edge); stroke-width: 1.1; transition: d var(--t-glide) var(--ease); }
