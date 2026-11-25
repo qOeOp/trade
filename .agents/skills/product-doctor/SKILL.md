@@ -78,14 +78,17 @@ Then the steps below on one to three objects, under the theme's perspectives.
    `docs/plans/doctor/index.zh.md` list is challenged only when its stated reason fails.
 6. **Refute.** After the passes, a fresh sub-agent gets at most eight recorded claims, step 5's included, without
    their proof (your own guesses are not recorded claims and never go to a refuter), and tries to break each: first
-   who calls it and whether normal use reaches the trigger, then a run of its own (code's behaviour through
-   `doctor.py probe --refutes`). Confirmed, by design, false, duplicate or undecided; reading alone leaves code's
-   behaviour undecided. Confirmed reaches an issue; report its count and the overturned ones. A defect is minor
-   when it takes a hand-damaged file, or a call that nothing in the product makes.
+   who calls it and whether normal use reaches the trigger; then whether a README, docstring, `docs/plans/` file or
+   test states it on purpose (not enough alone against a step 5 claim); then a run of its own (code's behaviour
+   through `doctor.py probe --refutes`). Confirmed, by design (cite where; not when its stated reason no longer
+   holds), false, duplicate or undecided; reading alone leaves code's behaviour undecided. Confirmed reaches an
+   issue; report its count and the overturned ones. A defect is minor when it takes a hand-damaged file, or a call
+   that nothing in the product makes.
 7. **Remedy.** In order, saying why each earlier one does not fit: none; restate the mechanism so special cases
-   merge; remove; add, only for a wrong output, a trust boundary or recurrence. Net mechanisms, rules and words
-   must be stated. Any remedy that adds, tightens or relaxes a refusal, test bar or CI gate is an `authority` item:
-   ask the user.
+   merge; remove; add, only for a wrong output, a trust boundary or recurrence. Net mechanisms, rules and words must
+   be stated. An issue calls a code remedy unverified unless it ran on a scratch copy, where the callers, retries
+   and documented repairs it touches still worked. Any remedy that adds, tightens or relaxes a refusal, test bar or
+   CI gate is an `authority` item: ask the user.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report `doctor.py report`
    verbatim but for `SECURITY.md`'s rows, spent against budget (time at least its evidence span; tokens the host
    hides are unknown), and the listed objects no pass took: one object is enough for an `[any]` line, so the
