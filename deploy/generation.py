@@ -55,7 +55,7 @@ VOLUME_TGZ = "trade-dolt-data.tgz"
 MOVED = (("dolt", "dolt"), ("dolt/paper", "dolt-paper"), ("ledgers", "ledgers"), ("dolt-backups", "dolt-backups"))
 JOURNAL = "generation.json"
 # A cutover's steps: the data is being archived; it is archived and the ledger is being started; the new generation
-# runs and older archives are being removed; done (kept until a version's Web release commits, deploy/release.py).
+# runs and older archives are being removed; done (kept until a version that reads it is routed, deploy/release.py).
 # The release host takes one step per tick, so a tick stays within trade-release.service's TimeoutStartSec. A move
 # starts at "archived" (nothing is archived) and removes no archive.
 PHASES = ("archiving", "archived", "started", "done")
@@ -327,9 +327,10 @@ class Generation:
             return False
         return value is not None and value["phase"] in ("started", "done")
 
-    def finish(self) -> None:
-        """After a Web release committed on the new generation."""
-        if self.done():
+    def finish(self, routed: str) -> None:
+        """Every tick, once a version that reads the new generation is routed: its own or a later one. Rollbacks then
+        check the previous version again."""
+        if self.done() and self.release.github.ancestor(self.read()["revision"], routed):
             self.journal.unlink()
             sync_directory(self.host.state)
 
