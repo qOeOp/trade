@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unittest
 
 from engine.config import RUNTIME_CONTRACT
 from engine.live_venue import MANIFEST_FORMAT, Credentials
@@ -41,6 +42,13 @@ TERMS = {"price": "76000", "tick": "0.10", "step": "0.001", "min_notional": "50"
 # rc7 keeps Nautilus's cache in Redis in the runtime image; a host without its Redis runs with Nautilus's in-memory
 # cache instead (tests.live_loopback.runner.MemoryCache): such a run proves nothing about persistence.
 MEMORY_CACHE = not Path("/opt/trade/redis/redis-server").exists()
+
+
+def needs_redis(test):
+    """Marks a test, or a class of tests, whose later start reloads the native cache. Only the runtime image's check
+    (.github/scripts/check-native-runtime.py) runs these: it selects them by this mark."""
+    test.needs_redis = True
+    return unittest.skipIf(MEMORY_CACHE, "a start again needs the runtime image's Redis")(test)
 
 
 class Loopback:

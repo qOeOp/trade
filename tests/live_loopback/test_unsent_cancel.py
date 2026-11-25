@@ -7,7 +7,7 @@ import unittest
 
 from live import compare
 from replay import comparison
-from tests.live_loopback.harness import MEMORY_CACHE, SYMBOL, TERMS, Loopback
+from tests.live_loopback.harness import SYMBOL, TERMS, Loopback, needs_redis
 
 
 class UnsentCancelTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class UnsentCancelTests(unittest.TestCase):
             self.assertEqual(run.events()[-1]["event"], "clean_stop")
             self.assertEqual(run.venue.errors, [])
 
-    @unittest.skipIf(MEMORY_CACHE, "a start again needs the runtime image's Redis")
+    @needs_redis
     def test_the_canceled_order_survives_a_start_again(self):
         with Loopback(wallet="1000") as run:
             identity = self.entered_and_canceled(run)
@@ -60,7 +60,7 @@ class UnsentCancelTests(unittest.TestCase):
             self.assertEqual(run.events()[-1]["event"], "clean_stop")
             self.reads_canceled(run, identity)
 
-    @unittest.skipIf(MEMORY_CACHE, "a start again needs the runtime image's Redis")
+    @needs_redis
     def test_a_kill_inside_a_later_stop_is_finished_by_the_next_start(self):
         # The finishing start (#3521) has no execution algorithm; the reloaded CANCELED order names one.
         with Loopback(wallet="1000") as run:
