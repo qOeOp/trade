@@ -412,7 +412,6 @@ class Release:
             self.wait(sha, error)
             return
         try:
-            self.generation().finish()  # a version reading the new generation is routed: rollbacks check again
             self.retire_webs(candidate)  # the previous Web held its memory until the next release
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("previous", error)  # the next release's admission stops it
@@ -569,6 +568,7 @@ class Release:
         active = self.host.disk_route()
         self.host.checked(active)
         self.live.restore(active)
+        self.generation().finish(revision(active))
         target = self.github.choose(revision(active), self.failed)
         if target:
             self.apply(target)

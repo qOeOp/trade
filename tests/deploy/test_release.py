@@ -538,6 +538,19 @@ class GenerationTests(unittest.TestCase):
                 self.assertEqual(self.waiting(), ["service", "image", "runtime"])
                 hold.assert_called_once()
 
+    def cut_over(self):
+        (self.host.state / "generation.json").write_text(json.dumps(
+            {"kind": "cutover", "line": "v0.6", "revision": B, "service": TARGET["service"],
+             "archive": "20261123T000000Z-" + B[:12], "phase": "done", "market": "running"}))
+
+    def settled_tick(self):
+        self.github.ancestor.side_effect = lambda before, after: before == after
+        self.github.choose.return_value = None
+        fresh = Release(self.host, self.github, live=IdleLive(self.host), paper=self.release.paper())
+        with patch.object(release, "running", return_value=B), patch.object(Release, "handoff", return_value=False), \
+                patch.object(Release, "follow"), patch.object(Release, "prune"), patch.object(Release, "settle"):
+            fresh.tick()
+
     def test_after_a_cutover_a_rollback_does_not_wait_for_the_previous_version_to_read_the_ledger(self):
         """The previous version cannot read a new generation's ledger: once a cutover is done, a failed release still
         rolls back (and marks the version) instead of keeping its journal for the operator."""
@@ -555,19 +568,31 @@ class GenerationTests(unittest.TestCase):
         self.host.on_warm = cannot_read
         self.host.fail = "observe"
         self.where = {**self.where, "line": "v0.6"}
-        (self.host.state / "generation.json").write_text(json.dumps(
-            {"kind": "cutover", "line": "v0.6", "revision": B, "service": TARGET["service"],
-             "archive": "20261123T000000Z-" + B[:12], "phase": "done", "market": "running"}))
+        self.cut_over()
         with self.assertRaisesRegex(RuntimeError, "failed after switch"):
             self.release.apply(TARGET)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertFalse(self.release.transaction.exists())
         self.assertTrue((self.release.failed / B).exists())
+        self.settled_tick()
         self.assertTrue((self.host.state / "generation.json").exists(), "kept until a version commits on it")
         self.release.failed.joinpath(B).unlink()
         self.host.fail = self.host.on_warm = None
         self.release.apply(TARGET)
         self.assertEqual(self.host.disk, WEB + B)
+        self.settled_tick()
+        self.assertFalse((self.host.state / "generation.json").exists())
+
+    def test_a_release_interrupted_after_its_web_commit_still_ends_the_cutover(self):
+        """A journal left `done` would let a later release's rollback skip its checks of the previous version."""
+        self.where = {**self.where, "line": "v0.6"}
+        self.cut_over()
+        with patch.object(PaperRelease, "commit", side_effect=Crash()), self.assertRaises(Crash):
+            self.release.apply(TARGET)
+        self.assertEqual(self.host.disk, WEB + B)
+        self.assertTrue((self.host.state / "generation.json").exists())
+        self.settled_tick()  # recovers Paper
+        self.settled_tick()
         self.assertFalse((self.host.state / "generation.json").exists())
 
     def test_a_tick_finishes_an_interrupted_cutover_before_it_recovers_anything(self):
