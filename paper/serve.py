@@ -313,8 +313,11 @@ class Daemon:
     def cli(self, *argv: str, timeout: float = CLI_SECONDS) -> dict:
         command = [sys.executable, "-m", "cli.main", "paper", *argv, *(["--ledger", self.ledger] if self.ledger else [])]
         env = {name: os.environ[name] for name in CHILD_ENV if name in os.environ}
-        done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=timeout,
-                              check=False, env=env)
+        try:
+            done = subprocess.run(command, cwd=self.product, capture_output=True, text=True, timeout=timeout,
+                                  check=False, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise Failure(500, "PAPER_FAILED", f"paper {argv[0]} failed: {type(exc).__name__}") from exc
         if done.returncode:
             if (refusal := printed_refusal(done.stderr)) is None:
                 raise Failure(500, "PAPER_FAILED", (done.stderr or done.stdout).strip()[-2000:])
@@ -450,12 +453,12 @@ class Daemon:
             records.read_paper_run(conn, paper_id)
             if records.seal_of(conn, paper_id) is None:
                 raise Failure(409, "PAPER_RUN_ACTIVE", f"paper run {paper_id} is not sealed")
+        root = self.compare_root()
+        root.mkdir(mode=0o700, exist_ok=True)  # a failure here leaves no comparison marked as running
         with self.lock:
             if (self.comparing.get(paper_id) or {}).get("state") == "comparing":
                 return {"paper_id": paper_id, "state": "comparing"}
             self.comparing[paper_id] = {"state": "comparing", "started": time.time()}
-        root = self.compare_root()
-        root.mkdir(mode=0o700, exist_ok=True)
         output = root / f"{paper_id}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
 
         def run() -> None:
@@ -469,9 +472,6 @@ class Daemon:
                 stale = [path for path in self.compare_outputs(paper_id) if path != output]
             except Failure as exc:
                 found, stale = {"state": "failed", "error": exc.body}, [output]
-            except subprocess.TimeoutExpired:
-                found = {"state": "failed", "error": {"code": "PAPER_FAILED", "message": "the comparison timed out"}}
-                stale = [output]
             for path in stale:
                 shutil.rmtree(path, ignore_errors=True)
             with self.lock:
@@ -495,7 +495,10 @@ class Daemon:
     def seal_ended(self) -> None:
         while True:
             time.sleep(SEAL_SECONDS)
-            self.seal_found()
+            try:
+                self.seal_found()
+            except Exception as exc:  # the next pass tries again
+                print(f"paper sealing: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
     def seal_found(self) -> None:
         """Seal every end but a pause. An interruption continues the same unsealed run, or remains stopped.
@@ -505,11 +508,7 @@ class Daemon:
         """
         if not self.active():
             return
-        try:
-            found = self.runs()
-        except Refusal as exc:
-            print(f"paper listing: {exc}", file=sys.stderr, flush=True)
-            return
+        found = self.runs()
         now = time.time()
         for run in found["runs"]:
             output = runs.run_dir(self.profile, run["paper_id"]) / "out"
