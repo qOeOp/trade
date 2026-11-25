@@ -61,7 +61,7 @@ class HoldTests(unittest.TestCase):
 
         instance = type("Held", (), {**paper.paper_callbacks(Source), "clock": None})()
         instance._paper_held, instance._paper_released_ns = [], 0
-        instance._paper_cadence = mock.Mock(**{"mark.return_value": True})
+        instance._paper_cadence = mock.Mock(**{"setdefault.return_value.mark.return_value": True})
         paper.strategy_runtime.STRATEGIES[name] = instance
         return instance
 
@@ -209,7 +209,7 @@ class MetricsJournalTests(unittest.TestCase):
         cls = type("PaperHeld", (paper._PaperConfigured, Source), {**paper.paper_callbacks(Source), "clock": None})
         source = object.__new__(cls)
         source._paper_held, source._paper_released_ns = [], 0
-        source._paper_cadence = mock.Mock(**{"mark.return_value": False})
+        source._paper_cadence = {str(IID): mock.Mock(**{"mark.return_value": False})}
         source._metrics_setup(None)
         paper.strategy_runtime.STRATEGIES["BTC"] = source
         due = DAY + metrics.VISIBLE_NS
@@ -887,6 +887,25 @@ class CadenceTests(unittest.TestCase):
         cadence = Cadence()
         stamps = [DAY + 1_000_000, DAY + 2_000_000_000, DAY + MINUTE_NS, DAY + MINUTE_NS + 5, DAY + 3 * MINUTE_NS]
         self.assertEqual([cadence.mark(mark(ts)) for ts in stamps], [True, False, True, False, True])
+
+    def test_each_contract_an_instance_follows_has_its_own_cadence(self):
+        """#3657: one cadence passed the first contract's MARK of a minute and its settlement, and dropped the others'."""
+        other = InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
+        settlement, following = DAY + 8 * 3600 * 10**9, DAY + 16 * 3600 * 10**9
+        instance, passed, skipped = SimpleNamespace(cadences={}), [], []
+
+        def callback(name):
+            return Cadence.wrap(name, "cadences", lambda _, update, __: passed.append(update.instrument_id),
+                                skipped.append)
+        for at in (DAY, DAY + 1):  # both contracts' first MARK of the minute, then a second one
+            for iid in (IID, other):
+                callback("on_mark_price")(instance, MarkPriceUpdate(iid, Price.from_str("100.0"), at, at))
+        self.assertEqual((passed, len(skipped)), ([IID, other], 2))
+        passed.clear()
+        for at, named in ((DAY + 2, settlement), (settlement + 3, following)):
+            for iid in (IID, other):
+                callback("on_funding_rate")(instance, FundingRateUpdate(iid, Decimal("0.0001"), at, at, None, named))
+        self.assertEqual(passed, [IID, other])
 
     def test_one_funding_update_per_settlement_stamped_at_the_settlement(self):
         cadence = Cadence()

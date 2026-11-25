@@ -86,7 +86,7 @@ class SessionTests(unittest.TestCase):
         return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False, _paper_user_timers=False,
                                _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=list),
                                save=lambda: {"phase": b"1"},
-                               _paper_cadence=mock.Mock())
+                               _paper_cadence={})
 
     def test_native_default_hooks_are_not_an_explicit_recovery_protocol(self):
         self.assertFalse(self.session(Empty).supported)
@@ -205,7 +205,6 @@ class SessionTests(unittest.TestCase):
                         "trailing on BID_ASK": trailing(trigger_type="BID_ASK"),
                         "MARKET_IF_TOUCHED on BID_ASK": order(kind="MARKET_IF_TOUCHED", trigger_type="BID_ASK")}
         strategy = self.strategy()
-        strategy._paper_cadence = Cadence()
         for name, found in (("restorable", restorable), *((key, (value,)) for key, value in unrestorable.items())):
             with self.subTest(name), mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 session = self.session()
@@ -235,14 +234,19 @@ class SessionTests(unittest.TestCase):
     def test_both_id_counters_and_cadence_share_the_native_marker(self):
         session = self.session()
         strategy = self.strategy()
-        strategy._paper_cadence = Cadence(mark_minute=12, next_funding_ns=30)
+        strategy._paper_cadence = {IID: Cadence(mark_minute=12, next_funding_ns=30), "ETH": Cadence(mark_minute=13)}
         cache = SimpleNamespace(orders=lambda: [SimpleNamespace(is_closed=True)])
         with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
             session.cut(cache)
         session.journal.sync.assert_called_once()
         source = session.backend.snapshot.call_args.args[1]["sources"]["BTC"]
         self.assertEqual(source, {"state": {"phase": "MQ=="},
-                                  "cadence": {"mark_minute": 12, "next_funding_ns": 30}})
+                                  "cadence": {IID: {"mark_minute": 12, "next_funding_ns": 30},
+                                              "ETH": {"mark_minute": 13, "next_funding_ns": None}}})
+        restored, strategy.load = self.session(saved={"cut_ns": 1, "sources": {"BTC": source}}), mock.Mock()
+        before, strategy._paper_cadence = strategy._paper_cadence, {}
+        restored.restore_source(strategy, "BTC")
+        self.assertEqual(strategy._paper_cadence, before)
 
     def test_a_user_timer_that_already_fired_cannot_be_recreated_by_restore_start(self):
         session = self.session()
@@ -281,7 +285,7 @@ class SessionTests(unittest.TestCase):
     def test_a_recovery_that_crossed_a_funding_settlement_is_held_instead(self):
         """The source would never see the settlement as it happened (user decision 2026-11-17): the run is held, as one
         of a source without the protocol, and no aggregation is back-filled for it."""
-        saved = {"sources": {IID: {"cadence": {"next_funding_ns": T - MINUTE_NS}}}, "cut_ns": T - 20 * MINUTE_NS,
+        saved = {"sources": {IID: {"cadence": {IID: {"mark_minute": None, "next_funding_ns": T - MINUTE_NS}}}}, "cut_ns": T - 20 * MINUTE_NS,
                  "recorder": {"funding": {}}}
         for now, held in ((T - 2 * MINUTE_NS, False), (T, True)):
             with self.subTest(held=held), mock.patch("engine.paper_session.time.time_ns", return_value=now):
@@ -587,7 +591,6 @@ class BackfillTests(unittest.TestCase):
             latest[0] = None
             self.assertIsNone(session.due(cache, T + 2 * MINUTE_NS))
         strategy = SessionTests.strategy(self)  # type: ignore[arg-type]
-        strategy._paper_cadence = Cadence()
         strategy._paper_subscriptions = {f"{IID}-1-MINUTE-LAST-EXTERNAL",
                                          f"{IID}-15-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"}
         session.ready = True

@@ -65,7 +65,7 @@ class _LiveConfigured(history.Warming, metrics.Feed):
         self._metrics_setup(functools.partial(metrics.read, proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
-        self._live_cadence = Cadence()
+        self._live_cadence: dict[str, Cadence] = {}  # instrument ID -> its updates'
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         strategy_runtime.STRATEGIES[str(args[0])] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
 
