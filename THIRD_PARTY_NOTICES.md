@@ -44,7 +44,7 @@ No image contains market data: a deployment downloads it into its own market dir
 
 ## The IDE page and its chat service
 
-The page (`ide/web`) bundles its npm dependencies into one HTML file: 313 packages, all permissive (MIT 273,
+The page (`ide/web`) bundles its npm dependencies into one HTML file: 313 packages, all permissive (MIT 274,
 ISC 24, Apache-2.0 9, BSD-3-Clause 2, 0BSD, Unlicense, AFL-2.1 OR BSD-3-Clause, MIT and ISC), plus the fonts
 below; list the packages with `npm ls --omit=dev --all` in `ide/web`. The chat service (`ide/agent`) installs 16 packages
 (Apache-2.0 9, MIT 6, AFL-2.1 OR BSD-3-Clause 1). Icons and brand marks: [`ide/web/src/icons/NOTICE.md`](ide/web/src/icons/NOTICE.md),

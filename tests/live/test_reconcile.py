@@ -193,6 +193,10 @@ class CompareOneTests(unittest.TestCase):
         self.outcome = refuse("COMPARE_UNCOVERED", "the market lacks the run's minutes")
         self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": None, "retry": True,
                                           "reason": reconcile.UNCOVERED})
+        self.outcome = refuse("PAPER_COMPARE_EMPTY", "the run stopped before its first bar closed")
+        self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": None, "retry": False, "reason":
+                                          "PAPER_COMPARE_EMPTY: the run stopped before its first bar closed"},
+                         "no later comparison of a sealed run finds an interval")
         self.held.return_value = 1
         self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": None, "retry": False,
                                           "reason": "the run was held after an interruption"})

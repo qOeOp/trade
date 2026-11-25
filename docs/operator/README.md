@@ -14,9 +14,11 @@ You need a `git clone` of this repository, Docker with a linux/arm64 or linux/am
 2. Follow [`deploy/README.md`](../../deploy/README.md) to the `docker compose ... up -d` line: it writes `deploy/.env`,
    makes the directories under `TRADE_DATA` and names the images. On a server, follow
    [`deploy/remote/README.md`](../../deploy/remote/README.md) instead.
-3. Choose the market range in `TRADE_MARKET_ARGS` before `up`: the import starts 5 minutes later. The default bars of
-   three contracts are enough for a first replay; [What the market range
-   costs](../../deploy/README.md#what-the-market-range-costs) gives disk, memory and time.
+3. Choose the market range in `TRADE_MARKET_ARGS` before `up`: the import starts 5 minutes later. The range
+   [`deploy/README.md`](../../deploy/README.md) writes imports every eligible contract since 2020-01, 10 to 15 hours;
+   `--bar-symbols` with a few contracts is enough for a first replay. [What the market range
+   costs](../../deploy/README.md#what-the-market-range-costs) gives disk, memory and time, and what a short list
+   distorts.
 
 ## First run
 
@@ -103,6 +105,7 @@ directories) and the DoltHub key directory `$TRADE_DATA/dolthub`.
 ## Update and roll back
 
 [Updating](../../deploy/README.md#updating) moves the images to the last admitted version and restarts only the
-services it changes; [Image versions](../../deploy/README.md#image-versions) goes back to an earlier one. The author's
-server follows version tags by itself, and a merge to `main` is not a release ([`CHANGELOG.md`](../../CHANGELOG.md)):
+services it changes. During 0.x a deployment never goes back to an earlier version's images
+([Image versions](../../deploy/README.md#image-versions)). The author's server follows version tags by itself, and a
+merge to `main` is not a release ([`CHANGELOG.md`](../../CHANGELOG.md)):
 [Rolling back](../../deploy/remote/README.md#rolling-back).
