@@ -1,0 +1,1 @@
+- `replay report --directory` without `--trial-id` works where there is no ledger, as its help says (#3708).
