@@ -808,7 +808,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 upstream.request("GET", "/", headers={"Host": target.netloc, "Accept": "text/html"})
                 response = upstream.getresponse()
                 body = response.read()
-            except OSError as exc:
+            except (OSError, http.client.HTTPException) as exc:
                 self.json(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
                 return
             finally:
@@ -915,7 +915,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             try:
                 upstream.request(self.command, self.path, body=body, headers=headers)
                 response = upstream.getresponse()
-            except OSError as exc:
+            except (OSError, http.client.HTTPException) as exc:
                 upstream.close()
                 self.json(502, _failure(absent, f"{target.netloc} did not answer: {exc}"))
                 return
@@ -939,8 +939,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                     self.wfile.flush()
                 if zipper:
                     self.wfile.write(zipper.flush())
-            except OSError:
-                pass  # the page went away (a stopped answer): closing upstream stops the chat service too
+            except (OSError, http.client.HTTPException):
+                # The page went away (a stopped answer), and closing upstream stops the chat service too; or the service cut
+                # its answer short, and so is the page's.
+                pass
             finally:
                 upstream.close()
                 self.close_connection = True
