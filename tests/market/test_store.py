@@ -441,7 +441,9 @@ class ImportTests(unittest.TestCase):
         for wrong in ({**body, "market_day": self.market_days[FEB]},
                       {**body, "episodes": [{**body["episodes"][0], "sources": ["absent.txt"]}]},
                       {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]},
-                      {**body, "episodes": [{**body["episodes"][0], "events": [status("CLOSE", 0)]}, relisted]}):
+                      {**body, "episodes": [{**body["episodes"][0], "events": [status("CLOSE", 0)]}, relisted]},
+                      {**body, "episodes": [*body["episodes"], {**relisted, "start_ns": "100"}]},
+                      {**body, "episodes": [*body["episodes"], "CCCUSDT"]}):
             with self.subTest(wrong=wrong):
                 assert_refused(self, "LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.market_days[MAR],
                                files)
