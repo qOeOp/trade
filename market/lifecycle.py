@@ -86,8 +86,7 @@ def validate_lifecycle(body: Mapping, market_day: str, files: Mapping[str, bytes
         raise _invalid("the manifest lists no episodes")
     grouped: dict[str, list[dict]] = {}
     ended: set[str] = set()
-    for episode in sorted(episodes, key=lambda item: (str(item.get("symbol")), item.get("start_ns") or 0)
-                          if isinstance(item, Mapping) else ("", 0)):
+    for episode in episodes:
         if not isinstance(episode, Mapping) or set(episode) != set(EPISODE_FIELDS):
             raise _invalid(f"an episode does not hold exactly {', '.join(EPISODE_FIELDS)}")
         symbol, instrument_id, start = episode["symbol"], episode["instrument_id"], episode["start_ns"]
@@ -95,6 +94,8 @@ def validate_lifecycle(body: Mapping, market_day: str, files: Mapping[str, bytes
                 or not isinstance(episode["events"], list) or not isinstance(episode["sources"], list)
                 or not episode["sources"]):
             raise _invalid(f"the episode of {symbol!r} is malformed or cites no source")
+    for episode in sorted(episodes, key=lambda item: (item["symbol"], item["start_ns"])):
+        symbol, instrument_id, start = episode["symbol"], episode["instrument_id"], episode["start_ns"]
         for source in episode["sources"]:
             if (not isinstance(source, str) or PurePosixPath(source).is_absolute()
                     or ".." in PurePosixPath(source).parts or source not in files):
