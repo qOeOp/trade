@@ -90,8 +90,9 @@ def runner_args(mode: str) -> list[str]:
 
 def container_identity(root: Path, run_id: str, directory: Path, manifest: dict, name: str, role: str, *,
                mode: str | None = None, credentials_path: str | None = None,
-               container_id: str | None = None) -> dict | None:
-    """Verify the full retained resource before reading it or issuing a lifecycle action."""
+               container_id: str | None = None, bridged: bool = True) -> dict | None:
+    """Verify the full retained resource before reading it or issuing a lifecycle action. `bridged` False: an egress
+    whose creation was interrupted before it joined Docker's bridge."""
     found = inspect("container", name)
     if found is None:
         return None
@@ -103,7 +104,8 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
     network_id = network_created.get("network_id") if network_created else None
     expected_networks = {names["network"]: network_identity(names["network"], run_id, network_id)}
     if role == "egress":
-        expected_networks["bridge"] = network_identity("bridge", None)
+        if bridged:
+            expected_networks["bridge"] = network_identity("bridge", None)
         expected_mounts = {"/reports": (str((directory / "egress").resolve()), True)}
         expected_command = ["-m", "engine.egress", *egress_argv(manifest)]
     else:
@@ -150,6 +152,24 @@ def container_identity(root: Path, run_id: str, directory: Path, manifest: dict,
             or not isinstance(found.get("State"), dict)):
         raise state.fail("LIVE_IDENTITY_CHANGED", "the retained container does not match its declared execution identity")
     return found
+
+
+
+def retained_egress(root: Path, run_id: str, directory: Path, manifest: dict, name: str,
+                    container_id: str | None) -> dict | None:
+    """The run's egress, None without one. An unrecorded one whose creation was interrupted before it joined the
+    bridge is finished once all else of it is verified; started first, since Docker names the bridge's identity only on
+    a running container."""
+    partial = inspect("container", name) if container_id is None else None
+    if partial and "bridge" not in ((partial.get("NetworkSettings") or {}).get("Networks") or {}):
+        verified = container_identity(root, run_id, directory, manifest, name, "egress",
+                                      container_id=partial.get("Id"), bridged=False)
+        if verified is None:
+            raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the interrupted egress container cannot be verified")
+        if not verified["State"].get("Running"):
+            checked("start", verified["Id"])
+        checked("network", "connect", "bridge", verified["Id"])
+    return container_identity(root, run_id, directory, manifest, name, "egress", container_id=container_id)
 
 
 
