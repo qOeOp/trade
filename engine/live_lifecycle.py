@@ -245,13 +245,17 @@ class Observer(Strategy):
                 session.node.handle().stop()
             return
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
-        held = venue_held(session, positions) if positions else {}
+        # Read once no entry can fill any more: what one adds after the read would count as not held at Binance.
+        held = venue_held(session, positions) if positions and not entries else {}
         if not entries and not closing and held is not None:
             for position in [found for found in positions if str(found.id) not in session.exits and (
                     session.mode != "finish" or priced(self, found.instrument_id, now))][:CLOSES_PER_TICK]:
                 close_held(session, position, held)
-        # A position Binance no longer holds (closed outside the run: by hand, a liquidation) is not closed again.
-        if not [found for found in positions if str(found.id) not in session.phantoms] and not entries:
+                closing.append(position)
+        # What Binance no longer holds of a position (closed outside the run: by hand, a liquidation) is not closed again;
+        # what it still held is waited for, and so is a close in flight or sent in this tick.
+        if not (closing and positions) and not [found for found in positions if str(found.id) not in session.phantoms
+                or found.quantity.as_decimal() > session.phantoms[str(found.id)]] and not entries:
             session.cancel_open(self.cache, pending, now)
             if not pending and positions:
                 live_connection.venue_flat_exit(session, session.stop_read)
@@ -321,7 +325,7 @@ def close_held(session, position, held: dict) -> None:
         owner.close_position(position, reduce_only=True)  # the native engine owns the order and its fills
         return
     if key not in session.phantoms:
-        session.phantoms.add(key)
+        session.phantoms[key] = position.quantity.as_decimal() - held[key]
         session.event("venue_closed", strict=False, position_id=key, native=str(position.quantity), venue=str(held[key]))
     if held[key]:
         side = OrderSide.SELL if position.side == PositionSide.LONG else OrderSide.BUY
