@@ -862,6 +862,47 @@ class LiveCustodyTests(LiveFixture):
         self.assertEqual(len(actions), 2)
         self.assertEqual(runs.host_events(self.directory)[-1]["container_id"], "c" * 64)
 
+    def test_an_egress_creation_interrupted_before_the_bridge_is_finished_by_the_next_start(self):
+        names = host_runtime.resource_names(self.root, self.run_id)
+        resources = self.inspected("egress")
+        egress = resources[("container", names["egress"])]
+        bridge = egress["NetworkSettings"]["Networks"].pop("bridge")
+        for changed in ("label", "mount", "network"):  # anything else of it still refuses, unconnected
+            broken = copy.deepcopy(resources)
+            found = broken[("container", names["egress"])]
+            if changed == "label":
+                found["Config"]["Labels"]["trade.live.run"] = "foreign-run"
+            elif changed == "mount":
+                found["Mounts"][0]["Source"] = "/unrelated"
+            else:
+                found["NetworkSettings"]["Networks"]["another"] = {"NetworkID": "f" * 64}
+            with self.subTest(changed=changed), \
+                    patch.object(host_runtime, "docker", side_effect=self.docker_view(broken, [])), \
+                    patch.object(host_runtime, "checked", side_effect=AssertionError("not connected")):
+                self.assertEqual(refused(runs._network, self.root, self.run_id, self.directory, self.manifest,
+                                         error=LiveRefusal).code, "LIVE_IDENTITY_CHANGED")
+        for running in (True, False):
+            found = copy.deepcopy(resources)
+            egress = found[("container", names["egress"])]
+            egress["State"]["Running"] = running
+            actions = []
+
+            def action(*argv, egress=egress, actions=actions):
+                actions.append(argv)
+                if argv[0] == "start":
+                    egress["State"]["Running"] = True
+                else:  # Docker leaves a stopped container's new network without its identity
+                    egress["NetworkSettings"]["Networks"]["bridge"] = (
+                        bridge if egress["State"]["Running"] else {"NetworkID": ""})
+                return ""
+
+            with self.subTest(running=running), \
+                    patch.object(host_runtime, "docker", side_effect=self.docker_view(found, [])), \
+                    patch.object(host_runtime, "checked", side_effect=action):
+                runs._network(self.root, self.run_id, self.directory, self.manifest)
+                self.assertEqual(actions, [*([] if running else [("start", "c" * 64)]),
+                                           ("network", "connect", "bridge", "c" * 64)])
+
     def test_fresh_runner_is_verified_and_its_actual_id_is_retained(self):
         names = host_runtime.resource_names(self.root, self.run_id)
         resources = self.inspected(mode="preflight")

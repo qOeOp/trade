@@ -589,8 +589,8 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the created private network cannot be verified")
         state.append(directory / "lifecycle.jsonl", "network_created", run_id, network_id=network["Id"])
     created = next((row for row in reversed(events) if row["event"] == "egress_created"), None)
-    actual = host_runtime.container_identity(root, run_id, directory, manifest, names["egress"], "egress",
-                        container_id=created.get("container_id") if created else None)
+    actual = host_runtime.retained_egress(root, run_id, directory, manifest, names["egress"],
+                                          created.get("container_id") if created else None)
     if actual is None:
         if created:
             raise state.fail("LIVE_IDENTITY_CHANGED", "the original egress container is missing; no replacement is created")
