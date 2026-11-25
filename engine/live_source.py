@@ -189,7 +189,8 @@ class _LiveConfigured(history.Warming, metrics.Feed):
 
     def market_exit(self):
         commands.require_connection(self._live)
-        self._cancel_unsent()
+        if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]  # else natively ignored
+            self._cancel_unsent()
         return super().market_exit()
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
