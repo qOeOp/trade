@@ -24,8 +24,10 @@ def entries(text: str) -> list[str]:
     found: list[str] = []
     for line in text.splitlines():
         if line.startswith("- "):
+            if not line[2:].strip():
+                raise SystemExit(f"empty list entry: {line!r}")
             found.append(line)
-        elif line.strip() and found:
+        elif line.strip() and found and line[0].isspace():
             found[-1] += "\n" + line
         elif line.strip():
             raise SystemExit(f"text outside a list entry: {line!r}")

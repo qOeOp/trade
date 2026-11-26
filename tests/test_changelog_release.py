@@ -64,8 +64,16 @@ class ChangelogReleaseTests(unittest.TestCase):
         self.assertEqual(changelog.notes("0.4.4"), "- Old.\n")
 
     def test_malformed_fragment_is_rejected(self):
-        with self.assertRaisesRegex(SystemExit, "text outside a list entry"):
-            changelog.entries("Breaking: prose\n- x\n")
+        for label, text, pattern in (
+            ("prose-before-bullet", "Breaking: prose\n- x\n", "text outside a list entry"),
+            ("empty-bullet-spaces", "-   \n", "empty list entry"),
+            ("empty-bullet-one-space", "- \n", "empty list entry"),
+            ("heading-after-bullet", "- Valid item.\n## Fake Heading\n- Second.\n", "text outside a list entry"),
+            ("unindented-after-bullet", "- Valid item.\nNot indented continuation.\n", "text outside a list entry"),
+        ):
+            with self.subTest(label=label), self.assertRaisesRegex(SystemExit, pattern):
+                changelog.entries(text)
+        self.assertEqual(changelog.entries("- Valid item.\r\n  Continued.\r\n"), ["- Valid item.\n  Continued."])
 
     def test_repository_fragments_parse_cleanly(self):
         fragments_dir = ROOT / "changelog.d"

@@ -20,7 +20,7 @@ import time
 from urllib.parse import unquote, urlsplit
 
 from engine.live_errors import LiveRefusal
-from shared.http import send_json, trusted
+from shared.http import content_length, read_body, send_json, trusted
 from live import authority, configuration, control, credentials, daily, notify, reconcile, release, runs, state
 
 
@@ -144,16 +144,12 @@ def handler(config_file: Path, config: configuration.Configuration, *, binding: 
         def do_POST(self):
             try:
                 action, target = write_route(self.route())
-                lengths = self.headers.get_all("Content-Length", [])
-                if (self.headers.get("Transfer-Encoding") or len(lengths) != 1
-                        or not lengths[0].isascii() or not lengths[0].isdigit()
-                        or int(lengths[0]) > MAX_BODY):
+                if not self.headers.get_all("Content-Length", []):
                     raise configuration.fail()
-                length = int(lengths[0])
-                data = self.rfile.read(length)
-                if len(data) != length:
+                length = content_length(self)
+                if length > MAX_BODY:
                     raise configuration.fail()
-                body = decode(data)
+                body = decode(read_body(self, length))
             except Exception:
                 self.answer(400, control.error("LIVE_CONFIG"))
                 return

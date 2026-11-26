@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import socket
 import tempfile
+import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pymysql
 
@@ -284,3 +286,46 @@ class SyncRefusalTests(unittest.TestCase):
             while sync.state["state"] == "syncing" and time.monotonic() < until:
                 time.sleep(.01)
         self.assertEqual(sync.state, {"state": "error", "error": printed})
+
+
+class HandlerTests(unittest.TestCase):
+    def test_transfer_encoding_and_duplicate_or_nonzero_content_length_are_refused(self):
+        from http.server import ThreadingHTTPServer
+
+        sync = MagicMock()
+        sync.request.return_value = {"state": "syncing"}
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), replica.handler(sync, frozenset({"mirror:8766"})))
+        threading.Thread(target=srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        cases = (
+            ("te-chunked", "Transfer-Encoding: chunked\r\n", b"5\r\nhello\r\n0\r\n\r\n"),
+            ("te-empty-then-chunked", "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+            ("dup-cl", "Content-Length: 0\r\nContent-Length: 100\r\n", b"x" * 100),
+            ("nonzero-cl", "Content-Length: 5\r\n", b"hello"),
+        )
+        for label, header, body in cases:
+            with self.subTest(label=label), socket.create_connection(srv.server_address, timeout=5) as raw:
+                payload = (
+                    f"POST /api/research/sync HTTP/1.1\r\nHost: mirror:8766\r\n"
+                    f"Sec-Fetch-Site: same-origin\r\nConnection: close\r\n{header}\r\n"
+                ).encode() + body
+                raw.sendall(payload)
+                raw.shutdown(socket.SHUT_WR)
+                reply = b""
+                while chunk := raw.recv(4096):
+                    reply += chunk
+                self.assertTrue(reply.startswith((b"HTTP/1.0 400 ", b"HTTP/1.1 400 ")),
+                                f"{label}: {reply[:120]!r}")
+        sync.request.assert_not_called()
+        with socket.create_connection(srv.server_address, timeout=5) as raw:
+            raw.sendall(
+                b"POST /api/research/sync HTTP/1.1\r\nHost: mirror:8766\r\n"
+                b"Sec-Fetch-Site: same-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            raw.shutdown(socket.SHUT_WR)
+            reply = b""
+            while chunk := raw.recv(4096):
+                reply += chunk
+            self.assertTrue(reply.startswith((b"HTTP/1.0 202 ", b"HTTP/1.1 202 ")), f"valid: {reply[:120]!r}")
+        sync.request.assert_called_once_with()

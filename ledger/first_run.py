@@ -27,7 +27,7 @@ import tempfile
 import threading
 
 from ledger import publish, server
-from shared.http import content_length, encode, send_json, trusted
+from shared.http import content_length, encode, read_body, send_json, trusted
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -196,12 +196,12 @@ def _handler(page: _Page, host: str) -> type[BaseHTTPRequestHandler]:
                 self.reply(413, {"code": "TOO_LARGE", "message": f"{length} bytes"}, close=True)
                 return
             try:
-                body = json.loads(self.rfile.read(length) or b"{}")
+                body = json.loads(read_body(self, length) or b"{}")
                 repository = body.get("repository") if isinstance(body, dict) else None
                 if repository is not None and not isinstance(repository, str):
                     raise ValueError("repository is not a string")
             except ValueError as exc:
-                self.reply(400, {"code": "BAD_REQUEST", "message": str(exc)})
+                self.reply(400, {"code": "BAD_REQUEST", "message": str(exc)}, close=True)
                 return
             try:
                 self.reply(202, page.ask(repository))

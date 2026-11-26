@@ -1,6 +1,6 @@
 """Private HTTP -> fixed CLI integration with fake credentials and no venue or Docker calls."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from datetime import datetime
 import hashlib
 import http.client
@@ -476,4 +476,30 @@ class LiveWebControlTests(unittest.TestCase):
         row = body["data"]["review"]["validations"][0]
         self.assertEqual(row["window_start"], "2026-01-01T00:00:00")
         self.assertEqual(row["window_end"], "2026-02-01T00:00:00")
+
+    def test_duplicate_transfer_encoding_and_truncated_body_are_refused(self):
+        cases = (
+            ("te-empty-then-chunked",
+             "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n", b"{}"),
+            ("dup-cl", "Content-Length: 2\r\nContent-Length: 2\r\n", b"{}"),
+            ("missing-cl", "", b"{}"),
+            ("truncated", "Content-Length: 50\r\n", b"{}"),
+        )
+        with patch.object(serve, "command", side_effect=AssertionError("malformed request dispatched")):
+            for label, header, body in cases:
+                with self.subTest(label=label), socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as raw:
+                    raw.settimeout(5)
+                    raw.connect(str(self.config.socket))
+                    req = (
+                        f"POST /api/live/credentials HTTP/1.1\r\nHost: live-control\r\n"
+                        f"Connection: close\r\n{header}\r\n"
+                    ).encode() + body
+                    raw.sendall(req)
+                    with suppress(OSError):
+                        raw.shutdown(socket.SHUT_WR)
+                    reply = b""
+                    while chunk := raw.recv(4096):
+                        reply += chunk
+                    self.assertTrue(reply.startswith((b"HTTP/1.0 400 ", b"HTTP/1.1 400 ")),
+                                    f"{label}: {reply[:120]!r}")
 

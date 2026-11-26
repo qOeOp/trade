@@ -254,11 +254,15 @@ def _from_main(binary: str, directory: Path, environment: dict, origin: str, kin
 def _check_service(service_root: Path, config: dict) -> None:
     """The checks of every start: every database service.json records, the schema version of each
     ledger profile's database on this service."""
+    databases = config.get("databases")
+    if not isinstance(databases, dict) or not databases:
+        raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json records no databases to verify",
+                     missing=(str(service_root / "service.json"),))
     conn = server.connect_root(config)
     try:
         with conn.cursor() as cursor:
             present = {name.lower() for (name,) in server.cursor_rows(cursor, "SHOW DATABASES")}
-            missing = sorted(name for name in config.get("databases", {}) if name.lower() not in present)
+            missing = sorted(name for name in databases if name.lower() not in present)
             if missing:
                 raise refuse("SERVICE_CHECK_FAILED", f"service.json records databases the service does not hold: "
                                                      f"{', '.join(missing)}", missing=tuple(missing))
@@ -267,7 +271,7 @@ def _check_service(service_root: Path, config: dict) -> None:
                 if Path(profile.service_root).resolve() == service_root.resolve():
                     _check_database(cursor, profile.database, profile.holds)
                     checked.add(profile.database.lower())
-            unchecked = sorted(name for name in config.get("databases", {}) if name.lower() not in checked)
+            unchecked = sorted(name for name in databases if name.lower() not in checked)
             if unchecked:
                 raise refuse("SERVICE_CHECK_FAILED",
                              f"service.json records databases without a profile at {service_root}: "

@@ -30,13 +30,23 @@ def matches(path: str) -> bool:
 def content_length(handler: Any) -> int:
     """One non-negative ASCII-digit Content-Length header, or 0 when absent; raises ValueError otherwise."""
     lengths = handler.headers.get_all("Content-Length", [])
-    if handler.headers.get("Transfer-Encoding") or len(lengths) > 1:
+    if handler.headers.get_all("Transfer-Encoding", []) or len(lengths) > 1:
         raise ValueError("invalid Content-Length")
     if not lengths:
         return 0
     if not lengths[0].isascii() or not lengths[0].isdigit():
         raise ValueError("invalid Content-Length")
     return int(lengths[0])
+
+
+def read_body(handler: Any, length: int) -> bytes | None:
+    """Read exactly `length` bytes from `handler.rfile` (None when 0); raises ValueError if truncated."""
+    if not length:
+        return None
+    data = handler.rfile.read(length)
+    if len(data) != length:
+        raise ValueError("incomplete request body")
+    return data
 
 
 def _address(value: str):
@@ -105,8 +115,9 @@ def forward(handler: Any, path: Path | None, router: str | None, token: str, tok
     if handler.command == "POST" and not lengths:
         refuse(411, "LIVE_REQUEST", "A Live action requires a content length.")
         return
-    body = handler.rfile.read(length) if length else None
-    if body is not None and len(body) != length:
+    try:
+        body = read_body(handler, length)
+    except ValueError:
         refuse(400, "LIVE_REQUEST", "The Live request body is incomplete.")
         return
     upstream = UnixConnection(path)
