@@ -13,8 +13,9 @@ running, cut short and at a limit.
   no credential and no run; include misaligned multi-track start dates (bars vs `--metrics`, `--execution quotes`,
   and late-listed/pool symbols) so `development_period` and veto planning are tested against staggered coverage.
 - **parity** [any]: one market history through replay, Paper and Live's adapter fakes.
-- **research** [any]: noise, a true edge and a leaking strategy through the tests and verdicts; each
-  line's history read through the product's read commands, never ad hoc SQL.
+- **research** [any]: noise, a true edge and a leaking strategy through the tests and verdicts,
+  including misaligned multi-track coverage (`bars`, `--metrics`, `--execution quotes`, late-listed
+  symbols); each line's history read through the product's read commands, never ad hoc SQL.
 - **gates** [empty failed partial]: every admission, eligibility and refusal with a state never
   started, failed or cut short; a stated reason is tested, not trusted, and a good case must pass.
 

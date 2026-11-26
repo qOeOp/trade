@@ -32,7 +32,8 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
 signals deterministically: dump open `agent-finding` issues and recent CI runs (`gh run list --limit 80 --json databaseId,workflowName,name,status,conclusion,createdAt,updatedAt,event,headBranch`)
 to temporary JSON files and run `doctor.py advise --issues-json <issues> --ci-json <ci>` (add `--transcripts <path...>`
-when auditing agent/user sessions; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
+for session workflow adherence, `--prod-logs <path...>` for production service logs, and `--auto --steady-exit-code 2`
+for scheduled unattended gates; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
 last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why and what is
 left out:
 
@@ -109,8 +110,10 @@ some do), and any coupled `--contracts A+B` with `doctor.py scope` before any ev
 7. **Remedy.** In order, saying why each earlier one does not fit: none; restate the mechanism so special cases
    merge; remove; add, only for a wrong output, a trust boundary or recurrence. Net mechanisms, rules and words must
    be stated. An issue calls a code remedy unverified unless it ran on a scratch copy, where the callers, retries
-   and documented repairs it touches still worked. Any remedy that adds, tightens or relaxes a refusal, test bar or
-   CI gate is an `authority` item: ask the user.
+   and documented repairs it touches still worked. Any remedy that weakens a refusal, test bar or CI
+   gate, or crosses an irreversible `AGENTS.md` redline (fonts, primary account, destructive writes,
+   stored fields, release tags), is an `authority` item: ask the user; in `--auto` mode, verified
+   defect fixes and missing refusal guards do not block on `authority`.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report `doctor.py report`
    verbatim but for `SECURITY.md`'s rows, spent against budget (time at least its evidence span; tokens the host
    hides are unknown), and the `@` objects no pass took. For an audit of one session, tell the user only of perspectives its
