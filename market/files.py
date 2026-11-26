@@ -324,6 +324,10 @@ def track_months(market: Market, market_day: str, table: str) -> list[tuple[str,
             earliest = first_time(market, entry)
             if earliest is None or earliest >= visible:
                 continue
+        else:
+            source = file_source(market, entry)
+            if pq.read_metadata(pa.BufferReader(source) if isinstance(source, pa.Buffer) else source).num_rows == 0:
+                continue
         found.append((clock.ms_day(entry.start_ms).strftime("%Y-%m"), entry.symbol))
     return found
 

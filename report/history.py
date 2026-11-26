@@ -92,7 +92,7 @@ def _whole_year(row: dict) -> bool:
     """A veto segment whose whole year is covered (input starts at or before the veto year's start) and that
     trades at least SHORT_DAYS: a reserved veto year shifted only by the participant's warm-up still counts."""
     year_start = datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
-    start = row.get("input_start", row["trade_start"])
+    start = row.get("input_start") or row["trade_start"]
     return start <= year_start and (row["trade_end"] - row["trade_start"]).days >= SHORT_DAYS
 
 

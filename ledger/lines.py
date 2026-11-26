@@ -165,10 +165,14 @@ def _option(argv: list[str], name: str) -> str | None:
 def selection(runner_argv) -> list[str] | None:
     """The symbols a replay's runner arguments name after --symbols, or None for the pool (`--universe pool`)."""
     argv = _argv_list(runner_argv)
-    if "--symbols" not in argv:
-        return None
-    rest = argv[argv.index("--symbols") + 1:]
-    return [item for item in itertools.takewhile(lambda item: not item.startswith("--"), rest)]
+    found: list[str] | None = None
+    for index, item in enumerate(argv):
+        if item == "--symbols":
+            found = list(itertools.takewhile(lambda token: not token.startswith("--"), argv[index + 1:]))
+        elif item.startswith("--symbols="):
+            value = item.split("=", 1)[1]
+            found = [value] if value else []
+    return found
 
 
 def _read_tracks(tracks: Mapping[str, list[tuple[str, str]]] | Callable[[str], list[tuple[str, str]]] | None,
@@ -236,20 +240,21 @@ def covered_from(selection: list[str] | None, members: list[tuple[str, str]],
     """The first day every instrument of a replay selection has market coverage, from the market day's universe
     (YYYY-MM, symbol) rows and any required contract-month tracks (`tracks`, e.g. metrics, quote, agg_trade): for
     the pool (`selection` None), the first universe month whose every member is present in every required track;
-    otherwise the latest of the symbols' first months across `members` and every required track; None when any
+    otherwise the first universe month in which every selected symbol is present in `members` and every required
+    track (or the latest of their first months in `members` when no extra tracks are required); None when any
     instrument lacks coverage."""
+    pool_by_month: dict[str, set[str]] = {}
+    for month, symbol in members:
+        pool_by_month.setdefault(month, set()).add(symbol)
+    if not pool_by_month:
+        return None
+    track_maps = []
+    for rows in (tracks or {}).values():
+        by_month: dict[str, set[str]] = {}
+        for month, symbol in rows:
+            by_month.setdefault(month, set()).add(symbol)
+        track_maps.append(by_month)
     if selection is None:
-        pool_by_month: dict[str, set[str]] = {}
-        for month, symbol in members:
-            pool_by_month.setdefault(month, set()).add(symbol)
-        if not pool_by_month:
-            return None
-        track_maps = []
-        for rows in (tracks or {}).values():
-            by_month: dict[str, set[str]] = {}
-            for month, symbol in rows:
-                by_month.setdefault(month, set()).add(symbol)
-            track_maps.append(by_month)
         for month in sorted(pool_by_month):
             wanted = pool_by_month[month]
             if all(wanted.issubset(by_month.get(month, ())) for by_month in track_maps):
@@ -257,15 +262,19 @@ def covered_from(selection: list[str] | None, members: list[tuple[str, str]],
         return None
     if not selection:
         return None
-    starts: list[str] = []
-    for rows in (members, *(tracks or {}).values()):
+    wanted = set(selection)
+    if not track_maps:
         first: dict[str, str] = {}
-        for month, symbol in sorted(rows):
+        for month, symbol in sorted(members):
             first.setdefault(symbol, month)
-        if any(symbol not in first for symbol in selection):
+        if any(symbol not in first for symbol in wanted):
             return None
-        starts.append(max(first[symbol] for symbol in selection))
-    return date.fromisoformat(max(starts) + "-01")
+        return date.fromisoformat(max(first[symbol] for symbol in wanted) + "-01")
+    for month in sorted(pool_by_month):
+        if wanted.issubset(pool_by_month[month]) and all(
+                wanted.issubset(by_month.get(month, ())) for by_month in track_maps):
+            return date.fromisoformat(month + "-01")
+    return None
 
 
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
@@ -327,8 +336,9 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
-    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, members} (the market day, its
-    universe rule and latest complete day, and its universe (YYYY-MM, symbol) rows); the development
+    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, members, tracks} (the market day,
+    its universe rule and latest complete day, its universe (YYYY-MM, symbol) rows, and optional `tracks` mapping or
+    callable returning (YYYY-MM, symbol) rows for required tracks such as metrics, quote or agg_trade); the development
     period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
@@ -512,16 +522,23 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
         warmup = trial["trade_start"] - trial["input_start"]
         if members is not None:
             chosen, tables = reqs.get(participant["trial_id"], (None, ()))
+            if tables and tracks is None:
+                raise refuse("COVERAGE_INCOMPLETE",
+                             f"trial {participant['trial_id']} requires market track coverage ({', '.join(tables)}), "
+                             "which was not supplied", missing=tables)
             covered = covered_from(chosen, members, _read_tracks(tracks, tables, track_cache))
-            veto_first = dev_start if covered is None else max(first_day, covered)
+            if covered is None:
+                raise refuse("COVERAGE_INCOMPLETE",
+                             f"trial {participant['trial_id']} has no common market coverage for its selection"
+                             + (f" and required tracks ({', '.join(tables)})" if tables else ""),
+                             missing=tables or tuple(chosen or ("universe",)))
+            effective_first = max(first_day, covered)
         else:
-            veto_first = first_day
-        segments = history_segments(dev_start, dev_end, veto_first, after_last)
-        veto_earliest = datetime.combine(veto_first, time()) + warmup
-        other_earliest = datetime.combine(first_day, time()) + warmup
+            effective_first = first_day
+        segments = history_segments(dev_start, dev_end, effective_first, after_last)
+        earliest = datetime.combine(effective_first, time()) + warmup
         own = [row for row in reversed(ran) if row["source_sha256"] == participant["source_sha256"]]
         for segment in segments:
-            earliest = veto_earliest if segment["kind"] == "veto" else other_earliest
             start = max(datetime.combine(segment["start"], time()), earliest)
             end = datetime.combine(segment["end"], time())
             window = ({"input_start": start - warmup, "trade_start": start, "trade_end": end} if start < end
