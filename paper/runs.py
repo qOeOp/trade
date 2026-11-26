@@ -23,6 +23,7 @@ release needs before it starts a candidate (deploy/release_host.py), so starting
 from __future__ import annotations
 
 import ast
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -36,6 +37,8 @@ import uuid
 from deploy.release_host import RELEASE_MEMORY_MIB
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
 from ledger import db, paper as records, run_journal, strategies
+from shared import clock, profiles
+from shared.errors import Refusal
 from shared.files import atomic_write
 from shared.refusals import refuse
 from runtime import container, image
@@ -297,6 +300,27 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
     shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
 
 
+def _prior_matches_pool(market: dict, prior: dict) -> bool:
+    """Whether `prior`'s stored contracts equal the current-month pool at its recorded market_day and start time."""
+    created = prior.get("created_at")
+    moment = (clock.moment_ns(created) if isinstance(created, datetime)
+              else clock.utc_ns(created) if created is not None else time.time_ns())
+    day = str(prior["market_day"]) if prior.get("market_day") is not None else None
+    try:
+        return selection(market, day, None, moment)[2] == prior["symbols"]
+    except Refusal as exc:
+        if exc.code in ("UNIVERSE_EMPTY", "UNIVERSE_NOT_COVERING_WINDOW"):
+            return False
+        raise
+
+
+def matches_pool(profile: db.LedgerProfile, market_name: str | None, op_id: str) -> bool:
+    """Whether the stored start for `op_id` matches its recorded market day's pool (for HTTP pool retries)."""
+    with db.connect(profile, "reader") as conn:
+        prior = records.paper_start_of(conn, op_id)
+    return prior is not None and _prior_matches_pool(profiles.market(market_name), prior)
+
+
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, duration_seconds: int | None = None,
@@ -313,7 +337,8 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
             if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
-                    or (symbols is not None and symbols != prior["symbols"])):
+                    or (symbols != prior["symbols"] if symbols is not None
+                        else not _prior_matches_pool(market, prior))):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),

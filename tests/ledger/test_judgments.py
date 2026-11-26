@@ -158,6 +158,13 @@ class JudgmentTests(unittest.TestCase):
         self.assertIn("too large for column", caught.message)
         self.assertLess(len(caught.message), 400)
 
+    def test_empty_or_whitespace_only_bodies_are_refused(self):
+        for kind in ("interpretation", "recommendation", "priority"):
+            for body in ("", " ", " \n\t "):
+                with self.subTest(kind=kind, body=body):
+                    self.assertEqual(self.code(kind=kind, body=body), "JUDGMENT_BODY_EMPTY")
+        self.assertEqual(self.code(kind="search_exposure", body=" \n"), "SEARCH_EXPOSURE_VARIANTS_MISSING")
+
     def test_a_recommendation_may_name_the_recommended_candidate_alone(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}]
         written = self.add("recommendation", body="a alone", subjects=subjects)

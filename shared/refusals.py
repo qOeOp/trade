@@ -204,6 +204,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
                                  "a first line that records no such decision.",),
     "APPROACH_CHOOSER_MISSING": ("Say `chosen by the Agent` or `chosen by the user` in the body "
                                  "(research-round feedback.md).",),
+    "JUDGMENT_BODY_EMPTY": ("Write a nonempty judgment body and pass it with --body.",),
     "OP_ID_CONFLICT": ("Use a new operation ID, or omit it to derive one from the content.",),
     # Witness
     "NOT_REGISTRATION_COMMIT": ("Pass the commit that added the validation registration (`ledger witness`).",),

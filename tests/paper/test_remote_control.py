@@ -1,5 +1,6 @@
 """Remote controls retain run identity, bound log access, and preserve the existing HTTP boundary."""
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -46,6 +47,38 @@ class StartIdentityTests(unittest.TestCase):
         daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
         daemon.last_config = mock.Mock(side_effect=AssertionError("must not resolve new defaults"))
         self.assertEqual(daemon.start({"candidate": "a@1", "op_id": OP})["paper_id"], 8)
+
+    def test_reusing_symbols_op_id_with_universe_pool_conflicts_while_pool_retry_replays(self):
+        profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
+        dated = {**ROW, "market_day": "2026-03-01", "created_at": datetime(2026, 3, 15, 12, 0)}
+        pool = ["BTCUSDT", "ETHUSDT"]
+        pool_row = {**dated, "symbols": pool}
+        with mock.patch.object(db, "connect", connection), \
+                mock.patch.object(runs, "selection", return_value=("2026-03-01", {"universe_rule": "r"}, pool)):
+            with mock.patch.object(records, "paper_start_of", return_value=dated):
+                caught = refused(runs.start.__wrapped__, profile, {}, None, "a@1", None, None, op_id=OP,
+                                 research=mock.Mock())
+                self.assertEqual(caught.code, "OP_ID_CONFLICT")
+            with mock.patch.object(records, "paper_start_of", return_value=pool_row):
+                replayed = runs.start.__wrapped__(profile, {}, None, "a@1", None, None, op_id=OP, research=mock.Mock())
+                self.assertEqual((replayed["paper_id"], replayed["symbols"], replayed["write_status"]),
+                                 (8, pool, "replayed"))
+        # Over HTTP: universe='pool' with an op_id belonging to a --symbols run refuses OP_ID_CONFLICT,
+        # while a pool retry replays without starting a new run.
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.profile, daemon.market = profile, None
+        with mock.patch.object(db, "connect", connection), \
+                mock.patch.object(runs.profiles, "market", return_value={}), \
+                mock.patch.object(runs, "selection", return_value=("2026-03-01", {"universe_rule": "r"}, pool)):
+            daemon.start_result = mock.Mock(return_value={"run": {**dated, "candidate": "a@1", "state": "accepted"}})
+            with mock.patch.object(records, "paper_start_of", return_value=dated):
+                caught = refused(daemon.start, {"candidate": "a@1", "universe": "pool", "op_id": OP},
+                                 error=serve.Failure)
+                self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
+            daemon.start_result = mock.Mock(return_value={"run": {**pool_row, "candidate": "a@1", "state": "accepted"}})
+            with mock.patch.object(records, "paper_start_of", return_value=pool_row):
+                replayed = daemon.start({"candidate": "a@1", "universe": "pool", "op_id": OP})
+                self.assertEqual((replayed["paper_id"], replayed["symbols"]), (8, pool))
 
     def test_stop_intent_survives_controller_state_loss(self):
         with tempfile.TemporaryDirectory() as root:

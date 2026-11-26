@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ledger import db, judgments, lines, trials
+from ledger import db, judgments, lines, strategies, trials
 from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
@@ -783,3 +783,41 @@ class RetryTests(unittest.TestCase):
         self.world.qualification.unavailable.add(trial_id)
         self.world.register({**self.body, "retry_of": first})
         self.world.qualification.unavailable.clear()
+
+    def test_unrelated_candidate_with_retry_of_cannot_bypass_interpretation_or_retry_check(self):
+        first = self.world.register(self.body)["registration_id"]
+        failed = self.world.research_trial(first, source("root"))
+        self.world.seal_run(failed, "invalid")
+        other_src = source("unrelated-other")
+        other = strategies.publish_candidate(self.world.profile, other_src, "other", "Fixture", "unrelated root")
+        other_body = self.world.body([other["candidate"]], {other["candidate"]: self.world.prechecked(other_src)})
+        self.assertEqual(refused(self.world.register, other_body).code, "INTERPRETATION_REQUIRED")
+        self.assertEqual(refused(self.world.register, {**other_body, "retry_of": first}).code,
+                         "INTERPRETATION_REQUIRED")
+        # A repaired root revision of the same strategy is admitted as a retry of the invalid root registration.
+        repaired_root = self.world.publish("repaired-root", parent=None)
+        repaired_body = self.world.body([repaired_root["candidate"]],
+                                        {repaired_root["candidate"]: self.world.prechecked(repaired_root["source"])})
+        repaired_reg = self.world.register({**repaired_body, "retry_of": first})["registration_id"]
+        # Even after the invalid run is retried/interpreted, an unrelated candidate still cannot attach retry_of.
+        self.assertEqual(refused(self.world.register, {**other_body, "retry_of": first}).code, "RETRY_NOT_ALLOWED")
+        # A registration with no consumed trial cannot be retried with a different candidate.
+        self.assertEqual(refused(self.world.register, {**other_body, "retry_of": repaired_reg}).code,
+                         "RETRY_NOT_ALLOWED")
+        # Derived repair requires matching parent and published difference.
+        cand_a = self.world.publish("derived-a", difference="cap volume at 5%")
+        reg_a = self.world.register(self.world.body([cand_a["candidate"]],
+                                                    {cand_a["candidate"]: self.world.prechecked(cand_a["source"])},
+                                                    duties=["G3"]))["registration_id"]
+        trial_a = self.world.research_trial(reg_a, cand_a["source"])
+        self.world.seal_run(trial_a, "invalid")
+        cand_b = self.world.publish("derived-b", difference="add trailing stop")
+        body_b = self.world.body([cand_b["candidate"]], {cand_b["candidate"]: self.world.prechecked(cand_b["source"])},
+                                 duties=["G3"])
+        self.assertEqual(refused(self.world.register, {**body_b, "retry_of": reg_a}).code, "INTERPRETATION_REQUIRED")
+        cand_a_fix = self.world.publish("derived-a-fix", difference="cap volume at 5%")
+        body_a_fix = self.world.body([cand_a_fix["candidate"]],
+                                     {cand_a_fix["candidate"]: self.world.prechecked(cand_a_fix["source"])},
+                                     duties=["G3"])
+        self.assertFalse(self.world.register({**body_a_fix, "retry_of": reg_a})["replayed"])
+        self.assertEqual(refused(self.world.register, {**body_b, "retry_of": reg_a}).code, "RETRY_NOT_ALLOWED")
