@@ -74,7 +74,6 @@ from engine.config import (
     runtime_source_metadata,
 )
 from engine.load import (
-    BAR_INTERVAL_NS,
     LIFECYCLE_COUNTS,
     LoadedStrategy,
     episode_membership,
@@ -329,8 +328,8 @@ class CapitalObserver(DataActor):
         changed_next: set[InstrumentId] = set()
         for position in report.candidates_at(cache, self._open_ids, self._closed_ids):
             instrument = str(position.instrument_id)
-            if position.ts_last >= ts + BAR_INTERVAL_NS:
-                if next_ts is None or position.instrument_id == next_instrument or position.ts_last > next_ts:
+            if next_ts is not None and position.ts_last >= next_ts:
+                if position.instrument_id == next_instrument or position.ts_last > next_ts:
                     unvalued.setdefault(instrument, "the position changed before the next timestamp")
                     continue
                 changed_next.add(position.instrument_id)

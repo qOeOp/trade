@@ -534,3 +534,39 @@ class CapitalExposureTests(unittest.TestCase):
         obs3, _ = run_case(OpenOnT1, ooo_data)
         self.assertTrue(any("CAPITAL_VALUATION_GAP" in f and "changed before MARK" in f for f in obs3.findings),
                         obs3.findings)
+
+        # 4. Single-contract 1m MARK hole at t1 -> next MARK at t2 (strictly ordered; must keep t0 exposure row).
+        obs4, rows4 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t2, t2),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t2, t2),
+        ])
+        self.assertEqual(obs4.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows4], [t0])
+
+        # 5. Simultaneous multi-contract 1m MARK hole at t1; MARK(BBB, t2) before MARK(AAA, t2).
+        obs5, rows5 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            MarkPriceUpdate(inst_b.id, p100, t0, t0),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(inst_b.id, p100, t2, t2),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t2, t2),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t2, t2),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t2, t2),
+        ])
+        self.assertEqual(obs5.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows5], [t0])
+
+        # 6. Final-bar MARK hole at t1 valued in finish() (next_ts=None).
+        obs6, rows6 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+        ])
+        self.assertEqual(obs6.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows6], [t0])
