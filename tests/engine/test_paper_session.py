@@ -578,6 +578,16 @@ class BackfillTests(unittest.TestCase):
         session.handing = ("15-MINUTE", aggregated(T), [], IID)
         self.assertIn("a position close is a MARKET order", session.exiting())
 
+    def test_a_market_exit_before_a_saved_recovery_is_admitted_refuses_without_back_fill(self):
+        """#3650: during warm-up / on_load before maybe_begin passes touched, exiting refuses even with since empty."""
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            session = self.recovery(T + MINUTE_NS)
+        session.since = {}
+        found = session.exiting()
+        self.assertIsNotNone(found)
+        self.assertEqual(session.refused, found)
+        self.assertEqual(session.commanded(close=True), found)
+
     def test_a_cut_waits_for_the_bar_of_a_bucket_that_ended(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
             session = self.recovery(T + MINUTE_NS)

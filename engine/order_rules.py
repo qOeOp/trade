@@ -98,7 +98,8 @@ def entry_price(order):
     return order.trigger_price if order.order_type == OrderType.STOP_MARKET else order.price
 
 
-def violation(source, order, position_id=None, client_id=None, params=None) -> str | None:
+def violation(source, order, position_id=None, client_id=None, params=None, *,
+              submitted_ns: int | None = None) -> str | None:
     """Why `order` breaks a rule, or None."""
     if str(order.strategy_id) in WARMING:
         return "no order before the warm-up has ended and on_start has run"
@@ -130,7 +131,8 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
         # expire_time: nanoseconds on every order type (expire_time_ns exists on LimitOrder alone); never absent on GTD
         if order.expire_time % 1_000_000_000:
             return "a GTD order expires on a whole second: Live cannot send a fraction of one"
-        if order.expire_time - clock.timestamp_ns() < GTD_LEAD_NS:
+        at = clock.timestamp_ns() if submitted_ns is None else submitted_ns
+        if order.expire_time - at < GTD_LEAD_NS:
             return "a GTD order expires at least 605 seconds after it is submitted"
     cache = native_cache(source)
     if order.is_reduce_only:
@@ -207,19 +209,24 @@ class OrderRules:
     def _order_rule(self, text: str):
         return self._breach(CODE, f"{_strategy_id(self)}: {text}")
 
-    def _orders_allowed(self, order, position_id=None, client_id=None, params=None) -> bool:
+    def _orders_allowed(self, order, position_id=None, client_id=None, params=None, *,
+                        submitted_ns: int | None = None) -> bool:
         """True when `order` keeps the rules; otherwise the breach is reported (and raised, in Live)."""
-        found = violation(self, order, position_id, client_id, params)
+        found = violation(self, order, position_id, client_id, params, submitted_ns=submitted_ns)
         if found is None:
             return True
         self._order_rule(f"{order.client_order_id}: {found}")
         return False
 
-    def submit_order(self, order, position_id=None, client_id=None, params=None):
-        if self._orders_allowed(order, position_id, client_id, params):
+    def _submit_checked(self, order, position_id=None, client_id=None, params=None, *,
+                        submitted_ns: int | None = None):
+        if self._orders_allowed(order, position_id, client_id, params, submitted_ns=submitted_ns):
             return super().submit_order(order, position_id=position_id, client_id=client_id,  # type: ignore[misc]
                                         params=params)
         return None
+
+    def submit_order(self, order, position_id=None, client_id=None, params=None):
+        return self._submit_checked(order, position_id, client_id, params)
 
     def submit_order_list(self, *args, **kwargs):
         return self._order_rule("order lists are not sent")
@@ -264,3 +271,8 @@ class OrderRules:
 
     def close_all_positions(self, *args, **kwargs):
         return self._order_rule("positions are closed one at a time")
+
+    def market_exit(self):
+        if str(_strategy_id(self)) in WARMING:
+            return self._order_rule("no order before the warm-up has ended and on_start has run")
+        return super().market_exit()  # type: ignore[misc]
