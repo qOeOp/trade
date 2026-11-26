@@ -420,9 +420,16 @@ def _listings(profile: dict, scope: Scope) -> dict:
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
     newest = max(members, default=None)
+    followed = files.followed_metrics(market)
     pool = {symbol: newest for symbol in members[newest]} if scope.metrics_pool and newest is not None else {}
-    others = {**pool, **{symbol: last + timedelta(days=1)
-                         for symbol, last in files.followed_metrics(market).items()}}
+    if pool and newest is not None:
+        held_in_newest = {str(entry.symbol) for entry in files.entries(market, "metrics", list(pool),
+                                                                       clock.day_ms(newest))
+                          if files.last_time(market, entry) is not None}
+        # A pool member holding metrics in the newest month that is no longer followed has stopped trading.
+        pool = {symbol: first for symbol, first in pool.items()
+                if symbol in followed or symbol not in held_in_newest}
+    others = {**pool, **{symbol: last + timedelta(days=1) for symbol, last in followed.items()}}
     others = {symbol: first for symbol, first in sorted(others.items()) if symbol not in symbols}
     return {"bars": files.bar_months_through(market), "members": members,
             "metrics": {symbol: metrics.held_days(market, symbol) for symbol in [*symbols, *others]},
@@ -449,7 +456,12 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                 entry["through"] = first.isoformat()
                 entry["state"] = ("caught_up" if first >= end else "lagging" if first < lag else "waiting")
             elif kind == "metrics":
-                first = _metrics_from(listing, scope).get(symbol, scope.metrics_from)
+                metrics_from = _metrics_from(listing, scope)
+                if symbol not in metrics_from:
+                    entry["missing_from"], entry["missing_days"], entry["unpublished"] = None, 0, []
+                    entry["state"] = "caught_up"
+                    continue
+                first = metrics_from[symbol]
                 left = missing(listing["metrics"].get(symbol, set()), first, today, _passed(memory, symbol))
                 flat = [day for days in left.values() for day in days]
                 entry["missing_from"], entry["missing_days"] = (flat[0].isoformat() if flat else None), len(flat)

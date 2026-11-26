@@ -35,6 +35,11 @@ class RunnerTests(unittest.TestCase):
         # one unsplit string, as an unquoted shell variable gives
         caught = refused(runner.runner_inputs, ["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
         self.assertEqual(caught.code, "USAGE_ERROR")
+        for bad in ("../sibling/FAKEUSDT", "/tmp/evil", "BTC/USDT", "BTC\\USDT", "BTC USDT"):
+            with self.subTest(symbol=bad):
+                caught = refused(runner.runner_inputs, ["--start", "2025-12-31T00:00:00Z",
+                                                        "--end", "2026-02-01T00:00:00Z", "--symbols", bad])
+                self.assertEqual(caught.code, "USAGE_ERROR")
 
     def test_trade_ticks_are_the_entry_s_and_need_the_quote_environment(self):
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]

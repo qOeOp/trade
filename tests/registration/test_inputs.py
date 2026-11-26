@@ -96,6 +96,13 @@ class FingerprintTests(unittest.TestCase):
                 caught = refused(inputs.export_fingerprint, value, semantic=True)
             self.assertEqual(caught.code, "EXPORT_CONTENT_INVALID")
 
+    def test_traversal_or_absolute_symbols_are_refused_in_export_fingerprint(self):
+        base = self.export("trav", 1.0)
+        for bad in ("../sibling/SPOOFUSDT", "/tmp/spoof", "BTC/USDT", "BTC\\USDT", ".."):
+            with self.subTest(symbol=bad):
+                caught = refused(inputs.export_fingerprint, {**base, "symbols": [bad]}, semantic=True)
+                self.assertEqual(caught.code, "EXPORT_CONTENT_INVALID")
+
 
 class MarketInputTests(unittest.TestCase):
     def setUp(self):
@@ -135,7 +142,9 @@ class MarketInputTests(unittest.TestCase):
 
     def test_selection_universe_timeframe_and_market_day_refusals(self):
         for selection in ({"universe": True, "symbols": ["AAAUSDT"]}, {}, {"symbols": ["AAAUSDT", "AAAUSDT"]},
-                          {"symbols": []}, {"universe": False}):
+                          {"symbols": []}, {"universe": False},
+                          {"symbols": ["../sibling/FAKEUSDT"]}, {"symbols": ["/tmp/evil"]},
+                          {"symbols": ["BTC/USDT"]}):
             with self.subTest(selection=selection):
                 self.assertEqual(self.code(selection=selection), "SYMBOL_SELECTION_INVALID")
         self.assertEqual(self.code(at="e" * 32), "UNIVERSE_EMPTY")
