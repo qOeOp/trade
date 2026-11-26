@@ -1347,3 +1347,29 @@ class NativeReportTests(unittest.TestCase):
                 self.assertEqual(len(account), 3)
         account, _ = self.write([start, opened])
         self.assertEqual(list(account["locked"]), ["0.00000000", "333.00000000"])
+
+
+class PaperCacheConfigTests(unittest.TestCase):
+    def test_build_node_caps_tick_capacity_below_nautilus_default(self):
+        """Regression (#3782): Paper runs bar execution; cap per-instrument tick_capacity at PAPER_TICK_CAPACITY."""
+        captured: list = []
+        fake_builder = mock.Mock()
+        fake_builder.with_cache_config.side_effect = lambda cfg: captured.append(cfg) or fake_builder
+        fake_node = mock.Mock()
+        fake_builder.build.return_value = fake_node
+
+        def fake_add_actor(actor):
+            if isinstance(actor, paper.Recorder):
+                actor._trader_id = "TRADER-001"
+                # Register trader_id property fallback if needed
+        fake_node.add_actor.side_effect = fake_add_actor
+        loaded = SimpleNamespace(warmup=(("1-MINUTE", 10),), funding=0, strategy_class=object, content_hash="h", entry_class="S")
+        planned = [paper.PaperInputs(str(IID), DAY, DAY, "S-1", mock.Mock(), DAY)]
+        with mock.patch.object(paper, "node_base", return_value=fake_builder), \
+                mock.patch.object(paper.paper_terms, "add_gate"), \
+                mock.patch.object(paper.strategy_runtime, "configure_strategy", return_value=mock.Mock()), \
+                mock.patch.object(paper.Recorder, "trader_id", new_callable=mock.PropertyMock, return_value="T-1"):
+            paper.build_node(planned, loaded, None, (Decimal("0"), Decimal("0")), Path("/tmp"), "1", {})
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].tick_capacity, paper.PAPER_TICK_CAPACITY)
+        self.assertLess(captured[0].tick_capacity, 10_000)

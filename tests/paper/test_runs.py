@@ -56,10 +56,13 @@ class AdmissionTests(unittest.TestCase):
         return caught.message
 
     def test_a_runner_reserves_by_its_contracts_in_steps(self):
-        one, many = runs.mib(runs.runner_memory(1)), runs.mib(runs.runner_memory(21))
-        self.assertEqual((one % runs.RUNNER_STEP_MIB, many % runs.RUNNER_STEP_MIB), (0, 0))
-        self.assertGreater(many, one)
+        one, six, many = runs.mib(runs.runner_memory(1)), runs.mib(runs.runner_memory(6)), runs.mib(runs.runner_memory(21))
+        self.assertEqual((one % runs.RUNNER_STEP_MIB, six % runs.RUNNER_STEP_MIB, many % runs.RUNNER_STEP_MIB), (0, 0, 0))
+        self.assertGreater(many, six)
+        self.assertGreater(six, one)
         self.assertGreaterEqual(one, runs.RUNNER_BASE_MIB + runs.RUNNER_PER_CONTRACT_MIB)
+        # Regression (#3782): 6-contract production run OOM-killed at 384 MiB (~401 MiB RSS); reserve >= 512 MiB.
+        self.assertGreaterEqual(six, 512)
 
     def test_free_memory_is_the_budget_less_running_limits_and_the_hosts_headroom(self):
         self.assertEqual(self.state(1024, None)["free"], 2048)
