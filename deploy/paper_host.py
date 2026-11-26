@@ -177,7 +177,7 @@ class PaperHost(DockerHost):
             f"type=volume,src={CONTROLLERS},dst={self.config.data / 'dolt'},readonly",
         ]
 
-    def create(self, name: str, service: str, runtime: str) -> None:
+    def create(self, name: str, service: str, runtime: str) -> None:  # type: ignore[override]
         revision(name, PAPER)
         self.discard_failed(name, PAPER)
         market = self.state / "paper-market.json"
@@ -251,7 +251,7 @@ class PaperHost(DockerHost):
     def runtime(self, name: str) -> str:
         return runtime_default(json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
 
-    def health(self, name: str) -> None:
+    def health(self, name: str) -> None:  # type: ignore[override]
         """Its runs listing (which reads the Paper database on the ledger service and Docker through docker-api),
         then its health: the runtime default and whether it is the routed controller. A failure is ReaderFailure."""
         if self.reply(name, "/api/paper/runs").get("runs") is not True:
@@ -269,7 +269,7 @@ class PaperHost(DockerHost):
             raise ReaderFailure("Paper controller", path, answered(value))
         return value
 
-    def warm(self, name: str, protected: dict) -> None:
+    def warm(self, name: str, protected: dict) -> None:  # type: ignore[override]
         until_ready(lambda: self.health(name), 180, 3, lambda: self.ensure_protected(protected))
 
     @contextmanager
@@ -302,16 +302,18 @@ class PaperHost(DockerHost):
         process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
         )
+        assert process.stdin is not None and process.stdout is not None
+        stdin, stdout = process.stdin, process.stdout
 
         def read(expected: str, seconds: int = 20) -> None:
-            if not select.select([process.stdout], [], [], seconds)[0] or process.stdout.readline().strip() != expected:
+            if not select.select([stdout], [], [], seconds)[0] or stdout.readline().strip() != expected:
                 raise RuntimeError("Paper lifecycle barrier was lost or did not become ready")
 
         def held() -> None:
             if process.poll() is not None:
                 raise RuntimeError("Paper lifecycle barrier process exited")
-            process.stdin.write("held\n")
-            process.stdin.flush()
+            stdin.write("held\n")
+            stdin.flush()
             read("held")
 
         try:
@@ -320,7 +322,7 @@ class PaperHost(DockerHost):
             yield held
         finally:
             with suppress(OSError):
-                process.stdin.close()
+                stdin.close()
             process.stdin = None
             try:
                 process.communicate(timeout=15)

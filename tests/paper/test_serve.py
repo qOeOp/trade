@@ -15,6 +15,7 @@ import json
 import io
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import threading
@@ -112,6 +113,28 @@ class GateTests(unittest.TestCase):
     def test_a_resumed_stream_names_all_three_parameters_as_integers(self):
         for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
             self.assertEqual(request(self.port, "GET", f"/api/paper/runs/1/stream?{query}"), (400, mock.ANY))
+
+    def test_invalid_content_length_is_refused(self):
+        oversized = b'{"x":"' + b"a" * (serve.BODY_LIMIT + 1024) + b'"}'
+        cases = (
+            ("negative", "Content-Length: -1\r\n", oversized),
+            ("non-numeric", "Content-Length: abc\r\n", b"{}"),
+            ("duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n", b"{}"),
+            ("transfer-encoding", "Transfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+        )
+        for label, header, body in cases:
+            with self.subTest(label=label), socket.create_connection(("127.0.0.1", self.port), timeout=5) as raw:
+                payload = (
+                    f"POST /api/paper/runs HTTP/1.1\r\nHost: {HOST}\r\nContent-Type: application/json\r\n"
+                    f"Sec-Fetch-Site: same-origin\r\nConnection: close\r\n{header}\r\n"
+                ).encode() + body
+                raw.sendall(payload)
+                raw.shutdown(socket.SHUT_WR)
+                reply = b""
+                while chunk := raw.recv(4096):
+                    reply += chunk
+                self.assertTrue(reply.startswith(b"HTTP/1.1 400 "), f"{label}: {reply[:120]!r}")
+        self.daemon.start.assert_not_called()
 
     def test_a_comparison_starts_and_is_read_through_the_daemon(self):
         self.daemon.compare.return_value = {"paper_id": 3, "state": "comparing"}

@@ -568,10 +568,10 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
     if stale:
         raise RuntimeError(f"{', '.join(stale)} did not take the definition {target / 'compose.yaml'}")
     current = root / "current"
-    pending = root / "current.pending"
-    pending.unlink(missing_ok=True)
-    pending.symlink_to(sha)
-    os.replace(pending, current)
+    staged = root / "current.pending"
+    staged.unlink(missing_ok=True)
+    staged.symlink_to(sha)
+    os.replace(staged, current)
     print("\n".join(report(after, sha, ancestor)))
     for line in clean(docker, kept_references(docker, base, values), datetime.now(UTC)):
         print(f"removed {line}")

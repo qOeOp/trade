@@ -295,3 +295,40 @@ class FirstStartTests(unittest.TestCase):
                 patch.object(service, "start", return_value=(subprocess.Popen(["true"]), config)):
             self.assertEqual(service.run(self.service_root, self.data, self.backups, self.credentials, None, self.port,
                                          setup=self.address)[0]["action"], "run")
+
+
+class HandlerTests(unittest.TestCase):
+    def test_invalid_content_length_answers_400_without_calling_page(self):
+        asked: list[str | None] = []
+
+        class StubPage:
+            def answer(self) -> dict:
+                return {"state": "waiting"}
+
+            def ask(self, repository: str | None) -> dict:
+                asked.append(repository)
+                return {"state": "starting"}
+
+        srv = first_run._Server(("127.0.0.1", 0), first_run._handler(StubPage(), "setup:8770"))  # type: ignore[arg-type]
+        threading.Thread(target=srv.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        oversized = b'{"repository":"' + b"a" * (first_run.BODY + 1024) + b'"}'
+        cases = (
+            ("negative", "Content-Length: -1\r\n", oversized),
+            ("non-numeric", "Content-Length: abc\r\n", b"{}"),
+            ("duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n", b"{}"),
+            ("transfer-encoding", "Transfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+        )
+        for label, header, body in cases:
+            with self.subTest(label=label), socket.create_connection(srv.server_address, timeout=5) as raw:
+                payload = (
+                    f"POST {first_run.PATH} HTTP/1.0\r\nHost: setup:8770\r\n{header}\r\n"
+                ).encode() + body
+                raw.sendall(payload)
+                raw.shutdown(socket.SHUT_WR)
+                reply = b""
+                while chunk := raw.recv(4096):
+                    reply += chunk
+                self.assertTrue(reply.startswith(b"HTTP/1.0 400 "), f"{label}: {reply[:120]!r}")
+        self.assertEqual(asked, [])

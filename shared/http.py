@@ -29,3 +29,15 @@ def send_json(handler: BaseHTTPRequestHandler, status: int, body: bytes, *, clos
 def trusted(handler: BaseHTTPRequestHandler, hosts: Collection[str], refused_sites: Collection[str] = ()) -> bool:
     """Whether the request names one of `hosts` and its browser did not send it from a refused site."""
     return handler.headers.get("Host") in hosts and handler.headers.get("Sec-Fetch-Site") not in refused_sites
+
+
+def content_length(handler: BaseHTTPRequestHandler) -> int:
+    """One non-negative ASCII-digit Content-Length header, or 0 when absent; raises ValueError otherwise."""
+    lengths = handler.headers.get_all("Content-Length", [])
+    if handler.headers.get("Transfer-Encoding") or len(lengths) > 1:
+        raise ValueError("invalid Content-Length")
+    if not lengths:
+        return 0
+    if not lengths[0].isascii() or not lengths[0].isdigit():
+        raise ValueError("invalid Content-Length")
+    return int(lengths[0])
