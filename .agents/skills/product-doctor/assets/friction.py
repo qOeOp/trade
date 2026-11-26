@@ -17,15 +17,19 @@ import statistics
 from typing import Any
 
 SKILL_PATH_MARKER = ".agents/skills/"
-NONZERO_EXIT_RE = re.compile(r"^Command exited with code ([1-9]\d*)\.", re.MULTILINE)
+SKILL_PATH_RE = re.compile(r"\.agents/skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+NONZERO_EXIT_RE = re.compile(
+    r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
+    re.MULTILINE,
+)
 NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
 _SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
     (re.compile(r"(?i)\b(Authorization\s*:\s*(?:Bearer|Basic|Token)\s+)\S+"), r"\1<REDACTED>"),
     (re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 <REDACTED>"),
     (re.compile(
-        r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|token|secret|password|passwd|pwd|cookie)"
-        r"(\s*[=:]\s*)\S+"
+        r"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|"
+        r"token|secret|password|passwd|pwd|cookie))(\s*[=:]\s*)\S+"
     ), r"\1\2<REDACTED>"),
     (re.compile(
         r"\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|"
@@ -200,6 +204,32 @@ def _iter_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _record_codex_payload(
+    obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str],
+) -> tuple[int, int, int]:
+    """Extract (user_turns, tool_calls, tool_errors) from Codex rollout `{timestamp, type, payload}` rows."""
+    payload = obj.get("payload")
+    if not isinstance(payload, dict):
+        return 0, 0, 0
+    ptype = str(payload.get("type") or "").lower()
+    if ptype == "message" and str(payload.get("role") or "").lower() == "user":
+        return 1, 0, 0
+    if ptype in ("function_call", "custom_tool_call"):
+        raw_args = payload.get("arguments") or payload.get("input")
+        if isinstance(raw_args, str):
+            for skill in SKILL_PATH_RE.findall(raw_args):
+                skills_loaded.add(skill)
+            try:
+                raw_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                raw_args = None
+        _record_skill_args(str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries)
+        return 0, 1, 0
+    if ptype.endswith("_output") and NONZERO_EXIT_RE.search(str(payload.get("output") or "")):
+        return 0, 0, 1
+    return 0, 0, 0
+
+
 def _inspect_transcript_file(path: Path) -> dict[str, Any]:
     """Parse one JSONL transcript (Antigravity, Claude Code, or Codex) into privacy-safe friction metrics."""
     rows = _iter_jsonl_dicts(path)
@@ -221,8 +251,10 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
         if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
             tool_errors += 1
         c, e = _record_step_tools(obj, skills_loaded, cmd_summaries)
-        tool_calls += c
-        tool_errors += e
+        cu, cc, ce = _record_codex_payload(obj, skills_loaded, cmd_summaries)
+        user_turns += cu
+        tool_calls += c + cc
+        tool_errors += e + ce
 
     span_min = (
         round((max(timestamps) - min(timestamps)).total_seconds() / 60.0, 1)

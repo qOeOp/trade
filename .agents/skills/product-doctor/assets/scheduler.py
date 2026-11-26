@@ -266,6 +266,8 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
     now_ts = int(now_dt.timestamp())
 
     for issue in issues:
+        if str(issue.get("state") or "OPEN").upper() == "CLOSED":
+            continue
         keys, entry = _classify_one_issue(
             issue, tops, tracked_lines, unique_basenames, obj_names, object_kinds, owner_fn, file_latest_ts, now_ts
         )
@@ -521,20 +523,33 @@ def _select_theme_and_scope(
         rat = f"{len(friction_triggers)} deterministic friction signal(s) detected: {'; '.join(friction_triggers[:3])}."
         return "friction", friction_objs, friction_items, rat
     if can_steady:
-        rat = (
-            "All convergence gates hold: 0 actionable harm, 0 slim/oscillation triggers, "
-            f"0 coverage SLA breaches (<= {sla_days}d), and saturated marginal discovery yield across "
-            "substantive complete audits. Stop and cooldown instead of manufacturing low-value findings."
-        )
+        if friction_triggers:
+            rat = (
+                f"All code objects are fresh (<= {sla_days}d SLA) and unchanged with saturated yield; "
+                f"active friction target(s) are in {FRICTION_COOLDOWN_DAYS}d zero-yield cooldown. "
+                "Stop and wait until cooldown expires, friction changes, or code changes."
+            )
+        else:
+            rat = (
+                "All convergence gates hold: 0 actionable harm, 0 slim/oscillation triggers, "
+                f"0 coverage SLA breaches (<= {sla_days}d), and saturated marginal discovery yield across "
+                "substantive complete audits. Stop and cooldown instead of manufacturing low-value findings."
+            )
         return "steady", [], [], rat
     objs = _pick_find_objects(ranked_objects)
     chosen_items = [item for item, _ in stalest_items[:3]]
     cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
-    rat = (
-        f"0 actionable harm ({len(issue_buckets['blocked_authority'])} authority-blocked excluded){cooldown_note}; "
-        f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
-        "Pairing top fresh risk/churn object with coldest unexamined object."
-    )
+    if staleness_breaches:
+        sla_note = (
+            f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
+            "Pairing top fresh risk/churn object with coldest unexamined object."
+        )
+    else:
+        sla_note = (
+            f"All code objects are within {sla_days}d coverage SLA; "
+            "auditing highest-priority fresh/recent-change objects until marginal yield saturates."
+        )
+    rat = f"0 actionable harm ({len(issue_buckets['blocked_authority'])} authority-blocked excluded){cooldown_note}; {sla_note}"
     return "find", objs, chosen_items, rat
 
 
@@ -553,6 +568,41 @@ def _extract_cooldown_dates(records: list[dict[str, Any]]) -> tuple[dict[str, st
                 if rec["date"] > last_friction_zero.get(obj, ""):
                     last_friction_zero[obj] = rec["date"]
     return last_slimmed, last_friction_zero
+
+
+def _compute_gates(
+    issues_provided: bool, issue_buckets: dict[str, list[dict[str, Any]]],
+    slim_list: list[dict[str, Any]], friction_triggers: list[str], friction_obj_cooled: bool,
+    staleness_breaches: list[str], ranked_objects: list[dict[str, Any]],
+    substantive_audits: list[dict[str, Any]], last_two_themes: list[str],
+    telemetry_data: dict[str, Any],
+) -> tuple[dict[str, bool], bool, bool, bool]:
+    last_two_sub = substantive_audits[-2:]
+    recent_confirmed = sum(r["confirmed"] for r in last_two_sub) if len(last_two_sub) >= 2 else None
+    any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_sub)
+    code_commits_short = sum(o["commits_short"] for o in telemetry_data["objects"].values() if o["kind"] == "code")
+    stopping_checks = {
+        "issues_provided": issues_provided,
+        "no_actionable_harm": len(issue_buckets["actionable_harm"]) == 0,
+        "no_slim_triggers": len(slim_list) == 0,
+        "no_friction_triggers": len(friction_triggers) == 0,
+        "no_staleness_breaches": len(staleness_breaches) == 0,
+        "marginal_yield_saturated": (
+            (recent_confirmed == 0)
+            or (code_commits_short < 5 and len(staleness_breaches) == 0 and not any_recent_bugs and len(last_two_sub) >= 1)
+        ),
+    }
+    non_find_pair = len(last_two_themes) == 2 and all(t in ("slim", "friction") for t in last_two_themes)
+    slim_cooled = (("slim" in last_two_themes or non_find_pair) and bool(staleness_breaches)) or last_two_themes == ["slim", "slim"]
+    fric_cooled = (
+        friction_obj_cooled
+        or (("friction" in last_two_themes or non_find_pair) and bool(staleness_breaches))
+        or last_two_themes == ["friction", "friction"]
+    )
+    all_unchanged = all(r["unchanged_since_examined"] for r in ranked_objects)
+    non_fric_ready = all(v for k, v in stopping_checks.items() if k != "no_friction_triggers")
+    can_steady = all(stopping_checks.values()) or (bool(friction_triggers) and friction_obj_cooled and non_fric_ready and all_unchanged)
+    return stopping_checks, slim_cooled, fric_cooled, can_steady
 
 
 def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
@@ -588,43 +638,17 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         [(item, dt or "0000-00-00") for item, dt in scan_items.items() if item not in ("fixed", "self")],
         key=lambda pair: (pair[1], pair[0]),
     )
-
-    last_two_sub = substantive_audits[-2:]
-    recent_confirmed = sum(r["confirmed"] for r in last_two_sub) if len(last_two_sub) >= 2 else None
-    any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_sub)
-    code_commits_short = sum(o["commits_short"] for o in telemetry_data["objects"].values() if o["kind"] == "code")
-
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
     friction_objs, friction_items = _friction_targets(friction_data, tops, ranked_objects)
     friction_obj_cooled = _friction_is_object_cooled(friction_objs, last_friction_zero, now_dt)
 
-    stopping_checks = {
-        "issues_provided": issues is not None,
-        "no_actionable_harm": len(issue_buckets["actionable_harm"]) == 0,
-        "no_slim_triggers": len(slim_list) == 0,
-        "no_friction_triggers": len(friction_triggers) == 0,
-        "no_staleness_breaches": len(staleness_breaches) == 0,
-        "marginal_yield_saturated": (
-            (recent_confirmed == 0)
-            or (code_commits_short < 5 and len(staleness_breaches) == 0 and not any_recent_bugs and len(last_two_sub) >= 1)
-        ),
-    }
-
-    # Anti-starvation cooldowns: neither `slim` nor `friction` may alternate to starve `find` while SLA breaches remain.
-    non_find_pair = len(last_two_themes) == 2 and all(t in ("slim", "friction") for t in last_two_themes)
-    slim_cooled_down = (
-        (("slim" in last_two_themes or non_find_pair) and len(staleness_breaches) > 0)
-        or last_two_themes == ["slim", "slim"]
+    stopping_checks, slim_cooled_down, friction_cooled_down, can_steady = _compute_gates(
+        issues is not None, issue_buckets, slim_list, friction_triggers, friction_obj_cooled,
+        staleness_breaches, ranked_objects, substantive_audits, last_two_themes, telemetry_data,
     )
-    friction_cooled_down = (
-        friction_obj_cooled
-        or (("friction" in last_two_themes or non_find_pair) and len(staleness_breaches) > 0)
-        or last_two_themes == ["friction", "friction"]
-    )
-
     theme, chosen_objs, chosen_items, rationale = _select_theme_and_scope(
         issue_buckets, slim_list, friction_triggers, friction_objs, friction_items,
-        slim_cooled_down, friction_cooled_down, all(stopping_checks.values()),
+        slim_cooled_down, friction_cooled_down, can_steady,
         ranked_objects, stalest_items, staleness_breaches, sla_days,
     )
     coupled_contracts = [
@@ -644,7 +668,11 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             "claimed_count": len(issue_buckets["claimed"]), "other_open_count": len(issue_buckets["other_open"]),
         },
         "slim_total_count": len(slim_list), "slim_cooled_objects": slim_cooled_objects, "slim_candidates": slim_list[:6],
-        "friction_summary": {"provided": friction_data is not None, "triggers": friction_triggers[:8]},
+        "friction_summary": {
+            "provided": friction_data is not None,
+            "in_cooldown": friction_obj_cooled,
+            "triggers": friction_triggers[:8],
+        },
         "staleness_breach_count": len(staleness_breaches), "ranked_code_objects": ranked_objects[:12],
         "stalest_items": [{"item": i, "examined": None if d == "0000-00-00" else d} for i, d in stalest_items[:8]],
         "low_yield_lenses": [

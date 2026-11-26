@@ -288,3 +288,22 @@
 
 
 
+## 14. 第十轮迭代（v2.9）：36 轮动态长程压测与全链路红队修复（H10.1–H10.5）
+
+1. **红队与 36 轮长程压测暴露的 5 个真实 P0/P1 漏洞（`/tmp/doctor-rd-sources/stress_round10.py`）**：
+   - **H10.1（P0 `friction.py` 下划线环境变量凭据绕过）**：正则 `\b(api_key|secret|password)` 把 `_` 视作词字符，导致 `BINANCE_API_SECRET=...`、`OPENAI_API_KEY=...`、`DB_PASSWORD=...` 全部绕过脱敏原样泄漏。
+   - **H10.2（P1 `friction.py` Codex JSONL 解析盲区）**：`references/hosts.md` 定义 Codex rollout 为 `{timestamp, type, payload}`，但旧版未解析 `payload`，导致实测 Codex 日志全部输出 `user_turns=0, tool_calls=0, tool_errors=0, skills_loaded=[]`。
+   - **H10.3（P0 `doctor.py` `probe --id` 路径穿越）**：传入 `../escaped_probe` 会把 `.py` 探针文件直接写到证据目录之外。
+   - **H10.4（P1 `scheduler.py` 已关闭 issue 污染 `harm`）**：若 `--issues-json` 误带 `"state": "CLOSED"` 条目，会被当作开放 `actionable_harm` 抢占调度。
+   - **H10.5（P1 `scheduler.py` 冷却期摩擦导致 `find` 空转）**：在 36 轮（72 模拟天）动态长程压测中，当所有代码对象都处于新鲜未改动且边际产出已饱和、而持续 CI 失败目标（`.github`）已进入 7 天零产出冷却时，旧版因 `no_friction_triggers: false` 阻止 `steady`，落回 `find` 连续 **5 轮空转**重审未改动对象，并打印自相矛盾的 `"0 code object(s) exceed 21d coverage SLA"`。
+2. **最小修复**：
+   - `friction.py`：密钥键名匹配改为 `[A-Za-z0-9_-]*(?:api[_-]?key|...|token|secret|password|...)`；新增 `_record_codex_payload()` 并扩展 `NONZERO_EXIT_RE` 支持 Codex `Process exited with code N` / `Exit code: N` 与 `SKILL_PATH_RE`。
+   - `doctor.py`：`probe()` 用 `PROBE_ID_RE` 严检 `args.id`（禁止 `/`、`\`、`..`）。
+   - `scheduler.py`：`classify_issues` 跳过 `state == "CLOSED"`；抽出 `_compute_gates()`（顺带把 `advise` 从 101 行降至 85 行），当非摩擦门禁全满足且全代码对象均未改动、且活跃摩擦目标已处于 7 天零产出冷却时允许进入冷却等待 `steady`（同时忠实保留 `no_friction_triggers: false` 与 `friction_summary.in_cooldown: true`），并修正 0 SLA 违约时 `find` 的 rationale 文本。
+3. **对照验证**：
+   - 红队复测：`BINANCE_API_SECRET` / `OPENAI_API_KEY` / `DB_PASSWORD` 0 泄漏；Codex JSONL 准确提取 `user_turns=1, tool_calls=2, tool_errors=1, skills_loaded=['product-doctor']` 且不泄漏 prompt；`../escaped_probe` 被 `SystemExit` 拦截；`CLOSED` issue 归零。
+   - 36 轮长程压测对比：冷却期空转 `find` 从 **6 轮降至 1 轮**（唯一 1 轮 R11 为 `harm` 之后边际产出未饱和的合法复审），R12/R13/R17 干净停在 `steady`，R14 冷却满 7 天后准确重新唤醒 `friction`，6 个包覆盖高度均匀（3–5 次/包），SLA 违约期最大连续非 `find` 间隔 `<= 1` 轮。
+   - `doctor.py delta HEAD~1 HEAD`：`max_cognitive: 38 → 38 (0)`、`min_health: 4.88 → 4.91 (+0.03)`、`new_break_even_regressions: []`、`tangled_refactor_risk: false`、`pareto_verdict: "neutral"`。
+   - `unittest` **42/42 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
+4. **下一轮假设（Round 11 — 全新攻击面对抗红队轮 1 + 真实 Git 12 快照纵向回放 + 40 轮混沌压测 + Claude 拆 PR 视角审计）**：
+   - 在修复上述 5 项 P0/P1 后，对全新攻击面（空仓/单文件仓/Unicode 特殊路径/时区偏移/损坏 JSONL/畸形 `cost`/`run`/`recheck`/真实 `origin/main` 12 快照纵向回放 + 新 40 轮混沌演化场景）执行深度对抗红队，同时审视技能文档体积与可拆 PR 边界。

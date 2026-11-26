@@ -54,6 +54,7 @@ RECORDS = "docs/plans/doctor/"
 RECORDED = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
 NOT_PRODUCT = ("tests/", "docs/", "changelog.d/", ".agents/evals/")
 JS_TEST_RE = re.compile(r"\.(test|spec)\.(mjs|cjs|js|ts|tsx)$")
+PROBE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REPEATS = 3
 SHOWN = 400  # characters of a value kept
 
@@ -542,6 +543,8 @@ def unexamined(args: argparse.Namespace) -> None:
 
 
 def probe(args: argparse.Namespace) -> None:
+    if not PROBE_ID_RE.fullmatch(args.id) or args.id in (".", "..") or ".." in args.id:
+        raise SystemExit(f"invalid probe id {args.id!r}: use only letters, digits, '.', '_' or '-'")
     data = args.probe.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     if args.refutes and not any(row["kind"] == "probe" and row["id"] == args.id for row in rows(args.directory)):

@@ -989,3 +989,87 @@ export function load(cfg?: Config) {
             self.assertEqual(row["verdict"], "confirmed")
             self.assertEqual(row["outcomes"]["reverted"]["error"], 0)
             self.assertEqual(row["outcomes"]["reverted"]["fail"], 2)
+
+    def test_v2_9_round10_redteam_codex_env_secrets_traversal_closed_and_friction_steady(self):
+        """Round 10 (H10.1–H10.5): ENV_VAR secret redaction, Codex rollout JSONL parsing, probe id path
+        traversal rejection, CLOSED issue filtering, and cooled-friction steady wait."""
+        # H10.1: underscore-prefixed env var secrets must be redacted.
+        for sample, leak in (
+            ("Run BINANCE_API_SECRET=supersecret999 uv run", "supersecret999"),
+            ("OPENAI_API_KEY=customkey987654321 python run.py", "customkey987654321"),
+            ("export DB_PASSWORD=my_db_pass_123", "my_db_pass_123"),
+        ):
+            sanitized = friction._sanitize_summary(sample)
+            self.assertNotIn(leak, sanitized)
+            self.assertIn("<REDACTED>", sanitized)
+
+        # H10.2: Codex rollout JSONL (`{timestamp, type, payload}`) extracts turns, calls, errors & skills safely.
+        codex_tx = self.home / "rollout-codex.jsonl"
+        codex_tx.write_text("\n".join(json.dumps(r) for r in [
+            {"timestamp": "2026-11-26T10:00:00Z", "type": "response_item",
+             "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "SECRET_CODEX_PROMPT"}]}},
+            {"timestamp": "2026-11-26T10:01:00Z", "type": "response_item",
+             "payload": {"type": "function_call", "name": "exec_command",
+                         "arguments": json.dumps({"cmd": "cat .agents/skills/product-doctor/SKILL.md"})}},
+            {"timestamp": "2026-11-26T10:01:05Z", "type": "response_item",
+             "payload": {"type": "function_call_output", "output": "Process exited with code 0\nok"}},
+            {"timestamp": "2026-11-26T10:02:00Z", "type": "response_item",
+             "payload": {"type": "custom_tool_call", "name": "shell", "input": json.dumps({"cmd": "pytest"})}},
+            {"timestamp": "2026-11-26T10:02:05Z", "type": "response_item",
+             "payload": {"type": "custom_tool_call_output", "output": "Process exited with code 1\nFAILED"}},
+        ]) + "\n", encoding="utf-8")
+        tx = friction.analyze_transcripts([codex_tx])
+        self.assertNotIn("SECRET_CODEX_PROMPT", json.dumps(tx))
+        s0 = tx["sessions"][0]
+        self.assertEqual((s0["user_turns"], s0["tool_calls"], s0["tool_errors"]), (1, 2, 1))
+        self.assertEqual(s0["skills_loaded"], ["product-doctor"])
+
+        # H10.3: probe id path traversal must raise SystemExit without writing outside evidence dir.
+        probe_f = self.home / "p.py"
+        probe_f.write_text("def probe(): return 1, 2\ndef control(): return 3, 3\n", encoding="utf-8")
+        for bad_id in ("../escaped", "sub/id", "..", "a\\b"):
+            with self.assertRaises(SystemExit):
+                doctor.main(["probe", str(self.evidence), bad_id, str(probe_f), "--tree", "HEAD"])
+        self.assertFalse((self.home / "escaped.py").exists())
+
+        # H10.4 & H10.5: CLOSED harm issues are ignored; once all code objects are fresh/unchanged and
+        # persistent CI friction is in 7d zero-yield cooldown, advise enters `steady` instead of busy-looping `find`.
+        self.commit({".github/workflows/ci.yml": "name: quality\n"}, message="ci: add workflow")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec_find = (
+            "# Themed audit: find\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:check | examined | ok |\n"
+            "| results | beta:check | examined | ok |\n"
+            "| results | cold:check | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_fric = (
+            "# Themed audit: friction\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| delivery | .github:ci | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-1-find.zh.md": rec_find,
+            f"docs/plans/doctor/{today}-2-friction.zh.md": rec_fric,
+        }, message="docs(doctor): cover all code objects and zero-yield friction")
+
+        issues_closed = self.home / "closed.json"
+        issues_closed.write_text(json.dumps([{
+            "number": 901, "state": "CLOSED", "title": "alpha/core.py silently drops order fills",
+            "labels": [{"name": "agent-finding"}], "updatedAt": f"{today}T00:00:00Z", "body": "alpha/core.py:1",
+        }]), encoding="utf-8")
+        ci_path = self.home / "slow_ci.json"
+        ci_path.write_text(json.dumps([
+            {"workflowName": "quality", "status": "completed", "conclusion": "failure",
+             "createdAt": f"2026-11-2{i}T00:00:00Z", "updatedAt": f"2026-11-2{i}T00:25:00Z"}
+            for i in range(1, 6)
+        ]), encoding="utf-8")
+
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_closed, "--ci-json", ci_path)
+        self.assertEqual(plan["issues_summary"]["actionable_harm"], [])
+        self.assertTrue(plan["friction_summary"]["in_cooldown"])
+        self.assertFalse(plan["stopping_checks"]["no_friction_triggers"])
+        self.assertEqual(plan["recommended_theme"], "steady")
+        self.assertIn("cooldown", plan["rationale"])
