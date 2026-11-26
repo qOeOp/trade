@@ -356,3 +356,10 @@
 3. **PR 3（闭环调度与停止门禁）**：`scheduler.py` + `doctor.py`（`advise` / `scope steady` / `scope --contracts` / `run --tree` / `report` Refuters 行）+ 对应单测。
 4. **PR 4（跨语言 `recheck` 与 CLI 安全硬化）**：`doctor.py`（`JS_TESTS` / `run_js_tests` / `_link_node_modules` / `subtestsFailed` / `PROBE_ID_RE` / `cost --sizes` / `scope` 自契约拒收）+ 对应单测。
 5. **PR 5（技能文档与 9 个新 Eval Case）**：`SKILL.md`、`references/{lenses,slim}.md`（顺手收口 `#3762`）+ `.agents/evals/product-doctor/` 9 个新 eval case，并用 `claude plugin eval .agents` 跑完整 A/B 配对回归（同时不改任何既有 eval grader，符合 `AGENTS.md`）。
+
+### 4. Owner 最新设计方向同步（2026-11-27，供 Claude 二次加工参考）
+
+1. **去 `authority` 阻塞设计**：全自动定时档不适合 `authority` 挂起机制；Claude 拆 PR 3 时可简化 `scheduler.py` 的 `blocked_authority` / `authority_drifted` 分流，并同步更新 `record.md` / `SKILL.md` / `AGENTS.md`。
+2. **更新 `AGENTS.md` 200U 合约测试账户口径**：仓库已专设 200U 合约测试资金免授权用于实盘验证，需同步更新过时的 `AGENTS.md` 与 `SKILL.md` 边界（区分 200U 测试账户与主资金账户）。
+3. **Paper/Live 加速仿真浸泡 fixture（已新建 `#3786`）**：基于 `tests/live_loopback/` 补齐多合约/多轨道/内存上限/断连重启/结构化日志断言，左移拦截 `#3782`、`#3783` 类长跑缺陷。
+4. **生产日志遥测与 `attach` 会话审计**：生产长跑服务日志由 doctor 直读接入闭环（无日志即产品日志缺陷）；策略研发开放空间的流程遵守度通过 `attach` 与研发会话 transcript 审计持续覆盖；全部 PR 最终由 Claude 加工并跑 `claude plugin eval .agents` A/B 验收后合入 `main`。
