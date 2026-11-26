@@ -25,7 +25,8 @@ running, cut short and at a limit.
 - **interrupt** [any]: a many-step operation stopped after each step and resumed, on fakes that,
   like the real thing, do not give back what the stopped step had consumed.
 - **operation** [any]: what an operator learns, and when, as a service degrades or a disk fills.
-- **lifecycle** [any]: first install, upgrade, idle, moving host, on copies.
+- **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting across
+  month rollover (`market/follow + market/files + market/universe`), on copies.
 
 ## Contracts
 
@@ -58,7 +59,9 @@ running, cut short and at a limit.
 
 - **pages** [empty records offline reload]: each IDE page in a real browser on its own
   `ide/ide.py serve`, never the user's; the artifact is the drawn text. A wrong address can silently
-  draw the first page with status 200, so check which page was drawn; judge at realistic density.
+  draw the first page with status 200, so check which page was drawn; judge at realistic density,
+  covering stateful `localStorage` cross-page deep-links (`?run=`, `?trial=`, `?line=`), hard reload
+  after async settle, and Desktop-vs-Phone parity on the same record.
 - **usability** [any]: keyboard, contrast, narrow screens, and a reader without context deciding
   from what is shown.
 - **agents** [any]: from transcripts, skills that did not fire, reports that claim more than was done,
@@ -69,7 +72,9 @@ running, cut short and at a limit.
 
 ## Audit
 
-- **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one.
+- **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one;
+  verify mocks match real wire types (e.g. `str` ns fields from `views.run_view()`, Docker Go `null`
+  slices) and exercise producer-to-consumer chains rather than isolated helpers.
 - **unchanged** [any]: an object the last audits' findings and the recent commits leave alone.
 - **fixed** [any]: `doctor.py recheck` on closed issues (Python `tests/` and Node `node:test` `.test.{mjs,cjs,js,ts,tsx}`;
   `no test`: their own probe, `--control-tree` the repair's parent) and the old rows linked in the header of

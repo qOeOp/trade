@@ -1651,3 +1651,104 @@ export function load(cfg?: Config) {
         ):
             with self.subTest(benign=label):
                 self.assertEqual(scan_cmd(cmd), {}, f"cmd={cmd!r}")
+
+    def test_v3_3_cost_memory_rss_and_heap_telemetry(self):
+        """Self-evolution: `doctor.py cost` records `peak_rss_mib`, `median_peak_rss_mib`, `peak_heap_kib`,
+        `median_peak_heap_kib`, and `heap_exponent` while keeping timing trials 100% free of tracemalloc."""
+        # 1) Unit checks on `read_cost`: backwards compatibility, O(1) flat heap, O(N) heap, zero baseline.
+        legacy = doctor.read_cost({n: [9.0, n * 0.01, n * 0.011, n * 0.012] for n in (1, 2, 4)})
+        self.assertEqual(legacy["verdict"], "measured")
+        self.assertNotIn("peak_rss_mib", legacy)
+        self.assertNotIn("peak_heap_kib", legacy)
+        self.assertNotIn("heap_exponent", legacy)
+
+        flat_mem = doctor.read_cost(
+            {n: [1.0, n * 0.01, n * 0.011, n * 0.012] for n in (10, 100, 1000)},
+            rss_readings={n: [20.0, 22.0, 22.1, 22.2] for n in (10, 100, 1000)},
+            heap_readings={10: [8.0], 100: [8.1], 1000: [8.2]},
+        )
+        self.assertEqual(flat_mem["median_peak_rss_mib"], {10: 22.1, 100: 22.1, 1000: 22.1})
+        self.assertEqual(flat_mem["median_peak_heap_kib"], {10: 8.0, 100: 8.1, 1000: 8.2})
+        self.assertIsNone(flat_mem["heap_exponent"])
+
+        linear_mem = doctor.read_cost(
+            {n: [1.0, n * 0.01, n * 0.011, n * 0.012] for n in (10, 100, 1000)},
+            rss_readings={10: [20.0, 21.0, 21.0, 21.0], 100: [20.0, 22.0, 22.0, 22.0], 1000: [20.0, 30.0, 30.0, 30.0]},
+            heap_readings={10: [10.0], 100: [100.0], 1000: [1000.0]},
+        )
+        self.assertEqual(linear_mem["heap_exponent"], 1.0)
+
+        zero_base = doctor.read_cost(
+            {n: [1.0, n * 0.01, n * 0.011, n * 0.012] for n in (10, 100, 1000)},
+            heap_readings={10: [0.0], 100: [10.0], 1000: [100.0]},
+        )
+        self.assertIsNone(zero_base["heap_exponent"])
+
+        # 2) End-to-end `doctor.py cost` on an O(N) heap probe: verify tracemalloc is OFF during all
+        # timed calls and ON only during the separate post-timing memory probe pass!
+        trace_log = self.home / "trace_states.txt"
+        linear_probe = self.home / "cost_linear_mem.py"
+        linear_probe.write_text(
+            "import atexit, pathlib, tracemalloc\n"
+            f"LOG = pathlib.Path({str(trace_log)!r})\n"
+            "def setup(n):\n"
+            "    seen = []\n"
+            "    atexit.register(lambda: LOG.open('a', encoding='utf-8').write(''.join(f'{n}:{x}\\n' for x in seen)))\n"
+            "    def run():\n"
+            "        seen.append(int(tracemalloc.is_tracing()))\n"
+            "        buf = bytearray(n * 64)\n"
+            "        return len(buf)\n"
+            "    return run\n",
+            encoding="utf-8",
+        )
+        ev = self.home / "ev-cost-mem"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["cost", str(ev), "alpha:replay", str(linear_probe), "--sizes", "100,1000,10000", "--tree", "HEAD"])
+        row = doctor.rows(ev)[-1]
+        self.assertEqual(row["kind"], "cost")
+        self.assertIn(row["verdict"], ("measured", "noisy"))
+        self.assertEqual(len(row["warm_s"]["100"]), doctor.REPEATS)
+        self.assertEqual(len(row["peak_rss_mib"]["100"]), doctor.REPEATS)
+        self.assertGreater(row["median_peak_rss_mib"]["100"], 0.0)
+        self.assertGreater(row["median_peak_heap_kib"]["10000"], row["median_peak_heap_kib"]["100"] * 20.0)
+        self.assertIsNotNone(row["heap_exponent"])
+        self.assertGreaterEqual(row["heap_exponent"], 0.85)
+        self.assertLessEqual(row["heap_exponent"], 1.15)
+
+        # Verify for every size: first (REPEATS + 1) calls had tracemalloc OFF (0), final 1 probe had it ON (1).
+        by_size: dict[str, list[str]] = {}
+        for line in trace_log.read_text(encoding="utf-8").splitlines():
+            sz, flag = line.split(":", 1)
+            by_size.setdefault(sz, []).append(flag)
+        for sz in ("100", "1000", "10000"):
+            self.assertEqual(by_size[sz], ["0"] * (doctor.REPEATS + 1) + ["1"])
+
+        # 3) End-to-end `doctor.py cost` on an O(1) streaming probe: `heap_exponent` stays None.
+        const_probe = self.home / "cost_const_mem.py"
+        const_probe.write_text(
+            "def setup(n):\n"
+            "    def run():\n"
+            "        acc = 0\n"
+            "        for i in range(n):\n"
+            "            acc += i & 1\n"
+            "        return acc\n"
+            "    return run\n",
+            encoding="utf-8",
+        )
+        out2 = io.StringIO()
+        with redirect_stdout(out2):
+            doctor.main(["cost", str(ev), "alpha:import", str(const_probe), "--sizes", "100,1000,10000", "--tree", "HEAD"])
+        const_row = doctor.rows(ev)[-1]
+        self.assertIn("median_peak_rss_mib", const_row)
+        self.assertIn("median_peak_heap_kib", const_row)
+        self.assertIsNone(const_row["heap_exponent"])
+
+        # 4) Verify `report` surfaces memory telemetry without breaking existing formatting.
+        rep = io.StringIO()
+        with redirect_stdout(rep):
+            doctor.main(["report", str(ev), "--tree", "HEAD"])
+        rep_text = rep.getvalue()
+        self.assertIn("rss_mib", rep_text)
+        self.assertIn("heap_kib", rep_text)
+        self.assertIn("heap_exp", rep_text)
