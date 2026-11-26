@@ -261,9 +261,11 @@ class Observer(Strategy):
             if not pending and positions:
                 session.stop_venue_flat = True
                 session.node.handle().stop()
+                return
             elif not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)
                 session.node.handle().stop()
+                return
         if session.stop_at is not None and now - session.stop_at > STOP_GRACE_SECONDS:
             session.failed = True
             session.event("unresolved", reason="native_exit_timeout", strict=False)

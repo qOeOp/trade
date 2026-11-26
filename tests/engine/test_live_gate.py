@@ -13,7 +13,7 @@ from unittest import mock
 from nautilus_trader.common import SocketState
 from nautilus_trader.model import BarType, InstrumentId, OrderSide, OrderStatus, OrderType, PositionSide, TimeInForce
 
-from engine import live, live_commands as commands, live_connection, live_source, live_venue
+from engine import live, live_commands as commands, live_connection, live_lifecycle, live_source, live_venue
 from engine.live_errors import LiveRefusal
 from engine.live_records import strategy_ids
 from tests.engine.test_live_venue import ERROR_ANSWER, answering_200, fixture, venue_clock
@@ -1098,3 +1098,45 @@ class GateTests(unittest.TestCase):
             live_connection.renew(self.session, observer, old + 1)  # one attempt
         observer.reconnect_socket.assert_called_once()
         self.assertEqual(observer.reconnect_socket.call_args.args[1], "user")
+
+    def test_observer_stop_completion_past_grace_boundary_does_not_fall_through_to_timeout(self):
+        """#3727: completing a stop on a tick past STOP_GRACE_SECONDS returns cleanly without native_exit_timeout."""
+        phantom = SimpleNamespace(
+            id="P-1", strategy_id=self.strategy, instrument_id=BAR.instrument_id,
+            side=PositionSide.LONG, quantity=SimpleNamespace(as_decimal=lambda: Decimal("1.0")), is_open=True)
+        for case, positions, expected_attr in (("stop_venue_flat", [phantom], "stop_venue_flat"),
+                                               ("native_flat", [], "native_flat")):
+            with self.subTest(case=case):
+                out = Path(self.temp.name) / case
+                out.mkdir()
+                session = live.Session(manifest(self.binding), out, "run", account_verified=True)
+                session.stopping = True
+                session.stop_at = 100.0
+                session.sources = {SYMBOL: mock.Mock()}
+                session.node = mock.Mock()
+                if positions:
+                    session.stop_read = {"positions": [], "openOrders": []}
+                    session.stop_held = {"P-1": Decimal("0")}
+                    session.phantoms = {"P-1": Decimal("1.0")}
+                    session.exits.add("P-1")
+                obs = live_lifecycle.Observer.__new__(live_lifecycle.Observer)
+                obs.session = session
+                obs.last_query = 100.0 + live_lifecycle.STOP_GRACE_SECONDS + 1.0
+                fake_cache = SimpleNamespace(positions_open=lambda strategy_id=None: list(positions),
+                                             orders=lambda strategy_id=None: [])
+                now = 100.0 + live_lifecycle.STOP_GRACE_SECONDS + 1.0
+                with mock.patch.object(live_lifecycle.Observer, "cache", new_callable=mock.PropertyMock,
+                                       return_value=fake_cache), \
+                        mock.patch.object(live_lifecycle.time, "monotonic", return_value=now), \
+                        mock.patch.object(session, "check_storage", return_value=True), \
+                        mock.patch.object(session, "observe_source_state"), \
+                        mock.patch.object(session, "observe_stop_intent", return_value=True), \
+                        mock.patch.object(session, "follow_submissions"), \
+                        mock.patch.object(session, "cancel_open"):
+                    obs.observe()
+                self.assertTrue(getattr(session, expected_attr))
+                self.assertFalse(session.failed)
+                session.node.handle.return_value.stop.assert_called_once_with()
+                events_path = out / "events.jsonl"
+                events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
+                self.assertEqual([row for row in events if row["event"] == "unresolved"], [])
