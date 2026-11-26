@@ -10,7 +10,8 @@ running, cut short and at a limit.
 - **results** [any]: one number against an outside original, a conservation sum, or an input made so its answer is known.
 - **flow** [single pool]: research end to end on a temporary ledger and market, `line select` to
   `line close`, then Paper and `paper compare`, then Live's research-side refusals, short windows,
-  no credential and no run.
+  no credential and no run; include misaligned multi-track start dates (bars vs `--metrics`, `--execution quotes`,
+  and late-listed/pool symbols) so `development_period` and veto planning are tested against staggered coverage.
 - **parity** [any]: one market history through replay, Paper and Live's adapter fakes.
 - **research** [any]: noise, a true edge and a leaking strategy through the tests and verdicts; each
   line's history read through the product's read commands, never ad hoc SQL.

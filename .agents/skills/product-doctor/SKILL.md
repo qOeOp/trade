@@ -30,21 +30,28 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 ## Themed audit
 
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
-signals: `doctor.py scan` (the tree's objects, two weeks of changes and fixes, when each object and perspective was
-last exercised), the open findings and CI runs by `gh`, the last two records. Take the first theme that holds, unless
-the last two audits took it (harm aside); say why and what is left out:
+signals deterministically: dump open `agent-finding` issues via `gh` to a temporary JSON file and run
+`doctor.py advise --issues-json <file>` (backed by `doctor.py telemetry` and `doctor.py scan`), plus recent CI runs
+and the last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why
+and what is left out:
 
-1. **Stop harm** (`harm`): an open finding that risks money, records or wrong results and is new, changed or not yet
-   rechecked; one only waiting for authority or under a claim does not count. Merge by cause, order by reach and cost
+1. **Stop harm** (`harm`): unclaimed, non-`authority` open findings that risk money, records or wrong results
+   (`actionable_harm` from `advise`). Issues waiting on owner authority (`blocked_authority` or `authority_drifted`)
+   do not preempt `slim` or `find`; report drifted ones alongside the audit. Merge by cause, order by reach and cost
    paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
-2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
-   on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
+2. **Slim** (`slim`): a code object hitting `advise`'s oscillation-burst, test-bloat, clone-bloat or structural-decay
+   triggers (`slim_candidates`). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
-4. **Find** (`find`): otherwise. The object much changed or longest unexamined, `outside` too,
-   under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
+4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 coverage
+   SLA breaches, saturated marginal yield). Declare `doctor.py scope DIR steady`, report the stopping signals and next
+   re-entry trigger, and stop without manufacturing findings.
+5. **Find** (`find`): otherwise. Pair the top risk/churn object with the coldest coverage-SLA-breached object from
+   `advise` (plus its top `coupled_contracts` `A+B` pair and `outside`), under the stalest remaining groups of
+   [lenses.md](references/lenses.md).
 
 Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
-only some do) with `doctor.py scope` before any evidence, harm its objects alone; `report` judges against it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
+only some do) with `doctor.py scope` before any evidence (`harm` its objects alone; `steady` none); `report` judges
+against it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
 
 ## Full audit
 

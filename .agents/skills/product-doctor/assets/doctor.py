@@ -37,11 +37,17 @@ import time
 from typing import Any
 
 LENSES = Path(__file__).resolve().parents[1] / "references/lenses.md"
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import scheduler  # noqa: E402
+import telemetry  # noqa: E402
+
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
 ANY = "any"
 ROOT = "."  # no path of a tree has this name
 SPLIT, ALONE = 0.1, 0.01  # shares of the tree's lines: above the first an object splits, above the second a part stands alone
-THEMES = ("harm", "slim", "find", "friction")
+THEMES = ("harm", "slim", "find", "friction", "steady")
 RECORDS = "docs/plans/doctor/"
 RECORDED = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
 NOT_PRODUCT = ("tests/", "docs/", "changelog.d/", ".agents/evals/")
@@ -199,11 +205,11 @@ def tracked(rev: str) -> dict[str, int]:
     return lines
 
 
-def objects(rev: str) -> dict[str, dict[str, Any]]:
+def objects(rev: str, lines: dict[str, int] | None = None) -> dict[str, dict[str, Any]]:
     """{object: {lines, folded}}. Every tracked file belongs to one object, whatever the layout: the top-level
     directories, and instead of one that holds much of the tree its children. What is too small to stand alone stays
     with its parent, which names it, unless together those are much of the tree too."""
-    lines = tracked(rev)
+    lines = tracked(rev) if lines is None else lines
     total, found = sum(lines.values()), {}
 
     def part(name: str, paths: list[str]) -> None:
@@ -267,11 +273,12 @@ def known(item: str, subject: str, rev: str) -> None:
             raise SystemExit(f"{part} is of {ROOT} or holds several objects; name one: {', '.join(tops)}")
 
 
-def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
+def history(rev: str, tops: dict[str, dict[str, Any]],
+            paths: dict[str, int] | None = None) -> tuple[dict[str, str], dict[str, str]]:
     """({top-level object: date}, {item: date}) last exercised, from the audit records in the tree."""
     by_object: dict[str, str] = {}
     by_item: dict[str, str] = {}
-    paths = tracked(rev)
+    paths = tracked(rev) if paths is None else paths
 
     def there(name: str) -> bool:
         return name.startswith("@") or name == ROOT or any(path == name or path.startswith(name + "/") for path in paths)
@@ -289,17 +296,18 @@ def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], 
     return by_object, by_item
 
 
-def scan(args: argparse.Namespace) -> None:
-    rev = commit(args.tree)
-    tops = objects(rev)
-    by_object, by_item = history(rev, tops)
+def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = None,
+              paths: dict[str, int] | None = None) -> dict[str, Any]:
+    paths = tracked(rev) if paths is None else paths
+    tops = objects(rev) if tops is None else tops
+    by_object, by_item = history(rev, tops, paths)
     table: dict[str, dict[str, Any]] = {name: {**row, "commits": 0, "fixes": 0, "added": 0, "removed": 0,
                                                "examined": by_object.get(name)} for name, row in tops.items()}
     fixed: dict[str, int] = {}
     # One change is one commit of the main line; a merge's title is the first line of its body.
     table.setdefault(ROOT, {"lines": 0, "folded": [], "commits": 0, "fixes": 0, "added": 0, "removed": 0,
                             "examined": by_object.get(ROOT)})  # also what the tree no longer holds
-    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={args.days} days ago", "--numstat", "-z",
+    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={days} days ago", "--numstat", "-z",
               "--format=%x01%s%x02%b%x03", rev)
     for change in log.split(b"\x01")[1:]:
         message, _, body = change.partition(b"\x03")
@@ -320,10 +328,39 @@ def scan(args: argparse.Namespace) -> None:
         for name in touched:
             table[name]["commits"] += 1
             table[name]["fixes"] += is_fix
-    print(json.dumps({"tree": rev, "days": args.days, "objects": table,
-                      "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
-                      "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
-                      "items": {name: by_item.get(name) for name in items()}}, indent=1))
+    return {"tree": rev, "days": days, "objects": table,
+            "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
+            "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
+            "items": {name: by_item.get(name) for name in items()}}
+
+
+def scan(args: argparse.Namespace) -> None:
+    print(json.dumps(scan_data(commit(args.tree), args.days), indent=1))
+
+
+def telemetry_cmd(args: argparse.Namespace) -> None:
+    rev = commit(args.tree)
+    lines = tracked(rev)
+    tops = objects(rev, lines)
+    data = telemetry.collect_telemetry(rev, tops, lines, owner, days=args.days, long_days=args.long_days)
+    public = {k: v for k, v in data.items() if not k.startswith("_")}
+    print(json.dumps(public, indent=1))
+
+
+def advise_cmd(args: argparse.Namespace) -> None:
+    rev = commit(args.tree)
+    lines = tracked(rev)
+    tops = objects(rev, lines)
+    by_object, by_item = history(rev, tops, lines)
+    scan_objs = {name: {"examined": by_object.get(name)} for name in tops}
+    scan_items = {name: by_item.get(name) for name in items()}
+    tele = telemetry.collect_telemetry(rev, tops, lines, owner, days=args.days, long_days=args.long_days)
+    issues = json.loads(args.issues_json.read_text(encoding="utf-8")) if args.issues_json else None
+    plan = scheduler.advise(
+        rev, tops, lines, scan_objs, scan_items, tele, owner,
+        issues=issues, sla_days=args.sla_days,
+    )
+    print(json.dumps(plan, indent=1))
 
 
 def scope(args: argparse.Namespace) -> None:
@@ -339,7 +376,7 @@ def scope(args: argparse.Namespace) -> None:
         item, _, scenario = wanted.partition("/")
         if item not in listed or "/" in wanted and not scenario:
             raise SystemExit(f"{wanted} is not an audit item, or ITEM/SCENARIO")
-    if not args.objects or not (args.items or args.theme == "harm"):
+    if args.theme != "steady" and (not args.objects or not (args.items or args.theme == "harm")):
         raise SystemExit(f"{args.theme} names the objects it examines{'' if args.theme == 'harm' else ' and the items'}")
     keep(args.directory, {"kind": "scope", "theme": args.theme, "items": args.items, "objects": args.objects, "tree": rev})
 
@@ -641,6 +678,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     zero = commands.add_parser("scan", help="list the tree's objects with what changed and when each was last examined")
     zero.add_argument("--days", type=int, default=14)
     zero.set_defaults(function=scan)
+    tele_p = commands.add_parser("telemetry", help="multi-timescale git churn, fix-bursts, coupling, AST cognitive complexity, clones, and health")
+    tele_p.add_argument("--days", type=int, default=14)
+    tele_p.add_argument("--long-days", type=int, default=30)
+    tele_p.set_defaults(function=telemetry_cmd)
+    adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, staleness SLA, and steady stopping gate")
+    adv_p.add_argument("--days", type=int, default=14)
+    adv_p.add_argument("--long-days", type=int, default=30)
+    adv_p.add_argument("--sla-days", type=int, default=21)
+    adv_p.add_argument("--issues-json", type=Path, help="path to JSON output of open agent-finding issues from gh")
+    adv_p.set_defaults(function=advise_cmd)
     declared = add("scope", scope, "declare a themed audit's items and objects, before any evidence", 0)
     declared.add_argument("theme", choices=THEMES)
     declared.add_argument("--items", type=named, default=[], help="comma-separated: ITEM, or ITEM/SCENARIO of a listed one")
@@ -668,7 +715,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     four.add_argument("subject")
     four.add_argument("why", help="what stopped it")
     final = add("report", report, "print coverage and findings from the evidence", 0)
-    for parsed in (zero, declared, final):
+    for parsed in (zero, tele_p, adv_p, declared, final):
         parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
     given = list(sys.argv[1:] if argv is None else argv)
     command: list[str] = []
@@ -678,8 +725,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function is scan:
-        return scan(args)
+    if args.function in (scan, telemetry_cmd, advise_cmd):
+        return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
     if not any(args.directory.is_relative_to(root) for root in roots):
