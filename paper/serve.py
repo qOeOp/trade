@@ -540,10 +540,10 @@ class Daemon:
             # that left a clean checkpoint: a source without the recovery protocol leaves one only while it holds a
             # position (it is then held, engine.paper); a flat one cancels its orders and cuts none, so `resume` would
             # refuse it forever (finding 20261117-04). Every other end (STOP, duration, a runner refusal, the node
-            # stopping by itself, the end of a held run, a signal without a checkpoint) is sealed.
+            # stopping by itself, the end of a held run, a signal without a checkpoint, an orphan) is sealed.
             paused = summary is None or (summary.get("stop_reason") in ("SIGTERM", "SIGINT")
                                          and checkpoint.paused(output))
-            action = "resume" if paused and not (output / "STOP").exists() else "seal"
+            action = "resume" if not orphan and paused and not (output / "STOP").exists() else "seal"
             try:
                 self.cli(action, "--paper-id", str(run["paper_id"]), *(self.market_args() if action == "resume" else []))
                 self.recovery_failures.pop(run["paper_id"], None)

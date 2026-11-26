@@ -108,6 +108,17 @@ class ResumePolicyTests(unittest.TestCase):
         (self.root / "inputs/terms.json").write_bytes(original)
         self.assertEqual(self.resume()["state"], "resuming")
 
+    def test_missing_universe_or_strategy_inputs_refuse_recovery_unavailable(self):
+        universe = (self.root / "inputs/universe.json").read_bytes()
+        strategy = (self.root / "inputs/strategy.py").read_bytes()
+        (self.root / "inputs/universe.json").unlink()
+        self.refused()
+        (self.root / "inputs/universe.json").write_bytes(universe)
+        (self.root / "inputs/strategy.py").unlink()
+        self.refused()
+        (self.root / "inputs/strategy.py").write_bytes(strategy)
+        self.assertEqual(self.resume()["state"], "resuming")
+
     def test_dirty_and_partial_tail_are_retained_and_refuse(self):
         checkpoint.dirty(self.root / "out")
         self.refused()

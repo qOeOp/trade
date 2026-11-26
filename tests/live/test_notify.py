@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
-from live import notify, state
+from live import notify, runs, state, views
 from tests.live.test_views import LiveViewFixture
 from tests.helpers import refused
 
@@ -456,3 +456,30 @@ class Collecting(LiveViewFixture):
         self.assertEqual(notify.collect(SimpleNamespace(root=self.root,
                                                         runtime=self.manifest["runtime"]["image_ref"]), {"probe-one"}),
                          [])
+
+    def test_quiet_day_active_live_run_from_real_run_view_gets_daily_summary(self):
+        day2, day3 = DAY + 24 * HOUR, DAY + 48 * HOUR
+        self.native("position", observed_ns=DAY + 60 * 10**9,
+                    native={"type": "PositionOpened", "position_id": "P-1", "instrument_id": "BTCUSDT-PERP.BINANCE",
+                            "side": "LONG", "quantity": "0.1", "ts_opened": DAY + 60 * 10**9})
+        self.native("minute_result", observed_ns=day2 + 120 * 10**9, minute_ns=day2 + 60 * 10**9, result="42.50")
+        self.native("minute_result", observed_ns=day2 + 180 * 10**9, minute_ns=day2 + 120 * 10**9, result="45.00")
+        host_status = {"run_id": self.run_id, "state": "running", "mode": "run", "account_owned": True,
+                       "exit_code": None}
+        with patch.object(runs, "observe", return_value=host_status):
+            view = views.run_view(self.root, self.run_id)
+        self.assertIsInstance(view["minute_results"][0][0], str)
+        self.assertTrue(notify._active(view, "2026-11-10"))
+        self.assertFalse(notify._active(view, "2026-11-11"))
+        record = json.loads(json.dumps(notify.FRESH))
+        sent: list[str] = []
+        notify.step(record, [view], DAY + 10, sent.append, lambda: None, log=lambda _: None)
+        notify.step(record, [view], day3 + 10, sent.append, lambda: None, log=lambda _: None)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("Live daily summary for 2026-11-10 (UTC)", sent[0])
+        self.assertIn(f"{self.run_id} BTCUSDT-PERP.BINANCE LONG 0.1", sent[0])
+        self.assertIn("Fills: 0", sent[0])
+        demo = run("run-demo-1", orders=[fill("t1", day2 + 60 * 10**9)], config={"environment": "demo"})
+        combined = notify._summary([view, demo], "2026-11-10")
+        self.assertIn("Live daily summary for 2026-11-10 (UTC)", combined)
+        self.assertIn("Demo daily summary for 2026-11-10 (UTC)", combined)

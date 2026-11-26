@@ -469,7 +469,9 @@ def _restart_messages(run: dict, name: str) -> list[tuple[str, str]]:
 
 
 def _ns(value) -> int | None:
-    return int(value) if isinstance(value, str) and value.isdigit() else None
+    if type(value) is int and value >= 0:
+        return value
+    return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() else None
 
 
 def _wallet(facts: list[dict]) -> tuple[int, str, str] | None:
@@ -520,7 +522,7 @@ def _active(run: dict, day: str) -> bool:
     minutes = run.get("minute_results")
     if (run.get("host") or {}).get("state") == "running" and not minutes:
         return True
-    times = [minute for minute, _ in minutes or []]
+    times = [_ns(minute) for minute, _ in minutes or []]
     times += [_ns(row.get("ts_event")) for row in _fills(run)]
     times += [_ns(row.get("observed_ns")) for row in run.get("restarts") or []]
     times.append(_ns((run.get("terminal") or {}).get("observed_ns")))
