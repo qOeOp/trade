@@ -134,7 +134,9 @@ def read_audit_history(rev: str, tracked_paths: dict[str, int],
             confirmed = shown
 
         exercised_objs: set[str] = set()
-        for _, subj in RECORDED_ROW_RE.findall(text):
+        exercised_items: set[str] = set()
+        for item_name, subj in RECORDED_ROW_RE.findall(text):
+            exercised_items.add(item_name)
             named, sep, _ = subj.strip().partition(":")
             if not sep:
                 continue
@@ -153,6 +155,7 @@ def read_audit_history(rev: str, tracked_paths: dict[str, int],
             "refuters_ran": refuters_ran,
             "confirmed": confirmed,
             "objects": sorted(exercised_objs),
+            "items": sorted(exercised_items),
         })
     return records
 
@@ -386,6 +389,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
            scan_objects: dict[str, dict[str, Any]], scan_items: dict[str, str | None],
            telemetry_data: dict[str, Any], owner_fn, *,
            issues: list[dict[str, Any]] | None = None,
+           friction_data: dict[str, Any] | None = None,
            sla_days: int = 21) -> dict[str, Any]:
     """Compute the closed-loop audit recommendation, priority table, and stopping decision."""
     now_dt = _commit_date(rev)
@@ -393,8 +397,8 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     themed_records = [r for r in records if r["theme"] in ("harm", "slim", "find", "friction", "steady")]
     last_two_themes = [r["theme"] for r in themed_records[-2:]]
 
-    # Compute per-object consecutive zero-yield streaks from complete, non-steady substantive audits;
-    # reset immediately when an audit covering that object found confirmed > 0.
+    # Compute per-object and per-lens consecutive zero-yield streaks from complete, non-steady substantive audits;
+    # reset immediately when an audit covering that object/lens found confirmed > 0.
     substantive_audits = [
         r for r in records
         if r["theme"] != "steady"
@@ -404,6 +408,9 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     ]
     zero_yield_streak: dict[str, int] = {}
     streak_broken: set[str] = set()
+    lens_zero_streak: dict[str, int] = {}
+    lens_runs: dict[str, int] = {}
+    lens_broken: set[str] = set()
     for rec in reversed(substantive_audits[-8:]):
         for obj in rec["objects"]:
             if obj in streak_broken:
@@ -412,6 +419,14 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
                 zero_yield_streak[obj] = zero_yield_streak.get(obj, 0) + 1
             else:
                 streak_broken.add(obj)
+        for item_name in rec.get("items", []):
+            lens_runs[item_name] = lens_runs.get(item_name, 0) + 1
+            if item_name in lens_broken:
+                continue
+            if rec["confirmed"] == 0:
+                lens_zero_streak[item_name] = lens_zero_streak.get(item_name, 0) + 1
+            else:
+                lens_broken.add(item_name)
 
     # Track most recent complete `slim` audit date per object for per-object slim cooldown.
     last_slimmed: dict[str, str] = {}
@@ -490,10 +505,12 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_substantive)
     code_commits_short = sum(o["commits_short"] for o in telemetry_data["objects"].values() if o["kind"] == "code")
 
+    friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
     stopping_checks = {
         "issues_provided": issues is not None,
         "no_actionable_harm": len(issue_buckets["actionable_harm"]) == 0,
         "no_slim_triggers": len(slim_list) == 0,
+        "no_friction_triggers": len(friction_triggers) == 0,
         "no_staleness_breaches": len(staleness_breaches) == 0,
         "marginal_yield_saturated": (
             (recent_confirmed == 0)
@@ -501,10 +518,14 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         ),
     }
 
-    # Anti-starvation cooldown: while staleness breaches remain, do not let `slim` run back-to-back or 2:1.
+    # Anti-starvation cooldowns while staleness breaches remain.
     slim_cooled_down = (
         ("slim" in last_two_themes and len(staleness_breaches) > 0)
         or last_two_themes == ["slim", "slim"]
+    )
+    friction_cooled_down = (
+        ("friction" in last_two_themes and len(staleness_breaches) > 0)
+        or last_two_themes == ["friction", "friction"]
     )
 
     can_steady = all(stopping_checks.values())
@@ -526,6 +547,28 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         rationale = (
             f"{len(slim_list)} code object(s) hit anti-bloat/oscillation thresholds; top: "
             f"{slim_list[0]['object']} ({'; '.join(slim_list[0]['reasons'])})."
+        )
+    elif friction_triggers and not friction_cooled_down:
+        theme = "friction"
+        ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
+        tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
+        f_objs: list[str] = []
+        f_items: list[str] = []
+        if ci_fired:
+            if ".github" in tops:
+                f_objs.append(".github")
+            f_items.append("delivery")
+        if tx_fired:
+            if ".agents" in tops:
+                f_objs.append(".agents")
+            f_items.extend(["agents", "burden"])
+        if not f_objs and ranked_objects:
+            f_objs = [ranked_objects[0]["object"]]
+        chosen_objs = f_objs[:3]
+        chosen_items = f_items or ["delivery", "agents", "burden"]
+        rationale = (
+            f"{len(friction_triggers)} deterministic friction signal(s) detected: "
+            f"{'; '.join(friction_triggers[:3])}."
         )
     elif can_steady:
         theme = "steady"
@@ -594,9 +637,18 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         "slim_total_count": len(slim_list),
         "slim_cooled_objects": slim_cooled_objects,
         "slim_candidates": slim_list[:6],
+        "friction_summary": {
+            "provided": friction_data is not None,
+            "triggers": friction_triggers[:8],
+        },
         "staleness_breach_count": len(staleness_breaches),
         "ranked_code_objects": ranked_objects[:12],
         "stalest_items": [{"item": i, "examined": None if d == "0000-00-00" else d} for i, d in stalest_items[:8]],
+        "low_yield_lenses": [
+            {"item": item, "zero_yield_streak": streak, "recent_runs": lens_runs.get(item, 0)}
+            for item, streak in sorted(lens_zero_streak.items(), key=lambda p: (-p[1], p[0]))
+            if streak >= 2
+        ],
         "next_trigger_if_steady": (
             "Re-enter audit when a new unclaimed harm finding opens, a code object hits >=3 fix commits "
             f"in {telemetry_data['days']}d, a dependency/release changes, or an object exceeds {sla_days}d SLA."

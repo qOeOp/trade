@@ -182,3 +182,25 @@
 
 - **Regime C（静默期收敛）**：保持最优——第 10 轮 `20/20` 满覆盖、第 11 轮进 `steady`、重复浪费 `0`、覆盖熵 `1.000`。
 - **Regime B（2026-10-29 → 2026-11-25 10 个真实历史快照纵向回放）**：`slim` 触发从 `11–17` 收敛至 `6–9`，审计覆盖在 14 个核心代码对象间平滑轮换，且在 `cli`/`ledger` 确实出现新 fix 提交的快照上准确重新唤醒 `slim`。
+
+## 9. 第五轮迭代（v2.4）：全组件补齐（Friction / Pareto Delta 门控 / 契约与漂移执行层 / Self 镜头产出）
+
+前四轮完成了底座遥测（Python + JS/TS）、`harm` 授权分流与防饿死、`slim` 振荡/膨胀/冷却与动态分位数、`find` 冷区 SLA 配对与跨包耦合、以及 `steady` 反作弊停机；但仍有四个部件停留在 v1 或人工口头约定阶段。本轮把这四个剩余缺口全部工程化为纯 stdlib 确定性部件：
+
+1. **Friction 主题闭环（`.agents/skills/product-doctor/assets/friction.py` + `doctor.py friction` + `advise --ci-json --transcripts`）**：
+   - **CI 交付遥测（`analyze_ci_runs`）**：按 `workflowName` 分组（实战中发现 GitHub Actions `name` 会被自定义 `run-name` 如 `PR #3780` 污染，必须优先用 `workflowName`），用 nearest-rank 计算 `p90_minutes`（修复小样本下 `p90 < median` 缺陷），监测失败率（`>= 25%`）、高延迟（`p90 >= 20m`）和近半段中位耗时增长（`>= +30%`）。
+   - **隐私安全 Transcript 遥测（`analyze_transcripts`）**：兼容 Antigravity、Claude Code、Codex JSONL，仅提取步骤数、用户轮次、工具错误率、加载技能、重复动作（`count >= 4`），绝不输出原始 prompt/output 或凭据。实战跑通真实 Antigravity transcript（`bfdee680-.../transcript.jsonl`）并当场修复两处格式差异：Antigravity `tool_calls.args` 内嵌 JSON 引号字符串需解码（`skills_loaded` 随之正确识别出 `product-doctor`），以及 `GENERIC` 步骤中非零退出码（`Command exited with code 127.`）的错误统计。
+   - **调度集成**：`scheduler.advise()` 补齐完整的 `theme == "friction"` 路由（按 CI / transcript 信号精准收敛镜头 `delivery` / `agents` / `burden`），纳入 `stopping_checks.no_friction_triggers`，并受与 `slim` 同等的防冷区饿死冷却约束。
+2. **Pareto $\Delta$-Gate 与 Refactoring Runaway 校验器（`telemetry.compute_delta` + `doctor.py delta BASE [HEAD]`）**：
+   - 依据 `arXiv:2610.33343` + `arXiv:2605.22526` + `slim.md` Rule 1，对任意两个 git revision 对比生产/测试净行数、函数数、最大认知复杂度、最低健康分、SATD 与新增 break-even 退化，给出确定性 `pareto_verdict`（`improved` / `moved_only` / `regressed` / `neutral`）和 `tangled_refactor_risk`（`fix(...)` 提交跨 `>= 3` 包、`>= 6` 生产文件且 churn `>= 300`）。
+   - 纯文件搬移/重命名通过删除内容哈希比对排除误报 `new_break_even_regressions`，准确落入 `moved_only`。
+   - **真实历史提交实测**：`#3780`（`edf3a9fae`）与 `#3781`（`d4460250a`）中 `doctor.py` 健康分从 `6.83 -> 4.40 -> 3.77`（`max_cognitive: 34 -> 46 -> 53`）被准确判为 `regressed`；真实减负提交 `#3423`（`-457` 行、`health 4.34 -> 6.48`）与 `#3425`（`-133` 行、`health 5.49 -> 10.0`）被准确判为 `improved`。
+3. **执行与报告层硬化（`doctor.py scope --contracts` + `doctor.py run --tree`）**：
+   - `scope --contracts A+B,C+D` 将 `advise` 给出的跨包耦合契约升级为 `report` 可强制核查项：若没有包含 `A` 与 `B` 的联合 `run` 证据，会在 `Not exercised` 中显式列出 `A+B (contract)`。
+   - `run --tree REV` 在每条执行证据上记录 `tree_drift`（目标对象路径在 `HEAD` 与 `REV` 间是否存在内容差异），避免把未同步工作树的运行结果误判为 `origin/main` 行为。
+4. **`self` 镜头产出追踪（`advise.low_yield_lenses`）**：
+   - `read_audit_history` 提取历史审计覆盖的镜头，统计各镜头连续零产出轮次（`zero_yield_streak >= 2`），把 `lenses.md` 中“低产出镜头自查（`self`）”从口头原则变成确定性数据输入。
+5. **验证与新增 Eval Cases**：
+   - 新增 2 个 eval case：`friction-ci-and-transcript-signals`、`delta-gate-rejects-moved-code-and-tangled-fix`（累计新增 8 个 eval case）。
+   - 验证：`unittest` 37/37 OK（含 `test_doctor`、`test_doctor_v2`、`test_source_hygiene`、`test_eval_cases`、`test_package_layers`）、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors、`SKILL.md` 1684 词（全套技能文本 4170 词）。
+

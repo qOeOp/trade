@@ -776,3 +776,113 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         "boundary_clones": boundary_clones[:10],
         "_file_latest_ts": file_latest_ts,
     }
+
+
+def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
+    """Pareto delta-gate and Refactoring Runaway checker between `base_rev` and `head_rev`
+    (arXiv:2605.22526 + arXiv:2610.33343 + slim.md Rule 1)."""
+    raw_diff = _git("diff", "--numstat", "--no-renames", "-z", base_rev, head_rev)
+    prod_added = prod_removed = test_added = test_removed = 0
+    touched_prod: list[str] = []
+    touched_pkgs: set[str] = set()
+
+    for line in raw_diff.split(b"\0"):
+        if line.count(b"\t") < 2:
+            continue
+        a_b, d_b, raw_p = line.lstrip(b"\n").split(b"\t", 2)
+        path = _spelled(raw_p)
+        a = int(a_b) if a_b.isdigit() else 0
+        d = int(d_b) if d_b.isdigit() else 0
+        if is_test_path(path):
+            test_added += a
+            test_removed += d
+        elif Path(path).suffix.lower() in CODE_EXTS:
+            prod_added += a
+            prod_removed += d
+            touched_prod.append(path)
+            touched_pkgs.add(path.split("/", 1)[0])
+
+    analyzable = sorted(p for p in touched_prod if p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS)
+    before_blobs = read_blobs(base_rev, analyzable)
+    after_blobs = read_blobs(head_rev, analyzable)
+
+    def summarize(blobs: dict[str, bytes]) -> tuple[dict[str, dict[str, Any]], int, int, float | None, int]:
+        per_file: dict[str, dict[str, Any]] = {}
+        fns = max_cog = satd = 0
+        healths: list[float] = []
+        for path, raw in blobs.items():
+            if b"\0" in raw:
+                continue
+            text = raw.decode("utf-8", errors="replace")
+            ext = Path(path).suffix.lower()
+            info = analyze_python_source(text) if ext == ".py" else analyze_js_ts_source(text, is_jsx=ext in JSX_EXTS)
+            health = compute_health_score(
+                info["lines"], info["max_cognitive"], info["top3_cognitive"],
+                info["max_fn_lines"], 0, info["satd"],
+            )
+            per_file[path] = {"lines": info["lines"], "functions": info["functions"],
+                              "max_cognitive": info["max_cognitive"], "health": health, "satd": info["satd"]}
+            fns += info["functions"]
+            max_cog = max(max_cog, info["max_cognitive"])
+            satd += info["satd"]
+            healths.append(health)
+        return per_file, fns, max_cog, (min(healths) if healths else None), satd
+
+    b_files, b_fns, b_cog, b_health, b_satd = summarize(before_blobs)
+    a_files, a_fns, a_cog, a_health, a_satd = summarize(after_blobs)
+
+    deleted_contents = {raw for p, raw in before_blobs.items() if p not in after_blobs}
+    new_break_even: list[dict[str, Any]] = []
+    for path, af in a_files.items():
+        bf = b_files.get(path)
+        if bf is None and after_blobs.get(path) in deleted_contents:
+            continue  # Pure file move/rename: not a newly introduced break-even regression.
+        prev_h = bf["health"] if bf else 10.0
+        if af["health"] < BREAK_EVEN_HEALTH and af["health"] < prev_h - 0.05:
+            new_break_even.append({"file": path, "before_health": prev_h, "after_health": af["health"],
+                                   "after_cognitive": af["max_cognitive"]})
+
+    prod_net = prod_added - prod_removed
+    test_net = test_added - test_removed
+    prod_churn = prod_added + prod_removed
+    cog_delta = a_cog - b_cog
+    health_delta = round((a_health - b_health), 2) if (a_health is not None and b_health is not None) else 0.0
+
+    # Check whether commits in range are `fix(...)` commits to detect Refactoring Runaway (arXiv:2605.22526).
+    subjects = _git("log", "--format=%s", f"{base_rev}..{head_rev}").decode(errors="replace").splitlines()
+    all_fix = bool(subjects) and all(bool(FIX_RE.match(s)) for s in subjects)
+    tangled_refactor_risk = all_fix and len(touched_prod) >= 6 and len(touched_pkgs) >= 3 and prod_churn >= 300
+
+    moved_only = (
+        prod_added >= 20
+        and prod_removed >= 20
+        and abs(prod_net) <= max(5, int(0.05 * prod_churn))
+        and cog_delta >= 0
+        and health_delta <= 0.0
+        and a_fns >= b_fns
+    )
+    if new_break_even or health_delta < -0.25 or cog_delta >= 5:
+        pareto_verdict = "regressed"
+    elif moved_only:
+        pareto_verdict = "moved_only"
+    elif (prod_net < 0 or cog_delta < 0 or health_delta > 0.05 or a_fns < b_fns) and health_delta >= 0.0:
+        pareto_verdict = "improved"
+    else:
+        pareto_verdict = "neutral"
+
+    return {
+        "base": base_rev,
+        "head": head_rev,
+        "commits": len(subjects),
+        "touched_prod_files": len(touched_prod),
+        "touched_packages": sorted(touched_pkgs),
+        "prod_lines": {"added": prod_added, "removed": prod_removed, "net": prod_net},
+        "test_lines": {"added": test_added, "removed": test_removed, "net": test_net},
+        "functions": {"before": b_fns, "after": a_fns, "delta": a_fns - b_fns},
+        "max_cognitive": {"before": b_cog, "after": a_cog, "delta": cog_delta},
+        "min_health": {"before": b_health, "after": a_health, "delta": health_delta},
+        "satd": {"before": b_satd, "after": a_satd, "delta": a_satd - b_satd},
+        "new_break_even_regressions": new_break_even,
+        "pareto_verdict": pareto_verdict,
+        "tangled_refactor_risk": tangled_refactor_risk,
+    }

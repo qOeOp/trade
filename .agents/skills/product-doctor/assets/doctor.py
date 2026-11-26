@@ -40,6 +40,7 @@ LENSES = Path(__file__).resolve().parents[1] / "references/lenses.md"
 _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
+import friction  # noqa: E402
 import scheduler  # noqa: E402
 import telemetry  # noqa: E402
 
@@ -360,6 +361,26 @@ def telemetry_cmd(args: argparse.Namespace) -> None:
     print(json.dumps(public, indent=1))
 
 
+def _load_json_file(path: Path, flag: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"invalid {flag} {path}: {error}") from None
+
+
+def delta_cmd(args: argparse.Namespace) -> None:
+    base_rev, head_rev = commit(args.base), commit(args.head)
+    print(json.dumps(telemetry.compute_delta(base_rev, head_rev), indent=1))
+
+
+def friction_cmd(args: argparse.Namespace) -> None:
+    ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
+    tx_paths = list(args.transcripts or [])
+    if ci_runs is None and not tx_paths:
+        raise SystemExit("friction needs --ci-json and/or --transcripts")
+    print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None), indent=1))
+
+
 def advise_cmd(args: argparse.Namespace) -> None:
     rev = commit(args.tree)
     lines = tracked(rev)
@@ -368,15 +389,13 @@ def advise_cmd(args: argparse.Namespace) -> None:
     scan_objs = {name: {"examined": by_object.get(name)} for name in tops}
     scan_items = {name: by_item.get(name) for name in items()}
     tele = telemetry.collect_telemetry(rev, tops, lines, owner, days=args.days, long_days=args.long_days)
-    issues = None
-    if args.issues_json:
-        try:
-            issues = json.loads(args.issues_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise SystemExit(f"invalid --issues-json {args.issues_json}: {error}") from None
+    issues = _load_json_file(args.issues_json, "--issues-json") if args.issues_json else None
+    ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
+    tx_paths = list(args.transcripts or [])
+    fric = friction.collect_friction(ci_runs, tx_paths or None) if (ci_runs is not None or tx_paths) else None
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
-        issues=issues, sla_days=args.sla_days,
+        issues=issues, friction_data=fric, sla_days=args.sla_days,
     )
     print(json.dumps(plan, indent=1))
 
@@ -387,18 +406,26 @@ def scope(args: argparse.Namespace) -> None:
         raise SystemExit("the scope comes before any evidence, once")
     rev = commit(args.tree)
     listed, tops = items(), objects(rev)
-    if args.theme == "steady" and (args.objects or args.items):
-        raise SystemExit("steady takes neither --objects nor --items")
+    contracts = list(getattr(args, "contracts", []) or [])
+    if args.theme == "steady" and (args.objects or args.items or contracts):
+        raise SystemExit("steady takes neither --objects, --items nor --contracts")
     for name in args.objects:
         if name not in tops and not re.fullmatch(r"@[\w.-]+", name):
             raise SystemExit(f"{name} is neither @name nor an object of scan: {', '.join(tops)}")
+    for pair in contracts:
+        parts = pair.split("+")
+        if len(parts) != 2 or any(p not in tops and not re.fullmatch(r"@[\w.-]+", p) for p in parts):
+            raise SystemExit(f"{pair} is not OBJECT_A+OBJECT_B of scan: {', '.join(tops)}")
     for wanted in args.items:
         item, _, scenario = wanted.partition("/")
         if item not in listed or "/" in wanted and not scenario:
             raise SystemExit(f"{wanted} is not an audit item, or ITEM/SCENARIO")
     if args.theme != "steady" and (not args.objects or not (args.items or args.theme == "harm")):
         raise SystemExit(f"{args.theme} names the objects it examines{'' if args.theme == 'harm' else ' and the items'}")
-    keep(args.directory, {"kind": "scope", "theme": args.theme, "items": args.items, "objects": args.objects, "tree": rev})
+    row: dict[str, Any] = {"kind": "scope", "theme": args.theme, "items": args.items, "objects": args.objects, "tree": rev}
+    if contracts:
+        row["contracts"] = contracts
+    keep(args.directory, row)
 
 
 def written(path: Path | None) -> int | None:
@@ -422,14 +449,34 @@ def run(args: argparse.Namespace) -> None:
     out_file.write_bytes(output)
     # A file the command did not write (its own script, an earlier run's page) shows nothing of this run.
     shown = args.artifact.read_bytes() if written(args.artifact) != before else None
-    keep(args.directory, {
+    # Check optional `--tree` drift on the target subject's object paths so feature-worktree drift is visible.
+    tree_drift: bool | None = None
+    target_tree = getattr(args, "tree", None)
+    if target_tree:
+        target_rev = commit(target_tree)
+        head_rev = commit("HEAD")
+        if target_rev == head_rev:
+            tree_drift = False
+        else:
+            obj_parts = [p.rstrip("/") for p in split(args.subject)[0] if not p.startswith("@") and p != ROOT]
+            if obj_parts:
+                diff_out = git("diff", "--name-only", target_rev, head_rev, "--", *obj_parts)
+                tree_drift = bool(diff_out.strip())
+            else:
+                tree_drift = False
+
+    row_out: dict[str, Any] = {
         "kind": "run", "item": args.item, "subject": args.subject, "command": args.command, "cwd": str(Path.cwd()),
         "checkout": commit("HEAD"), "dirty": bool(git("status", "--porcelain").strip()), "exit": status,
         "seconds": round(time.monotonic() - began, 2), "output_bytes": len(output), "output_sha256": digest,
         "output_file": str(out_file),
         "skipped": sum(int(count) for count in re.findall(rb"skipped=(\d+)", output)),
         "artifact": str(args.artifact) if args.artifact else None,
-        "artifact_sha256": None if not shown else hashlib.sha256(shown).hexdigest()})
+        "artifact_sha256": None if not shown else hashlib.sha256(shown).hexdigest(),
+    }
+    if tree_drift is not None:
+        row_out["tree_drift"] = tree_drift
+    keep(args.directory, row_out)
 
 
 def unexamined(args: argparse.Namespace) -> None:
@@ -598,6 +645,11 @@ def coverage(found: list[dict], tops: dict[str, dict[str, Any]]) -> tuple[dict[t
     reached = {top for _, subject in done for top in covers(subject, tops)}
     wanted_tops = tops if not declared else declared["objects"] if declared["items"] else []
     missing += [f"{top} (object)" for top in wanted_tops if top not in reached]
+    if declared and declared.get("contracts"):
+        for pair in declared["contracts"]:
+            needed = set(pair.split("+"))
+            if not any(needed <= covers(subject, tops) for _, subject in done):
+                missing.append(f"{pair} (contract)")
     if declared and declared["theme"] == "harm" and not any(
             row["kind"] == "probe" and row["verdict"] in ("shown", "absent") for row in found):
         missing.append("a probe of an open finding")
@@ -712,20 +764,32 @@ def main(argv: Sequence[str] | None = None) -> None:
     tele_p.add_argument("--days", type=int, default=14)
     tele_p.add_argument("--long-days", type=int, default=30)
     tele_p.set_defaults(function=telemetry_cmd)
-    adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, staleness SLA, and steady stopping gate")
+    delta_p = commands.add_parser("delta", help="Pareto delta-gate and Refactoring Runaway checker between BASE and HEAD")
+    delta_p.add_argument("base", help="base revision (e.g. origin/main or HEAD~1)")
+    delta_p.add_argument("head", nargs="?", default="HEAD", help="target revision (default: HEAD)")
+    delta_p.set_defaults(function=delta_cmd)
+    fric_p = commands.add_parser("friction", help="deterministic CI delivery and agent/user transcript friction telemetry")
+    fric_p.add_argument("--ci-json", type=Path, help="path to JSON output of `gh run list --json ...`")
+    fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
+    fric_p.set_defaults(function=friction_cmd)
+    adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
     adv_p.add_argument("--sla-days", type=int, default=21)
     adv_p.add_argument("--issues-json", type=Path, help="path to JSON output of open agent-finding issues from gh")
+    adv_p.add_argument("--ci-json", type=Path, help="optional path to JSON output of `gh run list --json ...`")
+    adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     adv_p.set_defaults(function=advise_cmd)
     declared = add("scope", scope, "declare a themed audit's items and objects, before any evidence", 0)
     declared.add_argument("theme", choices=THEMES)
     declared.add_argument("--items", type=named, default=[], help="comma-separated: ITEM, or ITEM/SCENARIO of a listed one")
     declared.add_argument("--objects", type=named, default=[], help="comma-separated, of those scan lists")
+    declared.add_argument("--contracts", type=named, default=[], help="comma-separated OBJECT_A+OBJECT_B pairs that must be exercised jointly")
     one = add("run", run, "record a command that exercises an audit item (syntax: run DIR ITEM OBJECT:SCENARIO -- CMD)", 3600)
     one.add_argument("item", help="lens name from lenses.md (without /SCENARIO; put scenario in SUBJECT)")
     one.add_argument("subject", help="OBJECT:SCENARIO or OBJECT_A+OBJECT_B:SCENARIO")
     one.add_argument("--artifact", type=Path, help="the file the command writes that shows the result (a page's text)")
+    one.add_argument("--tree", metavar="REV", help="optional baseline tree to flag `tree_drift` if target paths differ from HEAD")
     one = add("probe", probe, "judge a finding's probe against its control", 600)
     one.add_argument("id")
     one.add_argument("probe", type=Path)
@@ -755,7 +819,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function in (scan, telemetry_cmd, advise_cmd):
+    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}

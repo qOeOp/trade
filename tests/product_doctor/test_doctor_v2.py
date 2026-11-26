@@ -24,6 +24,7 @@ def _load(name: str):
 
 
 doctor = _load("doctor")
+friction = _load("friction")
 telemetry = _load("telemetry")
 
 
@@ -573,3 +574,200 @@ export function load(cfg?: Config) {
         self.assertIn("| results | alpha:check | failed |", rep_text)
         self.assertIn("| results | alpha:check | examined |", rep_text)
         self.assertIn("...` exit 0", rep_text)
+
+    def test_v2_4_friction_ci_and_transcript_signals(self):
+        """Round 5: CI workflow grouping (`workflowName`), nearest-rank p90, wait growth, and privacy-safe
+        Antigravity + Claude Code transcript telemetry."""
+        ci_runs = [
+            # Custom per-PR `name` must group by `workflowName`, and 2 runs must satisfy p90 >= median.
+            {"workflowName": "quality", "name": "PR #1", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-20T00:00:00Z", "updatedAt": "2026-11-20T00:10:00Z"},
+            {"workflowName": "quality", "name": "PR #2", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-21T00:00:00Z", "updatedAt": "2026-11-21T00:10:00Z"},
+            {"workflowName": "quality", "name": "PR #3", "status": "completed", "conclusion": "failure",
+             "createdAt": "2026-11-22T00:00:00Z", "updatedAt": "2026-11-22T00:10:00Z"},
+            {"workflowName": "quality", "name": "PR #4", "status": "completed", "conclusion": "failure",
+             "createdAt": "2026-11-23T00:00:00Z", "updatedAt": "2026-11-23T00:22:00Z"},
+            {"workflowName": "quality", "name": "PR #5", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-24T00:00:00Z", "updatedAt": "2026-11-24T00:24:00Z"},
+            {"workflowName": "quality", "name": "PR #6", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-25T00:00:00Z", "updatedAt": "2026-11-25T00:26:00Z"},
+            {"workflowName": "fast", "name": "Push 1", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-24T00:00:00Z", "updatedAt": "2026-11-24T00:02:00Z"},
+            {"workflowName": "fast", "name": "Push 2", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-25T00:00:00Z", "updatedAt": "2026-11-25T00:04:00Z"},
+        ]
+        ci = friction.analyze_ci_runs(ci_runs)
+        self.assertIn("quality", ci["workflows"])
+        self.assertNotIn("PR #1", ci["workflows"])
+        self.assertGreaterEqual(ci["workflows"]["fast"]["p90_minutes"], ci["workflows"]["fast"]["median_minutes"])
+        q = ci["workflows"]["quality"]
+        self.assertGreaterEqual(q["failure_rate"], 0.33)
+        self.assertGreaterEqual(q["p90_minutes"], 24.0)
+        self.assertGreater(q["wait_growth_pct"], 100.0)
+        self.assertTrue(any("ci_failure_rate" in t for t in ci["triggers"]))
+        self.assertTrue(any("ci_long_wait" in t for t in ci["triggers"]))
+        self.assertTrue(any("ci_wait_growth" in t for t in ci["triggers"]))
+
+        # Privacy-safe Antigravity + Claude Code transcripts.
+        ag_tx = self.home / "ag.jsonl"
+        ag_lines = [
+            json.dumps({"type": "USER_INPUT", "created_at": "2026-11-25T10:00:00Z", "content": "SECRET_USER_PROMPT_XYZ"}),
+            json.dumps({"type": "PLANNER_RESPONSE", "created_at": "2026-11-25T10:01:00Z", "tool_calls": [
+                {"name": "read_file", "args": {"Path": '"/repo/.agents/skills/product-doctor/SKILL.md"'}},
+            ]}),
+        ]
+        for i in range(4):
+            ag_lines.append(json.dumps({"type": "PLANNER_RESPONSE", "created_at": f"2026-11-25T10:0{i+2}:00Z", "tool_calls": [
+                {"name": "run_command", "args": {"toolSummary": '"Retry broken build"'}},
+            ]}))
+            ag_lines.append(json.dumps({"type": "GENERIC", "status": "DONE", "content": "Command exited with code 127.\n"}))
+        ag_tx.write_text("\n".join(ag_lines) + "\n", encoding="utf-8")
+
+        cc_tx = self.home / "cc.jsonl"
+        cc_lines = [
+            json.dumps({"role": "user", "timestamp": "2026-11-25T11:00:00Z", "content": "hello"}),
+            json.dumps({"timestamp": "2026-11-25T11:01:00Z", "message": {"content": [
+                {"type": "tool_use", "name": "Skill", "input": {"skill": "research-round"}},
+            ]}}),
+        ]
+        cc_lines.extend(
+            json.dumps({"timestamp": f"2026-11-25T11:{i + 2:02d}:00Z", "message": {"content": [
+                {"type": "tool_use", "name": "Bash", "input": {"command": "pytest"}},
+                {"type": "tool_result", "is_error": True},
+            ]}})
+            for i in range(10)
+        )
+        cc_tx.write_text("\n".join(cc_lines) + "\n", encoding="utf-8")
+
+        tx = friction.analyze_transcripts([ag_tx, cc_tx])
+        self.assertNotIn("SECRET_USER_PROMPT_XYZ", json.dumps(tx))
+        self.assertEqual(tx["sessions"][0]["skills_loaded"], ["product-doctor"])
+        self.assertEqual(tx["sessions"][0]["tool_errors"], 4)
+        self.assertEqual(tx["sessions"][1]["skills_loaded"], ["research-round"])
+        self.assertTrue(any("agent_tool_error_rate" in t for t in tx["triggers"]))
+        self.assertTrue(any("agent_repeated_action" in t for t in tx["triggers"]))
+
+    def test_v2_4_advise_friction_routing_cooldown_and_low_yield_lenses(self):
+        """Round 5: `advise` schedules `friction` when harm & slim are clear, yields to SLA breaches
+        during cooldown, blocks `steady` when friction triggers hold, and surfaces `low_yield_lenses`."""
+        issues_path = self.home / "empty_issues.json"
+        issues_path.write_text("[]", encoding="utf-8")
+        ci_path = self.home / "bad_ci.json"
+        ci_path.write_text(json.dumps([
+            {"workflowName": "quality", "status": "completed", "conclusion": "failure",
+             "createdAt": f"2026-11-2{i}T00:00:00Z", "updatedAt": f"2026-11-2{i}T00:25:00Z"}
+            for i in range(1, 6)
+        ]), encoding="utf-8")
+
+        # 0 harm, 0 slim, bad CI -> `advise` picks `friction` targeting `delivery`!
+        p1 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path, "--ci-json", ci_path)
+        self.assertEqual(p1["recommended_theme"], "friction")
+        self.assertFalse(p1["stopping_checks"]["no_friction_triggers"])
+        self.assertEqual(p1["recommended_scope"]["items"], ["delivery"])
+
+        # After 2 consecutive zero-yield `friction` audits (with `delivery` run twice with 0 shown),
+        # `friction` enters cooldown while SLA breaches remain, AND `delivery` shows up in `low_yield_lenses`!
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec = (
+            "# Themed audit: friction\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| delivery | alpha:ci | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-friction-1.zh.md": rec,
+            f"docs/plans/doctor/{today}-friction-2.zh.md": rec,
+        }, message="docs(doctor): two zero-yield friction audits")
+        p2 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path, "--ci-json", ci_path)
+        self.assertEqual(p2["recommended_theme"], "find")
+        low_items = {row["item"]: row["zero_yield_streak"] for row in p2["low_yield_lenses"]}
+        self.assertGreaterEqual(low_items.get("delivery", 0), 2)
+
+    def test_v2_4_delta_pareto_gate_and_tangled_refactor_risk(self):
+        """Round 5: `doctor.py delta` classifies improved / moved_only / regressed and flags Refactoring Runaway."""
+        base = self.git("rev-parse", "HEAD")
+
+        # 1) Pure move of a >20-line module -> `moved_only` (not `improved`, and not false `regressed`).
+        big_fn = "def helper(x):\n" + "".join(f"    x += {i}\n" for i in range(25)) + "    return x\n"
+        self.commit({"alpha/mod_a.py": big_fn}, message="feat(alpha): add mod_a")
+        pre_move = self.git("rev-parse", "HEAD")
+        (self.repo / "alpha" / "mod_a.py").unlink()
+        (self.repo / "alpha" / "mod_b.py").write_text(big_fn, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "refactor(alpha): move mod_a to mod_b")
+        post_move = self.git("rev-parse", "HEAD")
+        d_move = self.call_json("delta", pre_move, post_move)
+        self.assertEqual(d_move["pareto_verdict"], "moved_only")
+        self.assertEqual(d_move["new_break_even_regressions"], [])
+
+        # 2) Genuine deletion/simplification -> `improved`.
+        (self.repo / "alpha" / "mod_b.py").write_text("def helper(x):\n    return x + 300\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "refactor(alpha): fold arithmetic loop")
+        post_slim = self.git("rev-parse", "HEAD")
+        d_imp = self.call_json("delta", post_move, post_slim)
+        self.assertEqual(d_imp["pareto_verdict"], "improved")
+        self.assertLess(d_imp["prod_lines"]["net"], 0)
+
+        # 3) Deeply nested logic spike -> `regressed` with break-even entry.
+        ugly = (
+            "def tangle(xs):\n    out = 0\n    for a in xs:\n        if a > 0:\n"
+            "            for b in xs:\n                if b > 0 and b < a:\n"
+            "                    for c in xs:\n                        if c == a or c == b:\n"
+            "                            if c % 2 == 0:\n                                out += c\n"
+            "                            elif c % 3 == 0:\n                                out -= c\n"
+            "    return out\n"
+        )
+        self.commit({"alpha/mod_b.py": ugly * 3}, message="fix(alpha): pile nested conditionals")
+        post_reg = self.git("rev-parse", "HEAD")
+        d_reg = self.call_json("delta", post_slim, post_reg)
+        self.assertEqual(d_reg["pareto_verdict"], "regressed")
+        self.assertGreaterEqual(d_reg["max_cognitive"]["delta"], 5)
+
+        # 4) Refactoring Runaway: a `fix(...)` commit churning >=300 lines across >=6 prod files & >=3 packages.
+        pre_tangle = self.git("rev-parse", "HEAD")
+        filler = "\n".join(f"V_{i} = {i}" for i in range(60)) + "\n"
+        self.commit({
+            "alpha/t1.py": filler, "alpha/t2.py": filler,
+            "beta/t3.py": filler, "beta/t4.py": filler,
+            "cold/t5.py": filler, "cold/t6.py": filler,
+        }, message="fix(alpha): sprawling tangled rewrite")
+        post_tangle = self.git("rev-parse", "HEAD")
+        d_tangle = self.call_json("delta", pre_tangle, post_tangle)
+        self.assertTrue(d_tangle["tangled_refactor_risk"])
+        self.assertGreaterEqual(d_tangle["touched_prod_files"], 6)
+        self.assertNotEqual(base, post_tangle)
+
+    def test_v2_4_scope_contracts_and_run_tree_drift(self):
+        """Round 5: `scope --contracts A+B` is enforced by `report`, and `run --tree` logs `tree_drift`."""
+        ev = self.home / "ev-contracts"
+        with self.assertRaises(SystemExit):
+            doctor.main(["scope", str(ev), "steady", "--contracts", "alpha+beta", "--tree", "HEAD"])
+        doctor.main(["scope", str(ev), "find", "--objects", "alpha,beta",
+                     "--items", "results", "--contracts", "alpha+beta", "--tree", "HEAD"])
+
+        # Run only alpha -> `alpha+beta (contract)` must still appear in Not exercised!
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["run", str(ev), "results", "alpha:unit", "--tree", "HEAD", "--", "python3", "-c", "print('ok')"])
+        self.assertFalse(doctor.rows(ev)[-1]["tree_drift"])
+
+        rep1 = io.StringIO()
+        with redirect_stdout(rep1):
+            doctor.main(["report", str(ev), "--tree", "HEAD"])
+        self.assertIn("alpha+beta (contract)", rep1.getvalue())
+
+        # Modify alpha/core.py in a new commit and probe against parent rev -> `tree_drift: True`,
+        # and name both alpha and beta in `alpha+beta:pipe` to satisfy the contract!
+        prev_rev = self.git("rev-parse", "HEAD")
+        self.commit({"alpha/core.py": CLONE_A + "# drift\n"}, message="feat(alpha): drift")
+        with redirect_stdout(out):
+            doctor.main(["run", str(ev), "results", "alpha+beta:pipe", "--tree", prev_rev,
+                         "--", "python3", "-c", "print('both')"])
+        self.assertTrue(doctor.rows(ev)[-1]["tree_drift"])
+
+        rep2 = io.StringIO()
+        with redirect_stdout(rep2):
+            doctor.main(["report", str(ev), "--tree", prev_rev])
+        self.assertNotIn("alpha+beta (contract)", rep2.getvalue())

@@ -30,10 +30,11 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 ## Themed audit
 
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
-signals deterministically: dump open `agent-finding` issues via `gh` to a temporary JSON file and run
-`doctor.py advise --issues-json <file>` (backed by `doctor.py telemetry` and `doctor.py scan`), plus recent CI runs
-and the last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why
-and what is left out:
+signals deterministically: dump open `agent-finding` issues and recent CI runs (`gh run list --limit 80 --json databaseId,workflowName,name,status,conclusion,createdAt,updatedAt,event,headBranch`)
+to temporary JSON files and run `doctor.py advise --issues-json <issues> --ci-json <ci>` (add `--transcripts <path...>`
+when auditing agent/user sessions; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
+last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why and what is
+left out:
 
 1. **Stop harm** (`harm`): unclaimed (or stale-claimed >= 2 days), non-`authority` open findings that risk money,
    records or wrong results (`actionable_harm` from `advise`). Issues waiting on owner authority (`blocked_authority`
@@ -42,19 +43,21 @@ and what is left out:
 2. **Slim** (`slim`): a code object hitting `advise`'s oscillation-burst, test-bloat, clone-bloat or structural-decay
    triggers (`slim_candidates`), subject to `advise`'s cooldown while coverage SLA breaches remain. Group Shape and
    **checks**, one or two objects: [slim.md](references/slim.md).
-3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named (overrides
-   `advise` when transcripts or the user surface it). Group Use.
-4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 coverage
-   SLA breaches, saturated marginal yield over complete substantive audits). Declare `doctor.py scope DIR steady` (with
-   no `--objects` or `--items`), report the stopping signals and next re-entry trigger, and stop without manufacturing
-   findings.
-5. **Find** (`find`): otherwise. Pair the top risk/churn object with the coldest coverage-SLA-breached object from
-   `advise` (plus its top `coupled_contracts` `A+B` pair and `outside`), under the stalest remaining groups of
-   [lenses.md](references/lenses.md).
+3. **Friction** (`friction`): CI failure rate, wait-time growth, agent tool error rate, repeated actions or user
+   clarification burden (`friction_summary.triggers` from `advise` / `doctor.py friction`, or named directly by the
+   user). Subject to cooldown while coverage SLA breaches remain. Group Use.
+4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 friction
+   triggers, 0 coverage SLA breaches, saturated marginal yield over complete substantive audits). Declare
+   `doctor.py scope DIR steady` (with no `--objects`, `--items` or `--contracts`), report the stopping signals and
+   next re-entry trigger, and stop without manufacturing findings.
+5. **Find** (`find`): otherwise. Pair the top fresh risk/churn object with the coldest coverage-SLA-breached object from
+   `advise` (plus its top `coupled_contracts` `A+B` pair via `--contracts` and `outside`), under the stalest remaining
+   groups of [lenses.md](references/lenses.md). Review `low_yield_lenses` under the `self` perspective.
 
-Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
-only some do) with `doctor.py scope` before any evidence (`harm` its objects alone; `steady` none); `report` judges
-against it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
+Declare one to three objects, those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where only
+some do), and any coupled `--contracts A+B` with `doctor.py scope` before any evidence (`harm` its objects alone;
+`steady` none); `report` judges against it. Then the steps below on those alone: step 1's "every line" and step 5
+(slimming aside) belong to a full audit.
 
 ## Full audit
 
@@ -76,7 +79,8 @@ against it. Then the steps below on those alone: step 1's "every line" and step 
    running. A script gathers; a sub-agent still judges. Once every line and object has had its pass, each object with
    a `shown` finding not plainly minor (step 6) gets one more, from another perspective. Suspects of yours still open after the
    passes you probe yourself; no agent is briefed with them.
-3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`, whose control
+3. **Probe, then claim.** Record exercises with `doctor.py run` (pass `--tree origin/main` to record `tree_drift` if
+   the checkout differs from `origin/main`) and claims with `doctor.py probe`, whose control
    must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`, a rate, not one time
    (`--help` says the forms; run as `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`). Only
    `shown` proves code's behaviour; otherwise say unverified. Findings of use, words or growth (**value**,

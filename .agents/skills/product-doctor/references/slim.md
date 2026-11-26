@@ -5,8 +5,10 @@
    isolation boundaries (`tests/test_package_layers.py`, host-Python `deploy/`, `ISOLATED` `ide/`, container
    Dockerfiles) and reject copies that exist to preserve isolation (`boundary_clones`). Propose at most five
    structural restatements, merges or removals, tests included — never cosmetic renames alone — each run on a scratch
-   copy with the product's checks and, where behavior must stay, AGENTS.md's paired replay. State branches,
-   mechanisms, cognitive complexity and tests before and after; moved code is no removal.
+   copy with the product's checks and, where behavior must stay, AGENTS.md's paired replay. Verify every proposed diff
+   with `doctor.py delta BASE HEAD`: reject proposals with `pareto_verdict` of `moved_only` or `regressed` (moved code
+   is no removal), and split any bug fix flagged with `tangled_refactor_risk: true`. State branches, mechanisms,
+   cognitive complexity and tests before and after.
 2. **Break-even guardrail**: when a target file has `break_even_caution: true` (`health < 6.0`), do not propose a
    one-shot rewrite (empirical risk of logical regressions and new coupling). Propose seam extraction plus
    characterization tests first, keeping bug-fix PRs separate from structural slimming PRs; if the file sits in a
