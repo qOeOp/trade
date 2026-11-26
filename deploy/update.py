@@ -170,10 +170,12 @@ def removable(images: list[dict], kept: set[str]) -> list[dict]:
     and any other image with no name at all (dangling)."""
     out = []
     for image in images:
-        names = [*image.get("RepoTags", []), *image.get("RepoDigests", [])]
+        repo_tags = image.get("RepoTags") or []
+        repo_digests = image.get("RepoDigests") or []
+        names = [*repo_tags, *repo_digests]
         ours = all(name.startswith(REPOSITORIES) for name in names)  # true of a dangling image too
         # The containerd image store lists repo@digest names among RepoTags too: they are not tags.
-        tags = [tag.rsplit(":", 1)[1] for tag in image.get("RepoTags", []) if "@" not in tag]
+        tags = [tag.rsplit(":", 1)[1] for tag in repo_tags if "@" not in tag]
         if ours and image["Id"] not in kept and all(tag.startswith("pr-") for tag in tags):
             out.append(image)
     return out
@@ -194,7 +196,7 @@ def clean(docker: Docker, references: list[str], now: datetime, remove: bool = T
             kept.add(identity)
     images = docker.inspect("image", sorted(set(docker("image", "ls", "-aq", "--no-trunc").split())))
     for image in removable(images, kept):
-        names = sorted({*image.get("RepoTags", []), *image.get("RepoDigests", [])}) or [image["Id"]]
+        names = sorted({*(image.get("RepoTags") or []), *(image.get("RepoDigests") or [])}) or [image["Id"]]
         if not remove or docker("image", "rm", *names, check=False):
             done.append(f"image {image['Id'][:19]} ({', '.join(names)})")
     return done

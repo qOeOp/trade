@@ -12,8 +12,8 @@ import urllib.error
 import urllib.parse
 
 from deploy import generation
-from deploy.update import (FIRST_START, LEDGER, Cutover, Docker, main, paper_busy, plan, read_env, relation, removable,
-                           stale_replays)
+from deploy.update import (FIRST_START, LEDGER, Cutover, Docker, clean, main, paper_busy, plan, read_env, relation,
+                           removable, stale_replays)
 
 
 NOW = datetime(2026, 11, 22, 12, tzinfo=UTC)
@@ -103,6 +103,24 @@ class CleanTests(unittest.TestCase):
         ]
         self.assertEqual([item["Id"] for item in removable(images, {"used", "pinned", "dangling-used"})],
                          ["pr", "old", "dangling"])
+
+    def test_null_repotags_and_repodigests_from_docker_inspect_are_handled(self):
+        # Docker Engine's Go JSON serializes nil slices as null (locally built and dangling images).
+        local_built = {"Id": "sha256:" + "1" * 64, "RepoTags": ["local:dev"], "RepoDigests": None}
+        dangling_tags = {"Id": "sha256:" + "2" * 64, "RepoTags": None, "RepoDigests": []}
+        dangling_both = {"Id": "sha256:" + "3" * 64, "RepoTags": None, "RepoDigests": None}
+        ours_null_digests = {"Id": "sha256:" + "4" * 64, "RepoTags": ["ghcr.io/qoeop/trade-runtime:pr-12"],
+                             "RepoDigests": None}
+        found = removable([local_built, dangling_tags, dangling_both, ours_null_digests], set())
+        self.assertEqual([item["Id"] for item in found],
+                         [dangling_tags["Id"], dangling_both["Id"], ours_null_digests["Id"]])
+        docker = Fake({("image", "ls"): "\n".join([local_built["Id"], dangling_both["Id"], ours_null_digests["Id"]]),
+                       ("image", "inspect"): json.dumps([local_built, dangling_both, ours_null_digests])})
+        listed = clean(docker, [], NOW, remove=False)
+        self.assertEqual(listed, [
+            f"image {dangling_both['Id'][:19]} ({dangling_both['Id']})",
+            f"image {ours_null_digests['Id'][:19]} (ghcr.io/qoeop/trade-runtime:pr-12)",
+        ])
 
     def test_a_replay_container_goes_only_once_its_replay_is_surely_over(self):
         containers = [replay("replay-temp-trial-4-native", NOW - timedelta(hours=2)),

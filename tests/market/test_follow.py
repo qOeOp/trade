@@ -562,6 +562,43 @@ class RoundTests(unittest.TestCase):
                          {"BTCUSDT": ("caught_up", 31 * 288), "ETHUSDT": ("caught_up", 288)})
         self.assertEqual(sorted(plain), ["ETHUSDT"])
 
+    def test_a_delisted_pool_member_stops_being_polled_once_its_metrics_reach_its_last_bar(self):
+        import numpy as np
+        profile = directory(self.addCleanup)
+        # BTCUSDT trades through Jan 10; DELISTUSDT stops after Jan 2 (both are January universe members).
+        btc_times = np.array([day_ms(date(2025, 1, d)) for d in range(1, 11)], dtype=np.int64)
+        del_times = np.array([day_ms(date(2025, 1, d)) for d in range(1, 3)], dtype=np.int64)
+
+        def cols(times):
+            price = np.full(len(times), 100 * 10**8, dtype=np.int64)
+            return {"ts_open": times, **{k: price for k in ("open", "high", "low", "close")},
+                    "volume": np.full(len(times), 10000, dtype=np.int64)}
+
+        seed(profile, month="2025-01", through="2025-01-11",
+             terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"}),
+                    ("DELISTUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
+             bars={("BTCUSDT", "LAST"): cols(btc_times), ("DELISTUSDT", "LAST"): cols(del_times)},
+             members=[(JAN, "BTCUSDT"), (JAN, "DELISTUSDT")])
+        # Import BTCUSDT through Jan 10 and DELISTUSDT through Jan 1 (still missing its final day Jan 2).
+        exchange = self.exchange({"BTCUSDT": [date(2025, 1, d) for d in range(1, 11)],
+                                  "DELISTUSDT": [date(2025, 1, 1)]})
+        with serving(exchange):
+            metrics.import_month(profile, JAN, self.cache, ["BTCUSDT", "DELISTUSDT"], log=lambda _: None)
+        # Round 1 brings DELISTUSDT's final day (Jan 2): it finishes caught_up instead of lagging.
+        with serving(self.exchange({"DELISTUSDT": [date(2025, 1, 2)]})), patch.object(follow, "_bars"), \
+                patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
+            first = follow.run_round(profile, scope((), metrics_pool=True), self.cache, follow.Memory(),
+                                     at(date(2025, 1, 11)), lambda _: None)
+        self.assertEqual((first["kinds"]["metrics"]["DELISTUSDT"]["state"], first["kinds"]["metrics"]["DELISTUSDT"]["rows"]),
+                         ("caught_up", 288))
+        # Round 2 no longer polls DELISTUSDT even though it stays a January universe member.
+        with serving(Exchange(START)), patch.object(follow, "_bars"), patch.object(follow, "_monthly"), \
+                patch.object(follow, "_holes"):
+            second = follow.run_round(profile, scope((), metrics_pool=True), self.cache, follow.Memory(),
+                                      at(date(2025, 1, 11)), lambda _: None)
+        self.assertNotIn("DELISTUSDT", second["kinds"]["metrics"])
+        self.assertEqual(files.latest_day(files.open_market(profile, "reader")), date(2025, 1, 10))
+
     def test_each_contract_imports_its_own_days_across_the_month_end(self):
         profile = self.market()
         # Feb 3: BTCUSDT has Jan 31, Feb 1 and 2; ETHUSDT's Jan 31 is not out, its February days are.

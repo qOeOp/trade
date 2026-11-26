@@ -351,10 +351,34 @@ def bar_months_through(market: Market) -> dict[date, date]:
     return found
 
 
+def _traded_after(market: Market, days: dict[str, date]) -> set[str]:
+    """The contracts of `days` ({symbol: day}) that hold any bar after their day."""
+    need = {symbol: clock.day_ms(day + timedelta(days=1)) for symbol, day in days.items()}
+    active: set[str] = set()
+    remaining = set(need)
+    for entry in reversed(entries(market, "bar", start_ms=min(need.values()))):
+        if not remaining:
+            break
+        earliest = min(need[symbol] for symbol in remaining)
+        if entry.end_ms <= earliest:
+            break
+        for batch in file_batches(file_source(market, entry), BAR, sorted(remaining), earliest, None,
+                                  columns=["symbol", "ts_open"]):
+            if not batch.num_rows:
+                continue
+            symbols, times = batch.column("symbol"), batch.column("ts_open")
+            for symbol in list(remaining & set(pc.unique(symbols).to_pylist())):
+                if pc.any(pc.and_(pc.equal(symbols, symbol), pc.greater_equal(times, need[symbol]))).as_py():
+                    active.add(symbol)
+                    remaining.remove(symbol)
+    return active
+
+
 def followed_metrics(market: Market) -> dict[str, date]:
     """{contract: its last day} of the contracts whose metrics are followed, those holding a file in the table's newest
-    month or the one before it (the newer may not have begun for every contract). market.follow keeps each current,
-    whichever import added it."""
+    month or the one before it (the newer may not have begun for every contract) that still trade after that day when
+    bars have moved past it. A delisted contract whose metrics reached its final bar holds nothing back; market.follow
+    keeps each active contract current, whichever import added it."""
     held = entries(market, "metrics")
     if not held:
         return {}
@@ -365,7 +389,14 @@ def followed_metrics(market: Market) -> dict[str, date]:
         if moment is not None:
             symbol = str(entry.symbol)
             latest[symbol] = max(latest.get(symbol, clock.ms_day(moment)), clock.ms_day(moment))
-    return latest
+    bars = last_day(market, "bar")
+    if bars is None:
+        return latest
+    lagging = {symbol: day for symbol, day in latest.items() if day < bars}
+    if not lagging:
+        return latest
+    active = _traded_after(market, lagging)
+    return {symbol: day for symbol, day in latest.items() if day >= bars or symbol in active}
 
 
 def _metrics_day(market: Market) -> date | None:

@@ -175,6 +175,38 @@ class Commits(Directory):
                     ("metrics", FEB_1, "BTCUSDT", [metrics("BTCUSDT", [FEB + 9 * DAY])])])
         self.assertEqual(files.latest_day(files.open_market(self.profile, "reader")), date(2025, 2, 10))
 
+    def test_a_delisted_contract_caught_up_to_its_final_bar_holds_nothing_back(self):
+        mar_1 = date(2025, 3, 1)
+        feb_02 = clock.day_ms(date(2025, 2, 2))
+        feb_28 = clock.day_ms(date(2025, 2, 28))
+        mar_19 = clock.day_ms(date(2025, 3, 19))
+        self.write([
+            ("bar", FEB_1, None, [bars([("BTCUSDT", "LAST", feb_28, 1), ("DELISTUSDT", "LAST", feb_02, 1),
+                                        ("ETHUSDT", "LAST", feb_28, 1)])]),
+            ("bar", mar_1, None, [bars([("BTCUSDT", "LAST", mar_19, 1), ("ETHUSDT", "LAST", mar_19, 1)])]),
+            ("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT", "DELISTUSDT", "ETHUSDT"])]),
+            ("universe_month", mar_1, None, [members(mar_1, ["BTCUSDT", "ETHUSDT"])]),
+            ("metrics", FEB_1, "BTCUSDT", [metrics("BTCUSDT", [feb_28])]),
+            ("metrics", FEB_1, "ETHUSDT", [metrics("ETHUSDT", [feb_28])]),
+            # Missing its final trading day (2025-02-02): still holds latest_day back until that day lands.
+            ("metrics", FEB_1, "DELISTUSDT", [metrics("DELISTUSDT", [clock.day_ms(FEB_1)])]),
+            ("metrics", mar_1, "BTCUSDT", [metrics("BTCUSDT", [mar_19])]),
+            ("metrics", mar_1, "ETHUSDT", [metrics("ETHUSDT", [mar_19])]),
+        ])
+        market = files.open_market(self.profile, "reader")
+        self.assertEqual(files.latest_day(market), FEB_1)
+        # Once metrics reach its final bar (2025-02-02), it no longer freezes head or month rollover.
+        self.write([("metrics", FEB_1, "DELISTUSDT", [metrics("DELISTUSDT", [clock.day_ms(FEB_1), feb_02])])])
+        self.assertEqual(files.followed_metrics(market), {"BTCUSDT": date(2025, 3, 19), "ETHUSDT": date(2025, 3, 19)})
+        self.assertEqual(files.latest_day(market), date(2025, 3, 19))
+        self.assertEqual(files.resolve_day(market, "2025-03-19"), "2025-03-19")
+        market_day, _, chosen = universe.selection(self.profile, None, ["BTCUSDT"], clock.day_ns(date(2025, 3, 20)))
+        self.assertEqual((market_day, chosen), ("2025-03-19", ["BTCUSDT"]))
+        self.assertIn("2025-03", universe.month_files(self.profile, ["BTCUSDT", "ETHUSDT"], after="2025-02"))
+        # An actively trading contract whose bars continued past its metrics still holds latest_day back.
+        self.write([("metrics", mar_1, "ETHUSDT", [metrics("ETHUSDT", [clock.day_ms(date(2025, 3, 15))])])])
+        self.assertEqual(files.latest_day(market), date(2025, 3, 15))
+
     def test_a_months_last_day_waits_for_the_next_months_members(self):
         last = date(2025, 1, 31)
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", clock.day_ms(last), 1)])])])

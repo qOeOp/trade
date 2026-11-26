@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 import subprocess
 
+from market.sources import SYMBOL
 from shared import clock
 from shared.refusals import refuse
 
@@ -93,6 +94,11 @@ def runner_inputs(runner_argv: list[str]) -> dict:
                                    for text in (known.start, known.trade_start, known.end))
     except ValueError as exc:
         raise refuse("WINDOW_INVALID", f"runner arguments: {exc}", expected="UTC as YYYY-MM-DDTHH:MM:SSZ") from exc
+    if known.symbols:
+        bad = [symbol for symbol in known.symbols if not SYMBOL.fullmatch(symbol)]
+        if bad:
+            raise refuse("USAGE_ERROR", f"runner arguments: {bad[0]!r} is not a valid contract symbol",
+                         missing=tuple(bad), expected="contract symbols such as BTCUSDT")
     window = {"start": start, "trade_start": start if trade_start is None else trade_start, "end": end}
     selection: dict[str, list[str] | bool] = {"symbols": list(known.symbols)} if known.symbols else {"universe": True}
     return {"window": window, "selection": selection, "lifecycle_bundle": known.lifecycle_bundle,

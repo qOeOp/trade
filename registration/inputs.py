@@ -21,6 +21,7 @@ import shutil
 import tempfile
 
 from ledger import db, evidence
+from market.sources import SYMBOL
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import seams
@@ -64,6 +65,9 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
     if membership.is_symlink() or not membership.is_file():
         raise _invalid(f"the membership file {membership} is missing or a link", MEMBERSHIP)
     entries: list[tuple[str, Path]] = []
+    for symbol in inputs["symbols"]:
+        if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol):
+            raise _invalid(f"{symbol!r} is not a valid contract symbol", str(symbol))
     for top in (*inputs["symbols"], LIFECYCLE_EVIDENCE.rstrip("/")):
         if (root / top).is_symlink():
             raise _invalid(f"{top} in the export root is a link", top)
@@ -189,7 +193,8 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     symbols = selection.get("symbols") if isinstance(selection, Mapping) else None
     if (not isinstance(selection, Mapping) or set(selection) - {"universe", "symbols"} or universe == (symbols is not None)
             or (symbols is not None and (not isinstance(symbols, list) or not symbols
-                                         or any(not isinstance(item, str) or not item for item in symbols)
+                                         or any(not isinstance(item, str) or not SYMBOL.fullmatch(item)
+                                                for item in symbols)
                                          or len(set(symbols)) != len(symbols)))):
         raise refuse("SYMBOL_SELECTION_INVALID", "give exactly one of universe or symbols, without repeats",
                      expected='{"universe": true} or {"symbols": [unique names]}')

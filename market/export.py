@@ -37,7 +37,7 @@ import pyarrow.parquet as pq
 
 from engine.config import EXECUTION_BAR_MINUTES
 from market import coverage, files, history, instrument, lifecycle, series, universe
-from market.sources import DAY, MINUTE
+from market.sources import DAY, MINUTE, SYMBOL
 from shared import clock
 from shared.refusals import refuse
 
@@ -55,7 +55,7 @@ VENUE = "BINANCE"
 def native_symbol(symbol: str, episode: int | None = None) -> str:
     """market.native_symbol: the engine instrument id of a public contract name and an optional episode number; a
     non-ASCII coin is spelled by its UTF-8 bytes."""
-    if not isinstance(symbol, str) or not symbol.endswith("USDT") or symbol == "USDT" or "-" in symbol or "." in symbol:
+    if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol) or not symbol.endswith("USDT") or symbol == "USDT":
         raise refuse("SYMBOL_SHAPE", f"{symbol!r} is no USDT perpetual name the engine can identify",
                      missing=(str(symbol),))
     if episode is not None and (type(episode) is not int or episode < 1):
@@ -492,6 +492,9 @@ def export_episode(job: dict) -> dict:
     Written into a new directory beside the window, not in it (every file in the window is part of a replay's input
     identity), and renamed into place whole: two processes exporting the same cache key never write into one
     directory, and a failure leaves what was there."""
+    symbol = job.get("symbol")
+    if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol):
+        raise refuse("UNKNOWN_SYMBOL", f"{symbol!r} is not a valid contract symbol", missing=(str(symbol),))
     target = Path(job["path"])
     target.parent.mkdir(parents=True, exist_ok=True)
     work = target.parent.parent / f".{target.parent.name}-{target.name}-{uuid.uuid4().hex}"
@@ -667,6 +670,9 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                      missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
         raise refuse("EMPTY_SYMBOLS", "export needs each contract once", missing=("symbols",))
+    bad = [symbol for symbol in symbols if not isinstance(symbol, str) or not SYMBOL.fullmatch(symbol)]
+    if bad:
+        raise refuse("UNKNOWN_SYMBOL", f"{bad[0]!r} is not a valid contract symbol", missing=tuple(map(str, bad)))
     market = files.open_market(profile, "reader")
     market_day = files.resolve_day(market, at)
     if fresh:
