@@ -243,7 +243,8 @@ class SessionTests(unittest.TestCase):
         source = session.backend.snapshot.call_args.args[1]["sources"]["BTC"]
         self.assertEqual(source, {"state": {"phase": "MQ=="},
                                   "cadence": {IID: {"mark_minute": 12, "next_funding_ns": 30},
-                                              "ETH": {"mark_minute": 13, "next_funding_ns": None}}})
+                                              "ETH": {"mark_minute": 13, "next_funding_ns": None}},
+                                  "metrics": {}})
         restored, strategy.load = self.session(saved={"cut_ns": 1, "sources": {"BTC": source}}), mock.Mock()
         before, strategy._paper_cadence = strategy._paper_cadence, {}
         restored.restore_source(strategy, "BTC")
@@ -948,3 +949,240 @@ class MetricsCheckpointTests(unittest.TestCase):
             err = session_ord.backfill()
             self.assertIsNotNone(err)
             self.assertIn("MARKET order", err or "")
+
+    def test_backfill_interleaves_metrics_and_aggregated_bars_chronologically(self):
+        """Finding 1: 5m bar at 10:05 must never see Metrics due at 10:15."""
+        cut_ns = T
+        warm_at = T + 16 * MINUTE_NS
+        agg_bars = [
+            SimpleNamespace(ts_event=T + m * MINUTE_NS + DELAY, close=Price.from_str("100.0"),
+                            bar_type=f"{IID}-5-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL")
+            for m in (5, 10, 15)
+        ]
+        events: list[tuple[str, int]] = []
+        last_oi: list[Decimal | None] = [None]
+        seen_oi_on_bar: list[tuple[int, Decimal | None]] = []
+
+        def reader(_iid: str, ts_event: int, wanted: list[str]):
+            mins = (ts_event - T) // MINUTE_NS
+            return {name: Decimal(f"{100 + mins}").quantize(metrics.EXACT) for name in wanted}
+
+        def on_data(custom):
+            events.append(("metrics", (custom.data.ts_init - T) // MINUTE_NS))
+            last_oi[0] = custom.data.sum_open_interest
+
+        def on_bar(bar):
+            end_min = (Session.bucket_end(bar) - T) // MINUTE_NS
+            events.append(("5m_bar", end_min))
+            seen_oi_on_bar.append((end_min, last_oi[0]))
+
+        followed = {IID: {"instrument_id": IID, "ts_event": T, "found": {}, "thread": None, "retry_ns": 0}}
+        strat = self._strategy([metrics.TIMER_NAME], followed=followed, on_data=on_data, reader=reader)
+        strat.on_bar = on_bar
+        strat._warming_state = lambda: {"expected": {}}
+        strat._paper_subscriptions = {f"{IID}-1-MINUTE-LAST-EXTERNAL", Session.subscription(IID, "5-MINUTE")}
+
+        session = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": cut_ns})
+        session.loaded = SimpleNamespace(strategy_class=Hooks, warmup=(("5-MINUTE", 5),))
+        session.ready, session.warm_at, session.since = False, warm_at, {"5-MINUTE": T}
+        session.release = lambda _: None
+        session.cache = SimpleNamespace(bars=lambda _bt: agg_bars)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            self.assertIsNone(session.backfill())
+
+        self.assertEqual(events, [("metrics", 5), ("5m_bar", 5), ("metrics", 10), ("5m_bar", 10),
+                                  ("metrics", 15), ("5m_bar", 15)])
+        self.assertEqual(seen_oi_on_bar, [
+            (5, Decimal("100").quantize(metrics.EXACT)),
+            (10, Decimal("105").quantize(metrics.EXACT)),
+            (15, Decimal("110").quantize(metrics.EXACT)),
+        ])
+
+    def test_cut_saves_exact_metrics_cursor_eliminating_shutdown_boundary_drop_and_duplicate(self):
+        """Finding 2: per-contract saved Metrics cursor prevents both 4a (drop) and 4b (duplicate)."""
+        reader = lambda _iid, _ts, wanted: {name: Decimal("1.0").quantize(metrics.EXACT) for name in wanted}
+        stopped_ns = T + 5 * MINUTE_NS - 1_000_000  # 10:04:59.999
+
+        # 4a: 5m bar closing at 10:05 arrived during shutdown (bumping cut_ns to 10:05),
+        # while Metrics row due at 10:05 (ts_event=T) was NOT yet delivered.
+        bar_1005 = SimpleNamespace(ts_event=T + 5 * MINUTE_NS + DELAY, close=Price.from_str("100.0"),
+                                   bar_type=f"{IID}-5-MINUTE")
+        cache_a = SimpleNamespace(orders=list, positions_open=list, bar=lambda _bt: bar_1005)
+        strat_a = self._strategy([metrics.TIMER_NAME], followed={IID: {"instrument_id": IID, "ts_event": T}})
+        strat_a._paper_subscriptions = {f"{IID}-1-MINUTE-LAST-EXTERNAL", Session.subscription(IID, "5-MINUTE")}
+        sess_a = self.session()
+        sess_a.loaded = SimpleNamespace(strategy_class=Hooks, warmup=(("5-MINUTE", 5),))
+        sess_a.stopped_ns = stopped_ns
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat_a}, clear=True):
+            sess_a.cut(cache_a)
+        saved_a = sess_a.backend.snapshot.call_args.args[1]
+        self.assertEqual(saved_a["cut_ns"], T + 5 * MINUTE_NS)
+        self.assertEqual(saved_a["sources"][IID]["metrics"], {IID: T})
+
+        rec_a = self.session(saved=saved_a)
+        rec_a.ready, rec_a.warm_at, rec_a.since = False, T + 11 * MINUTE_NS, {}
+        self.assertEqual(rec_a.metrics_cursor(IID, IID), T)
+        delivered_a: list[int] = []
+        rec_strat_a = self._strategy(
+            [metrics.TIMER_NAME],
+            followed={IID: {"instrument_id": IID, "ts_event": rec_a.metrics_cursor(IID, IID), "found": {},
+                            "thread": None, "retry_ns": 0}},
+            on_data=lambda c: delivered_a.append((c.data.ts_init - T) // MINUTE_NS),
+            reader=reader,
+        )
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: rec_strat_a}, clear=True):
+            self.assertIsNone(rec_a.backfill())
+        self.assertEqual(delivered_a, [5, 10])
+
+        # 4b: late Metrics tick delivered 10:05 during shutdown (advancing cursor to T+5m),
+        # while cut_ns remained stopped_ns = 10:04:59.999.
+        cache_b = SimpleNamespace(orders=list, positions_open=list, bar=lambda _bt: None)
+        strat_b = self._strategy([metrics.TIMER_NAME],
+                                 followed={IID: {"instrument_id": IID, "ts_event": T + 5 * MINUTE_NS}})
+        sess_b = self.session()
+        sess_b.stopped_ns = stopped_ns
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat_b}, clear=True):
+            sess_b.cut(cache_b)
+        saved_b = sess_b.backend.snapshot.call_args.args[1]
+        self.assertEqual(saved_b["cut_ns"], stopped_ns)
+        self.assertEqual(saved_b["sources"][IID]["metrics"], {IID: T + 5 * MINUTE_NS})
+
+        rec_b = self.session(saved=saved_b)
+        rec_b.ready, rec_b.warm_at, rec_b.since = False, T + 11 * MINUTE_NS, {}
+        self.assertEqual(rec_b.metrics_cursor(IID, IID), T + 5 * MINUTE_NS)
+        delivered_b: list[int] = []
+        rec_strat_b = self._strategy(
+            [metrics.TIMER_NAME],
+            followed={IID: {"instrument_id": IID, "ts_event": rec_b.metrics_cursor(IID, IID), "found": {},
+                            "thread": None, "retry_ns": 0}},
+            on_data=lambda c: delivered_b.append((c.data.ts_init - T) // MINUTE_NS),
+            reader=reader,
+        )
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: rec_strat_b}, clear=True):
+            self.assertIsNone(rec_b.backfill())
+        self.assertEqual(delivered_b, [10])
+
+        # Fallback when saved source lacks "metrics": aligns to cut_ns.
+        legacy = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": T})
+        legacy.ready = False
+        self.assertEqual(legacy.metrics_cursor(IID, IID), T)
+        legacy.ready = True
+        self.assertIsNone(legacy.metrics_cursor(IID, IID))
+
+    def test_untouched_limit_order_on_metrics_backfill_passes_while_touched_and_marketable_refuse(self):
+        """Finding 3: Metrics backfill provides 1m bars covering [due_ns - 1m, warm_at] from warmup/cache/reader."""
+        reader = lambda _iid, _ts, wanted: {name: Decimal("10.0").quantize(metrics.EXACT) for name in wanted}
+        warm_at = T + 7 * MINUTE_NS
+        m_bars = [minute(T + m * MINUTE_NS, low="99.00", high="101.00", price="100.00") for m in (5, 6, 7)]
+        untouched = order(kind="LIMIT", side="BUY", price="50.00")
+        marketable = order(kind="LIMIT", side="BUY", price="100.50")
+
+        # 3a: No working order (downtime empty), 1m bars come from read_metrics_minutes OR warmup expected.
+        saved = {"sources": {IID: {"state": {}, "cadence": {}, "metrics": {IID: T}}}, "cut_ns": T}
+        sess = self.session(saved=saved)
+        sess.ready, sess.warm_at, sess.since = False, warm_at, {}
+        self.assertTrue(sess.reads_at_warmup(IID))
+        self.assertEqual(sess.metrics_window_start(IID), T + 4 * MINUTE_NS)
+
+        asked: list[str] = []
+
+        def fake_get(url, _proxy):
+            asked.append(url)
+            # Minute 4 (closing at 10:05) closes at 100; minutes 5-6 trade in [101, 102] so BUY LIMIT @ 100.50
+            # is not touched in minutes 5-6 and specifically hits the "marketable at the close" check!
+            return [
+                [(T + 4 * MINUTE_NS) // 1_000_000, "100", "101", "99", "100", "1",
+                 (T + 5 * MINUTE_NS - 1_000_000) // 1_000_000],
+                [(T + 5 * MINUTE_NS) // 1_000_000, "101.5", "102", "101", "101.5", "1",
+                 (T + 6 * MINUTE_NS - 1_000_000) // 1_000_000],
+                [(T + 6 * MINUTE_NS) // 1_000_000, "101.5", "102", "101", "101.5", "1",
+                 (T + 7 * MINUTE_NS - 1_000_000) // 1_000_000],
+            ]
+
+        sess.read_metrics_minutes(IID, warm_at, (2, 3), None, get=fake_get)
+        self.assertEqual(len(asked), 1)
+        self.assertEqual([b.ts_event for b in sess.metrics_minutes[IID]],
+                         [T + 5 * MINUTE_NS - 1_000_000, T + 6 * MINUTE_NS - 1_000_000, T + 7 * MINUTE_NS - 1_000_000])
+
+        touched_stop = order(kind="STOP_MARKET", side="BUY", trigger="101.50")
+        for label, ord_obj, expected_err in (("untouched", untouched, None),
+                                             ("touched", touched_stop, "touched in the interruption"),
+                                             ("marketable", marketable, "marketable at the close")):
+            with self.subTest(case=label):
+                sess.refused = None
+                strat = self._strategy(
+                    [metrics.TIMER_NAME],
+                    followed={IID: {"instrument_id": IID, "ts_event": T, "found": {}, "thread": None, "retry_ns": 0}},
+                    on_data=lambda _c, o=ord_obj: sess.submitted(o),
+                    reader=reader,
+                )
+                with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+                    err = sess.backfill()
+                if expected_err is None:
+                    self.assertIsNone(err)
+                else:
+                    self.assertIn(expected_err, err or "")
+
+        # 3b: Working order whose downtime starts at last_bar+1ms (10:06, 10:07), while ending bar (10:05)
+        # is in warmup expected[("history", "1-MINUTE")] or cache.
+        sess_b = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": T + 5 * MINUTE_NS - 1_000_000})
+        sess_b.ready, sess_b.warm_at, sess_b.since = False, warm_at, {}
+        sess_b.downtime[IID] = m_bars[1:]  # only 10:06, 10:07
+        strat_b = self._strategy(
+            [metrics.TIMER_NAME],
+            followed={IID: {"instrument_id": IID, "ts_event": T, "found": {}, "thread": None, "retry_ns": 0}},
+            on_data=lambda _c: sess_b.submitted(untouched),
+            reader=reader,
+        )
+        strat_b._warming_state = lambda: {"expected": {("history", "1-MINUTE"): m_bars}}
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat_b}, clear=True):
+            self.assertIsNone(sess_b.backfill())
+
+    def test_unfollow_during_metrics_backfill_skips_remaining_rows(self):
+        """Finding 4: unfollowing inside on_data() stops subsequent backfilled Metrics rows immediately."""
+        reader = lambda _iid, _ts, wanted: {name: Decimal("1.0").quantize(metrics.EXACT) for name in wanted}
+        delivered: list[int] = []
+        state = {"instrument_id": IID, "ts_event": T, "found": {}, "thread": None, "retry_ns": 0}
+        followed = {IID: state}
+
+        def on_data(custom):
+            due_min = (custom.data.ts_init - T) // MINUTE_NS
+            delivered.append(due_min)
+            if due_min == 5:
+                followed.pop(IID, None)
+
+        strat = self._strategy([metrics.TIMER_NAME], followed=followed, on_data=on_data, reader=reader)
+        sess = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": T})
+        sess.ready, sess.warm_at, sess.since = False, T + 16 * MINUTE_NS, {}
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            self.assertIsNone(sess.backfill())
+        self.assertEqual(delivered, [5])
+
+    def test_exiting_refuses_market_exit_before_metrics_backfill_even_without_aggregated_bars(self):
+        """Finding 5: 1-MINUTE-only Metrics recovery refuses market_exit() before backfill completes."""
+        def failing_reader(_iid, _ts, _wanted):
+            raise OSError("network timeout")
+
+        saved = {"sources": {IID: {"state": {}, "cadence": {}, "metrics": {IID: T}}}, "cut_ns": T}
+        sess = self.session(saved=saved)
+        sess.ready, sess.expected_starts, sess.warm_at, sess.since = False, 1, T + 6 * MINUTE_NS, {}
+        sess.cache = SimpleNamespace(
+            account_for_venue=lambda _v: SimpleNamespace(to_dict=lambda: {"calculate_account_state": True}),
+            orders=list,
+        )
+        strat = self._strategy([metrics.TIMER_NAME],
+                               followed={IID: {"instrument_id": IID, "ts_event": T, "found": {},
+                                               "thread": None, "retry_ns": 0}},
+                               reader=failing_reader)
+        exiting_results: list[str | None] = []
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            sess.start(lambda: exiting_results.append(sess.exiting()))
+        self.assertIsNotNone(exiting_results[0])
+        self.assertIn("before the back-fill ended", exiting_results[0] or "")
+        self.assertFalse(sess.ready)
+
+        # Also refuses if saved checkpoint has metrics even before _metrics_follow runs in on_start().
+        sess2 = self.session(saved=saved)
+        sess2.ready, sess2.warm_at, sess2.since = False, T + 6 * MINUTE_NS, {}
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {}, clear=True):
+            self.assertIn("before the back-fill ended", sess2.exiting() or "")
