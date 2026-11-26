@@ -228,7 +228,8 @@ class Observer(Strategy):
                 return
         if getattr(session.account_observation, "purpose", None) != "stop":
             commands.discard_observation(session)
-        if session.mode not in ("run", "finish") or not (session.sources or session.keepers) or session.venue_flat:
+        if (session.mode not in ("run", "finish") or not (session.sources or session.keepers)
+                or session.venue_flat or session.stop_venue_flat):
             session.node.handle().stop()  # nothing to close: no source, or Binance holds nothing (venue_flat_exit)
             return
         positions = owned(self.cache.positions_open, session.manifest)
@@ -258,7 +259,7 @@ class Observer(Strategy):
                 or found.quantity.as_decimal() > session.phantoms[str(found.id)]] and not entries:
             session.cancel_open(self.cache, pending, now)
             if not pending and positions:
-                live_connection.venue_flat_exit(session, session.stop_read)
+                session.stop_venue_flat = True
                 session.node.handle().stop()
             elif not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)

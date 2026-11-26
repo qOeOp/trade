@@ -56,6 +56,9 @@ class Session:
     # Binance held nothing while the native cache still held a position: the run ended there, nothing sent
     # (engine.live_connection.venue_flat_exit).
     venue_flat: bool = False
+    # The STOP path finished its closes and cancels with only phantom quantities left in the native cache
+    # (engine.live_lifecycle.Observer.observe); engine.live.start verifies Binance is flat with a final read.
+    stop_venue_flat: bool = False
     rewarming: bool = False  # a missing bar while flat: the next start warms the source up again
     # This start follows one that ended to warm up again (engine.live warmup_retry): if its warm-up fails, the run
     # starts once more instead of ending (the user, 2026-11-13); warmup_retried says this start does so.
