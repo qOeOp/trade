@@ -60,14 +60,34 @@ SHOWN = 400  # characters of a value kept
 
 # Runs in a child process: argv is (tree, result file, probe file, function, size or "").
 CHILD = r'''
-import json, pathlib, runpy, sys, time
+import gc, json, pathlib, runpy, sys, time, tracemalloc
+try:
+    import resource
+except ImportError:
+    resource = None
+def _rss_mib():
+    if resource is None:
+        return None
+    raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return raw / (1024.0 * 1024.0) if sys.platform == "darwin" else raw / 1024.0
 tree, out, probe, name, size = sys.argv[1:]
 found = runpy.run_path(probe, run_name="doctor_probe")
 if size:
-    call, seconds = found["setup"](int(size)), []
+    call, seconds, rss_mib = found["setup"](int(size)), [], []
     for _ in range(int(name) + 1):
         began = time.perf_counter(); call(); seconds.append(time.perf_counter() - began)
-    result = {"seconds": seconds}
+        rss = _rss_mib()
+        if rss is not None:
+            rss_mib.append(rss)
+    gc.collect()
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        call()
+        _, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    result = {"seconds": seconds, "peak_rss_mib": rss_mib, "peak_heap_kib": [peak_bytes / 1024.0]}
 elif name not in found:
     result = {"state": "none"}
 else:
@@ -613,7 +633,24 @@ def growth(sizes: Sequence[int], medians: Sequence[float]) -> float:
             / sum((x - middle_x) ** 2 for x in xs))
 
 
-def read_cost(readings: dict[int, list[float]]) -> dict:
+def _warm_series(raw: Sequence[float]) -> list[float]:
+    return list(raw[1:]) if len(raw) > 1 else list(raw)
+
+
+def _heap_exponent(sizes: Sequence[int], medians: Sequence[float]) -> float | None:
+    """Power-law growth exponent of peak Python heap when growth exceeds noise (>=1 KiB and >10% spread)."""
+    if len(sizes) < 2 or min(medians) < 0.01:
+        return None
+    if max(medians) - min(medians) < 1.0 or medians[-1] <= medians[0] * 1.1:
+        return None
+    return round(growth(sizes, medians), 2)
+
+
+def read_cost(
+    readings: dict[int, list[float]],
+    rss_readings: dict[int, list[float]] | None = None,
+    heap_readings: dict[int, list[float]] | None = None,
+) -> dict[str, Any]:
     """The first call of each size apart (cold); over the later ones the medians, their growth, and whether
     neighbouring sizes can be told apart at all: none of their readings overlap."""
     sizes = sorted(readings)
@@ -621,10 +658,23 @@ def read_cost(readings: dict[int, list[float]]) -> dict:
     medians = [statistics.median(warm[size]) for size in sizes]
     noisy = any(max(warm[a]) >= min(warm[b]) and max(warm[b]) >= min(warm[a])
                 for a, b in zip(sizes, sizes[1:], strict=False))
-    return {"cold_s": {size: round(readings[size][0], 6) for size in sizes},
-            "warm_s": {size: [round(value, 6) for value in warm[size]] for size in sizes},
-            "verdict": "noisy" if noisy else "measured",
-            "exponent": None if noisy else round(growth(sizes, medians), 2)}
+    out: dict[str, Any] = {
+        "cold_s": {size: round(readings[size][0], 6) for size in sizes},
+        "warm_s": {size: [round(value, 6) for value in warm[size]] for size in sizes},
+        "verdict": "noisy" if noisy else "measured",
+        "exponent": None if noisy else round(growth(sizes, medians), 2),
+    }
+    if rss_readings and all(rss_readings.get(size) for size in sizes):
+        warm_rss = {size: _warm_series(rss_readings[size]) for size in sizes}
+        out["peak_rss_mib"] = {size: [round(v, 3) for v in warm_rss[size]] for size in sizes}
+        out["median_peak_rss_mib"] = {size: round(statistics.median(warm_rss[size]), 3) for size in sizes}
+    if heap_readings and all(heap_readings.get(size) for size in sizes):
+        warm_heap = {size: _warm_series(heap_readings[size]) for size in sizes}
+        heap_medians = [statistics.median(warm_heap[size]) for size in sizes]
+        out["peak_heap_kib"] = {size: [round(v, 3) for v in warm_heap[size]] for size in sizes}
+        out["median_peak_heap_kib"] = {size: round(med, 3) for size, med in zip(sizes, heap_medians, strict=True)}
+        out["heap_exponent"] = _heap_exponent(sizes, heap_medians)
+    return out
 
 
 def cost(args: argparse.Namespace) -> None:
@@ -636,6 +686,8 @@ def cost(args: argparse.Namespace) -> None:
         raise SystemExit("a growth rate needs three different integer sizes of at least 1") from None
     if len(sizes) < 3 or sizes[0] < 1:
         raise SystemExit("a growth rate needs three different sizes of at least 1")
+    rss_readings: dict[int, list[float]] = {}
+    heap_readings: dict[int, list[float]] = {}
     with tree(rev) as root:
         for size in sizes:
             result, tail = child(root, CHILD, [str(root), "OUT", str(args.probe.resolve()), str(REPEATS), str(size)],
@@ -645,8 +697,18 @@ def cost(args: argparse.Namespace) -> None:
                                       "verdict": "broken", "why": f"size {size}: {tail}"})
                 return
             readings[size] = result["seconds"]
-    keep(args.directory, {"kind": "cost", "item": "cost", "subject": args.subject, "tree": rev,
-                          "probe": str(args.probe), **read_cost(readings)})
+            if result.get("peak_rss_mib"):
+                rss_readings[size] = result["peak_rss_mib"]
+            if result.get("peak_heap_kib"):
+                heap_readings[size] = result["peak_heap_kib"]
+    keep(args.directory, {
+        "kind": "cost", "item": "cost", "subject": args.subject, "tree": rev, "probe": str(args.probe),
+        **read_cost(
+            readings,
+            rss_readings=rss_readings if len(rss_readings) == len(sizes) else None,
+            heap_readings=heap_readings if len(heap_readings) == len(sizes) else None,
+        ),
+    })
 
 
 def judge(fixed: dict[str, str], reverted: dict[str, str], now: dict[str, str]) -> tuple[str, list[str]]:
@@ -889,7 +951,11 @@ def _format_evidence_row(row: dict[str, Any]) -> str:
             f"{' [tree_drift]' if row.get('tree_drift') else ''}"
         )
     if row["kind"] == "cost":
-        return f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
+        base = f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
+        if row.get("median_peak_rss_mib") is not None or row.get("median_peak_heap_kib") is not None:
+            heap_exp = f", heap_exp {row['heap_exponent']}" if row.get("heap_exponent") is not None else ""
+            base += f", rss_mib {row.get('median_peak_rss_mib')}, heap_kib {row.get('median_peak_heap_kib')}{heap_exp}"
+        return base
     return f"{len(row['tests'])} telling tests"
 
 
