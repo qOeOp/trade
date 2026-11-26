@@ -307,3 +307,20 @@
    - `unittest` **42/42 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
 4. **下一轮假设（Round 11 — 全新攻击面对抗红队轮 1 + 真实 Git 12 快照纵向回放 + 40 轮混沌压测 + Claude 拆 PR 视角审计）**：
    - 在修复上述 5 项 P0/P1 后，对全新攻击面（空仓/单文件仓/Unicode 特殊路径/时区偏移/损坏 JSONL/畸形 `cost`/`run`/`recheck`/真实 `origin/main` 12 快照纵向回放 + 新 40 轮混沌演化场景）执行深度对抗红队，同时审视技能文档体积与可拆 PR 边界。
+
+## 15. 第十一轮迭代（v2.10）：新攻击面红队与 40 轮混沌压测（H11.1–H11.3）
+
+1. **全新维度对抗红队与 12 快照纵向回放 + 40 轮混沌演化暴露 3 项真实缺口（`/tmp/doctor-rd-sources/redteam_round11.py`）**：
+   - **H11.1（P1 `scheduler.py` `HARM_RE` 英语词形屈折漏报）**：40 轮混沌压测中 `pkg0/core.py silently drops fills` 居然未触发 `harm`——因 `\b(silent|drop|fill|crash|bypass|corrupt|leak)\b` 精确匹配原形，漏掉真实 issue 标题高频出现的 `silently`、`drops`、`fills`、`crashes`、`bypasses`、`corrupts`、`leaks`、`orders`、`positions`。
+   - **H11.2（P1 `friction.py` 混合时区与畸形 JSONL 崩溃）**：`_parse_iso()` 未把 naive datetime 归一到 UTC 且未校验 `isinstance(ts, str)`，导致混有 naive/UTC 时间戳的 CI/transcript 抛 `TypeError: can't compare offset-naive and offset-aware datetimes`，整型 `created_at` 抛 `AttributeError`，非列表 `tool_calls` 异常遍历字符串。
+   - **H11.3（P2 边界硬化）**：纯文档/0 代码对象仓下 `advise` 返回 `find` 但 `objects: []`（会被 `scope` 拒绝）；`doctor.py cost --sizes a,b,c` 抛裸 `ValueError` 而非干净 `SystemExit`。
+2. **最小修复（净增仅 10 行生产代码）**：
+   - `scheduler.py`：扩展 `HARM_RE` 覆盖常见词尾屈折（`silent(?:ly)?`、`drops?/dropped/dropping`、`fills?/filled`、`orders?`、`positions?`、`corrupt(?:s|ed|ing|ion)?`、`bypass(?:es|ed|ing)?`、`crash(?:es|ed|ing)?`、`leaks?/leaked/leaking` 等）；`_parse_iso` 统一 UTC 归一并做类型保护；`_pick_find_objects` 在 0 代码对象仓下回退至合法 `tops` 对象。
+   - `friction.py`：`_parse_iso` 校验 `isinstance(ts, str)` 并统一归一到 UTC；`_record_step_tools` 校验 `isinstance(raw_tcs, list)`。
+   - `doctor.py`：`cost()` 捕获 `ValueError` 并抛明确 `SystemExit`。
+3. **对照验证**：
+   - 红队复测全部 **0 findings**：12 快照真实 `origin/main` 纵向回放 0 异常；40 轮混沌压测（10 包 + 30 天静默 SLA 唤醒 + 并发 `harm`/`slim`/`friction`/`Revert`/部分审计）中 `harm` 2/2 准确触发、30 天静默后 10/10 包全部唤醒并覆盖、SLA 违约期最大非 `harm` 连续等待 `<= 1` 轮。
+   - `doctor.py delta HEAD~1 HEAD`：`prod_lines.net = +10`，`max_cognitive: 38 → 38 (0)`，`min_health: 4.91 → 4.90 (-0.01)`，`new_break_even_regressions: []`，`tangled_refactor_risk: false`。
+   - `unittest` **43/43 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
+4. **下一轮假设（Round 12 — 连续干净红队验证轮 1 + Claude 拆 PR 视角审计）**：
+   - Round 11 发现了 `HARM_RE` 屈折漏报与 `friction.py` 混合时区崩溃，因此连续干净红队计数归零；下一轮从全新对抗维度（深度嵌套 JS/TS/TSX 语法、Python 3.14 AST 特性、并发/多文件耦合、边界 `recheck`、`attach`/`lenses.md`/`record.md` 一致性、`SKILL.md` 词数与 Claude 拆 PR 结构审计）展开独立对抗红队验证，检验是否已达 0 P0/P1。

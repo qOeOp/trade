@@ -1073,3 +1073,45 @@ export function load(cfg?: Config) {
         self.assertFalse(plan["stopping_checks"]["no_friction_triggers"])
         self.assertEqual(plan["recommended_theme"], "steady")
         self.assertIn("cooldown", plan["rationale"])
+
+    def test_v2_10_round11_harm_inflections_mixed_tz_and_cost_sizes_guard(self):
+        """Round 11 (H11.1–H11.3): inflected harm verbs (`silently drops fills`, `bypasses`, `crashes`),
+        mixed naive/aware ISO timestamps & malformed transcript rows, and non-integer `cost --sizes`."""
+        # H11.1: inflected harm title ("silently drops fills") must trigger actionable_harm.
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        issues_inflected = self.home / "inflected.json"
+        issues_inflected.write_text(json.dumps([{
+            "number": 951, "state": "OPEN",
+            "title": "alpha/core.py silently drops fills when retrying",
+            "labels": [{"name": "agent-finding"}],
+            "updatedAt": f"{today}T00:00:00Z",
+            "body": "See alpha/core.py:1",
+        }]), encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_inflected)
+        self.assertEqual(plan["recommended_theme"], "harm")
+        self.assertEqual([i["number"] for i in plan["issues_summary"]["actionable_harm"]], [951])
+
+        # H11.2: mixed naive & UTC-aware timestamps + non-string timestamp + non-list tool_calls must not crash.
+        ci_mixed = friction.analyze_ci_runs([
+            {"workflowName": "q", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-25T00:00:00Z", "updatedAt": "2026-11-25T00:05:00Z"},
+            {"workflowName": "q", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-26T00:00:00", "updatedAt": "2026-11-26T00:05:00"},
+        ])
+        self.assertEqual(ci_mixed["workflows"]["q"]["median_minutes"], 5.0)
+
+        weird_tx = self.home / "weird_tz.jsonl"
+        weird_tx.write_text("\n".join([
+            json.dumps({"created_at": "2026-11-26T00:00:00Z", "type": "USER_INPUT"}),
+            json.dumps({"created_at": "2026-11-26T00:05:00", "type": "PLANNER_RESPONSE", "tool_calls": "bad"}),
+            json.dumps({"created_at": 1700000000, "type": "PLANNER_RESPONSE", "tool_calls": [{"name": "x", "args": None}]}),
+        ]) + "\n", encoding="utf-8")
+        tx = friction.analyze_transcripts([weird_tx])
+        self.assertEqual(tx["sessions"][0]["duration_minutes"], 5.0)
+        self.assertEqual(tx["sessions"][0]["tool_calls"], 1)
+
+        # H11.3: non-integer `cost --sizes` raises clean SystemExit instead of raw ValueError.
+        cp = self.home / "cp.py"
+        cp.write_text("def setup(n): return lambda: None\n", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            doctor.main(["cost", str(self.home / "ev-bad-sizes"), "alpha:x", str(cp), "--sizes", "a,b,c", "--tree", "HEAD"])

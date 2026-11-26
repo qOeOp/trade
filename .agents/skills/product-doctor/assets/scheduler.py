@@ -28,9 +28,10 @@ if _ASSETS_DIR not in sys.path:
 import telemetry  # noqa: E402
 
 HARM_RE = re.compile(
-    r"\b(live|money|fund|order|fill|position|venue_flat|ledger|corrupt|wrong|incorrect|invalid|"
-    r"bypass|refusal|veto|drawdown|equity|security|crash|oom|data loss|silent|phantom|stop|"
-    r"voids|reproduction failure|unfalsified|leak|drop)\b",
+    r"\b(live|money|funds?|orders?|fills?|filled|positions?|venue_flat|ledger|"
+    r"corrupt(?:s|ed|ing|ion)?|wrong|incorrect|invalid|bypass(?:es|ed|ing)?|refusals?|veto(?:es|ed)?|"
+    r"drawdown|equity|security|crash(?:es|ed|ing)?|oom|data loss|silent(?:ly)?|phantom|stops?|stopped|"
+    r"voids?|voided|reproduction failure|unfalsified|leaks?|leaked|leaking|drops?|dropped|dropping)\b",
     re.IGNORECASE,
 )
 SECURITY_RE = re.compile(r"\b(security|credential|secret|token|password|cve|injection|bypass)\b", re.IGNORECASE)
@@ -67,11 +68,12 @@ def _commit_date(rev: str) -> datetime:
     return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(UTC)
 
 
-def _parse_iso(ts: str | None) -> datetime | None:
-    if not ts:
+def _parse_iso(ts: Any) -> datetime | None:
+    if not isinstance(ts, str) or not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(UTC)
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
     except ValueError:
         return None
 
@@ -479,7 +481,7 @@ def _friction_is_object_cooled(
     return True
 
 
-def _pick_find_objects(ranked_objects: list[dict[str, Any]]) -> list[str]:
+def _pick_find_objects(ranked_objects: list[dict[str, Any]], tops: dict[str, dict[str, Any]] | None = None) -> list[str]:
     picked: list[str] = []
     actionable_pool = [r for r in ranked_objects if r["staleness_breach"] or not r["unchanged_since_examined"]]
     pool = actionable_pool or ranked_objects
@@ -493,6 +495,9 @@ def _pick_find_objects(ranked_objects: list[dict[str, Any]]) -> list[str]:
         picked.append(cold_stale[0]["object"])
     elif len(pool) > 1:
         picked.append(pool[1]["object"])
+    if not picked and tops:
+        non_root = [n for n in sorted(tops) if n != "."]
+        picked = non_root[:2] or sorted(tops)[:1]
     return picked[:3]
 
 
@@ -501,7 +506,7 @@ def _select_theme_and_scope(
     friction_triggers: list[str], friction_objs: list[str], friction_items: list[str],
     slim_cooled_down: bool, friction_cooled_down: bool, can_steady: bool,
     ranked_objects: list[dict[str, Any]], stalest_items: list[tuple[str, str]],
-    staleness_breaches: list[str], sla_days: int,
+    staleness_breaches: list[str], sla_days: int, tops: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, list[str], list[str], str]:
     if issue_buckets["actionable_harm"]:
         objs = sorted({o for iss in issue_buckets["actionable_harm"] for o in iss["objects"]})[:3]
@@ -536,7 +541,7 @@ def _select_theme_and_scope(
                 "substantive complete audits. Stop and cooldown instead of manufacturing low-value findings."
             )
         return "steady", [], [], rat
-    objs = _pick_find_objects(ranked_objects)
+    objs = _pick_find_objects(ranked_objects, tops)
     chosen_items = [item for item, _ in stalest_items[:3]]
     cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
     if staleness_breaches:
@@ -649,7 +654,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     theme, chosen_objs, chosen_items, rationale = _select_theme_and_scope(
         issue_buckets, slim_list, friction_triggers, friction_objs, friction_items,
         slim_cooled_down, friction_cooled_down, can_steady,
-        ranked_objects, stalest_items, staleness_breaches, sla_days,
+        ranked_objects, stalest_items, staleness_breaches, sla_days, tops=tops,
     )
     coupled_contracts = [
         c for c in telemetry_data["couplings"]

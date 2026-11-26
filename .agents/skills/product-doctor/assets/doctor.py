@@ -602,7 +602,10 @@ def read_cost(readings: dict[int, list[float]]) -> dict:
 def cost(args: argparse.Namespace) -> None:
     rev, readings = commit(args.tree), {}
     known("cost", args.subject, rev)
-    sizes = sorted({int(size) for size in args.sizes.split(",")})
+    try:
+        sizes = sorted({int(size) for size in args.sizes.split(",")})
+    except ValueError:
+        raise SystemExit("a growth rate needs three different integer sizes of at least 1") from None
     if len(sizes) < 3 or sizes[0] < 1:
         raise SystemExit("a growth rate needs three different sizes of at least 1")
     with tree(rev) as root:

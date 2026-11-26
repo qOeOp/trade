@@ -8,7 +8,7 @@ Pure Python standard library; never prints raw transcript prompts, outputs, or c
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 import math
 from pathlib import Path
@@ -63,11 +63,12 @@ def _unwrap_str(value: Any) -> str:
     return value
 
 
-def _parse_iso(ts: str | None) -> datetime | None:
-    if not ts:
+def _parse_iso(ts: Any) -> datetime | None:
+    if not isinstance(ts, str) or not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
     except ValueError:
         return None
 
@@ -166,7 +167,8 @@ def _record_skill_args(tname: str, args: Any, skills_loaded: set[str], cmd_summa
 def _record_step_tools(obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str]) -> tuple[int, int]:
     """Count (tool_calls, tool_errors) from Antigravity `tool_calls` and Claude Code `message.content`."""
     calls = errors = 0
-    for tc in obj.get("tool_calls") or []:
+    raw_tcs = obj.get("tool_calls")
+    for tc in raw_tcs if isinstance(raw_tcs, list) else ():
         if isinstance(tc, dict):
             calls += 1
             _record_skill_args(str(tc.get("name") or ""), tc.get("args") or tc.get("arguments"), skills_loaded, cmd_summaries)
