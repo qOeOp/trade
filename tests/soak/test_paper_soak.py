@@ -113,6 +113,26 @@ class PaperSoakTests(unittest.TestCase):
             )
         self.assertIn("oom=1", str(oom_ctx.exception))
 
+    def test_six_contract_metrics_subscribed_soak_and_recovery_locks_3782_3783_3786(self):
+        """End-to-end integration lock combining #3782 (512 MiB cap), #3783 (Metrics checkpoint+backfill), and #3786."""
+        with PaperSoakHarness(symbols=DEFAULT_SYMBOLS, cut_every_minutes=30) as soak:
+            result = soak.run(hours=8, subscribe_metrics=True)
+            self.assertGreaterEqual(result.memory["container_limit_mib"], 512.0, "#3782 6-contract container budget")
+            self.assertEqual(result.attempted_cuts, 16)
+            self.assertEqual(result.published_cuts, 16, "#3783 runner-metrics timer must not starve checkpoints")
+            self.assertEqual(result.deferred_reasons, [])
+
+            ready, refused, delivered = soak.simulate_metrics_restart_recovery(
+                saved_snapshot=result.last_snapshot,
+                downtime_minutes=16,
+            )
+            self.assertTrue(ready)
+            self.assertIsNone(refused)
+            cut_ns = int(result.last_snapshot["cut_ns"])
+            expected_ts = [cut_ns, cut_ns + 5 * 60 * 10**9, cut_ns + 10 * 60 * 10**9]
+            for iid in soak.iids:
+                self.assertEqual(delivered[iid], expected_ts, f"missed or duplicate Metrics rows for {iid}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -290,7 +290,14 @@ class PaperSoakHarness:
             linked_order_ids=None,
         )
 
-    def _make_strategy(self, iid: str, *, timers: list[str], subscription_changed: bool) -> Any:
+    def _make_strategy(
+        self, iid: str, *, timers: list[str], subscription_changed: bool, subscribe_metrics: bool = False
+    ) -> Any:
+        followed = (
+            {iid: {"instrument_id": iid, "ts_event": self.start_ns, "found": {}, "thread": None, "retry_ns": 0}}
+            if subscribe_metrics
+            else {}
+        )
         return SimpleNamespace(
             _paper_held=[],
             _paper_subscription_changes=subscription_changed,
@@ -299,13 +306,14 @@ class PaperSoakHarness:
             clock=SimpleNamespace(timer_names=lambda: list(timers)),
             save=lambda iid=iid: {"contract": iid.encode("utf-8")},
             _paper_cadence={iid: Cadence()},
-            _metrics_followed={},
+            _metrics_followed=followed,
         )
 
     def run(
         self,
         *,
         hours: int = 8,
+        subscribe_metrics: bool = False,
         inject_subscription_change: bool = False,
         inject_user_timer: bool = False,
         inject_leak_kib_per_minute: int = 0,
@@ -337,9 +345,11 @@ class PaperSoakHarness:
         session.ready = True
         session.warm_at = self.start_ns
 
-        timers = ["user-soak-timer"] if inject_user_timer else []
+        timers = ([metrics.TIMER_NAME] if subscribe_metrics else []) + (["user-soak-timer"] if inject_user_timer else [])
         strategies = {
-            iid: self._make_strategy(iid, timers=timers, subscription_changed=inject_subscription_change)
+            iid: self._make_strategy(
+                iid, timers=timers, subscription_changed=inject_subscription_change, subscribe_metrics=subscribe_metrics
+            )
             for iid in self.iids
         }
         cache = SimpleNamespace(orders=lambda: list(open_orders or []), positions_open=list)
@@ -404,6 +414,8 @@ class PaperSoakHarness:
                         )
                         if row.ts_init == now_ns:
                             metrics_delivered[iid] += 1
+                            if subscribe_metrics:
+                                strategies[iid]._metrics_followed[iid]["ts_event"] = now_ns
 
                 if inject_leak_kib_per_minute > 0:
                     self.leaked_buffers.append(b"x" * (inject_leak_kib_per_minute * 1024))
@@ -489,22 +501,80 @@ class PaperSoakHarness:
         account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
         backend = SimpleNamespace(output=self.output, root=self.recovery_root, snapshot=mock.Mock(return_value={}))
         loaded = SimpleNamespace(strategy_class=SoakStrategy, warmup=())
-        session = paper_session.Session(
-            backend, mock.Mock(), loaded, saved_snapshot, self.start_ns, self.start_ns, warm_at, release=lambda _: None
-        )
-        session.ready = False
-        session.expected_starts = len(self.iids) + 1
-        session.warm_at = warm_at
-        session.last_bar = last_bar
-        session.downtime = downtime
-        session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=lambda: list(open_orders))
-
-        started: list[str] = []
         with mock.patch("engine.paper_session.time.time_ns", return_value=warm_at):
+            session = paper_session.Session(
+                backend, mock.Mock(), loaded, saved_snapshot, self.start_ns, self.start_ns, warm_at,
+                release=lambda _: None,
+            )
+            session.ready = False
+            session.expected_starts = len(self.iids) + 1
+            session.warm_at = warm_at
+            session.last_bar = last_bar
+            session.downtime = downtime
+            session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=lambda: list(open_orders))
+
+            started: list[str] = []
             session.start(lambda: started.append("recorder"))
             for iid in self.iids:
                 session.start(lambda iid=iid: started.append(iid))
         return session.ready, session.refused
+
+    def simulate_metrics_restart_recovery(
+        self,
+        *,
+        saved_snapshot: dict[str, Any],
+        downtime_minutes: int = 16,
+    ) -> tuple[bool, str | None, dict[str, list[int]]]:
+        """End-to-end recovery check for Metrics-subscribed strategies across #3783 + #3786."""
+        cut_ns = int(saved_snapshot["cut_ns"])
+        warm_at = cut_ns + downtime_minutes * MINUTE_NS
+        delivered: dict[str, list[int]] = {iid: [] for iid in self.iids}
+
+        def reader(_iid: str, _ts_event: int, wanted: list[str]) -> dict[str, Decimal]:
+            return {name: Decimal("2.5").quantize(metrics.EXACT) for name in wanted}
+
+        account = SimpleNamespace(to_dict=lambda: {"calculate_account_state": True})
+        backend = SimpleNamespace(output=self.output, root=self.recovery_root, snapshot=mock.Mock(return_value={}))
+        loaded = SimpleNamespace(strategy_class=SoakStrategy, warmup=())
+
+        strategies: dict[str, Any] = {}
+        for iid in self.iids:
+            strat = self._make_strategy(iid, timers=[], subscription_changed=False, subscribe_metrics=False)
+            strat._metrics_read = reader
+            strat._replay_input_start_ns = self.start_ns
+            strat.on_data = lambda custom, iid=iid: delivered[iid].append(custom.data.ts_event)
+            clock = SimpleNamespace(
+                timestamp_ns=lambda: warm_at + 10**9,
+                timer_names=list,
+                set_timer=lambda *_args, **_kwargs: None,
+            )
+            strat._metrics_clock = lambda clock=clock: clock
+            strat._metrics_tick = lambda _ev=None: None
+            strat._metrics_backfill_due = lambda up_to_ns, strat=strat: metrics.Feed._metrics_backfill_due(
+                strat, up_to_ns
+            )
+            strategies[iid] = strat
+
+        with mock.patch.dict(strategy_runtime.STRATEGIES, strategies, clear=True), mock.patch(
+            "engine.paper_session.time.time_ns", return_value=warm_at
+        ):
+            session = paper_session.Session(
+                backend, mock.Mock(), loaded, saved_snapshot, self.start_ns, self.start_ns, warm_at,
+                release=lambda _: None,
+            )
+            session.ready = False
+            session.expected_starts = len(self.iids) + 1
+            session.warm_at = warm_at
+            session.since = {}
+            session.cache = SimpleNamespace(account_for_venue=lambda _: account, orders=list)
+            session.start(lambda: None)
+            for iid, strat in strategies.items():
+                session.start(
+                    lambda iid=iid, strat=strat: metrics.Feed._metrics_follow(
+                        strat, iid, after_ns=session.metrics_after()
+                    )
+                )
+        return session.ready, session.refused, delivered
 
 
 class LiveSoakVenue:
