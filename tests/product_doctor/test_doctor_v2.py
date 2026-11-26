@@ -843,3 +843,41 @@ export function load(cfg?: Config) {
         self.assertEqual(r3["outcomes"]["reverted"]["fail"], 0)
         self.assertEqual(r3["outcomes"]["reverted"]["error"], 1)
         self.assertIn("added", r3["outcomes"]["reverted"].get("why", ""))
+
+    def test_v2_6_combined_slim_friction_cooldown_prevents_find_starvation(self):
+        """Round 7: alternating `slim` and `friction` cannot starve `find` while SLA breaches remain,
+        and a zero-yield `friction` audit enters 7-day per-object cooldown instead of ping-ponging."""
+        for i in range(4):
+            self.commit({"alpha/core.py": CLONE_A + f"# burst {i}\n"}, message=f"fix(alpha): burst {i}")
+        issues_path = self.home / "empty_issues.json"
+        issues_path.write_text("[]", encoding="utf-8")
+        ci_path = self.home / "bad_ci.json"
+        ci_path.write_text(json.dumps([
+            {"workflowName": "quality", "status": "completed", "conclusion": "failure",
+             "createdAt": f"2026-11-2{i}T00:00:00Z", "updatedAt": f"2026-11-2{i}T00:25:00Z"}
+            for i in range(1, 6)
+        ]), encoding="utf-8")
+
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec_slim = (
+            "# Themed audit: slim\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| size | beta:check | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_fric = (
+            "# Themed audit: friction\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| delivery | alpha:ci | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-1-slim.zh.md": rec_slim,
+            f"docs/plans/doctor/{today}-2-friction.zh.md": rec_fric,
+        }, message="docs(doctor): slim then friction while cold remains unexamined")
+
+        # Both `alpha` (still bursting!) and CI friction are active, yet `last_two_themes` is `["slim", "friction"]`
+        # while `cold` breaches SLA -> MUST yield to `find` instead of starving cold coverage!
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path, "--ci-json", ci_path)
+        self.assertEqual(plan["recommended_theme"], "find")
+        self.assertIn("cold", plan["recommended_scope"]["objects"])

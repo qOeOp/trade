@@ -113,22 +113,48 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _inspect_transcript_file(path: Path) -> dict[str, Any]:
-    """Parse one JSONL transcript (Antigravity, Claude Code, or Codex) into privacy-safe friction metrics."""
-    steps = 0
-    user_turns = 0
-    tool_calls = 0
-    tool_errors = 0
-    tool_names: Counter[str] = Counter()
-    skills_loaded: set[str] = set()
-    cmd_summaries: Counter[str] = Counter()
-    timestamps: list[datetime] = []
+def _record_skill_args(tname: str, args: Any, skills_loaded: set[str], cmd_summaries: Counter[str]) -> None:
+    if not isinstance(args, dict):
+        return
+    fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
+    if SKILL_PATH_MARKER in fpath and fpath.endswith("SKILL.md"):
+        skills_loaded.add(fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0])
+    if tname == "Skill" and args.get("skill"):
+        skills_loaded.add(_unwrap_str(args["skill"]))
+    summary = _unwrap_str(args.get("toolSummary") or "")
+    if summary:
+        cmd_summaries[summary] += 1
 
+
+def _record_step_tools(obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str]) -> tuple[int, int]:
+    """Count (tool_calls, tool_errors) from Antigravity `tool_calls` and Claude Code `message.content`."""
+    calls = errors = 0
+    for tc in obj.get("tool_calls") or []:
+        if isinstance(tc, dict):
+            calls += 1
+            _record_skill_args(str(tc.get("name") or ""), tc.get("args") or tc.get("arguments"), skills_loaded, cmd_summaries)
+    msg = obj.get("message")
+    blocks = msg.get("content") if isinstance(msg, dict) else None
+    if not isinstance(blocks, list):
+        return calls, errors
+    for blk in blocks:
+        if not isinstance(blk, dict):
+            continue
+        btype = blk.get("type")
+        if btype == "tool_use":
+            calls += 1
+            _record_skill_args(str(blk.get("name") or ""), blk.get("input"), skills_loaded, cmd_summaries)
+        elif btype == "tool_result" and blk.get("is_error"):
+            errors += 1
+    return calls, errors
+
+
+def _iter_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
     try:
         raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as error:
         raise SystemExit(f"cannot read transcript {path}: {error}") from None
-
+    out: list[dict[str, Any]] = []
     for line in raw_lines:
         if not line.strip():
             continue
@@ -136,64 +162,34 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(obj, dict):
-            continue
-        steps += 1
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out
 
+
+def _inspect_transcript_file(path: Path) -> dict[str, Any]:
+    """Parse one JSONL transcript (Antigravity, Claude Code, or Codex) into privacy-safe friction metrics."""
+    rows = _iter_jsonl_dicts(path)
+    user_turns = tool_calls = tool_errors = 0
+    skills_loaded: set[str] = set()
+    cmd_summaries: Counter[str] = Counter()
+    timestamps: list[datetime] = []
+
+    for obj in rows:
         ts = _parse_iso(obj.get("created_at") or obj.get("timestamp"))
         if ts:
             timestamps.append(ts)
-
-        # Antigravity / Claude Code / Codex role & type detection.
         step_type = str(obj.get("type") or "").upper()
         role = str(obj.get("role") or "").lower()
         source = str(obj.get("source") or "").upper()
         if step_type == "USER_INPUT" or source == "USER_EXPLICIT" or (role == "user" and step_type in ("", "USER")):
             user_turns += 1
-
         status = str(obj.get("status") or "").upper()
         if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
             tool_errors += 1
-
-        # Antigravity `tool_calls` array
-        for tc in obj.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            tool_calls += 1
-            tname = str(tc.get("name") or "unknown")
-            tool_names[tname] += 1
-            args = tc.get("args") or tc.get("arguments") or {}
-            if isinstance(args, dict):
-                fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
-                if SKILL_PATH_MARKER in fpath and fpath.endswith("SKILL.md"):
-                    skill = fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0]
-                    skills_loaded.add(skill)
-                if tname == "Skill" and args.get("skill"):
-                    skills_loaded.add(_unwrap_str(args["skill"]))
-                summary = _unwrap_str(args.get("toolSummary") or "")
-                if summary:
-                    cmd_summaries[summary] += 1
-
-        # Claude Code `message.content` tool_use / tool_result blocks
-        msg = obj.get("message")
-        if isinstance(msg, dict) and isinstance(msg.get("content"), list):
-            for blk in msg["content"]:
-                if not isinstance(blk, dict):
-                    continue
-                btype = blk.get("type")
-                if btype == "tool_use":
-                    tool_calls += 1
-                    tname = str(blk.get("name") or "unknown")
-                    tool_names[tname] += 1
-                    inp = blk.get("input") or {}
-                    if isinstance(inp, dict):
-                        fpath = str(inp.get("file_path") or inp.get("path") or "")
-                        if SKILL_PATH_MARKER in fpath and fpath.endswith("SKILL.md"):
-                            skills_loaded.add(fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0])
-                        if tname == "Skill" and inp.get("skill"):
-                            skills_loaded.add(str(inp["skill"]))
-                elif btype == "tool_result" and blk.get("is_error"):
-                    tool_errors += 1
+        c, e = _record_step_tools(obj, skills_loaded, cmd_summaries)
+        tool_calls += c
+        tool_errors += e
 
     span_min = (
         round((max(timestamps) - min(timestamps)).total_seconds() / 60.0, 1)
@@ -204,7 +200,7 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
 
     return {
         "file": path.name,
-        "steps": steps,
+        "steps": len(rows),
         "user_turns": user_turns,
         "tool_calls": tool_calls,
         "tool_errors": tool_errors,

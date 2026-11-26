@@ -223,4 +223,24 @@
    - 新增 eval case：`recheck-cross-language-js-ts`（分支累计新增 9 个 eval case）。
    - 验证：`unittest` 38/38 OK、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
 
+## 11. 第七轮迭代（v2.6）：多主题并发压力仿真 + Doctor 自我体检减负（Dogfooding）
+
+1. **三情景多主题并发压力仿真（`friction` + `harm` + `slim` + `find` + `steady` 联合压测，18–20 轮）暴露出组合调度漏洞**：
+   - **暴露问题（v2.5）**：在持续 CI 摩擦 + 冷对象超期（Regime 2）情景中，`slim -> friction -> find -> slim -> friction -> find` 交替把 `"friction"` 顶出 `last_two_themes`，导致 `.github` 被重复审计 **6 次**，全覆盖推迟到第 18 轮；在叠加第 5、11 轮 `harm` 冲击（Regime 3）时，`find` 被连续饿死 5 轮（R3→R8），第 19 轮才进入 `steady`。
+   - **根因修复（`scheduler.py`）**：
+     - 增设**非 `find` 联合交替防饿死守卫**：只要存在 SLA 超期对象且 `last_two_themes` 均属于 `{"slim", "friction"}`，两者均须让位给 `find`（保证冷区最多每 3 轮推进一次）。
+     - 增设 **7 天零产出 `friction` 按对象冷却（`FRICTION_COOLDOWN_DAYS = 7`）**：完整 `friction` 审计在目标对象上零新发现后冷却 7 天，避免对着同一未解慢 CI 反复空转（同时仍保留 `no_friction_triggers: false` 阻止假 `steady`）。
+   - **压测前后对比**：
+     - Regime 2（持续 CI 摩擦）：`.github` 重复审计 **6 → 1 次**，全覆盖轮次 **R18 → R14**，最高对象重复选中 **6 → 2 次**。
+     - Regime 3（CI 摩擦 + 双 `harm` 冲击）：全覆盖 **R18 → R15**，首次 `steady` **R19 → R16**，零 `find` 连续饿死。
+2. **Doctor 自我体检与减负（用自己的 `doctor.py delta` 验收自己）**：
+   - 用 v2.5 自身遥测扫描 `.agents/skills/product-doctor/assets/`，发现 `friction.py`（`max_cog=92, health=4.38`）、`scheduler.py`（`max_cog=113, max_fn=269, health=2.86`）、`telemetry.py`（`max_cog=110, max_fn=225, health=2.37`）存在高认知复杂度与内部重复逻辑。
+   - 按 `slim.md` 拆解重构并消除 Antigravity/Claude 技能参数解析重复与死变量 `tool_names`：
+     - `friction.py`：`lines 261 -> 257`，`max_cog 92 -> 40 (-56%)`，`health 4.38 -> 6.25`（越过 `6.0` break-even 线）
+     - `scheduler.py`：`max_cog 113 -> 46 (-59%)`，`max_fn 269 -> 135 (-50%)`，`health 2.86 -> 3.91`
+     - `telemetry.py`：`lines 888 -> 874`，`max_cog 110 -> 72 (-35%)`，`max_fn 225 -> 108 (-52%)`，`health 2.37 -> 3.14`
+   - 用本轮 commit 跑 `doctor.py delta HEAD~1 HEAD` 自验：`pareto_verdict = "improved"`（`max_cognitive: 113 -> 72`，`min_health: 2.37 -> 3.14`，`new_break_even_regressions: []`）。
+3. **验证**：`unittest` **39/39 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
+
+
 

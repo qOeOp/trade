@@ -389,6 +389,61 @@ def _new_window() -> dict[str, Any]:
     }
 
 
+def _record_commit_couplings(win: dict[str, Any], code_files: list[str], code_objs: set[str]) -> None:
+    if not (2 <= len(code_files) <= 12 and len(code_objs) >= 2):
+        return
+    sorted_objs = sorted(code_objs)
+    for i, o1 in enumerate(sorted_objs):
+        for o2 in sorted_objs[i + 1:]:
+            bucket = "cross_pkg_coupling" if o1.split("/", 1)[0] != o2.split("/", 1)[0] else "intra_pkg_coupling"
+            win[bucket][(o1, o2)] += 1
+    sorted_files = sorted(set(code_files))
+    for i, f1 in enumerate(sorted_files):
+        for f2 in sorted_files[i + 1:]:
+            if f1.split("/", 1)[0] != f2.split("/", 1)[0]:
+                win["file_coupling"][(f1, f2)] += 1
+
+
+def _accumulate_commit_files(
+    body: bytes, ts: int, is_fix: bool, is_revert: bool, targets: tuple[dict[str, Any], ...],
+    tops: dict[str, dict[str, Any]], owner_fn,
+    file_latest_ts: dict[str, int], file_latest_fix_ts: dict[str, int],
+) -> tuple[set[str], list[str], set[str]]:
+    is_osc = is_fix or is_revert
+    touched_objs: set[str] = set()
+    code_files: list[str] = []
+    code_objs: set[str] = set()
+    for line in body.split(b"\0"):
+        if line.count(b"\t") < 2:
+            continue
+        added_b, removed_b, raw_path = line.lstrip(b"\n").split(b"\t", 2)
+        path = _spelled(raw_path)
+        a = int(added_b) if added_b.isdigit() else 0
+        d = int(removed_b) if removed_b.isdigit() else 0
+        file_latest_ts[path] = max(ts, file_latest_ts.get(path, 0))
+        if is_osc:
+            file_latest_fix_ts[path] = max(ts, file_latest_fix_ts.get(path, 0))
+        name = owner_fn(path, tops) or "."
+        touched_objs.add(name)
+        is_prod_code = Path(path).suffix.lower() in CODE_EXTS and not is_test_path(path)
+        for win in targets:
+            win["obj_added"][name] += a
+            win["obj_removed"][name] += d
+            win["file_net"][path] += a - d
+            if is_prod_code:
+                win["file_commits"][path] += 1
+                win["file_churn"][path] += a + d
+                win["file_fixes"][path] += int(is_fix)
+                win["file_reverts"][path] += int(is_revert)
+                if is_osc:
+                    win["file_fix_added"][path] += a
+                    win["file_fix_removed"][path] += d
+        if is_prod_code:
+            code_files.append(path)
+            code_objs.add(name)
+    return touched_objs, code_files, code_objs
+
+
 def _git_dual_window(rev: str, days: int, long_days: int,
                      tops: dict[str, dict[str, Any]], owner_fn) -> tuple[dict[str, Any], dict[str, Any], dict[str, int], dict[str, int]]:
     """Single-pass commit-time-anchored git log collector computing both short (`days`) and long (`long_days`)
@@ -410,75 +465,21 @@ def _git_dual_window(rev: str, days: int, long_days: int,
         if ts < long_cutoff:
             continue
         title = parts[1] if len(parts) > 1 else ""
-        rest = parts[2] if len(parts) > 2 else ""
-        subject = rest.lstrip() if title.startswith("Merge ") else title
-        is_revert = bool(REVERT_RE.match(subject))
-        is_fix = bool(FIX_RE.match(subject))
-        is_osc_commit = is_fix or is_revert
-        in_short = ts >= short_cutoff
-
-        targets = (short, long) if in_short else (long,)
+        subject = (parts[2].lstrip() if len(parts) > 2 else "") if title.startswith("Merge ") else title
+        is_revert, is_fix = bool(REVERT_RE.match(subject)), bool(FIX_RE.match(subject))
+        targets = (short, long) if ts >= short_cutoff else (long,)
+        touched_objs, code_files, code_objs = _accumulate_commit_files(
+            body, ts, is_fix, is_revert, targets, tops, owner_fn, file_latest_ts, file_latest_fix_ts,
+        )
         for win in targets:
             win["total_commits"] += 1
             win["total_fixes"] += int(is_fix)
             win["total_reverts"] += int(is_revert)
-
-        touched_objs: set[str] = set()
-        code_files: list[str] = []
-        code_objs: set[str] = set()
-        for line in body.split(b"\0"):
-            if line.count(b"\t") < 2:
-                continue
-            added_b, removed_b, raw_path = line.lstrip(b"\n").split(b"\t", 2)
-            path = _spelled(raw_path)
-            a = int(added_b) if added_b.isdigit() else 0
-            d = int(removed_b) if removed_b.isdigit() else 0
-            if ts > file_latest_ts.get(path, 0):
-                file_latest_ts[path] = ts
-            if is_osc_commit and ts > file_latest_fix_ts.get(path, 0):
-                file_latest_fix_ts[path] = ts
-            name = owner_fn(path, tops) or "."
-            touched_objs.add(name)
-            for win in targets:
-                win["obj_added"][name] += a
-                win["obj_removed"][name] += d
-                win["file_net"][path] += a - d
-            if Path(path).suffix.lower() in CODE_EXTS and not is_test_path(path):
-                for win in targets:
-                    win["file_commits"][path] += 1
-                    win["file_churn"][path] += a + d
-                    if is_fix:
-                        win["file_fixes"][path] += 1
-                    if is_revert:
-                        win["file_reverts"][path] += 1
-                    if is_osc_commit:
-                        win["file_fix_added"][path] += a
-                        win["file_fix_removed"][path] += d
-                code_files.append(path)
-                code_objs.add(name)
-
-        for win in targets:
             for name in touched_objs:
                 win["obj_commits"][name] += 1
-                if is_fix:
-                    win["obj_fixes"][name] += 1
-                if is_revert:
-                    win["obj_reverts"][name] += 1
-            if 2 <= len(code_files) <= 12 and len(code_objs) >= 2:
-                sorted_objs = sorted(code_objs)
-                for i in range(len(sorted_objs)):
-                    for j in range(i + 1, len(sorted_objs)):
-                        o1, o2 = sorted_objs[i], sorted_objs[j]
-                        if o1.split("/", 1)[0] != o2.split("/", 1)[0]:
-                            win["cross_pkg_coupling"][(o1, o2)] += 1
-                        else:
-                            win["intra_pkg_coupling"][(o1, o2)] += 1
-                sorted_files = sorted(set(code_files))
-                for i in range(len(sorted_files)):
-                    for j in range(i + 1, len(sorted_files)):
-                        f1, f2 = sorted_files[i], sorted_files[j]
-                        if f1.split("/", 1)[0] != f2.split("/", 1)[0]:
-                            win["file_coupling"][(f1, f2)] += 1
+                win["obj_fixes"][name] += int(is_fix)
+                win["obj_reverts"][name] += int(is_revert)
+            _record_commit_couplings(win, code_files, code_objs)
 
     return short, long, file_latest_ts, file_latest_fix_ts
 
@@ -551,25 +552,9 @@ def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
     return by_code
 
 
-def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
-                      owner_fn, *, days: int = 14, long_days: int = 30) -> dict[str, Any]:
-    """Build complete multi-timescale evolutionary + structural telemetry for `rev`."""
-    short, long, file_latest_ts, file_latest_fix_ts = _git_dual_window(rev, days, long_days, tops, owner_fn)
-    isolated_roots = _isolated_roots(rev, tracked_lines)
-
-    obj_paths: dict[str, list[str]] = defaultdict(list)
-    for path in tracked_lines:
-        name = owner_fn(path, tops) or "."
-        obj_paths[name].append(path)
-
-    kinds = {name: classify_object_kind(name, obj_paths.get(name, [])) for name in tops}
-    code_objs = [n for n, k in kinds.items() if k == "code"]
-
-    # Analyze non-test Python and JS/TS/TSX/JSX/MJS/CJS files in code objects directly from git blobs.
-    target_files = sorted(
-        p for name in code_objs for p in obj_paths.get(name, [])
-        if not is_test_path(p) and (p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS)
-    )
+def _analyze_sources_and_clones(
+    rev: str, target_files: list[str], isolated_roots: set[str],
+) -> tuple[dict[str, dict[str, Any]], Counter[str], list[dict[str, Any]], list[dict[str, Any]]]:
     blobs = read_blobs(rev, target_files)
     file_ast: dict[str, dict[str, Any]] = {}
     clone_index: dict[str, list[tuple[str, str, int, int]]] = defaultdict(list)
@@ -592,8 +577,7 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         pkg_roots = {p.split("/", 1)[0] for p, _, _, _ in locs}
         cross_boundary = len(pkg_roots) > 1 and bool(pkg_roots & isolated_roots)
         group = {
-            "hash": digest,
-            "count": len(locs),
+            "hash": digest, "count": len(locs),
             "body_lines": max(bl for _, _, bl, _ in locs),
             "nodes": max(nd for _, _, _, nd in locs),
             "cross_boundary": cross_boundary,
@@ -607,57 +591,48 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
             duplicate_groups.append(group)
     duplicate_groups.sort(key=lambda g: (-int(g["count"]), -int(g["body_lines"]), str(g["hash"])))
     boundary_clones.sort(key=lambda g: (-int(g["count"]), str(g["hash"])))
+    return file_ast, file_dups, duplicate_groups, boundary_clones
 
+
+def _build_file_reports(
+    file_ast: dict[str, dict[str, Any]], file_dups: Counter[str],
+    short: dict[str, Any], long: dict[str, Any], tops: dict[str, dict[str, Any]], owner_fn,
+) -> dict[str, dict[str, Any]]:
     file_reports: dict[str, dict[str, Any]] = {}
     for path, info in file_ast.items():
         dups = file_dups[path]
         health = compute_health_score(
-            info["lines"], info["max_cognitive"], info["top3_cognitive"],
-            info["max_fn_lines"], dups, info["satd"],
+            info["lines"], info["max_cognitive"], info["top3_cognitive"], info["max_fn_lines"], dups, info["satd"],
         )
-        f_fixes = short["file_fixes"][path]
-        f_reverts = short["file_reverts"][path]
+        f_fixes, f_reverts = short["file_fixes"][path], short["file_reverts"][path]
         f_osc_a, f_osc_r = short["file_fix_added"][path], short["file_fix_removed"][path]
-        f_osc_churn = f_osc_a + f_osc_r
-        f_osc_net = abs(f_osc_a - f_osc_r)
-        # Per-file oscillation ratio: only meaningful when the same file has >=3 fix/revert touches or >=1 revert.
         f_osc = (
-            round(f_osc_churn / max(f_osc_net, 10), 2)
-            if (f_fixes + f_reverts) >= 3 or f_reverts >= 1
-            else 0.0
+            round((f_osc_a + f_osc_r) / max(abs(f_osc_a - f_osc_r), 10), 2)
+            if (f_fixes + f_reverts) >= 3 or f_reverts >= 1 else 0.0
         )
         file_reports[path] = {
-            "object": owner_fn(path, tops) or ".",
-            "lines": info["lines"],
-            "functions": info["functions"],
-            "max_cognitive": info["max_cognitive"],
-            "top3_cognitive": info["top3_cognitive"],
-            "max_fn_lines": info["max_fn_lines"],
-            "duplicate_fns": dups,
-            "satd": info["satd"],
-            "health": health,
-            "break_even_caution": health < BREAK_EVEN_HEALTH,
-            "fixes_short": f_fixes,
-            "reverts_short": f_reverts,
-            "oscillation_ratio": f_osc,
-            "churn_short": short["file_churn"][path],
-            "fixes_long": long["file_fixes"][path],
+            "object": owner_fn(path, tops) or ".", "lines": info["lines"], "functions": info["functions"],
+            "max_cognitive": info["max_cognitive"], "top3_cognitive": info["top3_cognitive"],
+            "max_fn_lines": info["max_fn_lines"], "duplicate_fns": dups, "satd": info["satd"],
+            "health": health, "break_even_caution": health < BREAK_EVEN_HEALTH,
+            "fixes_short": f_fixes, "reverts_short": f_reverts, "oscillation_ratio": f_osc,
+            "churn_short": short["file_churn"][path], "fixes_long": long["file_fixes"][path],
             "hot_functions": info.get("hot_functions", []),
         }
+    return file_reports
 
-    test_paths_by_code = _map_test_paths(tracked_lines, code_objs, tops, owner_fn)
 
+def _build_object_reports(
+    tops: dict[str, dict[str, Any]], kinds: dict[str, str], obj_paths: dict[str, list[str]],
+    file_reports: dict[str, dict[str, Any]], test_paths_by_code: dict[str, list[str]],
+    tracked_lines: dict[str, int], short: dict[str, Any], long: dict[str, Any],
+    file_latest_ts: dict[str, int], file_latest_fix_ts: dict[str, int],
+) -> dict[str, dict[str, Any]]:
     objects_out: dict[str, dict[str, Any]] = {}
     for name, meta in tops.items():
         o_files = [r for r in file_reports.values() if r["object"] == name]
         min_health: float | None = min((r["health"] for r in o_files), default=None)
-        mean_health: float | None = (
-            round(sum(r["health"] for r in o_files) / len(o_files), 2) if o_files else None
-        )
-        max_cog = max((r["max_cognitive"] for r in o_files), default=0)
-        dup_fns = sum(r["duplicate_fns"] for r in o_files)
-        satd_tot = sum(r["satd"] for r in o_files)
-        unhealthy_fixes_short = sum(r["fixes_short"] + r["reverts_short"] for r in o_files if r["break_even_caution"])
+        mean_health: float | None = round(sum(r["health"] for r in o_files) / len(o_files), 2) if o_files else None
         burst_files = sorted(
             [{"file": p, "fixes": r["fixes_short"], "reverts": r["reverts_short"],
               "osc": r["oscillation_ratio"], "churn": r["churn_short"], "health": r["health"]}
@@ -665,50 +640,61 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
              if r["object"] == name and (r["fixes_short"] + r["reverts_short"]) >= 3],
             key=lambda x: (-(x["fixes"] + x["reverts"]), -x["churn"], x["file"]),
         )
-        osc_ratio = max((r["oscillation_ratio"] for r in o_files), default=0.0)
-
         t_paths = test_paths_by_code.get(name, [])
         t_lines = sum(tracked_lines.get(p, 0) for p in t_paths)
-        t_net_short = sum(short["file_net"][p] for p in t_paths)
-        # Subtract co-located test lines from prod_lines so prod size isn't inflated by co-located tests.
-        colocated_lines = sum(tracked_lines.get(p, 0) for p in obj_paths.get(name, []) if is_test_path(p))
-        prod_lines = max(1, meta["lines"] - colocated_lines)
-        colocated_net = sum(short["file_net"][p] for p in obj_paths.get(name, []) if is_test_path(p))
-        prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - colocated_net
+        colocated = [p for p in obj_paths.get(name, []) if is_test_path(p)]
+        prod_lines = max(1, meta["lines"] - sum(tracked_lines.get(p, 0) for p in colocated))
+        prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - sum(short["file_net"][p] for p in colocated)
         prod_paths = [p for p in obj_paths.get(name, []) if not is_test_path(p) and not p.endswith(".md")]
-        latest_code_ts = max((file_latest_ts.get(p, 0) for p in prod_paths), default=0)
-        latest_fix_ts = max((file_latest_fix_ts.get(p, 0) for p in prod_paths), default=0)
-
         objects_out[name] = {
-            "kind": kinds[name],
-            "lines": prod_lines,
-            "analyzed_files": len(o_files),
-            "commits_short": short["obj_commits"][name],
-            "fixes_short": short["obj_fixes"][name],
+            "kind": kinds[name], "lines": prod_lines, "analyzed_files": len(o_files),
+            "commits_short": short["obj_commits"][name], "fixes_short": short["obj_fixes"][name],
             "reverts_short": short["obj_reverts"][name],
-            "latest_code_ts": latest_code_ts,
-            "latest_fix_ts": latest_fix_ts,
-            "added_short": short["obj_added"][name],
-            "removed_short": short["obj_removed"][name],
-            "net_short": prod_net_short,
-            "abs_churn_short": short["obj_added"][name] + short["obj_removed"][name],
-            "commits_long": long["obj_commits"][name],
-            "fixes_long": long["obj_fixes"][name],
+            "latest_code_ts": max((file_latest_ts.get(p, 0) for p in prod_paths), default=0),
+            "latest_fix_ts": max((file_latest_fix_ts.get(p, 0) for p in prod_paths), default=0),
+            "added_short": short["obj_added"][name], "removed_short": short["obj_removed"][name],
+            "net_short": prod_net_short, "abs_churn_short": short["obj_added"][name] + short["obj_removed"][name],
+            "commits_long": long["obj_commits"][name], "fixes_long": long["obj_fixes"][name],
             "abs_churn_long": long["obj_added"][name] + long["obj_removed"][name],
-            "fix_burst_files": burst_files,
-            "oscillation_ratio": osc_ratio,
-            "min_health": min_health,
-            "mean_health": mean_health,
-            "max_cognitive": max_cog,
-            "duplicate_fns": dup_fns,
-            "satd": satd_tot,
+            "fix_burst_files": burst_files, "oscillation_ratio": max((r["oscillation_ratio"] for r in o_files), default=0.0),
+            "min_health": min_health, "mean_health": mean_health,
+            "max_cognitive": max((r["max_cognitive"] for r in o_files), default=0),
+            "duplicate_fns": sum(r["duplicate_fns"] for r in o_files),
+            "satd": sum(r["satd"] for r in o_files),
             "break_even_caution": min_health is not None and min_health < BREAK_EVEN_HEALTH,
-            "unhealthy_fixes_short": unhealthy_fixes_short,
-            "test_file_count": len(t_paths),
-            "test_lines": t_lines,
+            "unhealthy_fixes_short": sum(r["fixes_short"] + r["reverts_short"] for r in o_files if r["break_even_caution"]),
+            "test_file_count": len(t_paths), "test_lines": t_lines,
             "test_to_prod_ratio": round(t_lines / prod_lines, 2) if t_lines else None,
-            "test_net_short": t_net_short,
+            "test_net_short": sum(short["file_net"][p] for p in t_paths),
         }
+    return objects_out
+
+
+def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
+                      owner_fn, *, days: int = 14, long_days: int = 30) -> dict[str, Any]:
+    """Build complete multi-timescale evolutionary + structural telemetry for `rev`."""
+    short, long, file_latest_ts, file_latest_fix_ts = _git_dual_window(rev, days, long_days, tops, owner_fn)
+    isolated_roots = _isolated_roots(rev, tracked_lines)
+
+    obj_paths: dict[str, list[str]] = defaultdict(list)
+    for path in tracked_lines:
+        obj_paths[owner_fn(path, tops) or "."].append(path)
+
+    kinds = {name: classify_object_kind(name, obj_paths.get(name, [])) for name in tops}
+    code_objs = [n for n, k in kinds.items() if k == "code"]
+    target_files = sorted(
+        p for name in code_objs for p in obj_paths.get(name, [])
+        if not is_test_path(p) and (p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS)
+    )
+    file_ast, file_dups, duplicate_groups, boundary_clones = _analyze_sources_and_clones(
+        rev, target_files, isolated_roots
+    )
+    file_reports = _build_file_reports(file_ast, file_dups, short, long, tops, owner_fn)
+    test_paths_by_code = _map_test_paths(tracked_lines, code_objs, tops, owner_fn)
+    objects_out = _build_object_reports(
+        tops, kinds, obj_paths, file_reports, test_paths_by_code, tracked_lines, short, long,
+        file_latest_ts, file_latest_fix_ts,
+    )
 
     file_pairs_by_objpair: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for (f1, f2), cnt in short["file_coupling"].most_common(80):

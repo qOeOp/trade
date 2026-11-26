@@ -170,6 +170,81 @@ def _extract_comments(issue: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _issue_citations(title: str, body: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
+                     unique_basenames: dict[str, str], obj_names: list[str], owner_fn) -> tuple[list[str], list[str]]:
+    text = f"{title}\n{body}"
+    cited_set = {
+        raw if (raw in tracked_lines and not telemetry.is_test_path(raw)) else unique_basenames[raw]
+        for raw in FILE_PATH_RE.findall(text)
+        if (raw in tracked_lines and not telemetry.is_test_path(raw)) or raw in unique_basenames
+    }
+    cited_files = sorted(cited_set)
+    mentioned = sorted({
+        *(owner_fn(p, tops) for p in cited_files if owner_fn(p, tops)),
+        *(name for name in obj_names if re.search(rf"(?<![\w/-]){re.escape(name)}(?:/|\b)", title)),
+    })
+    if not mentioned:
+        mentioned = sorted({
+            name for name in obj_names
+            if re.search(rf"(?<![\w/-]){re.escape(name)}(?:/|\b)", body[:600])
+        })
+    return cited_files, mentioned
+
+
+def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
+                        unique_basenames: dict[str, str], obj_names: list[str], object_kinds: dict[str, str],
+                        owner_fn, file_latest_ts: dict[str, int], now_ts: int) -> tuple[list[str], dict[str, Any]]:
+    labels = {lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in (issue.get("labels") or [])}
+    title, body = str(issue.get("title") or ""), str(issue.get("body") or "")
+    comments = _extract_comments(issue)
+    c_dates = [str(d) for c in comments if (d := c.get("createdAt") or c.get("created_at"))]
+    updated = issue.get("updatedAt") or issue.get("updated_at")
+    candidates_ts = [str(d) for d in [updated, *c_dates] if d]
+    last_touch = max(candidates_ts) if candidates_ts else None
+    touch_dt = _parse_iso(last_touch)
+    touch_ts = int(touch_dt.timestamp()) if touch_dt else 0
+
+    cited_files, mentioned_objs = _issue_citations(
+        title, body, tops, tracked_lines, unique_basenames, obj_names, owner_fn
+    )
+    entry: dict[str, Any] = {
+        "number": issue.get("number"), "title": title, "labels": sorted(labels),
+        "objects": mentioned_objs, "cited_files": cited_files[:5], "last_touch": last_touch,
+    }
+    docs_only = bool(cited_files) and all(
+        object_kinds.get(owner_fn(p, tops) or ".", "meta") == "docs" or p.endswith(".md") for p in cited_files
+    )
+    has_harm_text = bool(HARM_RE.search(title) or HARM_RE.search(body[:600]))
+    if docs_only and not SECURITY_RE.search(f"{title}\n{body}"[:600]):
+        has_harm_text = False
+    is_harm = not title.lower().startswith("minor:") and "enhancement" not in labels and has_harm_text
+
+    if "claimed" in labels:
+        # Per record.md:24, claims under 2 days old are left alone; older ones are stale.
+        claim_age = (now_ts - touch_ts) if touch_ts else CLAIM_EXPIRY_SECONDS + 1
+        if claim_age < CLAIM_EXPIRY_SECONDS:
+            return ["claimed"], entry
+        entry["reason"] = f"stale claim ({claim_age // 86400}d old, >= 2d expiry)"
+        buckets = ["stale_claimed"]
+        if is_harm and "authority" not in labels and "needs-evidence" not in labels:
+            buckets.append("actionable_harm")
+        return buckets, entry
+
+    if "authority" in labels:
+        changed = [p for p in cited_files if file_latest_ts.get(p, 0) > touch_ts] if touch_ts else []
+        if changed and is_harm:
+            entry["changed_files"] = changed
+            entry["reason"] = f"authority-blocked; cited file(s) changed since last check: {', '.join(changed[:3])}"
+            return ["authority_drifted"], entry
+        entry["reason"] = "waiting on owner authority; cited code unchanged since last check"
+        return ["blocked_authority"], entry
+
+    if is_harm and "needs-evidence" not in labels:
+        entry["reason"] = "unclaimed actionable harm finding"
+        return ["actionable_harm"], entry
+    return ["other_open"], entry
+
+
 def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]],
                     tracked_lines: dict[str, int], object_kinds: dict[str, str],
                     owner_fn, file_latest_ts: dict[str, int],
@@ -179,15 +254,10 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
     if not isinstance(issues, list) or not all(isinstance(item, dict) for item in issues):
         raise SystemExit("--issues-json must contain a JSON array of issue objects")
 
-    actionable_harm: list[dict[str, Any]] = []
-    authority_drifted: list[dict[str, Any]] = []
-    blocked_authority: list[dict[str, Any]] = []
-    claimed: list[dict[str, Any]] = []
-    stale_claimed: list[dict[str, Any]] = []
-    other_open: list[dict[str, Any]] = []
-
+    buckets: dict[str, list[dict[str, Any]]] = {
+        k: [] for k in ("actionable_harm", "authority_drifted", "blocked_authority", "claimed", "stale_claimed", "other_open")
+    }
     obj_names = [name for name in tops if name not in (".", "docs", "docs/plans", "changelog.d")]
-    # Map unique tracked basenames (e.g. `quality.yml` -> `.github/workflows/quality.yml`) for drift checks.
     basename_map: dict[str, list[str]] = {}
     for p in tracked_lines:
         if not telemetry.is_test_path(p):
@@ -196,95 +266,12 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
     now_ts = int(now_dt.timestamp())
 
     for issue in issues:
-        raw_labels = issue.get("labels") or []
-        labels = {lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in raw_labels}
-        title = str(issue.get("title") or "")
-        body = str(issue.get("body") or "")
-        text = f"{title}\n{body}"
-        num = issue.get("number")
-        updated = issue.get("updatedAt") or issue.get("updated_at")
-        comments = _extract_comments(issue)
-        c_dates = [str(d) for c in comments if (d := c.get("createdAt") or c.get("created_at"))]
-        candidates_ts = [str(d) for d in [updated, *c_dates] if d]
-        last_touch = max(candidates_ts) if candidates_ts else None
-        touch_dt = _parse_iso(last_touch)
-        touch_ts = int(touch_dt.timestamp()) if touch_dt else 0
-
-        cited_set: set[str] = set()
-        for raw_match in FILE_PATH_RE.findall(text):
-            if raw_match in tracked_lines and not telemetry.is_test_path(raw_match):
-                cited_set.add(raw_match)
-            elif raw_match in unique_basenames:
-                cited_set.add(unique_basenames[raw_match])
-        cited_files = sorted(cited_set)
-
-        mentioned_objs = sorted({
-            *(owner_fn(p, tops) for p in cited_files if owner_fn(p, tops)),
-            *(name for name in obj_names if re.search(rf"(?<![\w/-]){re.escape(name)}(?:/|\b)", title)),
-        })
-        if not mentioned_objs:
-            mentioned_objs = sorted({
-                name for name in obj_names
-                if re.search(rf"(?<![\w/-]){re.escape(name)}(?:/|\b)", body[:600])
-            })
-
-        entry: dict[str, Any] = {
-            "number": num,
-            "title": title,
-            "labels": sorted(labels),
-            "objects": mentioned_objs,
-            "cited_files": cited_files[:5],
-            "last_touch": last_touch,
-        }
-
-        is_minor = title.lower().startswith("minor:")
-        is_enhancement = "enhancement" in labels
-        docs_only = bool(cited_files) and all(
-            object_kinds.get(owner_fn(p, tops) or ".", "meta") == "docs" or p.endswith(".md")
-            for p in cited_files
+        keys, entry = _classify_one_issue(
+            issue, tops, tracked_lines, unique_basenames, obj_names, object_kinds, owner_fn, file_latest_ts, now_ts
         )
-        has_harm_text = bool(HARM_RE.search(title)) or bool(HARM_RE.search(body[:600]))
-        if docs_only and not SECURITY_RE.search(text[:600]):
-            has_harm_text = False
-        is_harm = (not is_minor and not is_enhancement) and has_harm_text
-
-        if "claimed" in labels:
-            # Per record.md:24, claims under 2 days old are left alone; older ones are stale.
-            claim_age = (now_ts - touch_ts) if touch_ts else CLAIM_EXPIRY_SECONDS + 1
-            if claim_age < CLAIM_EXPIRY_SECONDS:
-                claimed.append(entry)
-                continue
-            entry["reason"] = f"stale claim ({claim_age // 86400}d old, >= 2d expiry)"
-            stale_claimed.append(entry)
-            if is_harm and "authority" not in labels and "needs-evidence" not in labels:
-                actionable_harm.append(entry)
-            continue
-
-        if "authority" in labels:
-            changed_files = [p for p in cited_files if file_latest_ts.get(p, 0) > touch_ts] if touch_ts else []
-            if changed_files and is_harm:
-                entry["changed_files"] = changed_files
-                entry["reason"] = f"authority-blocked; cited file(s) changed since last check: {', '.join(changed_files[:3])}"
-                authority_drifted.append(entry)
-            else:
-                entry["reason"] = "waiting on owner authority; cited code unchanged since last check"
-                blocked_authority.append(entry)
-            continue
-
-        if is_harm and "needs-evidence" not in labels:
-            entry["reason"] = "unclaimed actionable harm finding"
-            actionable_harm.append(entry)
-        else:
-            other_open.append(entry)
-
-    return {
-        "actionable_harm": actionable_harm,
-        "authority_drifted": authority_drifted,
-        "blocked_authority": blocked_authority,
-        "claimed": claimed,
-        "stale_claimed": stale_claimed,
-        "other_open": other_open,
-    }
+        for k in keys:
+            buckets[k].append(entry)
+    return buckets
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -385,6 +372,172 @@ def _slim_candidates(telemetry_data: dict[str, Any],
     return candidates, sorted(cooled_objects), bars
 
 
+FRICTION_COOLDOWN_DAYS = 7
+
+
+def _compute_yield_streaks(
+    substantive_audits: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Compute consecutive zero-yield streaks per object and per lens (resetting on confirmed > 0)."""
+    obj_streak: dict[str, int] = {}
+    obj_broken: set[str] = set()
+    lens_streak: dict[str, int] = {}
+    lens_runs: dict[str, int] = {}
+    lens_broken: set[str] = set()
+    for rec in reversed(substantive_audits[-8:]):
+        is_zero = rec["confirmed"] == 0
+        for obj in rec["objects"]:
+            if obj not in obj_broken:
+                if is_zero:
+                    obj_streak[obj] = obj_streak.get(obj, 0) + 1
+                else:
+                    obj_broken.add(obj)
+        for item_name in rec.get("items", []):
+            lens_runs[item_name] = lens_runs.get(item_name, 0) + 1
+            if item_name not in lens_broken:
+                if is_zero:
+                    lens_streak[item_name] = lens_streak.get(item_name, 0) + 1
+                else:
+                    lens_broken.add(item_name)
+    return obj_streak, lens_streak, lens_runs
+
+
+def _rank_code_objects(
+    telemetry_data: dict[str, Any], scan_objects: dict[str, dict[str, Any]],
+    zero_yield_streak: dict[str, int], now_dt: datetime, sla_days: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    ranked: list[dict[str, Any]] = []
+    breaches: list[str] = []
+    for name, obj in telemetry_data["objects"].items():
+        if obj["kind"] != "code":
+            continue
+        examined_str = scan_objects.get(name, {}).get("examined")
+        examined_dt = _parse_iso(f"{examined_str}T00:00:00Z") if examined_str else None
+        examined_end = _parse_iso(f"{examined_str}T23:59:59Z") if examined_str else None
+        examined_end_ts = int(examined_end.timestamp()) if examined_end else 0
+        stale_days = sla_days * 2 if examined_dt is None else max(0, int((now_dt - examined_dt).total_seconds() // 86400))
+        breach = examined_dt is None or stale_days > sla_days
+        if breach:
+            breaches.append(name)
+        unchanged = examined_dt is not None and not breach and obj.get("latest_code_ts", 0) <= examined_end_ts
+        raw_risk = (
+            math.log1p(obj["abs_churn_short"]) * 1.5
+            + (obj["fixes_short"] + obj.get("reverts_short", 0)) * 2.5
+            + len(obj["fix_burst_files"]) * 4.0
+            + max(0, obj["max_cognitive"] - 15) * 0.25
+        )
+        # Drop risk prior to 0 once examined on/after its latest code commit (prevents re-auditing unchanged hotspots).
+        risk_prior = 0.0 if unchanged else raw_risk
+        staleness_bonus = min(stale_days, sla_days * 2) * (1.2 if breach else 0.35)
+        saturation_pen = zero_yield_streak.get(name, 0) * 6.0
+        ranked.append({
+            "object": name, "score": round(risk_prior + staleness_bonus - saturation_pen, 2),
+            "risk_prior": round(risk_prior, 2), "unchanged_since_examined": unchanged,
+            "staleness_days": stale_days, "examined": examined_str, "staleness_breach": breach,
+            "saturation_penalty": round(saturation_pen, 2), "commits_long": obj["commits_long"],
+            "fixes_short": obj["fixes_short"], "abs_churn_short": obj["abs_churn_short"],
+            "min_health": obj["min_health"],
+        })
+    ranked.sort(key=lambda r: (-r["score"], r["object"]))
+    return ranked, breaches
+
+
+def _friction_targets(
+    friction_data: dict[str, Any] | None, tops: dict[str, dict[str, Any]], ranked_objects: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
+    tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
+    f_objs: list[str] = []
+    f_items: list[str] = []
+    if ci_fired:
+        if ".github" in tops:
+            f_objs.append(".github")
+        f_items.append("delivery")
+    if tx_fired:
+        if ".agents" in tops:
+            f_objs.append(".agents")
+        f_items.extend(["agents", "burden"])
+    if not f_objs and ranked_objects:
+        f_objs = [ranked_objects[0]["object"]]
+    return f_objs[:3], (f_items or ["delivery", "agents", "burden"])
+
+
+def _friction_is_object_cooled(
+    target_objs: list[str], last_friction_zero: dict[str, str], now_dt: datetime,
+) -> bool:
+    if not target_objs:
+        return False
+    for obj in target_objs:
+        dt_str = last_friction_zero.get(obj)
+        if not dt_str:
+            return False
+        dt = _parse_iso(f"{dt_str}T00:00:00Z")
+        if dt is None or (now_dt - dt).total_seconds() > FRICTION_COOLDOWN_DAYS * 86400:
+            return False
+    return True
+
+
+def _pick_find_objects(ranked_objects: list[dict[str, Any]]) -> list[str]:
+    picked: list[str] = []
+    actionable_pool = [r for r in ranked_objects if r["staleness_breach"] or not r["unchanged_since_examined"]]
+    pool = actionable_pool or ranked_objects
+    if pool:
+        picked.append(pool[0]["object"])
+    cold_stale = sorted(
+        [r for r in ranked_objects if r["staleness_breach"] and r["object"] not in picked],
+        key=lambda r: (r["examined"] or "0000-00-00", r["commits_long"], r["object"]),
+    )
+    if cold_stale:
+        picked.append(cold_stale[0]["object"])
+    elif len(pool) > 1:
+        picked.append(pool[1]["object"])
+    return picked[:3]
+
+
+def _select_theme_and_scope(
+    issue_buckets: dict[str, list[dict[str, Any]]], slim_list: list[dict[str, Any]],
+    friction_triggers: list[str], friction_objs: list[str], friction_items: list[str],
+    slim_cooled_down: bool, friction_cooled_down: bool, can_steady: bool,
+    ranked_objects: list[dict[str, Any]], stalest_items: list[tuple[str, str]],
+    staleness_breaches: list[str], sla_days: int,
+) -> tuple[str, list[str], list[str], str]:
+    if issue_buckets["actionable_harm"]:
+        objs = sorted({o for iss in issue_buckets["actionable_harm"] for o in iss["objects"]})[:3]
+        if not objs and ranked_objects:
+            objs = [ranked_objects[0]["object"]]
+        rat = (
+            f"{len(issue_buckets['actionable_harm'])} actionable harm finding(s) require verification "
+            f"({len(issue_buckets['blocked_authority'])} unchanged authority-blocked and "
+            f"{len(issue_buckets['authority_drifted'])} drifted authority issue(s) excluded)."
+        )
+        return "harm", objs, [], rat
+    if slim_list and not slim_cooled_down:
+        rat = (
+            f"{len(slim_list)} code object(s) hit anti-bloat/oscillation thresholds; top: "
+            f"{slim_list[0]['object']} ({'; '.join(slim_list[0]['reasons'])})."
+        )
+        return "slim", [c["object"] for c in slim_list[:2]], ["structure", "size", "checks"], rat
+    if friction_triggers and not friction_cooled_down:
+        rat = f"{len(friction_triggers)} deterministic friction signal(s) detected: {'; '.join(friction_triggers[:3])}."
+        return "friction", friction_objs, friction_items, rat
+    if can_steady:
+        rat = (
+            "All convergence gates hold: 0 actionable harm, 0 slim/oscillation triggers, "
+            f"0 coverage SLA breaches (<= {sla_days}d), and saturated marginal discovery yield across "
+            "substantive complete audits. Stop and cooldown instead of manufacturing low-value findings."
+        )
+        return "steady", [], [], rat
+    objs = _pick_find_objects(ranked_objects)
+    chosen_items = [item for item, _ in stalest_items[:3]]
+    cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
+    rat = (
+        f"0 actionable harm ({len(issue_buckets['blocked_authority'])} authority-blocked excluded){cooldown_note}; "
+        f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
+        "Pairing top fresh risk/churn object with coldest unexamined object."
+    )
+    return "find", objs, chosen_items, rat
+
+
 def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
            scan_objects: dict[str, dict[str, Any]], scan_items: dict[str, str | None],
            telemetry_data: dict[str, Any], owner_fn, *,
@@ -397,115 +550,50 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     themed_records = [r for r in records if r["theme"] in ("harm", "slim", "find", "friction", "steady")]
     last_two_themes = [r["theme"] for r in themed_records[-2:]]
 
-    # Compute per-object and per-lens consecutive zero-yield streaks from complete, non-steady substantive audits;
-    # reset immediately when an audit covering that object/lens found confirmed > 0.
     substantive_audits = [
         r for r in records
-        if r["theme"] != "steady"
-        and not r["is_partial"]
-        and r["confirmed"] is not None
+        if r["theme"] != "steady" and not r["is_partial"] and r["confirmed"] is not None
         and ((r["probed"] or 0) >= 1 or (r["shown"] == 0 and len(r["objects"]) >= 1))
     ]
-    zero_yield_streak: dict[str, int] = {}
-    streak_broken: set[str] = set()
-    lens_zero_streak: dict[str, int] = {}
-    lens_runs: dict[str, int] = {}
-    lens_broken: set[str] = set()
-    for rec in reversed(substantive_audits[-8:]):
-        for obj in rec["objects"]:
-            if obj in streak_broken:
-                continue
-            if rec["confirmed"] == 0:
-                zero_yield_streak[obj] = zero_yield_streak.get(obj, 0) + 1
-            else:
-                streak_broken.add(obj)
-        for item_name in rec.get("items", []):
-            lens_runs[item_name] = lens_runs.get(item_name, 0) + 1
-            if item_name in lens_broken:
-                continue
-            if rec["confirmed"] == 0:
-                lens_zero_streak[item_name] = lens_zero_streak.get(item_name, 0) + 1
-            else:
-                lens_broken.add(item_name)
+    zero_yield_streak, lens_zero_streak, lens_runs = _compute_yield_streaks(substantive_audits)
 
-    # Track most recent complete `slim` audit date per object for per-object slim cooldown.
     last_slimmed: dict[str, str] = {}
+    last_friction_zero: dict[str, str] = {}
     for rec in records:
-        if rec["theme"] == "slim" and not rec["is_partial"]:
+        if rec["is_partial"]:
+            continue
+        if rec["theme"] == "slim":
             for obj in rec["objects"]:
                 if rec["date"] > last_slimmed.get(obj, ""):
                     last_slimmed[obj] = rec["date"]
+        elif rec["theme"] == "friction" and rec["confirmed"] == 0:
+            for obj in rec["objects"]:
+                if rec["date"] > last_friction_zero.get(obj, ""):
+                    last_friction_zero[obj] = rec["date"]
 
     object_kinds = {name: obj["kind"] for name, obj in telemetry_data["objects"].items()}
-    file_latest_ts = telemetry_data.get("_file_latest_ts", {})
     issue_buckets = classify_issues(
-        issues if issues is not None else [], tops, tracked_lines, object_kinds, owner_fn, file_latest_ts, now_dt
+        issues if issues is not None else [], tops, tracked_lines, object_kinds,
+        owner_fn, telemetry_data.get("_file_latest_ts", {}), now_dt,
     )
     slim_list, slim_cooled_objects, dynamic_bars = _slim_candidates(telemetry_data, last_slimmed=last_slimmed)
-
-    ranked_objects: list[dict[str, Any]] = []
-    staleness_breaches: list[str] = []
-    for name, obj in telemetry_data["objects"].items():
-        if obj["kind"] != "code":
-            continue
-        examined_str = scan_objects.get(name, {}).get("examined")
-        examined_dt = _parse_iso(f"{examined_str}T00:00:00Z") if examined_str else None
-        examined_end_dt = _parse_iso(f"{examined_str}T23:59:59Z") if examined_str else None
-        examined_end_ts = int(examined_end_dt.timestamp()) if examined_end_dt else 0
-        if examined_dt is None:
-            stale_days = sla_days * 2
-            breach = True
-        else:
-            stale_days = max(0, int((now_dt - examined_dt).total_seconds() // 86400))
-            breach = stale_days > sla_days
-        if breach:
-            staleness_breaches.append(name)
-
-        unchanged_since_examined = (
-            examined_dt is not None
-            and not breach
-            and obj.get("latest_code_ts", 0) <= examined_end_ts
-        )
-
-        raw_risk = (
-            math.log1p(obj["abs_churn_short"]) * 1.5
-            + (obj["fixes_short"] + obj.get("reverts_short", 0)) * 2.5
-            + len(obj["fix_burst_files"]) * 4.0
-            + max(0, obj["max_cognitive"] - 15) * 0.25
-        )
-        # Drop risk prior to 0 once examined on/after its latest code commit (prevents re-auditing unchanged hotspots).
-        risk_prior = 0.0 if unchanged_since_examined else raw_risk
-        staleness_bonus = min(stale_days, sla_days * 2) * (1.2 if breach else 0.35)
-        saturation_pen = zero_yield_streak.get(name, 0) * 6.0
-        score = round(risk_prior + staleness_bonus - saturation_pen, 2)
-        ranked_objects.append({
-            "object": name,
-            "score": score,
-            "risk_prior": round(risk_prior, 2),
-            "unchanged_since_examined": unchanged_since_examined,
-            "staleness_days": stale_days,
-            "examined": examined_str,
-            "staleness_breach": breach,
-            "saturation_penalty": round(saturation_pen, 2),
-            "commits_long": obj["commits_long"],
-            "fixes_short": obj["fixes_short"],
-            "abs_churn_short": obj["abs_churn_short"],
-            "min_health": obj["min_health"],
-        })
-    ranked_objects.sort(key=lambda r: (-r["score"], r["object"]))
-
+    ranked_objects, staleness_breaches = _rank_code_objects(
+        telemetry_data, scan_objects, zero_yield_streak, now_dt, sla_days
+    )
     stalest_items = sorted(
         [(item, dt or "0000-00-00") for item, dt in scan_items.items() if item not in ("fixed", "self")],
         key=lambda pair: (pair[1], pair[0]),
     )
 
-    # Rolling yield over last 2 complete, substantive, non-steady audits for STEADY stopping gate.
     last_two_substantive = substantive_audits[-2:]
     recent_confirmed = sum(r["confirmed"] for r in last_two_substantive) if len(last_two_substantive) >= 2 else None
     any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_substantive)
     code_commits_short = sum(o["commits_short"] for o in telemetry_data["objects"].values() if o["kind"] == "code")
 
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
+    friction_objs, friction_items = _friction_targets(friction_data, tops, ranked_objects)
+    friction_obj_cooled = _friction_is_object_cooled(friction_objs, last_friction_zero, now_dt)
+
     stopping_checks = {
         "issues_provided": issues is not None,
         "no_actionable_harm": len(issue_buckets["actionable_harm"]) == 0,
@@ -518,92 +606,23 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         ),
     }
 
-    # Anti-starvation cooldowns while staleness breaches remain.
+    # Anti-starvation cooldowns: neither `slim` nor `friction` may alternate to starve `find` while SLA breaches remain.
+    non_find_pair = len(last_two_themes) == 2 and all(t in ("slim", "friction") for t in last_two_themes)
     slim_cooled_down = (
-        ("slim" in last_two_themes and len(staleness_breaches) > 0)
+        (("slim" in last_two_themes or non_find_pair) and len(staleness_breaches) > 0)
         or last_two_themes == ["slim", "slim"]
     )
     friction_cooled_down = (
-        ("friction" in last_two_themes and len(staleness_breaches) > 0)
+        friction_obj_cooled
+        or (("friction" in last_two_themes or non_find_pair) and len(staleness_breaches) > 0)
         or last_two_themes == ["friction", "friction"]
     )
 
-    can_steady = all(stopping_checks.values())
-    if issue_buckets["actionable_harm"]:
-        theme = "harm"
-        chosen_objs = sorted({o for iss in issue_buckets["actionable_harm"] for o in iss["objects"]})[:3]
-        if not chosen_objs and ranked_objects:
-            chosen_objs = [ranked_objects[0]["object"]]
-        chosen_items: list[str] = []
-        rationale = (
-            f"{len(issue_buckets['actionable_harm'])} actionable harm finding(s) require verification "
-            f"({len(issue_buckets['blocked_authority'])} unchanged authority-blocked and "
-            f"{len(issue_buckets['authority_drifted'])} drifted authority issue(s) excluded)."
-        )
-    elif slim_list and not slim_cooled_down:
-        theme = "slim"
-        chosen_objs = [c["object"] for c in slim_list[:2]]
-        chosen_items = ["structure", "size", "checks"]
-        rationale = (
-            f"{len(slim_list)} code object(s) hit anti-bloat/oscillation thresholds; top: "
-            f"{slim_list[0]['object']} ({'; '.join(slim_list[0]['reasons'])})."
-        )
-    elif friction_triggers and not friction_cooled_down:
-        theme = "friction"
-        ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
-        tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
-        f_objs: list[str] = []
-        f_items: list[str] = []
-        if ci_fired:
-            if ".github" in tops:
-                f_objs.append(".github")
-            f_items.append("delivery")
-        if tx_fired:
-            if ".agents" in tops:
-                f_objs.append(".agents")
-            f_items.extend(["agents", "burden"])
-        if not f_objs and ranked_objects:
-            f_objs = [ranked_objects[0]["object"]]
-        chosen_objs = f_objs[:3]
-        chosen_items = f_items or ["delivery", "agents", "burden"]
-        rationale = (
-            f"{len(friction_triggers)} deterministic friction signal(s) detected: "
-            f"{'; '.join(friction_triggers[:3])}."
-        )
-    elif can_steady:
-        theme = "steady"
-        chosen_objs = []
-        chosen_items = []
-        rationale = (
-            "All convergence gates hold: 0 actionable harm, 0 slim/oscillation triggers, "
-            f"0 coverage SLA breaches (<= {sla_days}d), and saturated marginal discovery yield across "
-            "substantive complete audits. Stop and cooldown instead of manufacturing low-value findings."
-        )
-    else:
-        theme = "find"
-        picked: list[str] = []
-        # Prefer objects that are either stale or have new code since their last audit (avoid wasting picks
-        # on already-audited unchanged hotspots).
-        actionable_pool = [r for r in ranked_objects if r["staleness_breach"] or not r["unchanged_since_examined"]]
-        pool = actionable_pool or ranked_objects
-        if pool:
-            picked.append(pool[0]["object"])
-        cold_stale = sorted(
-            [r for r in ranked_objects if r["staleness_breach"] and r["object"] not in picked],
-            key=lambda r: (r["examined"] or "0000-00-00", r["commits_long"], r["object"]),
-        )
-        if cold_stale:
-            picked.append(cold_stale[0]["object"])
-        elif len(pool) > 1:
-            picked.append(pool[1]["object"])
-        chosen_objs = picked[:3]
-        chosen_items = [item for item, _ in stalest_items[:3]]
-        cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
-        rationale = (
-            f"0 actionable harm ({len(issue_buckets['blocked_authority'])} authority-blocked excluded){cooldown_note}; "
-            f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
-            "Pairing top fresh risk/churn object with coldest unexamined object."
-        )
+    theme, chosen_objs, chosen_items, rationale = _select_theme_and_scope(
+        issue_buckets, slim_list, friction_triggers, friction_objs, friction_items,
+        slim_cooled_down, friction_cooled_down, all(stopping_checks.values()),
+        ranked_objects, stalest_items, staleness_breaches, sla_days,
+    )
 
     coupled_contracts = [
         c for c in telemetry_data["couplings"]
