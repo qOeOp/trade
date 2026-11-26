@@ -1195,6 +1195,6 @@ class MetricsCheckpointTests(unittest.TestCase):
 
         # Also refuses if saved checkpoint has metrics even before _metrics_follow runs in on_start().
         sess2 = self.session(saved=saved)
-        sess2.ready, sess2.warm_at, sess2.since = False, T + 6 * MINUTE_NS, {}
+        sess2.admitted, sess2.ready, sess2.warm_at, sess2.since = True, False, T + 6 * MINUTE_NS, {}
         with mock.patch.dict(strategy_runtime.STRATEGIES, {}, clear=True):
             self.assertIn("before the back-fill ended", sess2.exiting() or "")
