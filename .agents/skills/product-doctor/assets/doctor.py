@@ -435,7 +435,27 @@ def friction_cmd(args: argparse.Namespace) -> None:
     print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None), indent=1))
 
 
+def _steady_exit_code(text: str) -> int:
+    try:
+        code = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid --steady-exit-code {text!r}: must be 0 (disabled) or in 2..125"
+        ) from None
+    if code != 0 and not (2 <= code <= 125):
+        raise argparse.ArgumentTypeError(
+            f"invalid --steady-exit-code {code}: must be 0 (disabled) or in 2..125 "
+            "(1 is reserved for errors; >=126 conflicts with shell/signal codes or wraps mod 256)"
+        )
+    return code
+
+
 def advise_cmd(args: argparse.Namespace) -> None:
+    steady_code = getattr(args, "steady_exit_code", None)
+    if steady_code is not None and steady_code != 0 and not (2 <= int(steady_code) <= 125):
+        raise SystemExit(
+            f"invalid --steady-exit-code {steady_code}: must be 0 (disabled) or in 2..125"
+        )
     rev = commit(args.tree)
     lines = tracked(rev)
     tops = objects(rev, lines)
@@ -457,8 +477,7 @@ def advise_cmd(args: argparse.Namespace) -> None:
         authority_gate=not bool(getattr(args, "auto", False)),
     )
     print(json.dumps(plan, indent=1))
-    steady_code = getattr(args, "steady_exit_code", None)
-    if steady_code is not None and plan["recommended_theme"] == "steady":
+    if steady_code and plan["recommended_theme"] == "steady":
         raise SystemExit(int(steady_code))
 
 
@@ -971,8 +990,14 @@ def _build_parser() -> argparse.ArgumentParser:
     adv_p.add_argument("--ci-json", type=Path, help="optional path to JSON output of `gh run list --json ...`")
     adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     adv_p.add_argument("--prod-logs", type=Path, nargs="+", help="optional production service log files")
-    adv_p.add_argument("--auto", action="store_true", help="full-auto scheduled mode: do not block harm issues on `authority` label")
-    adv_p.add_argument("--steady-exit-code", type=int, help="exit with this code when recommended_theme is `steady` (0-token cron gate)")
+    adv_p.add_argument(
+        "--auto", action="store_true",
+        help="full-auto scheduled mode: unblock non-redline `authority` harm issues while keeping irreversible AGENTS.md redlines blocked",
+    )
+    adv_p.add_argument(
+        "--steady-exit-code", type=_steady_exit_code,
+        help="exit with this code (0 to disable, or 2..125) when recommended_theme is `steady` (0-token cron gate)",
+    )
     adv_p.set_defaults(function=advise_cmd)
     declared = add("scope", scope, "declare a themed audit's items and objects, before any evidence", 0)
     declared.add_argument("theme", choices=THEMES)

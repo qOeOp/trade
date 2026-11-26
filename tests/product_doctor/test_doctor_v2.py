@@ -25,6 +25,7 @@ def _load(name: str):
 
 doctor = _load("doctor")
 friction = _load("friction")
+scheduler = _load("scheduler")
 telemetry = _load("telemetry")
 
 
@@ -1197,3 +1198,456 @@ export function load(cfg?: Config) {
             doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--auto", "--steady-exit-code", "2"])
         self.assertEqual(ctx.exception.code, 2)
         self.assertEqual(json.loads(out.getvalue())["recommended_theme"], "steady")
+
+    def test_v3_1_f1_prod_incidents_preempt_cooldown_and_steady(self):
+        """F1 [P0]: active prod incidents (OOM, recovery unavailable, checkpoint deferred, empty log)
+        must never be suppressed by 7d friction cooldown, last_two_themes, or steady gate."""
+        code_env = {"GIT_AUTHOR_DATE": "2026-11-23T00:00:00Z", "GIT_COMMITTER_DATE": "2026-11-23T00:00:00Z"}
+        (self.repo / "paper").mkdir(exist_ok=True)
+        (self.repo / "paper" / "serve.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "feat(paper): add serve", env_extra=code_env)
+
+        rec_find = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_fric = (
+            "# Themed audit: friction\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| operation | paper:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_env = {"GIT_AUTHOR_DATE": "2026-11-26T00:00:00Z", "GIT_COMMITTER_DATE": "2026-11-26T00:00:00Z"}
+        for rel, body in (
+            ("docs/plans/doctor/2026-11-24-find.zh.md", rec_find),
+            ("docs/plans/doctor/2026-11-25-friction.zh.md", rec_fric),
+        ):
+            p = self.repo / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "docs(doctor): clean find and friction audits", env_extra=rec_env)
+
+        empty_issues = self.home / "empty_f1.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+
+        # Baseline without prod incidents converges to steady and exits 2.
+        out_base = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(out_base):
+            doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--auto", "--steady-exit-code", "2"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertEqual(json.loads(out_base.getvalue())["recommended_theme"], "steady")
+
+        # Each of the 4 prod incident types must preempt cooldown/steady and exit 0 (not 2!).
+        incident_logs = {
+            "oom": "2026-11-26T12:00:00Z ERROR container exited OOMKilled ExitCode: 137\n",
+            "recovery": "2026-11-26T12:05:00Z ERROR PAPER_RECOVERY_UNAVAILABLE: journal truncated\n",
+            "checkpoint": "2026-11-26T12:00:00Z Paper checkpoint deferred: busy\n" * 3,
+            "empty": "",
+        }
+        for label, content in incident_logs.items():
+            with self.subTest(incident=label):
+                log_path = self.home / f"paper-{label}.log"
+                log_path.write_text(content, encoding="utf-8")
+                plan = self.call_json(
+                    "advise", "--tree", "HEAD", "--issues-json", empty_issues,
+                    "--prod-logs", log_path, "--auto", "--steady-exit-code", "2",
+                )
+                self.assertEqual(plan["recommended_theme"], "friction")
+                self.assertTrue(plan["friction_summary"]["prod_incident_active"])
+                self.assertFalse(plan["friction_summary"]["in_cooldown"])
+                self.assertFalse(plan["stopping_checks"]["no_friction_triggers"])
+
+    def test_v3_1_f2_auto_mode_field_and_irreversible_redlines(self):
+        """F2 [P0/P1]: advise emits explicit `auto_mode`, blocks irreversible AGENTS.md redlines under
+        `--auto`, and unblocks ordinary bug fixes / missing refusal guard fixes with legacy `authority`."""
+        self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        redline_issues = self.home / "redlines.json"
+        redline_issues.write_text(json.dumps([
+            {
+                "number": 9001, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Allow real orders on primary live account during nightly check",
+                "body": "Modifies paper/serve.py to place live orders on primary funds.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9002, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Add stored drawdown column to ledger schema",
+                "body": "Adds a stored field to ledger.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9003, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Weaken refusal check for invalid stops in paper/serve.py",
+                "body": "Relaxes refusal guard on stops.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9004, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Replace PP Supply Mono font in IDE header",
+                "body": "Swap project font assets.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9005, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Reset active Dolt ledger history before migration",
+                "body": "Clears published records in active ledger.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9006, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Tag release v0.5.0 on main",
+                "body": "Create release tag v0.5.0.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9007, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "paper/serve.py silently drops fills on reconnect",
+                "body": "Explicitly labeled redline.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority:redline"}],
+            },
+        ]), encoding="utf-8")
+
+        p_gated = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues)
+        self.assertFalse(p_gated["auto_mode"])
+        self.assertEqual(p_gated["issues_summary"]["actionable_harm"], [])
+        self.assertEqual(p_gated["issues_summary"]["blocked_authority_count"], 7)
+
+        p_auto = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues, "--auto")
+        self.assertTrue(p_auto["auto_mode"])
+        self.assertEqual(p_auto["issues_summary"]["actionable_harm"], [])
+        self.assertEqual(p_auto["issues_summary"]["blocked_authority_count"], 7)
+
+        # Ordinary defect / tightening missing guard with legacy `authority` label DOES unblock under `--auto`.
+        normal_auth = self.home / "normal_auth.json"
+        normal_auth.write_text(json.dumps([
+            {
+                "number": 9100, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "paper/serve.py bypasses refusal check on empty order quantity",
+                "body": "Fix missing validation guard in paper/serve.py.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+        ]), encoding="utf-8")
+        p_norm = self.call_json("advise", "--tree", "HEAD", "--issues-json", normal_auth, "--auto")
+        self.assertTrue(p_norm["auto_mode"])
+        self.assertEqual(p_norm["recommended_theme"], "harm")
+        self.assertEqual([i["number"] for i in p_norm["issues_summary"]["actionable_harm"]], [9100])
+
+    def test_v3_1_f8_transcript_secret_bypasses_doc_exclusions_json_args_and_redaction(self):
+        """F8 [P1]: catch non-cat secret reads, ignore benign git/doc greps, parse JSON-string tool
+        arguments, match global flags in RESEARCH_CMD_RE, and redact space-separated flags & 40-64 hex."""
+        # Benign git/doc searches must produce 0 violations.
+        tx_benign = self.home / "f8_benign.jsonl"
+        tx_benign.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": 'git grep -n "dolt sql" AGENTS.md docs/'}},
+                {"name": "run_command", "args": {"CommandLine": 'git log --grep="mysql" -n 5'}},
+                {"name": "run_command", "args": {"CommandLine": 'cat README.md | grep -F ".env"'}},
+                {"name": "run_command", "args": {"CommandLine": 'grep -n ".env" README.md'}},
+            ],
+        }) + "\n", encoding="utf-8")
+        res_benign = friction.analyze_transcripts([tx_benign])
+        self.assertEqual(res_benign["sessions"][0]["workflow_violations"], [])
+
+        # All 14 secret-file bypass commands must trigger `secret_file_access`.
+        bypass_cmds = [
+            "head -n 50 .env",
+            "tail .env",
+            "less .env",
+            "more .env",
+            "sed -n '1,5p' .env",
+            "awk '{print}' .env",
+            "source .env && echo $BINANCE_API_KEY",
+            ". .env",
+            'grep "" .env',
+            "jq . /data/dolt/service.json",
+            "python3 -c \"print(open('.env').read())\"",
+            "cat<.env",
+            "cat\t.env",
+            "base64 .env",
+            "wc -l < dolt/service.json",
+        ]
+        tx_bypass = self.home / "f8_bypass.jsonl"
+        tx_bypass.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": cmd}} for cmd in bypass_cmds
+            ],
+        }) + "\n", encoding="utf-8")
+        res_bypass = friction.analyze_transcripts([tx_bypass])
+        self.assertEqual(
+            res_bypass["sessions"][0]["workflow_violations"],
+            [{"kind": "secret_file_access", "count": len(bypass_cmds)}],
+        )
+
+        # JSON-string `arguments` in `tool_calls` must be decoded and checked.
+        tx_str = self.home / "f8_str_args.jsonl"
+        tx_str.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "arguments": json.dumps({"CommandLine": "dolt sql -q 'DELETE FROM trials'"})},
+                {"name": "read_file", "arguments": json.dumps({"Path": "/repo/.env"})},
+            ],
+        }) + "\n", encoding="utf-8")
+        res_str = friction.analyze_transcripts([tx_str])
+        self.assertEqual(
+            {v["kind"] for v in res_str["sessions"][0]["workflow_violations"]},
+            {"ad_hoc_ledger_sql", "secret_file_access"},
+        )
+
+        # RESEARCH_CMD_RE must match global flags before subcommand (`--ledger temp replay`).
+        tx_res = self.home / "f8_research_flag.jsonl"
+        tx_res.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": "uv run python -m cli.main --ledger temp replay run --help"}}
+                for _ in range(5)
+            ],
+        }) + "\n", encoding="utf-8")
+        res_flag = friction.analyze_transcripts([tx_res])
+        self.assertEqual(
+            res_flag["sessions"][0]["workflow_violations"],
+            [{"kind": "missing_research_skill", "count": 1}],
+        )
+
+        # Space-separated secret flags and bare 40-64 hex strings must be redacted; benign text stays intact.
+        for sample, leak in (
+            ("Run curl --token my_super_secret_val_999", "my_super_secret_val_999"),
+            ("Run tool --api-key live_key_12345", "live_key_12345"),
+            ("Run tool --api-secret live_key_abcdef123456", "live_key_abcdef123456"),
+            ("Run tool --secret hidden_val", "hidden_val"),
+            ("Run tool --password db_secret_pass", "db_secret_pass"),
+            ("Call binance with a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "a1b2c3d4e5f6"),
+        ):
+            san = friction._sanitize_summary(sample)
+            self.assertNotIn(leak, san)
+            self.assertIn("<REDACTED>", san)
+        self.assertEqual(friction._sanitize_summary("Count token usage"), "Count token usage")
+
+    def test_v3_1_f9_prod_logs_no_fp_token_service_and_missing_dir(self):
+        """F9 [P1]: no false positives on OOMKilled:false / cleared ERROR prose, token-boundary service
+        matching, and graceful handling of missing paths / directories."""
+        benign = self.home / "paper-healthy.log"
+        benign.write_text("\n".join([
+            'INFO docker inspect: {"State": {"OOMKilled": false, "ExitCode": 0}}',
+            "INFO watchdog: not OOM, Out of memory check passed",
+            "INFO status: OOMKilled=false, exit_code=0, no errors",
+            "INFO metrics: cleared ERROR flag on startup",
+            "2026-11-26T00:00:00Z INFO metrics: cleared ERROR flag on retry",
+        ] * 2) + "\n", encoding="utf-8")
+        res_ok = friction.analyze_prod_logs([benign])
+        self.assertEqual(res_ok["triggers"], [])
+        self.assertEqual(res_ok["logs"][0]["oom_signals"], 0)
+        self.assertEqual(res_ok["logs"][0]["error_lines"], 0)
+        self.assertEqual(res_ok["logs"][0]["service"], "paper")
+
+        # Substring look-alikes must NOT map to live / ide / paper.
+        mis_paths = [self.home / name for name in ("delivery.log", "provider.log", "wallpaper.log")]
+        for p in mis_paths:
+            p.write_text("FATAL crash\n" * 6, encoding="utf-8")
+        res_mis = friction.analyze_prod_logs(mis_paths)
+        self.assertEqual([x["service"] for x in res_mis["logs"]], ["unknown", "unknown", "unknown"])
+        self.assertEqual(res_mis["affected_services"], [])
+
+        # Directories and missing files must emit structured error/warnings instead of crashing advise.
+        missing = self.home / "does-not-exist.log"
+        res_bad = friction.analyze_prod_logs([self.home, missing])
+        self.assertEqual(res_bad["triggers"], [])
+        self.assertEqual(len(res_bad.get("warnings", [])), 2)
+        self.assertTrue(all(x.get("skipped") and x.get("error") for x in res_bad["logs"]))
+        empty_issues = self.home / "empty_f9.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--prod-logs", self.home, missing)
+        self.assertIn("recommended_theme", plan)
+
+    def test_v3_1_f10_steady_exit_code_validation(self):
+        """F10 [P1]: `--steady-exit-code` allows only 0 (disabled) or 2..125; rejects 1, <0, >=126."""
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec_all = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-f10-a.zh.md": rec_all,
+            f"docs/plans/doctor/{today}-f10-b.zh.md": rec_all,
+        }, message="docs(doctor): two clean audits for f10")
+        empty_issues = self.home / "empty_f10.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+
+        for bad in ("1", "-1", "126", "256", "abc"):
+            with self.subTest(bad_code=bad):
+                err = io.StringIO()
+                from contextlib import redirect_stderr
+                with self.assertRaises(SystemExit) as ctx, redirect_stderr(err):
+                    doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--steady-exit-code", bad])
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn("steady-exit-code", err.getvalue())
+
+        # 0 disables non-zero exit even when steady.
+        plan_zero = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--steady-exit-code", "0")
+        self.assertEqual(plan_zero["recommended_theme"], "steady")
+
+        # 125 (upper valid bound) exits with 125 when steady.
+        out_125 = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(out_125):
+            doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--steady-exit-code", "125"])
+        self.assertEqual(ctx.exception.code, 125)
+        self.assertEqual(json.loads(out_125.getvalue())["recommended_theme"], "steady")
+
+    def test_v3_2_r2_1_prod_logs_compose_journalctl_ansi_json_and_oom(self):
+        """R2-1 [P1]: strip ANSI escapes and docker compose / journalctl prefixes before PROD_ERROR_RE,
+        match lowercase JSON error levels without FP on INFO cleared-ERROR prose, and catch compose
+        exited-137 / Cannot allocate memory / MemoryError OOM signals."""
+        compose_log = self.home / "paper-compose.log"
+        compose_log.write_text("\n".join([
+            "\x1b[36mtrade-ide-paper-1  |\x1b[0m 2026-11-26T12:00:01Z ERROR runner crashed on BTCUSDT",
+            "trade-ide-paper-1  | Traceback (most recent call last):",
+            "trade-ide-paper-1  | 2026-11-26T12:00:02Z CRITICAL fatal failure",
+            'trade-ide-paper-1  | {"ts":"2026-11-26T12:00:03Z","level":"error","msg":"unhandled"}',
+            'trade-ide-paper-1  | {"ts":"2026-11-26T12:00:04Z","level":"fatal","msg":"aborting"}',
+            "trade-ide-paper-1  | 2026-11-26T12:00:05Z INFO metrics: cleared ERROR flag",
+            "trade-ide-paper-1 exited with code 137",
+        ]) + "\n", encoding="utf-8")
+
+        journal_log = self.home / "paper-journalctl.log"
+        journal_log.write_text("\n".join([
+            "Nov 26 12:00:01 host trade-ide-paper-1[1234]: 2026-11-26T12:00:01Z ERROR crash 1",
+            "Nov 26 12:00:02 host trade-ide-paper-1[1234]: Traceback (most recent call last):",
+            "Nov 26 12:00:03 host trade-ide-paper-1[1234]: ERROR crash 2",
+            "Nov 26 12:00:04 host trade-ide-paper-1[1234]: CRITICAL crash 3",
+            "Nov 26 12:00:05 host trade-ide-paper-1[1234]: FATAL crash 4",
+            "Nov 26 12:00:06 host trade-ide-paper-1[1234]: OSError: [Errno 12] Cannot allocate memory",
+            "Nov 26 12:00:07 host trade-ide-paper-1[1234]: MemoryError: unable to allocate array",
+        ]) + "\n", encoding="utf-8")
+
+        res = friction.analyze_prod_logs([compose_log, journal_log])
+        c_entry, j_entry = res["logs"]
+        self.assertEqual(c_entry["error_lines"], 5)
+        self.assertEqual(c_entry["oom_signals"], 1)
+        self.assertTrue(any("prod_oom_kill" in t for t in c_entry["triggers"]))
+        self.assertTrue(any("prod_error_burst" in t for t in c_entry["triggers"]))
+        self.assertEqual(j_entry["error_lines"], 5)
+        self.assertEqual(j_entry["oom_signals"], 2)
+        self.assertTrue(any("prod_oom_kill" in t for t in j_entry["triggers"]))
+        self.assertTrue(any("prod_error_burst" in t for t in j_entry["triggers"]))
+
+    def test_v3_2_r2_2_auto_redlines_full_body_comments_and_no_bug_fp(self):
+        """R2-2 [P1]: scan full body & comments (no 1200-char truncation), block all AGENTS.md redlines
+        (active market switch, GHCR image deletion, Docker/compose restart, credential reads), and avoid
+        false positives on ordinary defect/regression prose."""
+        # 1) Remedy past char 1200 must still be blocked.
+        long_body = ("Proof details. " * 90) + "\n### Remedy\nReset the Dolt ledger and place real orders on the primary live account."
+        self.assertGreater(len(long_body), 1300)
+        self.assertTrue(scheduler._is_redline_text("Schema corruption bug in ledger", long_body))
+
+        # 2) Redline in comments (e.g. #3505 active market directory rebuild/switch) must be blocked.
+        self.assertTrue(scheduler._is_redline_text(
+            "Pool history omits reused symbols",
+            "Read-only proof.",
+            comments=[{"body": "What the next version line's market directory must do: Build anew from 2020-01 and perform the directory switch."}],
+        ))
+
+        # 3) Missing AGENTS.md redlines must all be blocked.
+        for label, title, body in (
+            ("active-market-switch", "Rebuild and switch active market directory", "Switch active market directory to v2."),
+            ("delete-runtime-images", "Enable deletion of retained runtime images in GHCR", "Deletes published image versions."),
+            ("ghcr-retention", "GHCR retention only lists pull request images; turn deletion on", "Ask owner before passing --delete on the schedule."),
+            ("restart-compose", "Restart Docker Desktop and trade-ide compose services", "Terminates host process and restarts services."),
+            ("read-credentials", "Read Binance API key from .env and dolt/service.json", "Reads credentials directly."),
+            ("lower-target", "Lower maximum drawdown target to 25%", "Relaxes research target."),
+            ("weaken-refusal", "Weaken refusal check on invalid stops", "Relaxes refusal guard."),
+            ("add-stored-col", "Add stored drawdown column to ledger schema", "Adds a stored field to ledger."),
+        ):
+            with self.subTest(redline=label):
+                self.assertTrue(scheduler._is_redline_text(title, body))
+
+        # 4) Ordinary bug / regression / validation-fix prose must NOT false-positive.
+        for label, title, body in (
+            ("bug-disables-refusal", "Bug: missing check disables refusal when --universe is passed", "Fix validation in paper/serve.py."),
+            ("bug-removes-guard", "Regression removes guard on negative Content-Length", "Fix HTTP handler."),
+            ("bug-lowers-drawdown", "Warm-up bug lowers maximum drawdown in replay report", "Fix ledger/metrics.py."),
+            ("fix-stored-field-val", "Fix: add missing validation for stored field in service.json", "Reject empty databases."),
+            ("changes-number-judged", "CapitalObserver delays exposure valuation", "It changes the number the maximum drawdown target is judged on."),
+        ):
+            with self.subTest(benign=label):
+                self.assertFalse(scheduler._is_redline_text(title, body))
+
+        # 5) End-to-end `--auto` blocks #3505/#3524-style redlines while keeping ordinary bugs actionable.
+        self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        issues_p = self.home / "r2_2_issues.json"
+        issues_p.write_text(json.dumps([
+            {
+                "number": 3505, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Pool history omits earlier contracts whose symbols were reused",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": ("Proof context. " * 90) + "\n### Remedy\nStored months then recompute to other members (`UNIVERSE_CHANGED`).",
+                "comments": [{"body": "Build anew the active market directory on the owner's start."}],
+            },
+            {
+                "number": 3524, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "GHCR retention only lists pull request images; turn deletion on",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": "Action: authority (deletes published image versions).",
+                "comments": [],
+            },
+            {
+                "number": 3697, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Regression removes guard on negative Content-Length in paper/serve.py",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": "Bug: missing check disables refusal when negative Content-Length is passed.",
+                "comments": [],
+            },
+        ]), encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--auto", "--issues-json", issues_p)
+        self.assertEqual([i["number"] for i in plan["issues_summary"]["actionable_harm"]], [3697])
+        self.assertEqual(plan["issues_summary"]["blocked_authority_count"], 2)
+
+    def test_v3_2_r2_3_shell_parser_escapes_amp_subshell_wrappers_and_grep(self):
+        """R2-3 [P1]: handle unquoted backslash escapes, single `&` (not `>&`/`<&`), command
+        substitutions `$(...)`/backticks, wrappers (`env`/`sudo`/`command`/`exec`) & full paths,
+        and grep env-prefix / attached `-ePAT` & `-fFILE` flags."""
+        from collections import Counter
+
+        def scan_cmd(cmd: str) -> dict[str, int]:
+            v: Counter[str] = Counter()
+            friction._scan_workflow_args({"CommandLine": cmd}, v, [False])
+            return dict(v)
+
+        for label, cmd, want_key in (
+            ("escaped-quote-secret", r"echo \' ; cat .env", "secret_file_access"),
+            ("escaped-quote-sql", r"echo \' ; dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
+            ("single-amp-secret", "echo hi & cat .env", "secret_file_access"),
+            ("single-amp-sql", "echo hi & dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
+            ("subshell-secret", "echo $(cat .env)", "secret_file_access"),
+            ("backtick-secret", "echo `head -n 5 .env`", "secret_file_access"),
+            ("nested-subshell-sql", "echo \"$(dolt sql -q 'SELECT 1')\"", "ad_hoc_ledger_sql"),
+            ("env-wrapper-secret", "env cat .env", "secret_file_access"),
+            ("sudo-wrapper-secret", "sudo -u root /usr/bin/head .env", "secret_file_access"),
+            ("command-wrapper-secret", "command /bin/cat .env", "secret_file_access"),
+            ("exec-wrapper-secret", "exec /bin/cat .env", "secret_file_access"),
+            ("abs-path-secret", "/bin/cat .env", "secret_file_access"),
+            ("grep-attached-e", "grep -eKEY .env", "secret_file_access"),
+            ("grep-combined-ie", "grep -ieKEY .env", "secret_file_access"),
+            ("grep-attached-f", "grep -f.env README.md", "secret_file_access"),
+            ("grep-combined-if", "grep -if.env README.md", "secret_file_access"),
+            ("grep-env-wrapper-target", "LC_ALL=C env /usr/bin/grep -eKEY .env", "secret_file_access"),
+        ):
+            with self.subTest(bypass=label):
+                self.assertEqual(scan_cmd(cmd).get(want_key), 1, f"cmd={cmd!r}")
+
+        # Benign commands (env-prefixed doc grep, FD redirections, single-quoted subshell text) -> 0 violations.
+        for label, cmd in (
+            ("grep-env-prefix", "LC_ALL=C grep .env README.md"),
+            ("grep-env-wrapper-doc", "env LC_ALL=C /usr/bin/grep -n .env docs/guide.md"),
+            ("fd-redirect-no-split", "echo .env 2>&1"),
+            ("single-quoted-subshell", "echo '$(cat .env)'"),
+        ):
+            with self.subTest(benign=label):
+                self.assertEqual(scan_cmd(cmd), {}, f"cmd={cmd!r}")

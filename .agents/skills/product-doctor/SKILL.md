@@ -92,8 +92,10 @@ some do), and any coupled `--contracts A+B` with `doctor.py scope` before any ev
    other path was out of reach, also by a temporary container of the product's own image and a read-only public
    source, is *not examined*: a `doctor.py unexamined` row with what stopped it; a mention in the pass's summary is
    not enough. A stand-in, a passing unit test or reading the code does not examine it, unless the lens asks for a
-   fake. Any such row makes the audit partial: never `pass`, `clean` or `full`. Trading on the real account and
-   changing the release host are listed as outside every audit, never as examined.
+   fake. Any such row makes the audit partial: never `pass`, `clean` or `full`. Trading on the primary real account and
+   changing the release host are listed as outside every audit, never as examined (the dedicated 200 USDT test account
+   may be used for bounded Live regression smoke tests only after multi-contract offline soak checks pass, per
+   `AGENTS.md`).
 5. **Challenge quiet choices.** Each full or slimming audit takes several choices that raised no alarm, beside the
    first passes. A fresh sub-agent designs from the need before reading the code; a run on a scratch copy measures
    the difference. Verdict: keep (with the premise whose failure reopens it), change, remove, or cannot tell. The
