@@ -37,6 +37,7 @@ RETRY_NS = 30 * 1_000_000_000  # REST allows 1000 requests per 5 minutes per IP;
 # 2026-11-15 Paper trial).
 READ_AHEAD_NS = 2 * RETRY_NS
 TICK = timedelta(seconds=1)
+TIMER_NAME = "runner-metrics"
 EXACT = Decimal("1e-16")  # the export's decimal128(38, 16): a value reads back with 16 places in either mode
 # The Metrics field each public endpoint gives, and the endpoint's field holding it.
 ENDPOINTS = {"sum_open_interest": ("openInterestHist", "sumOpenInterest"),
@@ -75,23 +76,45 @@ class Feed:
     def _metrics_clock(self):
         return Strategy.clock.__get__(self, type(self))  # the runner's, not the source's guarded clock
 
-    def _metrics_follow(self, instrument_id: str) -> None:
+    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None) -> None:
         """From the first row the replay would still deliver: stamped at or after the instance's input start
-        (engine.strategy.guard_callback) and due after now."""
+        (engine.strategy.guard_callback) and due after now (or after `after_ns` during Paper recovery)."""
         if instrument_id in self._metrics_followed:
             return
         clock = self._metrics_clock()
-        start = max(getattr(self, "_replay_input_start_ns", 0), clock.timestamp_ns() - VISIBLE_NS + 1)
+        ref_ns = after_ns if after_ns is not None else clock.timestamp_ns()
+        start = max(getattr(self, "_replay_input_start_ns", 0), ref_ns - VISIBLE_NS + 1)
         first = -(-start // PERIOD_NS) * PERIOD_NS
         self._metrics_followed[instrument_id] = {"instrument_id": instrument_id, "ts_event": first, "found": {},
                                                  "thread": None, "retry_ns": 0}
-        if "runner-metrics" not in clock.timer_names():
-            clock.set_timer("runner-metrics", TICK, callback=self._metrics_tick)
+        if TIMER_NAME not in clock.timer_names():
+            clock.set_timer(TIMER_NAME, TICK, callback=self._metrics_tick)
 
     def _metrics_unfollow(self, instrument_id: str) -> None:
         self._metrics_followed.pop(instrument_id, None)
-        if not self._metrics_followed and "runner-metrics" in self._metrics_clock().timer_names():
-            self._metrics_clock().cancel_timer("runner-metrics")
+        if not self._metrics_followed and TIMER_NAME in self._metrics_clock().timer_names():
+            self._metrics_clock().cancel_timer(TIMER_NAME)
+
+    def _metrics_backfill_due(self, up_to_ns: int) -> list[tuple[int, str, Any]]:
+        """Read and advance every followed Metrics row due at or before `up_to_ns` during Paper recovery."""
+        if self._metrics_read is None:
+            return []
+        ready: list[tuple[int, str, Any]] = []
+        for state in list(self._metrics_followed.values()):
+            iid = state["instrument_id"]
+            while state["ts_event"] + VISIBLE_NS <= up_to_ns:
+                ts_event = state["ts_event"]
+                due = ts_event + VISIBLE_NS
+                found = self._metrics_read(iid, ts_event, list(ENDPOINTS))
+                if "sum_open_interest" in found:
+                    row = Metrics(InstrumentId.from_str(iid), found["sum_open_interest"],
+                                  found.get("count_toptrader_long_short_ratio"),
+                                  found.get("sum_toptrader_long_short_ratio"),
+                                  found.get("count_long_short_ratio"), ts_event, due)
+                    ready.append((due, iid, CustomData(metrics_data_type(iid), row)))
+                state.update(ts_event=ts_event + PERIOD_NS, found={}, thread=None, retry_ns=0, error="")
+        ready.sort(key=lambda item: (item[0], item[1]))
+        return ready
 
     def _metrics_tick(self, _event=None) -> None:
         """Each followed contract's due rows; none once the source unfollowed it, even from a row's own on_data."""

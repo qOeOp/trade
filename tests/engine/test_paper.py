@@ -18,7 +18,7 @@ from unittest import mock
 from nautilus_trader.model import (BarType, FundingRateUpdate, InstrumentId, MarkPriceUpdate, OrderSide, OrderStatus, OrderType, Price,
                                    TriggerType)
 
-from engine import klines, membership as membership_months, paper, paper_session, realtime
+from engine import klines, membership as membership_months, metrics, paper, paper_session, realtime
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS
@@ -1373,3 +1373,64 @@ class PaperCacheConfigTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].tick_capacity, paper.PAPER_TICK_CAPACITY)
         self.assertLess(captured[0].tick_capacity, 10_000)
+
+
+class MetricsFollowRecoveryTests(unittest.TestCase):
+    """Startup Metrics subscriptions stay checkpointable, mid-run changes still defer, and recovery resumes after cut."""
+
+    @staticmethod
+    def _source(clock_ns: int, reader=None):
+        source = object.__new__(paper._PaperConfigured)
+        source._paper_subscription_changes = False
+        source._replay_input_start_ns = 0
+        source._metrics_setup(reader)
+        clock = mock.Mock()
+        clock.timestamp_ns.return_value = clock_ns
+        clock.timer_names.return_value = []
+        return source, clock
+
+    def test_startup_metrics_follow_is_checkpointable_while_mid_run_follow_and_unfollow_defer(self):
+        source, clock = self._source(DAY + 30 * 10**9)
+        session = SimpleNamespace(ready=False, metrics_after=lambda: None)
+        with mock.patch.object(paper, "SESSION", session), \
+                mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock):
+            source._metrics_follow(str(IID))
+            self.assertFalse(source._paper_subscription_changes, "startup subscription must not defer checkpoints")
+            clock.set_timer.assert_called_once()
+            self.assertEqual(clock.set_timer.call_args.args[0], metrics.TIMER_NAME)
+
+            session.ready = True
+            source._metrics_follow("ETHUSDT-PERP.BINANCE")
+            self.assertTrue(source._paper_subscription_changes, "mid-run follow must still defer checkpoints")
+
+            source._paper_subscription_changes = False
+            with mock.patch.object(paper, "JOURNAL"):
+                source._metrics_unfollow(str(IID))
+            self.assertTrue(source._paper_subscription_changes, "mid-run unfollow must defer checkpoints")
+
+    def test_recovery_metrics_follow_starts_after_cut_and_backfills_due_rows_without_duplicates(self):
+        cut_ns = DAY + 2 * MINUTE_NS
+        warm_at = DAY + 16 * MINUTE_NS
+        seen_reads: list[tuple[str, int]] = []
+
+        def reader(iid: str, ts_event: int, wanted: list[str]):
+            seen_reads.append((iid, ts_event))
+            return {name: Decimal("2.5").quantize(metrics.EXACT) for name in wanted}
+
+        source, clock = self._source(warm_at + 10**9, reader=reader)
+        session = SimpleNamespace(ready=False, metrics_after=lambda: cut_ns)
+        with mock.patch.object(paper, "SESSION", session), \
+                mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock):
+            source._metrics_follow(str(IID))
+        # First row due strictly after cut_ns (DAY + 2m) is due at DAY + 5m (ts_event = DAY).
+        self.assertEqual(source._metrics_followed[str(IID)]["ts_event"], DAY)
+
+        rows = source._metrics_backfill_due(warm_at)
+        # Rows due at DAY+5m (ts=DAY), DAY+10m (ts=DAY+5m), DAY+15m (ts=DAY+10m) are <= warm_at (DAY+16m).
+        expected_ts = [DAY, DAY + metrics.PERIOD_NS, DAY + 2 * metrics.PERIOD_NS]
+        self.assertEqual([custom.data.ts_event for _, _, custom in rows], expected_ts)
+        self.assertEqual([due for due, _, _ in rows], [ts + metrics.VISIBLE_NS for ts in expected_ts])
+        self.assertEqual([ts for _, ts in seen_reads], expected_ts)
+        # Cursor moved past warm_at so a second backfill or live tick produces zero duplicates.
+        self.assertEqual(source._metrics_followed[str(IID)]["ts_event"], DAY + 3 * metrics.PERIOD_NS)
+        self.assertEqual(source._metrics_backfill_due(warm_at), [])

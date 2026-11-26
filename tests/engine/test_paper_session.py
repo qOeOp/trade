@@ -1,5 +1,6 @@
 """A checkpoint cannot turn pending callbacks, hooks or native orders into an empty account."""
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import gc
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS
-from engine import paper_session, protection
+from engine import metrics, paper_session, protection
 from engine.paper_session import Session
 from tests.helpers import refused
 
@@ -816,3 +817,124 @@ class InterruptionTests(unittest.TestCase):
                 session.start(lambda: seen.append("BTC"))
                 self.assertEqual((seen, session.ready, bool(getattr(session, "refused", None))),
                                  ([], False, True) if refuses else (["recorder", "BTC"], True, False))
+
+
+class MetricsCheckpointTests(unittest.TestCase):
+    """Strategies that follow Metrics on startup still checkpoint, defer only on due rows, and backfill on recovery."""
+
+    session = SessionTests.session
+
+    @staticmethod
+    def _strategy(timers, followed=None, on_data=None, reader=None):
+        strat = SimpleNamespace(
+            _paper_held=[],
+            _paper_subscription_changes=False,
+            _paper_user_timers=False,
+            _paper_subscriptions={f"{IID}-1-MINUTE-LAST-EXTERNAL"},
+            clock=SimpleNamespace(timer_names=lambda: list(timers)),
+            save=lambda: {"phase": b"1"},
+            _paper_cadence={},
+            _metrics_followed=followed or {},
+            _metrics_read=reader,
+            on_data=on_data or (lambda _data: None),
+        )
+        strat._metrics_backfill_due = lambda up_to_ns: metrics.Feed._metrics_backfill_due(strat, up_to_ns)
+        return strat
+
+    def test_runner_metrics_timer_is_allowed_for_cut_and_pause_while_user_timers_still_refuse(self):
+        cache = SimpleNamespace(orders=list, positions_open=list)
+        strat = self._strategy([metrics.TIMER_NAME], followed={IID: {"instrument_id": IID, "ts_event": T}})
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            session = self.session()
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+                session.cut(cache)
+            session.backend.snapshot.assert_called_once()
+            session.before_stop(cache)
+            self.assertIsNone(session.pause_error)
+
+            strat.clock = SimpleNamespace(timer_names=lambda: [metrics.TIMER_NAME, "user-timer"])
+            session2 = self.session()
+            with mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+                caught = refused(session2.cut, cache, error=checkpoint.Refusal)
+            self.assertIn("timer", str(caught))
+            session2.before_stop(cache)
+            self.assertIn("timer", session2.pause_error or "")
+
+    def test_due_defers_cut_until_due_metrics_row_advances(self):
+        cache = SimpleNamespace(orders=list, positions_open=list)
+        state = {"instrument_id": IID, "ts_event": T}
+        strat = self._strategy([metrics.TIMER_NAME], followed={IID: state})
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            session = self.session()
+            due_ns = T + metrics.VISIBLE_NS
+            with mock.patch("engine.paper_session.time.time_ns", return_value=due_ns):
+                caught = refused(session.cut, cache, error=checkpoint.Refusal)
+            self.assertIn("metrics row due", str(caught))
+            session.backend.snapshot.assert_not_called()
+
+            state["ts_event"] = T + metrics.PERIOD_NS
+            with mock.patch("engine.paper_session.time.time_ns", return_value=due_ns):
+                session.cut(cache)
+            session.backend.snapshot.assert_called_once()
+
+    def test_backfill_delivers_missed_metrics_rows_even_without_aggregated_bars_and_checks_orders(self):
+        cut_ns = T - 12 * MINUTE_NS
+        warm_at = T
+        delivered: list[int] = []
+        releases: list[None] = []
+
+        def reader(_iid: str, _ts_event: int, wanted: list[str]):
+            return {name: Decimal("1.25").quantize(metrics.EXACT) for name in wanted}
+
+        followed = {IID: {"instrument_id": IID, "ts_event": T - 15 * MINUTE_NS, "found": {},
+                          "thread": None, "retry_ns": 0}}
+        strat = self._strategy([metrics.TIMER_NAME], followed=followed,
+                               on_data=lambda custom: delivered.append(custom.data.ts_event), reader=reader)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: strat}, clear=True):
+            session = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": cut_ns})
+            session.ready = False
+            session.warm_at = warm_at
+            session.since = {}  # 1-MINUTE-only strategy: no aggregated bars to backfill
+            session.release = lambda _: releases.append(None)
+            self.assertEqual(session.metrics_after(), cut_ns)
+            self.assertIsNone(session.backfill())
+            # Rows due at T-10m (ts=T-15m), T-5m (ts=T-10m), T (ts=T-5m) all fall in (cut_ns, warm_at].
+            self.assertEqual(delivered, [T - 15 * MINUTE_NS, T - 10 * MINUTE_NS, T - 5 * MINUTE_NS])
+            self.assertEqual(len(releases), 3)
+
+        # Waiting checkpoint (no saved sources) must not set metrics_after or backfill Metrics.
+        waiting = self.session(saved={"sources": {}, "cut_ns": cut_ns})
+        waiting.ready = False
+        self.assertIsNone(waiting.metrics_after())
+
+        # Reader error or MARKET order submitted during Metrics backfill refuses recovery cleanly.
+        def failing_reader(_iid: str, _ts_event: int, _wanted: list[str]):
+            raise OSError("binance timeout")
+
+        bad_strat = self._strategy([metrics.TIMER_NAME],
+                                   followed={IID: {"instrument_id": IID, "ts_event": T - 5 * MINUTE_NS, "found": {},
+                                                   "thread": None, "retry_ns": 0}},
+                                   reader=failing_reader)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: bad_strat}, clear=True):
+            session = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": cut_ns})
+            session.ready, session.warm_at, session.since = False, warm_at, {}
+            err = session.backfill()
+            self.assertIsNotNone(err)
+            self.assertIn("Metrics recovery backfill failed", err or "")
+
+        market_order = order(kind="MARKET")
+
+        def submit_on_metrics(_custom):
+            session_ord.submitted(market_order)
+
+        ord_strat = self._strategy([metrics.TIMER_NAME],
+                                   followed={IID: {"instrument_id": IID, "ts_event": T - 5 * MINUTE_NS, "found": {},
+                                                   "thread": None, "retry_ns": 0}},
+                                   on_data=submit_on_metrics, reader=reader)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: ord_strat}, clear=True):
+            session_ord = self.session(saved={"sources": {IID: {"state": {}, "cadence": {}}}, "cut_ns": cut_ns})
+            session_ord.ready, session_ord.warm_at, session_ord.since = False, warm_at, {}
+            session_ord.release = lambda _: None
+            err = session_ord.backfill()
+            self.assertIsNotNone(err)
+            self.assertIn("MARKET order", err or "")

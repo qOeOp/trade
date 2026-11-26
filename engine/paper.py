@@ -378,14 +378,14 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         self._paper_subscriptions.add(str(bar_type))
         return super().subscribe_bars(bar_type, *args, **kwargs)
 
-    def _metrics_follow(self, instrument_id: str) -> None:
-        self._paper_subscription_changes = True  # a recovery restores no metrics subscription (engine.paper_session)
-        return super()._metrics_follow(instrument_id)
+    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None) -> None:
+        self._paper_subscription_changes |= bool(SESSION and SESSION.ready)
+        super()._metrics_follow(instrument_id, after_ns=SESSION.metrics_after() if after_ns is None and SESSION else after_ns)
 
     def _metrics_unfollow(self, instrument_id: str) -> None:
-        """An unsubscribe of metrics the source followed goes to the journal: `paper compare` expects no row after it
-        (replay.comparison.compare_metrics), as Live's evidence pack does."""
+        """Journal unsubscribed metrics (`paper compare` expects no row after it) and flag mid-run change."""
         if instrument_id in self._metrics_followed:
+            self._paper_subscription_changes = True
             MARKET.metrics_unsubscribed(instrument_id)
         super()._metrics_unfollow(instrument_id)
 
