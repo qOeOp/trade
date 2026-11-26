@@ -486,6 +486,60 @@ export function load(cfg?: Config) {
         data_ann = self.call_json("telemetry", "--tree", "HEAD")
         self.assertEqual(data_ann["summary"]["isolated_roots"], ["deploy", "ide"])
 
+    def test_v2_3_per_object_slim_cooldown_and_post_audit_freshness(self):
+        """Round 4: once a bursting object is slimmed with no new fixes, it enters per-object slim
+        cooldown; once all code objects are examined after their latest commit, `advise` converges to steady."""
+        for i in range(4):
+            self.commit({"alpha/core.py": CLONE_A + f"# burst {i}\n"}, message=f"fix(alpha): burst {i}")
+        issues_path = self.home / "empty_issues.json"
+        issues_path.write_text("[]", encoding="utf-8")
+
+        # Before slimming: alpha triggers `slim`.
+        p1 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path)
+        self.assertEqual(p1["recommended_theme"], "slim")
+        self.assertEqual(p1["recommended_scope"]["objects"], ["alpha"])
+
+        # Record complete slim audit on alpha + find audit on beta & cold on the same day.
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec_slim = (
+            "# Themed audit: slim\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| size | alpha:check | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_find = (
+            "# Themed audit: find\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | beta:check | examined | ok |\n"
+            "| results | cold:check | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-slim-alpha.zh.md": rec_slim,
+            f"docs/plans/doctor/{today}-find-rest.zh.md": rec_find,
+        }, message="docs(doctor): record slim on alpha and find on beta/cold")
+
+        # Now alpha is in per-object slim cooldown, all objects are fresh -> must converge cleanly to `steady`!
+        p2 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path)
+        self.assertIn("alpha", p2["slim_cooled_objects"])
+        self.assertEqual(p2["slim_total_count"], 0)
+        self.assertEqual(p2["recommended_theme"], "steady")
+        alpha_rank = next(r for r in p2["ranked_code_objects"] if r["object"] == "alpha")
+        self.assertTrue(alpha_rank["unchanged_since_examined"])
+        self.assertEqual(alpha_rank["risk_prior"], 0.0)
+
+        # Landing a NEW fix commit 2 days later (still within 14d burst window & 21d SLA) wakes alpha right back up!
+        from datetime import UTC, datetime, timedelta
+        next_dt = (datetime.fromisoformat(f"{today}T12:00:00+00:00") + timedelta(days=2)).astimezone(UTC)
+        next_iso = next_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        (self.repo / "alpha" / "core.py").write_text(CLONE_A + "# fresh fix after slim\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "fix(alpha): regression after slim",
+                 env_extra={"GIT_AUTHOR_DATE": next_iso, "GIT_COMMITTER_DATE": next_iso})
+        p3 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path)
+        self.assertNotIn("alpha", p3["slim_cooled_objects"])
+        self.assertEqual(p3["recommended_theme"], "slim")
+
     def test_v2_1_folded_tests_boundary_clones_and_report_folding(self):
         # Add package layer isolation boundary + isolated `ide` copy of CLONE_A + folded test dir.
         self.commit({

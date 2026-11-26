@@ -284,19 +284,63 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
     }
 
 
-def _slim_candidates(telemetry_data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Identify code objects triggering oscillation, test-bloat, structural-decay, or clone-bloat slimming."""
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = (len(ordered) - 1) * pct
+    lo = int(math.floor(idx))
+    hi = min(len(ordered) - 1, lo + 1)
+    frac = idx - lo
+    return ordered[lo] * (1.0 - frac) + ordered[hi] * frac
+
+
+def _slim_candidates(telemetry_data: dict[str, Any],
+                     last_slimmed: dict[str, str] | None = None) -> tuple[list[dict[str, Any]], list[str], dict[str, int]]:
+    """Identify code objects triggering oscillation, test-bloat, structural-decay, or clone-bloat slimming.
+
+    Uses repo-cadence-aware outlier thresholds (`max(floor, p75)`) so high-velocity repos target genuine
+    outliers ("well ahead of the rest") while slow repos keep the absolute floor, and applies per-object
+    slimming cooldown when no new fix/revert landed after the object's last complete `slim` audit.
+    """
+    last_slimmed = last_slimmed or {}
+    code_objs = [o for o in telemetry_data["objects"].values() if o["kind"] == "code"]
+    active_obj_fixes = [float(o["fixes_short"]) for o in code_objs if o["fixes_short"] > 0]
+    active_file_fixes = [
+        float(max((f["fixes"] + f.get("reverts", 0) for f in o["fix_burst_files"]), default=0))
+        for o in code_objs if o["fixes_short"] > 0
+    ]
+    p75_obj_fixes = _percentile(active_obj_fixes, 0.75)
+    p75_file_fixes = _percentile(active_file_fixes, 0.75)
+    # Absolute floors preserve sensitivity on quiet repos; p75 scales smoothly on hyper-velocity repos.
+    file_burst_bar = max(4, int(math.ceil(p75_file_fixes)))
+    severe_burst_bar = max(8, int(math.ceil(p75_file_fixes * 1.5)))
+    unhealthy_fix_bar = max(3, int(math.ceil(p75_obj_fixes * 0.5)))
+
     candidates: list[dict[str, Any]] = []
+    cooled_objects: list[str] = []
     for name, obj in telemetry_data["objects"].items():
         if obj["kind"] != "code":
             continue
+        # Per-object slim cooldown: skip if already slimmed on/after its latest fix/revert commit.
+        slim_date = last_slimmed.get(name)
+        if slim_date:
+            slim_dt = _parse_iso(f"{slim_date}T23:59:59Z")
+            slim_end_ts = int(slim_dt.timestamp()) if slim_dt else 0
+            if slim_end_ts and obj.get("latest_fix_ts", 0) <= slim_end_ts:
+                cooled_objects.append(name)
+                continue
+
         reasons: list[str] = []
         severity = 0.0
         max_file_touches = max((f["fixes"] + f.get("reverts", 0) for f in obj["fix_burst_files"]), default=0)
         reverts = obj.get("reverts_short", 0)
-        if max_file_touches >= 4 or reverts >= 1 or (obj["fixes_short"] >= 8 and obj["oscillation_ratio"] >= 2.5):
+        if reverts >= 1 or (
+            max_file_touches >= file_burst_bar
+            and (obj["oscillation_ratio"] >= 2.5 or max_file_touches >= severe_burst_bar or obj["fixes_short"] == max_file_touches)
+        ):
             reasons.append(
-                f"oscillation_burst (max_file_fixes={max_file_touches}, reverts={reverts}, "
+                f"oscillation_burst (max_file_fixes={max_file_touches}>={file_burst_bar}, reverts={reverts}, "
                 f"obj_fixes={obj['fixes_short']}, osc={obj['oscillation_ratio']})"
             )
             severity += max_file_touches * 4.0 + reverts * 6.0 + obj["fixes_short"] * 1.5
@@ -305,12 +349,11 @@ def _slim_candidates(telemetry_data: dict[str, Any]) -> list[dict[str, Any]]:
         ):
             reasons.append(f"test_bloat (test_net={obj['test_net_short']:+d}, prod_net={obj['net_short']:+d}, ratio={obj['test_to_prod_ratio']})")
             severity += min(30.0, obj["test_net_short"] / 50.0)
-        # Only trigger structural_decay when an unhealthy file ITSELF received >=2 fixes/reverts (no sibling FP).
         unhealthy_fixes = obj.get("unhealthy_fixes_short", 0)
-        if obj["break_even_caution"] and obj["min_health"] is not None and unhealthy_fixes >= 2:
+        if obj["break_even_caution"] and obj["min_health"] is not None and unhealthy_fixes >= unhealthy_fix_bar:
             reasons.append(
                 f"structural_decay (min_health={obj['min_health']}, max_cognitive={obj['max_cognitive']}, "
-                f"unhealthy_fixes={unhealthy_fixes})"
+                f"unhealthy_fixes={unhealthy_fixes}>={unhealthy_fix_bar})"
             )
             severity += (6.0 - obj["min_health"]) * 5.0 + unhealthy_fixes * 2.0
         if obj["duplicate_fns"] >= 6 and obj["net_short"] > 100:
@@ -331,7 +374,12 @@ def _slim_candidates(telemetry_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "top_burst_files": obj["fix_burst_files"][:3],
             })
     candidates.sort(key=lambda c: (-c["severity"], c["object"]))
-    return candidates
+    bars = {
+        "file_burst_bar": file_burst_bar,
+        "severe_burst_bar": severe_burst_bar,
+        "unhealthy_fix_bar": unhealthy_fix_bar,
+    }
+    return candidates, sorted(cooled_objects), bars
 
 
 def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
@@ -365,12 +413,20 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             else:
                 streak_broken.add(obj)
 
+    # Track most recent complete `slim` audit date per object for per-object slim cooldown.
+    last_slimmed: dict[str, str] = {}
+    for rec in records:
+        if rec["theme"] == "slim" and not rec["is_partial"]:
+            for obj in rec["objects"]:
+                if rec["date"] > last_slimmed.get(obj, ""):
+                    last_slimmed[obj] = rec["date"]
+
     object_kinds = {name: obj["kind"] for name, obj in telemetry_data["objects"].items()}
     file_latest_ts = telemetry_data.get("_file_latest_ts", {})
     issue_buckets = classify_issues(
         issues if issues is not None else [], tops, tracked_lines, object_kinds, owner_fn, file_latest_ts, now_dt
     )
-    slim_list = _slim_candidates(telemetry_data)
+    slim_list, slim_cooled_objects, dynamic_bars = _slim_candidates(telemetry_data, last_slimmed=last_slimmed)
 
     ranked_objects: list[dict[str, Any]] = []
     staleness_breaches: list[str] = []
@@ -379,6 +435,8 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             continue
         examined_str = scan_objects.get(name, {}).get("examined")
         examined_dt = _parse_iso(f"{examined_str}T00:00:00Z") if examined_str else None
+        examined_end_dt = _parse_iso(f"{examined_str}T23:59:59Z") if examined_str else None
+        examined_end_ts = int(examined_end_dt.timestamp()) if examined_end_dt else 0
         if examined_dt is None:
             stale_days = sla_days * 2
             breach = True
@@ -388,12 +446,20 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         if breach:
             staleness_breaches.append(name)
 
-        risk_prior = (
+        unchanged_since_examined = (
+            examined_dt is not None
+            and not breach
+            and obj.get("latest_code_ts", 0) <= examined_end_ts
+        )
+
+        raw_risk = (
             math.log1p(obj["abs_churn_short"]) * 1.5
             + (obj["fixes_short"] + obj.get("reverts_short", 0)) * 2.5
             + len(obj["fix_burst_files"]) * 4.0
             + max(0, obj["max_cognitive"] - 15) * 0.25
         )
+        # Drop risk prior to 0 once examined on/after its latest code commit (prevents re-auditing unchanged hotspots).
+        risk_prior = 0.0 if unchanged_since_examined else raw_risk
         staleness_bonus = min(stale_days, sla_days * 2) * (1.2 if breach else 0.35)
         saturation_pen = zero_yield_streak.get(name, 0) * 6.0
         score = round(risk_prior + staleness_bonus - saturation_pen, 2)
@@ -401,6 +467,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             "object": name,
             "score": score,
             "risk_prior": round(risk_prior, 2),
+            "unchanged_since_examined": unchanged_since_examined,
             "staleness_days": stale_days,
             "examined": examined_str,
             "staleness_breach": breach,
@@ -472,23 +539,27 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     else:
         theme = "find"
         picked: list[str] = []
-        if ranked_objects:
-            picked.append(ranked_objects[0]["object"])
+        # Prefer objects that are either stale or have new code since their last audit (avoid wasting picks
+        # on already-audited unchanged hotspots).
+        actionable_pool = [r for r in ranked_objects if r["staleness_breach"] or not r["unchanged_since_examined"]]
+        pool = actionable_pool or ranked_objects
+        if pool:
+            picked.append(pool[0]["object"])
         cold_stale = sorted(
             [r for r in ranked_objects if r["staleness_breach"] and r["object"] not in picked],
             key=lambda r: (r["examined"] or "0000-00-00", r["commits_long"], r["object"]),
         )
         if cold_stale:
             picked.append(cold_stale[0]["object"])
-        elif len(ranked_objects) > 1:
-            picked.append(ranked_objects[1]["object"])
+        elif len(pool) > 1:
+            picked.append(pool[1]["object"])
         chosen_objs = picked[:3]
         chosen_items = [item for item, _ in stalest_items[:3]]
         cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
         rationale = (
             f"0 actionable harm ({len(issue_buckets['blocked_authority'])} authority-blocked excluded){cooldown_note}; "
             f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
-            "Pairing top risk/churn object with coldest unexamined object."
+            "Pairing top fresh risk/churn object with coldest unexamined object."
         )
 
     coupled_contracts = [
@@ -510,6 +581,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         },
         "stopping_checks": stopping_checks,
         "last_two_themes": last_two_themes,
+        "dynamic_bars": dynamic_bars,
         "issues_summary": {
             "provided": issues is not None,
             "actionable_harm": issue_buckets["actionable_harm"][:10],
@@ -520,6 +592,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             "other_open_count": len(issue_buckets["other_open"]),
         },
         "slim_total_count": len(slim_list),
+        "slim_cooled_objects": slim_cooled_objects,
         "slim_candidates": slim_list[:6],
         "staleness_breach_count": len(staleness_breaches),
         "ranked_code_objects": ranked_objects[:12],

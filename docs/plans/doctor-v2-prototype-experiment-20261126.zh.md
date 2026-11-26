@@ -152,3 +152,33 @@
 ### 4. v2.2 验证结果
 - `tests.product_doctor.test_doctor` + `tests.product_doctor.test_doctor_v2` + `tests.test_source_hygiene` + `tests.test_eval_cases` + `tests.test_package_layers`：**32/32 全部通过**
 - `ruff check`：**0 errors**；`mypy`（4 个源文件）：**0 errors**
+
+---
+
+## 八、第 4 轮多轮闭环演化仿真与动态阈值校准（v2.2 → v2.3）
+
+围绕最初的核心命题——**长期反复运行 `product-doctor` 究竟能否单调收敛到全面覆盖 + `steady`，而不是陷入热区反复打转**——搭建 3 工况闭环仿真脚本（`/tmp/doctor-rd-sources/sim_round4.py`）实测 v2.2 基线并迭代出 **v2.3**：
+
+### 1. v2.2 暴露的 3 个多轮动力学缺陷
+- **热区锁定与 56.3% 重复浪费**：在 Regime A（`origin/main` 0 新提交、16 轮连续推演）中，v2.2 选中了 `engine` **14/16 轮**、`deploy` **6 轮**，16 轮后仍有 6 个核心代码对象（`cli`/`ledger`/`live`/`market`/`report`/`ide/web/src/model`）一次都没审到，且永远到不了 `steady`。
+- **根因**：① 缺少按对象维度的 `slim` 冷却（昨天刚瘦身过的对象在 14 天窗口内无新修复仍被反复点名）；② `find` 评分只看 14 天总 churn，不看对象在最近一次审计之后是否有新代码提交；③ 静态绝对 `slim` 门槛在高频 AI 仓（14 天 413 个 fix）上触发了 **17/20（85%）** 代码对象。
+
+### 2. v2.3 核心机制升级（`telemetry.py` + `scheduler.py`）
+1. **按对象最新代码/修复时间戳（`latest_code_ts` / `latest_fix_ts`）**：审计后若对象在 SLA 内无新代码提交（`unchanged_since_examined`），其 `risk_prior` 归零，把 `find` 预算立即让给未覆盖或有新变动的模块；一旦有新提交落入，优先级立刻恢复。
+2. **按对象 `slim` 冷却（`slim_cooled_objects`）**：从已有 `docs/plans/doctor/` 的完整 `slim` 记录解析 `last_slimmed[obj]`（零新增存储）；若对象自上次 `slim` 后无新 fix/revert 落入则退出当前 `slim_candidates`，有新 fix 立刻重新唤醒。
+3. **仓节奏自适应分位门槛（`dynamic_bars`）**：结合绝对下限与活跃代码对象的 75 分位（`file_burst_bar = max(4, ceil(p75))`、`unhealthy_fix_bar = max(3, ceil(0.5 * p75))`），低速仓保敏、高频仓聚焦真正的统计学离群值（“well ahead of the rest”）。
+
+### 3. 三工况闭环仿真 Before（v2.2）vs After（v2.3）
+
+| 指标（Regime A：`origin/main` 16 轮连续推演） | v2.2（改前） | **v2.3（改后）** | 变化 |
+|---|---:|---:|---|
+| 初始 `slim` 触发对象数（共 20 个代码对象） | 17 / 20 (85%) | **9 / 20 (45%)** | **−47%** |
+| 达到 `20/20` 满覆盖轮次 | 永不（16 轮仅 14/20） | **第 12 轮** | **100% 满覆盖** |
+| 首次干净收敛到 `steady` 轮次 | 永不 | **第 14 轮**（R14–R16 稳态保持） | **闭环收敛成立** |
+| 重复选中浪费次数 | 18 / 32 (56.3%) | **4 / 24 (16.7%)**（同主题重复为 0） | **−78% 浪费** |
+| 覆盖均匀度（归一化 Shannon 熵 `0..1`） | 0.659 | **0.984** | **+49%** |
+| 单个热区最高被抽中次数（`engine`） | 14 / 16 轮 | **1 / 16 轮** | 彻底解除热点锁定 |
+| 16 轮后遗漏未审对象数 | 6 | **0** | 零盲区 |
+
+- **Regime C（静默期收敛）**：保持最优——第 10 轮 `20/20` 满覆盖、第 11 轮进 `steady`、重复浪费 `0`、覆盖熵 `1.000`。
+- **Regime B（2026-10-29 → 2026-11-25 10 个真实历史快照纵向回放）**：`slim` 触发从 `11–17` 收敛至 `6–9`，审计覆盖在 14 个核心代码对象间平滑轮换，且在 `cli`/`ledger` 确实出现新 fix 提交的快照上准确重新唤醒 `slim`。

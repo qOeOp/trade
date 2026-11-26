@@ -390,9 +390,9 @@ def _new_window() -> dict[str, Any]:
 
 
 def _git_dual_window(rev: str, days: int, long_days: int,
-                     tops: dict[str, dict[str, Any]], owner_fn) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+                     tops: dict[str, dict[str, Any]], owner_fn) -> tuple[dict[str, Any], dict[str, Any], dict[str, int], dict[str, int]]:
     """Single-pass commit-time-anchored git log collector computing both short (`days`) and long (`long_days`)
-    windows plus each file's latest commit unix timestamp within `long_days`."""
+    windows plus each file's latest commit and latest fix/revert unix timestamps within `long_days`."""
     head_ts = int(_git("show", "-s", "--format=%ct", rev).decode().strip())
     short_cutoff = head_ts - days * 86400
     long_cutoff = head_ts - max(days, long_days) * 86400
@@ -401,6 +401,7 @@ def _git_dual_window(rev: str, days: int, long_days: int,
                "--numstat", "-z", "--format=%x01%ct%x02%s%x02%b%x03", rev)
     short, long = _new_window(), _new_window()
     file_latest_ts: dict[str, int] = {}
+    file_latest_fix_ts: dict[str, int] = {}
 
     for chunk in log.split(b"\x01")[1:]:
         hdr, _, body = chunk.partition(b"\x03")
@@ -434,6 +435,8 @@ def _git_dual_window(rev: str, days: int, long_days: int,
             d = int(removed_b) if removed_b.isdigit() else 0
             if ts > file_latest_ts.get(path, 0):
                 file_latest_ts[path] = ts
+            if is_osc_commit and ts > file_latest_fix_ts.get(path, 0):
+                file_latest_fix_ts[path] = ts
             name = owner_fn(path, tops) or "."
             touched_objs.add(name)
             for win in targets:
@@ -477,7 +480,7 @@ def _git_dual_window(rev: str, days: int, long_days: int,
                         if f1.split("/", 1)[0] != f2.split("/", 1)[0]:
                             win["file_coupling"][(f1, f2)] += 1
 
-    return short, long, file_latest_ts
+    return short, long, file_latest_ts, file_latest_fix_ts
 
 
 def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
@@ -551,7 +554,7 @@ def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
 def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
                       owner_fn, *, days: int = 14, long_days: int = 30) -> dict[str, Any]:
     """Build complete multi-timescale evolutionary + structural telemetry for `rev`."""
-    short, long, file_latest_ts = _git_dual_window(rev, days, long_days, tops, owner_fn)
+    short, long, file_latest_ts, file_latest_fix_ts = _git_dual_window(rev, days, long_days, tops, owner_fn)
     isolated_roots = _isolated_roots(rev, tracked_lines)
 
     obj_paths: dict[str, list[str]] = defaultdict(list)
@@ -672,6 +675,9 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         prod_lines = max(1, meta["lines"] - colocated_lines)
         colocated_net = sum(short["file_net"][p] for p in obj_paths.get(name, []) if is_test_path(p))
         prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - colocated_net
+        prod_paths = [p for p in obj_paths.get(name, []) if not is_test_path(p) and not p.endswith(".md")]
+        latest_code_ts = max((file_latest_ts.get(p, 0) for p in prod_paths), default=0)
+        latest_fix_ts = max((file_latest_fix_ts.get(p, 0) for p in prod_paths), default=0)
 
         objects_out[name] = {
             "kind": kinds[name],
@@ -680,6 +686,8 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
             "commits_short": short["obj_commits"][name],
             "fixes_short": short["obj_fixes"][name],
             "reverts_short": short["obj_reverts"][name],
+            "latest_code_ts": latest_code_ts,
+            "latest_fix_ts": latest_fix_ts,
             "added_short": short["obj_added"][name],
             "removed_short": short["obj_removed"][name],
             "net_short": prod_net_short,
