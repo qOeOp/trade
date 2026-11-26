@@ -102,7 +102,7 @@ def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[
     `orders_differ` when a group that differs has a fill on either side by then (the equity follows the order
     differences already attributed), else `fill_timing` when an order filled on both sides is counted in the minute on
     one side only, else `held` when a held Paper run was down in the minute (`paused`: the [pause, resume] of each held
-    interruption, paper.compare), else `mark_rounding` when Paper took the minute's value (`taken`) and the difference
+    interruption, paper.compare), else `mark_rounding` when the run recorded when it took the minute's value (`taken`) and the difference
     is exactly the one its price-precision marks make on the open positions (mark_rounding, to metrics.MONEY; user
     2026-11-24, 「授权全部按建议修」), else `unexplained`; `orders` names the run's orders of that cause. A run values a
     minute at the last mark it received in it, and from its pause until its held recovery went live after the resume

@@ -374,3 +374,89 @@ class Compare(unittest.TestCase):
         self.assertEqual([compare.instant(text) for text in ("2026-11-11", "2026-11-11T00:01:00Z",
                                                              "2026-11-11T08:01:00+08:00")],
                          [START, START + MINUTE, START + MINUTE])
+
+    def test_live_compare_carries_taken_and_attributes_mark_rounding_only_for_precision_delta(self):
+        """#3660: Live minute_result carries observed_ns (taken), so price-precision mark rounding deltas are
+        attributed as mark_rounding while an extra 0.01 USDT delta stays unexplained."""
+        xrp = "XRPUSDT-PERP.BINANCE"
+        xrp_terms = {"price_increment": "0.0001", "size_increment": "0.1", "min_notional": "5"}
+        directory = self.root / "runs" / "trial-xrp"
+        (directory / "inputs").mkdir(parents=True)
+        evidence = directory / "out" / "evidence"
+        evidence.mkdir(parents=True)
+        manifest = {"run_id": "trial-xrp", "candidate": {"strategy_id": "s", "revision": 1},
+                    "source": {"source_sha256": hashlib.sha256(SOURCE).hexdigest(), "entry_class": "S"},
+                    "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64},
+                    "symbols": ["XRPUSDT"], "config": {"environment": "live", "leverage": "5"},
+                    "market": {"market_day": "2026-11-10", "terms": {"XRPUSDT": xrp_terms}}}
+        (directory / "inputs" / "manifest.json").write_text(json.dumps(manifest))
+        (directory / "inputs" / "strategy.py").write_bytes(SOURCE)
+        account = {"observed_ns": START - 10**9, "account": {"assets": [{"asset": "USDT", "walletBalance": "100000"}]},
+                   "symbols": {"XRPUSDT": {"commission": {"makerCommissionRate": "0.0002",
+                                                          "takerCommissionRate": "0.0005"}}}}
+        (directory / "out" / "connected-account-1.json").write_text(json.dumps(account))
+
+        def xrp_orders(prefix: str, position: str) -> list[dict]:
+            return [order(f"{prefix}-E", "ENTRY", "SELL", START + MINUTE, qty="21413.2", price="0.9340")
+                    | {"instrument_id": xrp},
+                    fill(f"{prefix}-E", START + MINUTE, "0.9340", "SELL", position, "0", qty="21413.2")
+                    | {"instrument_id": xrp}]
+
+        # Minute 0: flat before entry (segment() treats the first minute_result as the inherited baseline).
+        # Minute 1: archive MARK close 0.93241752 -> rounded 0.9324 -> exact Nautilus rounding delta = 0.37515926 USDT.
+        # Minute 2: archive MARK close 0.93314173 -> rounded 0.9331 -> exact delta = 0.89357284; add +0.01 USDT -> unexplained.
+        # Minute 3: result is None -> omitted from equity and taken.
+        events = [{"event": "started", "observation": "connected-account-1.json", "observed_ns": START - 10**9},
+                  {"event": "warmup", "at_ns": START},
+                  *({"event": "order", "native": event} for event in xrp_orders("L", "P-1")),
+                  {"event": "minute_result", "minute_ns": START, "observed_ns": START + MINUTE + 10**8, "result": "0"},
+                  {"event": "minute_result", "minute_ns": START + MINUTE, "observed_ns": START + 2 * MINUTE + 10**8,
+                   "result": "0.37515926"},
+                  {"event": "minute_result", "minute_ns": START + 2 * MINUTE, "observed_ns": START + 3 * MINUTE + 10**8,
+                   "result": "0.90357284"},
+                  {"event": "minute_result", "minute_ns": START + 3 * MINUTE, "observed_ns": START + 4 * MINUTE + 10**8,
+                   "result": None}]
+        (directory / "out" / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in events))
+        market = [{"kind": "warmup", "wall_ns": START + 10**8, "instrument_id": xrp, "period": "1-MINUTE",
+                   **rerun.digest((close_of(i), "0.9340", "0.9350", "0.9320", "0.9340", "10.0") for i in (-3, -2, -1))},
+                  *({"kind": "bar", "wall_ns": close_of(i) + 10**8, "instrument_id": xrp, "ts_event": close_of(i),
+                     "ts_init": close_of(i), "open": "0.9340", "high": "0.9350", "low": "0.9320", "close": "0.9320",
+                     "volume": "10.0"} for i in range(4))]
+        (evidence / "market.jsonl").write_text("".join(json.dumps(row) + "\n" for row in market))
+
+        pack = compare.read_pack(directory)
+        built = compare.parts(pack, "100000", account, [])
+        self.assertEqual(built["taken"], {START: START + MINUTE + 10**8,
+                                          START + MINUTE: START + 2 * MINUTE + 10**8,
+                                          START + 2 * MINUTE: START + 3 * MINUTE + 10**8})
+
+        mark_closes = {0: "0.9340", 1: "0.93241752", 2: "0.93314173", 3: "0.93302071"}
+
+        def replayed(market, market_day, source, entry_class, image_ref, symbols, start, end, leverage, balance,
+                     output, name, timeout, received):
+            reports = Path(output) / "reports"
+            reports.mkdir(parents=True)
+            with (reports / "account.csv").open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["ts_event", "total"])
+                writer.writerow(["2026-11-11 00:00:00+00:00", balance])
+            return {"status": "passed", "problems": [], "path": str(output)}, xrp_orders("R", "R-1"), reports
+
+        def stored(market, day, symbol, price_type, interval, start, end, limit, funding=True):
+            first = (int(datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
+            last = (int(datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp()) * 10**9 - START) // MINUTE
+            rows = [[(close_of(i) + 10**6 - MINUTE) // 10**6, close_of(i) // 10**6,
+                     "0.9340", "0.9350", "0.9320", mark_closes.get(i, "0.9320") if price_type == "MARK" else "0.9320",
+                     "10.0"] for i in range(first, last)]
+            return {"market_day": "2026-11-11", "bars": {"rows": rows}}
+
+        with mock.patch.object(rerun, "replay", side_effect=replayed), \
+                mock.patch("market.read.stored_bars", side_effect=stored), \
+                mock.patch("market.files.open_market"), \
+                mock.patch("market.instrument.terms", return_value=xrp_terms), \
+                mock.patch.object(compare.run_journal, "published_settlements", return_value={}):
+            found = compare.compare(self.root, "trial-xrp", {}, None, self.root / "out-xrp")
+        result = json.loads(Path(found["path"]).read_text())
+        self.assertEqual([(item["minute_ns"], item["cause"]) for item in result["equity"]["differences"]],
+                         [(START + MINUTE, "mark_rounding"), (START + 2 * MINUTE, "unexplained")])
+        self.assertEqual(result["summary"]["equity_unexplained_minutes"], 1)
