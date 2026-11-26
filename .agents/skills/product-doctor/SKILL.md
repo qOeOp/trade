@@ -35,16 +35,19 @@ signals deterministically: dump open `agent-finding` issues via `gh` to a tempor
 and the last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why
 and what is left out:
 
-1. **Stop harm** (`harm`): unclaimed, non-`authority` open findings that risk money, records or wrong results
-   (`actionable_harm` from `advise`). Issues waiting on owner authority (`blocked_authority` or `authority_drifted`)
-   do not preempt `slim` or `find`; report drifted ones alongside the audit. Merge by cause, order by reach and cost
-   paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
+1. **Stop harm** (`harm`): unclaimed (or stale-claimed >= 2 days), non-`authority` open findings that risk money,
+   records or wrong results (`actionable_harm` from `advise`). Issues waiting on owner authority (`blocked_authority`
+   or `authority_drifted`) do not preempt `slim` or `find`; report drifted ones alongside the audit. Merge by cause,
+   order by reach and cost paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
 2. **Slim** (`slim`): a code object hitting `advise`'s oscillation-burst, test-bloat, clone-bloat or structural-decay
-   triggers (`slim_candidates`). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
-3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
+   triggers (`slim_candidates`), subject to `advise`'s cooldown while coverage SLA breaches remain. Group Shape and
+   **checks**, one or two objects: [slim.md](references/slim.md).
+3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named (overrides
+   `advise` when transcripts or the user surface it). Group Use.
 4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 coverage
-   SLA breaches, saturated marginal yield). Declare `doctor.py scope DIR steady`, report the stopping signals and next
-   re-entry trigger, and stop without manufacturing findings.
+   SLA breaches, saturated marginal yield over complete substantive audits). Declare `doctor.py scope DIR steady` (with
+   no `--objects` or `--items`), report the stopping signals and next re-entry trigger, and stop without manufacturing
+   findings.
 5. **Find** (`find`): otherwise. Pair the top risk/churn object with the coldest coverage-SLA-breached object from
    `advise` (plus its top `coupled_contracts` `A+B` pair and `outside`), under the stalest remaining groups of
    [lenses.md](references/lenses.md).

@@ -292,6 +292,199 @@ class ClosedLoopSchedulerTests(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("# Themed audit: steady", text)
         self.assertIn("Not exercised: nothing listed.", text)
+        # Steady scope must reject non-empty --objects or --items.
+        with self.assertRaises(SystemExit):
+            doctor.main(["scope", str(self.home / "bad-steady"), "steady", "--objects", "alpha", "--tree", "HEAD"])
+
+    def test_v2_2_steady_anti_gaming_and_unrefuted_bugs(self):
+        """P0-1 & P0-2: unrefuted bugs, 0-probe empty records, partial records, and steady records
+        must never game `steady` or falsely penalize buggy objects."""
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        issues_path = self.home / "empty_issues.json"
+        issues_path.write_text("[]", encoding="utf-8")
+
+        # 1. Two audits with 10/10 and 7/7 shown defects where NO refuter ran (`Refuters ran on 0`).
+        unref1 = (
+            "# 2026-11-25 audit\n\n| Item | Value |\n|---|---|\n"
+            "| Coverage | `# Themed audit: find` |\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:check | examined | ok |\n"
+            "| results | beta:check | examined | ok |\n"
+            "| results | cold:check | examined | ok |\n\n"
+            "Shown: 10 of 10 probed. Shown by a refuter's own probe too: 0. Refuters ran on 0.\n"
+        )
+        unref2 = (
+            "# 2026-11-26 audit\n\n| Item | Value |\n|---|---|\n"
+            "| Coverage | `# Partial themed audit: find` |\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:check | examined | ok |\n\n"
+            "Shown: 7 of 7 probed. Shown by a refuter's own probe too: 0. Refuters ran on 0.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-unref-1.zh.md": unref1,
+            f"docs/plans/doctor/{today}-unref-2.zh.md": unref2,
+        }, message="docs(doctor): record unrefuted bug audits")
+
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path)
+        # P0-2: record.md Coverage table & lowercase `Partial themed audit:` must both parse as `find`.
+        self.assertEqual(plan["last_two_themes"], ["find", "find"])
+        # P0-1: unrefuted bugs must NOT trigger steady or penalize alpha!
+        self.assertNotEqual(plan["recommended_theme"], "steady")
+        self.assertFalse(plan["stopping_checks"]["marginal_yield_saturated"])
+        alpha_row = next(r for r in plan["ranked_code_objects"] if r["object"] == "alpha")
+        self.assertEqual(alpha_row["saturation_penalty"], 0.0)
+
+        # 2. Recording two `steady` audits after bug audits must NOT erase prior bugs and self-perpetuate steady!
+        steady_rec = (
+            "# Themed audit: steady\n\n"
+            "Shown: 0 of 0 probed. Shown by a refuter's own probe too: 0. Refuters ran on 0.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-steady-1.zh.md": steady_rec,
+            f"docs/plans/doctor/{today}-steady-2.zh.md": steady_rec,
+        }, message="docs(doctor): record two steady audits")
+        plan2 = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path)
+        self.assertNotEqual(plan2["recommended_theme"], "steady")
+        self.assertFalse(plan2["stopping_checks"]["marginal_yield_saturated"])
+
+    def test_v2_2_js_ts_urls_types_clones_and_colocated_tests(self):
+        """Round 3A: JS/TS lexer ignores https:// URLs and TS ?: / ?. / ??, skips pure type files,
+        detects Type-2 clones, excludes co-located *.test.ts from prod, and maps tests/subpkg/."""
+        ts_urls_and_types = """export interface Config {
+  host?: string;
+  port?: number;
+  fallback?: string;
+}
+export function load(cfg?: Config) {
+  const url = { base: "https://example.com/path", api: "wss://stream.example.com" };
+  return cfg?.host ?? cfg?.fallback ?? url.base;
+}
+"""
+        ts_clone_1 = """export function renderAlpha(items: number[], cap: number) {
+  let sum = 0;
+  for (const x of items) {
+    if (x > 0 && x < cap) {
+      sum += x.toFixed(2).length;
+    } else if (x === cap) {
+      sum += 1;
+    }
+  }
+  return sum;
+}
+"""
+        ts_clone_2 = """export function renderBeta(rows: number[], limit: number) {
+  let acc = 0;
+  for (const r of rows) {
+    if (r > 10 && r < limit) {
+      acc += r.toFixed(4).length;
+    } else if (r === limit) {
+      acc += 2;
+    }
+  }
+  return acc;
+}
+"""
+        self.commit({
+            "web/src/config.ts": ts_urls_and_types,
+            "web/src/a.ts": ts_clone_1,
+            "web/src/b.ts": ts_clone_2,
+            "web/src/config.test.ts": ts_urls_and_types + "\n// test\n",
+            "alpha/submod/helper.py": "def h():\n    return 1\n",
+            "tests/submod/test_helper.py": "def test_h():\n    assert True\n",
+        }, message="feat(web): add ts modules and colocated test")
+
+        data = self.call_json("telemetry", "--tree", "HEAD", "--days", "14")
+        web_key = "web/src" if "web/src" in data["objects"] else "web"
+        web_obj = data["objects"][web_key]
+        self.assertEqual(web_obj["kind"], "code")
+        # Pure type/URL/?. file must stay healthy (no brace drift or ? inflation).
+        self.assertGreaterEqual(web_obj["min_health"], 9.5)
+        # Co-located config.test.ts must be counted as tests, NOT prod analyzed_files!
+        self.assertEqual(web_obj["analyzed_files"], 3)
+        self.assertGreater(web_obj["test_lines"], 0)
+        # Type-2 JS/TS clone must be detected across a.ts and b.ts.
+        self.assertGreaterEqual(data["summary"]["duplicate_clone_groups"], 1)
+        # Subpackage test dir tests/submod/ must map to alpha (or alpha/submod if split).
+        alpha_test_lines = sum(
+            o["test_lines"] for n, o in data["objects"].items()
+            if n == "alpha" or n.startswith("alpha/")
+        )
+        self.assertGreaterEqual(alpha_test_lines, 4)
+
+    def test_v2_2_redteam_regressions(self):
+        """P0-3, P1-2, P1-3, P1-4, P1-5, P1-6, P2-1, P2-3 regressions."""
+        # P1-3: clone skeleton must preserve attribute names (start_service vs stop_service must NOT collide).
+        svc_a = """def start_service(client, cfg):
+    results = []
+    if cfg and client.is_ready():
+        client.connect(cfg)
+        for item in cfg:
+            results.append(client.start_stream(item))
+        return client.status(), len(results)
+    return None, 0
+"""
+        svc_b = """def stop_service(client, cfg):
+    results = []
+    if cfg and client.is_closed():
+        client.disconnect(cfg)
+        for item in cfg:
+            results.append(client.flush_buffer(item))
+        return client.exit_code(), len(results)
+    return None, 0
+"""
+        info_a = telemetry.analyze_python_source(svc_a)
+        info_b = telemetry.analyze_python_source(svc_b)
+        self.assertTrue(info_a["clone_hashes"] and info_b["clone_hashes"])
+        self.assertNotEqual(info_a["clone_hashes"][0][0], info_b["clone_hashes"][0][0])
+
+        # P0-3: commit-time anchored window on historical backdated commits.
+        old_env = {"GIT_AUTHOR_DATE": "2024-06-15T12:00:00Z", "GIT_COMMITTER_DATE": "2024-06-15T12:00:00Z"}
+        (self.repo / "alpha" / "special file%.py").write_text("def sp():\n    return 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", 'Revert "fix(alpha): bad patch"', env_extra=old_env)
+        rev_old = self.git("rev-parse", "HEAD")
+        # P1-4 & P1-5: special filename with space and `%` AND Revert commit must be captured at `rev_old`.
+        data_old = self.call_json("telemetry", "--tree", rev_old, "--days", "14", "--long-days", "30")
+        self.assertGreaterEqual(data_old["objects"]["alpha"]["reverts_short"], 1)
+        self.assertGreaterEqual(data_old["objects"]["alpha"]["analyzed_files"], 2)
+
+        # P1-6: malformed issues JSON raises clean SystemExit; stale claim >= 2d re-enters actionable_harm;
+        # older comment must NOT override newer updatedAt.
+        bad_json = self.home / "bad.json"
+        bad_json.write_text("{}", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            self.call_json("advise", "--tree", "HEAD", "--issues-json", bad_json)
+
+        issues_edge = self.home / "edge_issues.json"
+        issues_edge.write_text(json.dumps([
+            {
+                "number": 501,
+                "title": "alpha/core.py skips check on startup",
+                "labels": [{"name": "agent-finding"}, {"name": "claimed"}],
+                "updatedAt": "2020-01-01T00:00:00Z",
+                "body": "Causes phantom position and money loss in live trading.",
+                "comments": [],
+            },
+            {
+                "number": 502,
+                "title": "docs/readme.md spells live order example with extra space",
+                "labels": [{"name": "agent-finding"}],
+                "updatedAt": "2026-11-26T00:00:00Z",
+                "body": "Typo in docs/readme.md only.",
+                "comments": [],
+            },
+        ]), encoding="utf-8")
+        plan_edge = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_edge)
+        actionable_nums = [i["number"] for i in plan_edge["issues_summary"]["actionable_harm"]]
+        self.assertIn(501, actionable_nums)
+        self.assertNotIn(502, actionable_nums)
+
+        # P2-3: PEP 526 AnnAssign in tests/test_package_layers.py must be parsed.
+        self.commit({
+            "tests/test_package_layers.py": 'ISOLATED: frozenset[str] = frozenset({"ide"})\nRANK: dict[str, int] = {"deploy": 0}\n',
+        }, message="test: annassign layers")
+        data_ann = self.call_json("telemetry", "--tree", "HEAD")
+        self.assertEqual(data_ann["summary"]["isolated_roots"], ["deploy", "ide"])
 
     def test_v2_1_folded_tests_boundary_clones_and_report_folding(self):
         # Add package layer isolation boundary + isolated `ide` copy of CLONE_A + folded test dir.

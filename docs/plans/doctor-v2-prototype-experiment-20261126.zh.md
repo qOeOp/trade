@@ -116,3 +116,39 @@
 ### 4. v2.1 验证结果
 - `tests.product_doctor.test_doctor` + `tests.product_doctor.test_doctor_v2` + `tests.test_source_hygiene` + `tests.test_eval_cases` + `tests.test_package_layers`：**29/29 通过**
 - `ruff check`：**0 errors**；`mypy`：**0 errors**
+
+---
+
+## 七、第 3 轮对抗红队与前端 Ground-Truth 校准（v2.1 → v2.2 + 3 个红队 Eval Case）
+
+本轮不提产品 issue，专注对 `product-doctor` v2.1 做双路极限压测并迭代到 **v2.2**：
+
+### 1. Round 3A：全仓 517 个 JS/TS/TSX/MJS 文件的 Bun 转译 Ground-Truth 对标
+- **暴露的真问题**：v2.1 行级正则 `analyze_js_ts_source` 在 428 个前端生产文件上的 `break_even_caution` 假阳率高达 **92.3%**（36 FP / 3 TP / 1 FN `FirstRun.tsx`）；40.3% 的正则命中是假阳（`??` 被 `\?` 命中两次占 20.6%、`?.` 占 10.8%、TS 可选属性 `?:` 占 6.4%、`line.partition("//")` 切断 `"https://..."` 导致 `news.ts` 永久泄漏 `+7` 花括号深度炸到 `cog=150`）。同时漏掉了 **8,785 行前端与 IDE 测试**（`.mjs`/`.cjs` 不在扩展名表、共置 `*.test.ts` 被算成生产代码、`tests/research_graph/` 无法映射到 `ide`）。
+- **v2.2 修复**：
+  - 新增纯 stdlib 状态机引擎 `.agents/skills/product-doctor/assets/js_analyzer.py`（完整词法分析字符串/模板/正则/注释/JSX 模式 + 跳过 TS `type`/`interface` + 函数级 Sonar/Campbell 认知复杂度 + `??` 按 SonarJS 计 0 + 无分号单行 `if` 防 `pending_nest` 泄漏 + 标准化 Type-2 克隆哈希）。
+  - 扩充 `.mjs`/`.cjs`、统一 `is_test_path()`、支持共置 `*.test.*` / 同包兄弟测试目录（`ide/web/scripts/*.test.mjs` → `ide/web/src`）/ 子包目录匹配（`tests/research_graph/` → `ide`）。
+- **实测前后对比（`origin/main`）**：
+  - `ide/overview/src/news.ts`：`health 4.50 (cog 150)` → **`10.00 (cog 10)`**（与 Bun ground truth 完全一致）
+  - `ide/web/src/model/types.ts`：`7.79 (cog 28)` → **`10.00 (cog 0)`**
+  - `ide/web/src/icons/registry.ts`：`8.52 (cog 23)` → **`10.00 (cog 0)`**
+  - `ide/web/src/model/backtest.ts`：`4.50 (cog 58)` → **`8.68 (cog 24)`**
+  - `ide/web/src/widgets/FirstRun.tsx`（原漏报 `9.40`）→ **`4.41 (cog 60)`**（成功检出）
+  - `ide/web/src/widgets/live/LiveLaunch.tsx`：**`4.34 (cog 73)`**（头号真高危组件）
+  - 测试映射：`ide` `test_lines=2109 (0.80)`、`ide/web/src` `5831 (0.85)`、`ide/overview` `563 (0.16)`、`ide/agent` `282 (0.13)`、`ide/web/scripts` 自动归类为 `kind=tests`；且 Type-2 克隆抓出 `docs-site/app/[lang]/(home|docs)/layout.tsx:Layout`。
+
+### 2. Round 3B：25 天 8 快照纵向回放 + 对抗红队（10 项 P0/P1/P2 全部闭环修复）
+- **P0-1（`steady` 防作弊与未反驳缺陷语义）**：`doctor.py report` 末尾追加 `Refuters ran on N.`；`scheduler.py` 绝不用 `refuted_shown=0` 覆盖未跑反驳的 `shown > 0`，并把 `steady`、`is_partial`、`0 of 0 probed` 空白记录及“仅 1 条实质记录但发现 >0 个 bug”全部排除出饱和门禁。
+- **P0-2（`read_audit_history` 批量读取 + 解析 `record.md` 表格）**：改为单次 `git cat-file --batch` 批量读全仓审计记录（`advise` 耗时从 9.12s 降至 **6.66s**），同时大小写不敏感匹配 `# Partial themed audit:` 与 `| Coverage |` 表格单元。
+- **P0-3（历史时间窗提交时间锚定）**：`telemetry.py` 与 `doctor.py scan_data` 均改用 `--since=@{head_ts - window}`；在 `8732f5960`（2026-10-30）上 `commits_long` 从截断的 `136` 恢复为精确的 **`686`**。
+- **P1-2（`slim` 跨文件误报 + 冷区反饿死冷却）**：`structural_decay` 改为仅统计不健康文件自身修复数 `unhealthy_fixes_short >= 2`；当仍存在覆盖 SLA 违约时，`slim` 跑完 1 轮即进入冷却让位给 `find`，打破 2:1 乒乓。
+- **P1-3 / P1-4 / P1-5 / P1-6 / P2-1～P2-3**：恢复 Python 克隆 `Attr:{cur.attr}`（`CLONE_MIN_NODES=32`）消除异义函数碰撞；全链路统一 `_spelled()` 编码修复含空格/`%` 文件静默丢失；新增 `Revert` 振荡与单文件 `oscillation_ratio`；`classify_issues` 校验 JSON 结构、修复 `last_touch = max(updated, comments)`、纳入正文 harm 并过滤纯文档拼写、按 `record.md` 2 天过期规则释放僵尸 `claimed`；`zero_yield_streak` 遇 `confirmed > 0` 立即归零；`scope steady` 拒绝非空 `--objects`/`--items`；`_isolated_roots` 支持 PEP 526 `ast.AnnAssign`。
+
+### 3. 新增 3 个红队提炼 Eval Case（累计 6 个新 Case，均通过 `tests.test_eval_cases`）
+4. `no-steady-after-unrefuted-or-zero-probe`
+5. `slim-cooldown-yields-to-stale-find`
+6. `stale-claimed-and-drifted-authority`
+
+### 4. v2.2 验证结果
+- `tests.product_doctor.test_doctor` + `tests.product_doctor.test_doctor_v2` + `tests.test_source_hygiene` + `tests.test_eval_cases` + `tests.test_package_layers`：**32/32 全部通过**
+- `ruff check`：**0 errors**；`mypy`（4 个源文件）：**0 errors**

@@ -1,16 +1,16 @@
-"""Deterministic multi-timescale evolutionary and structural telemetry for product-doctor (v2.1).
+"""Deterministic multi-timescale evolutionary and structural telemetry for product-doctor (v2.2).
 
 Reads everything from git blobs and history at `rev` (never the dirty working tree), using only the
 Python standard library so audits run identically offline, in `git archive` copies, and across Python versions.
 
-v2.1 upgrades driven by real combat trials on `origin/main`:
-- Fixes `test_map` so folded `tests/<pkg>` directories (under `ALONE=0.01`) are never dropped.
-- Fixes `cognitive_complexity` double-counting of nested `BoolOp`s and adds comprehension `if` clauses
-  (matches `complexipy 9.0.0` across `engine/warmup.py`).
-- Calibrates AST clone detection: strips docstrings/annotations, raises threshold to >=32 nodes & >=5 body lines,
-  retains attribute names, emits line/node counts, and tags cross-isolation boundary copies (`deploy`/`ide`).
-- Adds lightweight JS/TS/TSX structural health analysis and reports `min_health: null` (never fake `10.0`)
-  when an object has no analyzed source files.
+v2.2 upgrades driven by Round 3A (frontend ground-truth calibration) and Round 3B (red-team & longitudinal replay):
+- Commit-time anchored `--since=@{head_ts - max_days*86400}` so historical `--tree <rev>` replays are exact.
+- Uses `js_analyzer.py` stateful lexer + function-level Campbell complexity + Type-2 clones for JS/TS/TSX/JSX/MJS/CJS.
+- Adds `.mjs`/`.cjs`, unified `is_test_path()`, co-located/sibling/subpackage test mapping (`tests/research_graph/`,
+  `ide/web/scripts/*.test.mjs`, `*.test.ts`), and excludes test files from prod telemetry.
+- Consistent `spelled()` percent-encoding across `_read_blobs` and `_git_dual_window` (no dropped special filenames).
+- Preserves `Attr:{cur.attr}` in Python AST clone skeleton (`CLONE_MIN_NODES = 32`), detects `Revert` commits,
+  computes per-file oscillation & `unhealthy_fixes_short`, and handles `ast.AnnAssign` in `_isolated_roots`.
 """
 
 from __future__ import annotations
@@ -19,21 +19,30 @@ import ast
 from collections import Counter, defaultdict
 import hashlib
 import io
+import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tokenize
 from typing import Any
 
-CODE_EXTS = frozenset({".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".rs", ".go", ".c", ".h", ".cpp"})
-JS_TS_EXTS = frozenset({".js", ".ts", ".tsx", ".jsx"})
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import js_analyzer  # noqa: E402
+
+CODE_EXTS = frozenset({".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".sh", ".rs", ".go", ".c", ".h", ".cpp"})
+JS_TS_EXTS = frozenset({".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs"})
+JSX_EXTS = frozenset({".tsx", ".jsx"})
 DOC_EXTS = frozenset({".md", ".mdx", ".rst", ".txt", ".svg", ".png", ".jpg", ".css", ".html"})
 SATD_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX|WORKAROUND|TEMP)\b", re.IGNORECASE)
 FIX_RE = re.compile(r"fix(\(|:|!)")
+REVERT_RE = re.compile(r"^Revert\s+", re.IGNORECASE)
+TEST_FILE_RE = re.compile(r"(?:^|/)__tests__/|\.(?:test|spec)\.[a-z0-9]+$", re.IGNORECASE)
 BREAK_EVEN_HEALTH = 6.0  # midpoint of arXiv:2610.33343 break-even range (4.9..7.1)
-CLONE_MIN_NODES = 28
+CLONE_MIN_NODES = 32
 CLONE_MIN_BODY_LINES = 5
-JS_BRANCH_RE = re.compile(r"\b(if|else\s+if|for|while|switch|catch)\b|&&|\|\||\?")
 
 
 def _git(*args: str) -> bytes:
@@ -42,6 +51,20 @@ def _git(*args: str) -> bytes:
     if done.returncode:
         raise SystemExit(f"git {' '.join(args)}: {done.stderr.decode().strip()}")
     return done.stdout
+
+
+def _spelled(path: bytes) -> str:
+    """Exact same percent-encoding as `doctor.spelled()` so keys always match `tracked()`."""
+    return re.sub(
+        r"[%+:|,@`\s\x00-\x1f\x7f\udc80-\udcff]",
+        lambda found: "".join(f"%{byte:02X}" for byte in os.fsencode(found[0])),
+        os.fsdecode(path),
+    )
+
+
+def is_test_path(path: str) -> bool:
+    """True for `tests/` paths, co-located `*.test.*`/`*.spec.*`, and `/__tests__/` files."""
+    return path.startswith("tests/") or bool(TEST_FILE_RE.search(path))
 
 
 def cognitive_complexity(node: ast.AST) -> int:
@@ -74,13 +97,13 @@ def cognitive_complexity(node: ast.AST) -> int:
             orelse = cur.orelse
             while len(orelse) == 1 and isinstance(orelse[0], ast.If):
                 elif_node = orelse[0]
-                score += 1  # elif: +1 flat
+                score += 1
                 visit_bool_chain(elif_node.test, None, nesting)
                 for stmt in elif_node.body:
                     visit(stmt, nesting + 1)
                 orelse = elif_node.orelse
             if orelse:
-                score += 1  # else: +1 flat
+                score += 1
                 for stmt in orelse:
                     visit(stmt, nesting + 1)
             return
@@ -106,7 +129,6 @@ def cognitive_complexity(node: ast.AST) -> int:
             visit(cur.orelse, nesting + 1)
             return
         if isinstance(cur, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-            # Each comprehension generator with `if` filters adds cognitive load.
             for gen in cur.generators:
                 visit(gen.iter, nesting)
                 for cond in gen.ifs:
@@ -122,7 +144,7 @@ def cognitive_complexity(node: ast.AST) -> int:
             visit_bool_chain(cur, None, nesting)
             return
         if isinstance(cur, ast.Call) and func_name and isinstance(cur.func, ast.Name) and cur.func.id == func_name:
-            score += 1  # direct recursion
+            score += 1
         for child in ast.iter_child_nodes(cur):
             visit(child, nesting)
 
@@ -158,7 +180,7 @@ def _ast_skeleton_body(stmts: list[ast.stmt]) -> tuple[str, int]:
             tokens.append("A")
             return
         if isinstance(cur, ast.Attribute):
-            tokens.append("Attr")
+            tokens.append(f"Attr:{cur.attr}")
             emit(cur.value)
             return
         tokens.append(kind)
@@ -224,51 +246,9 @@ def analyze_python_source(source: str) -> dict[str, Any]:
     }
 
 
-def analyze_js_ts_source(source: str) -> dict[str, Any]:
-    """Lightweight stdlib structural analyzer for JS/TS/JSX/TSX files so frontend modules get real health."""
-    raw_lines = source.splitlines()
-    lines = len(raw_lines)
-    satd = 0
-    branch_score = 0
-    max_depth = 0
-    depth = 0
-    in_block_comment = False
-
-    for line in raw_lines:
-        stripped = line.strip()
-        if in_block_comment:
-            if SATD_RE.search(stripped):
-                satd += 1
-            if "*/" in stripped:
-                in_block_comment = False
-            continue
-        if stripped.startswith("/*"):
-            if SATD_RE.search(stripped):
-                satd += 1
-            if "*/" not in stripped:
-                in_block_comment = True
-            continue
-        code_part, _, comment_part = line.partition("//")
-        if comment_part and SATD_RE.search(comment_part):
-            satd += 1
-        hits = JS_BRANCH_RE.findall(code_part)
-        if hits:
-            branch_score += len(hits) * (1 + max(0, depth - 1) // 2)
-        depth = max(0, depth + code_part.count("{") - code_part.count("}"))
-        max_depth = max(max_depth, depth)
-
-    # Approximate function-level cognitive load from file branch density and max brace depth.
-    est_cog = min(150, int(branch_score / max(1, lines / 60)) + max(0, max_depth - 3) * 3)
-    return {
-        "lines": lines,
-        "functions": 0,
-        "max_cognitive": est_cog,
-        "top3_cognitive": round(est_cog * 0.7, 2),
-        "max_fn_lines": min(lines, 120) if lines > 250 else 0,
-        "hot_functions": [],
-        "satd": satd,
-        "clone_hashes": [],
-    }
+def analyze_js_ts_source(source: str, *, is_jsx: bool = False) -> dict[str, Any]:
+    """Delegate JS/TS/TSX/JSX/MJS/CJS analysis to the pure-stdlib stateful lexer in `js_analyzer`."""
+    return js_analyzer.analyze_js_ts_source(source, is_jsx=is_jsx)
 
 
 def compute_health_score(lines: int, max_cognitive: int, top3_cognitive: float,
@@ -288,13 +268,13 @@ def compute_health_score(lines: int, max_cognitive: int, top3_cognitive: float,
     return round(max(1.0, min(10.0, 10.0 - penalty)), 2)
 
 
-def _read_blobs(rev: str, paths: list[str]) -> dict[str, bytes]:
+def read_blobs(rev: str, paths: list[str]) -> dict[str, bytes]:
+    """Batch-read raw file contents from git blobs at `rev` using `spelled()` keys."""
     if not paths:
         return {}
     entries = [entry.split(b"\t", 1) for entry in _git("ls-tree", "-r", "-z", rev).split(b"\0") if entry]
     wanted = set(paths)
-    selected = [(head.split()[2], path.decode(errors="replace")) for head, path in entries
-                if path.decode(errors="replace") in wanted]
+    selected = [(head.split()[2], sp) for head, raw_p in entries if (sp := _spelled(raw_p)) in wanted]
     if not selected:
         return {}
     raw = subprocess.run(
@@ -317,45 +297,51 @@ def _read_blobs(rev: str, paths: list[str]) -> dict[str, bytes]:
 
 
 def _isolated_roots(rev: str, tracked_lines: dict[str, int]) -> set[str]:
-    """Discover intentionally isolated package roots (e.g. `ISOLATED` or lowest layer `LAYERS[0]` / rank 0)
-    by AST-parsing `tests/test_package_layers.py` if tracked in `rev`."""
+    """Discover intentionally isolated package roots (`ISOLATED`, lowest `LAYERS[0]`, or `RANK == 0`)
+    from `tests/test_package_layers.py` supporting both `ast.Assign` and PEP 526 `ast.AnnAssign`."""
     layer_file = "tests/test_package_layers.py"
     if layer_file not in tracked_lines:
         return set()
-    raw = _read_blobs(rev, [layer_file]).get(layer_file, b"").decode("utf-8", errors="replace")
+    raw = read_blobs(rev, [layer_file]).get(layer_file, b"").decode("utf-8", errors="replace")
     roots: set[str] = set()
     try:
         mod = ast.parse(raw)
     except SyntaxError:
         return roots
+
+    def extract(name: str, value: ast.AST | None) -> None:
+        if value is None:
+            return
+        if name == "ISOLATED":
+            val = value.args[0] if isinstance(value, ast.Call) and value.args else value
+            try:
+                lit = ast.literal_eval(val)
+                if isinstance(lit, (tuple, list, set, frozenset)):
+                    roots.update(str(x) for x in lit)
+            except (ValueError, SyntaxError):
+                pass
+        elif name == "LAYERS":
+            try:
+                lit = ast.literal_eval(value)
+                if isinstance(lit, (tuple, list)) and lit and isinstance(lit[0], (tuple, list)):
+                    roots.update(str(x) for x in lit[0])
+            except (ValueError, SyntaxError):
+                pass
+        elif name == "RANK":
+            try:
+                lit = ast.literal_eval(value)
+                if isinstance(lit, dict):
+                    roots.update(str(k) for k, v in lit.items() if v == 0)
+            except (ValueError, SyntaxError):
+                pass
+
     for node in mod.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                continue
-            if target.id == "ISOLATED":
-                val = node.value.args[0] if isinstance(node.value, ast.Call) and node.value.args else node.value
-                try:
-                    lit = ast.literal_eval(val)
-                    if isinstance(lit, (tuple, list, set, frozenset)):
-                        roots.update(str(x) for x in lit)
-                except (ValueError, SyntaxError):
-                    pass
-            elif target.id == "LAYERS":
-                try:
-                    lit = ast.literal_eval(node.value)
-                    if isinstance(lit, (tuple, list)) and lit and isinstance(lit[0], (tuple, list)):
-                        roots.update(str(x) for x in lit[0])
-                except (ValueError, SyntaxError):
-                    pass
-            elif target.id == "RANK":
-                try:
-                    lit = ast.literal_eval(node.value)
-                    if isinstance(lit, dict):
-                        roots.update(str(k) for k, v in lit.items() if v == 0)
-                except (ValueError, SyntaxError):
-                    pass
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    extract(target.id, node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            extract(node.target.id, node.value)
     return roots
 
 
@@ -366,6 +352,9 @@ def classify_object_kind(obj_name: str, obj_paths: list[str]) -> str:
         return "tests"
     if not obj_paths:
         return "meta"
+    test_n = sum(1 for p in obj_paths if is_test_path(p))
+    if test_n >= len(obj_paths) * 0.5:
+        return "tests"
     code_n = sum(1 for p in obj_paths if Path(p).suffix.lower() in CODE_EXTS)
     doc_n = sum(1 for p in obj_paths if Path(p).suffix.lower() in DOC_EXTS)
     if low.startswith((".", "changelog")):
@@ -381,15 +370,18 @@ def _new_window() -> dict[str, Any]:
     return {
         "total_commits": 0,
         "total_fixes": 0,
+        "total_reverts": 0,
         "obj_commits": Counter(),
         "obj_fixes": Counter(),
+        "obj_reverts": Counter(),
         "obj_added": Counter(),
         "obj_removed": Counter(),
-        "obj_fix_added": Counter(),
-        "obj_fix_removed": Counter(),
         "file_commits": Counter(),
         "file_fixes": Counter(),
+        "file_reverts": Counter(),
         "file_churn": Counter(),
+        "file_fix_added": Counter(),
+        "file_fix_removed": Counter(),
         "file_net": Counter(),
         "cross_pkg_coupling": Counter(),
         "intra_pkg_coupling": Counter(),
@@ -399,13 +391,14 @@ def _new_window() -> dict[str, Any]:
 
 def _git_dual_window(rev: str, days: int, long_days: int,
                      tops: dict[str, dict[str, Any]], owner_fn) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
-    """Single-pass git log collector computing both short (`days`) and long (`long_days`) windows plus
-    each file's latest commit unix timestamp within `long_days`."""
+    """Single-pass commit-time-anchored git log collector computing both short (`days`) and long (`long_days`)
+    windows plus each file's latest commit unix timestamp within `long_days`."""
     head_ts = int(_git("show", "-s", "--format=%ct", rev).decode().strip())
     short_cutoff = head_ts - days * 86400
-    max_days = max(days, long_days)
-    log = _git("log", "--first-parent", "-m", "--no-renames", f"--since={max_days} days ago", "--numstat", "-z",
-               "--format=%x01%ct%x02%s%x02%b%x03", rev)
+    long_cutoff = head_ts - max(days, long_days) * 86400
+    # Anchor `--since` to rev's commit timestamp (with 1-day slack for clock skew, filtered strictly in Python).
+    log = _git("log", "--first-parent", "-m", "--no-renames", f"--since=@{max(0, long_cutoff - 86400)}",
+               "--numstat", "-z", "--format=%x01%ct%x02%s%x02%b%x03", rev)
     short, long = _new_window(), _new_window()
     file_latest_ts: dict[str, int] = {}
 
@@ -413,16 +406,21 @@ def _git_dual_window(rev: str, days: int, long_days: int,
         hdr, _, body = chunk.partition(b"\x03")
         parts = hdr.decode(errors="replace").split("\x02")
         ts = int(parts[0]) if parts and parts[0].isdigit() else head_ts
+        if ts < long_cutoff:
+            continue
         title = parts[1] if len(parts) > 1 else ""
         rest = parts[2] if len(parts) > 2 else ""
         subject = rest.lstrip() if title.startswith("Merge ") else title
+        is_revert = bool(REVERT_RE.match(subject))
         is_fix = bool(FIX_RE.match(subject))
+        is_osc_commit = is_fix or is_revert
         in_short = ts >= short_cutoff
 
         targets = (short, long) if in_short else (long,)
         for win in targets:
             win["total_commits"] += 1
             win["total_fixes"] += int(is_fix)
+            win["total_reverts"] += int(is_revert)
 
         touched_objs: set[str] = set()
         code_files: list[str] = []
@@ -431,7 +429,7 @@ def _git_dual_window(rev: str, days: int, long_days: int,
             if line.count(b"\t") < 2:
                 continue
             added_b, removed_b, raw_path = line.lstrip(b"\n").split(b"\t", 2)
-            path = raw_path.decode(errors="replace")
+            path = _spelled(raw_path)
             a = int(added_b) if added_b.isdigit() else 0
             d = int(removed_b) if removed_b.isdigit() else 0
             if ts > file_latest_ts.get(path, 0):
@@ -442,15 +440,17 @@ def _git_dual_window(rev: str, days: int, long_days: int,
                 win["obj_added"][name] += a
                 win["obj_removed"][name] += d
                 win["file_net"][path] += a - d
-                if is_fix:
-                    win["obj_fix_added"][name] += a
-                    win["obj_fix_removed"][name] += d
-            if Path(path).suffix.lower() in CODE_EXTS and not path.startswith("tests/"):
+            if Path(path).suffix.lower() in CODE_EXTS and not is_test_path(path):
                 for win in targets:
                     win["file_commits"][path] += 1
                     win["file_churn"][path] += a + d
                     if is_fix:
                         win["file_fixes"][path] += 1
+                    if is_revert:
+                        win["file_reverts"][path] += 1
+                    if is_osc_commit:
+                        win["file_fix_added"][path] += a
+                        win["file_fix_removed"][path] += d
                 code_files.append(path)
                 code_objs.add(name)
 
@@ -459,6 +459,8 @@ def _git_dual_window(rev: str, days: int, long_days: int,
                 win["obj_commits"][name] += 1
                 if is_fix:
                     win["obj_fixes"][name] += 1
+                if is_revert:
+                    win["obj_reverts"][name] += 1
             if 2 <= len(code_files) <= 12 and len(code_objs) >= 2:
                 sorted_objs = sorted(code_objs)
                 for i in range(len(sorted_objs)):
@@ -478,24 +480,67 @@ def _git_dual_window(rev: str, days: int, long_days: int,
     return short, long, file_latest_ts
 
 
-def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str]) -> dict[str, list[str]]:
-    """Map every file under `tests/` back to its owning code object without relying on `tops` folding."""
+def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
+                    tops: dict[str, dict[str, Any]], owner_fn) -> dict[str, list[str]]:
+    """Map test files (both `tests/` and co-located/sibling `*.test.*` suites) to their owning code object
+    without hardcoding package names."""
     by_code: dict[str, list[str]] = defaultdict(list)
-    roots = {obj.split("/", 1)[0]: obj for obj in code_objects if "/" not in obj}
+    code_set = set(code_objects)
+    roots = {obj: obj for obj in code_objects if "/" not in obj}
+
+    # Build subpackage directory map: immediate subdir name inside a code object -> code object
+    # (e.g. `ide/research_graph/...` -> subdir `research_graph` maps to `ide`).
+    subdir_owner: dict[str, set[str]] = defaultdict(set)
     for path in tracked_lines:
-        if not path.startswith("tests/"):
+        if is_test_path(path):
             continue
+        o = owner_fn(path, tops)
+        if o in code_set and "/" in path:
+            parts = path.split("/")
+            if len(parts) >= 3:
+                subdir_owner[parts[1]].add(o)
+    unique_subdir = {sub: next(iter(owners)) for sub, owners in subdir_owner.items() if len(owners) == 1}
+
+    # Map package parent prefixes for sibling test dirs (e.g. `ide/web/scripts/*.test.mjs` -> `ide/web/src`).
+    def sibling_code_target(test_path: str) -> str | None:
+        parts = test_path.split("/")
+        for depth in range(len(parts) - 2, 0, -1):
+            prefix = "/".join(parts[:depth])
+            candidates = sorted(o for o in code_objects if o == prefix or o.startswith(prefix + "/"))
+            if candidates:
+                # Prefer `<prefix>/src` if present, otherwise the shallowest matching code object.
+                if f"{prefix}/src" in candidates:
+                    return f"{prefix}/src"
+                return min(candidates, key=lambda c: (c.count("/"), c))
+        return None
+
+    for path in tracked_lines:
+        if not is_test_path(path):
+            continue
+        if not path.startswith("tests/"):
+            # Co-located test inside a code object (e.g. `ide/agent/src/app.test.ts` -> `ide/agent`).
+            o = owner_fn(path, tops)
+            if o in code_set:
+                by_code[o].append(path)
+                continue
+            # Sibling test dir inside a package (e.g. `ide/web/scripts/*.test.mjs` -> `ide/web/src`).
+            sib = sibling_code_target(path)
+            if sib:
+                by_code[sib].append(path)
+            continue
+
         rest = path[len("tests/"):]
         sub = rest.split("/", 1)[0]
         if sub in roots:
             by_code[roots[sub]].append(path)
             continue
-        # Match prefixed test directories such as `tests/live_loopback/` -> `live`.
+        if sub in unique_subdir:
+            by_code[unique_subdir[sub]].append(path)
+            continue
         prefix = sub.split("_", 1)[0]
         if prefix in roots:
             by_code[roots[prefix]].append(path)
             continue
-        # Match top-level test files `tests/test_<pkg>_*.py`.
         if "/" not in rest and rest.startswith("test_"):
             stem = rest[len("test_"):].split("_", 1)[0].removesuffix(".py")
             if stem in roots:
@@ -517,19 +562,20 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
     kinds = {name: classify_object_kind(name, obj_paths.get(name, [])) for name in tops}
     code_objs = [n for n, k in kinds.items() if k == "code"]
 
-    # Analyze Python and JS/TS/JSX/TSX files in code objects directly from git blobs.
+    # Analyze non-test Python and JS/TS/TSX/JSX/MJS/CJS files in code objects directly from git blobs.
     target_files = sorted(
         p for name in code_objs for p in obj_paths.get(name, [])
-        if p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS
+        if not is_test_path(p) and (p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS)
     )
-    blobs = _read_blobs(rev, target_files)
+    blobs = read_blobs(rev, target_files)
     file_ast: dict[str, dict[str, Any]] = {}
     clone_index: dict[str, list[tuple[str, str, int, int]]] = defaultdict(list)
     for path, raw in blobs.items():
         if b"\0" in raw:
             continue
         text = raw.decode("utf-8", errors="replace")
-        info = analyze_python_source(text) if path.endswith(".py") else analyze_js_ts_source(text)
+        ext = Path(path).suffix.lower()
+        info = analyze_python_source(text) if ext == ".py" else analyze_js_ts_source(text, is_jsx=ext in JSX_EXTS)
         file_ast[path] = info
         for digest, fn_name, b_lines, nodes in info.get("clone_hashes", []):
             clone_index[digest].append((path, fn_name, b_lines, nodes))
@@ -566,6 +612,17 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
             info["lines"], info["max_cognitive"], info["top3_cognitive"],
             info["max_fn_lines"], dups, info["satd"],
         )
+        f_fixes = short["file_fixes"][path]
+        f_reverts = short["file_reverts"][path]
+        f_osc_a, f_osc_r = short["file_fix_added"][path], short["file_fix_removed"][path]
+        f_osc_churn = f_osc_a + f_osc_r
+        f_osc_net = abs(f_osc_a - f_osc_r)
+        # Per-file oscillation ratio: only meaningful when the same file has >=3 fix/revert touches or >=1 revert.
+        f_osc = (
+            round(f_osc_churn / max(f_osc_net, 10), 2)
+            if (f_fixes + f_reverts) >= 3 or f_reverts >= 1
+            else 0.0
+        )
         file_reports[path] = {
             "object": owner_fn(path, tops) or ".",
             "lines": info["lines"],
@@ -577,13 +634,15 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
             "satd": info["satd"],
             "health": health,
             "break_even_caution": health < BREAK_EVEN_HEALTH,
-            "fixes_short": short["file_fixes"][path],
+            "fixes_short": f_fixes,
+            "reverts_short": f_reverts,
+            "oscillation_ratio": f_osc,
             "churn_short": short["file_churn"][path],
             "fixes_long": long["file_fixes"][path],
             "hot_functions": info.get("hot_functions", []),
         }
 
-    test_paths_by_code = _map_test_paths(tracked_lines, code_objs)
+    test_paths_by_code = _map_test_paths(tracked_lines, code_objs, tops, owner_fn)
 
     objects_out: dict[str, dict[str, Any]] = {}
     for name, meta in tops.items():
@@ -595,28 +654,32 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         max_cog = max((r["max_cognitive"] for r in o_files), default=0)
         dup_fns = sum(r["duplicate_fns"] for r in o_files)
         satd_tot = sum(r["satd"] for r in o_files)
+        unhealthy_fixes_short = sum(r["fixes_short"] + r["reverts_short"] for r in o_files if r["break_even_caution"])
         burst_files = sorted(
-            [{"file": p, "fixes": r["fixes_short"], "churn": r["churn_short"], "health": r["health"]}
-             for p, r in file_reports.items() if r["object"] == name and r["fixes_short"] >= 3],
-            key=lambda x: (-x["fixes"], -x["churn"], x["file"]),
+            [{"file": p, "fixes": r["fixes_short"], "reverts": r["reverts_short"],
+              "osc": r["oscillation_ratio"], "churn": r["churn_short"], "health": r["health"]}
+             for p, r in file_reports.items()
+             if r["object"] == name and (r["fixes_short"] + r["reverts_short"]) >= 3],
+            key=lambda x: (-(x["fixes"] + x["reverts"]), -x["churn"], x["file"]),
         )
-        fix_a, fix_r = short["obj_fix_added"][name], short["obj_fix_removed"][name]
-        fix_churn = fix_a + fix_r
-        fix_net = abs(fix_a - fix_r)
-        osc_ratio = round(fix_churn / max(fix_net, 20), 2) if short["obj_fixes"][name] >= 3 else 0.0
+        osc_ratio = max((r["oscillation_ratio"] for r in o_files), default=0.0)
 
         t_paths = test_paths_by_code.get(name, [])
         t_lines = sum(tracked_lines.get(p, 0) for p in t_paths)
         t_net_short = sum(short["file_net"][p] for p in t_paths)
-        prod_lines = max(1, meta["lines"])
-        prod_net_short = short["obj_added"][name] - short["obj_removed"][name]
+        # Subtract co-located test lines from prod_lines so prod size isn't inflated by co-located tests.
+        colocated_lines = sum(tracked_lines.get(p, 0) for p in obj_paths.get(name, []) if is_test_path(p))
+        prod_lines = max(1, meta["lines"] - colocated_lines)
+        colocated_net = sum(short["file_net"][p] for p in obj_paths.get(name, []) if is_test_path(p))
+        prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - colocated_net
 
         objects_out[name] = {
             "kind": kinds[name],
-            "lines": meta["lines"],
+            "lines": prod_lines,
             "analyzed_files": len(o_files),
             "commits_short": short["obj_commits"][name],
             "fixes_short": short["obj_fixes"][name],
+            "reverts_short": short["obj_reverts"][name],
             "added_short": short["obj_added"][name],
             "removed_short": short["obj_removed"][name],
             "net_short": prod_net_short,
@@ -632,13 +695,13 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
             "duplicate_fns": dup_fns,
             "satd": satd_tot,
             "break_even_caution": min_health is not None and min_health < BREAK_EVEN_HEALTH,
+            "unhealthy_fixes_short": unhealthy_fixes_short,
             "test_file_count": len(t_paths),
             "test_lines": t_lines,
             "test_to_prod_ratio": round(t_lines / prod_lines, 2) if t_lines else None,
             "test_net_short": t_net_short,
         }
 
-    # Build cross-package couplings enriched with their top 5 concrete file pairs.
     file_pairs_by_objpair: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for (f1, f2), cnt in short["file_coupling"].most_common(80):
         if cnt < 2:
@@ -668,19 +731,14 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         key=lambda x: (x["health"], -x["fixes_short"], x["file"]),
     )[:15]
     burst_leaderboard = sorted(
-        [{"file": p, "object": r["object"], "fixes": r["fixes_short"], "churn": r["churn_short"],
+        [{"file": p, "object": r["object"], "fixes": r["fixes_short"], "reverts": r["reverts_short"],
+          "osc": r["oscillation_ratio"], "churn": r["churn_short"],
           "health": r["health"], "max_cognitive": r["max_cognitive"]}
-         for p, r in file_reports.items() if r["fixes_short"] >= 3],
-        key=lambda x: (-x["fixes"], -x["churn"], x["file"]),
+         for p, r in file_reports.items() if (r["fixes_short"] + r["reverts_short"]) >= 3],
+        key=lambda x: (-(x["fixes"] + x["reverts"]), -x["churn"], x["file"]),
     )[:20]
 
     untouched_long = [n for n in code_objs if objects_out[n]["commits_long"] == 0]
-    obj_latest_ts: dict[str, int] = {}
-    for p, ts in file_latest_ts.items():
-        if not p.endswith(".md"):
-            o = owner_fn(p, tops)
-            if o and ts > obj_latest_ts.get(o, 0):
-                obj_latest_ts[o] = ts
 
     return {
         "tree": rev,
@@ -689,11 +747,12 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         "summary": {
             "commits_short": short["total_commits"],
             "fixes_short": short["total_fixes"],
+            "reverts_short": short["total_reverts"],
             "commits_long": long["total_commits"],
             "fixes_long": long["total_fixes"],
             "code_objects": len(code_objs),
             "untouched_code_objects_long": untouched_long,
-            "fix_burst_file_count": len([r for r in file_reports.values() if r["fixes_short"] >= 3]),
+            "fix_burst_file_count": len([r for r in file_reports.values() if (r["fixes_short"] + r["reverts_short"]) >= 3]),
             "break_even_caution_files": len([r for r in file_reports.values() if r["break_even_caution"]]),
             "duplicate_clone_groups": len(duplicate_groups),
             "boundary_isolation_clones": len(boundary_clones),
@@ -708,5 +767,4 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
         "duplicate_groups": duplicate_groups[:15],
         "boundary_clones": boundary_clones[:10],
         "_file_latest_ts": file_latest_ts,
-        "_obj_latest_ts": obj_latest_ts,
     }

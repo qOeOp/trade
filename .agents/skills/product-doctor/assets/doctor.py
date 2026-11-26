@@ -283,12 +283,18 @@ def history(rev: str, tops: dict[str, dict[str, Any]],
     def there(name: str) -> bool:
         return name.startswith("@") or name == ROOT or any(path == name or path.startswith(name + "/") for path in paths)
 
-    for path in sorted(path for path in paths if path.startswith(RECORDS) and path.endswith(".md")
-                       and "%" not in path):
-        date = Path(path).name[:10]
-        if not re.fullmatch(r"\d{4}-\d\d-\d\d", date):
+    rec_paths = sorted(
+        path for path in paths
+        if path.startswith(RECORDS) and path.endswith(".md") and "%" not in path
+        and re.fullmatch(r"\d{4}-\d\d-\d\d", Path(path).name[:10])
+    )
+    blobs = telemetry.read_blobs(rev, rec_paths)
+    for path in rec_paths:
+        raw = blobs.get(path)
+        if raw is None:
             continue
-        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode(errors="replace")):
+        date = Path(path).name[:10]
+        for item, subject in RECORDED.findall(raw.decode(errors="replace")):
             by_item[item] = date
             parts, scenario = split(subject.strip())
             kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
@@ -299,7 +305,7 @@ def history(rev: str, tops: dict[str, dict[str, Any]],
 def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = None,
               paths: dict[str, int] | None = None) -> dict[str, Any]:
     paths = tracked(rev) if paths is None else paths
-    tops = objects(rev) if tops is None else tops
+    tops = objects(rev, paths) if tops is None else tops
     by_object, by_item = history(rev, tops, paths)
     table: dict[str, dict[str, Any]] = {name: {**row, "commits": 0, "fixes": 0, "added": 0, "removed": 0,
                                                "examined": by_object.get(name)} for name, row in tops.items()}
@@ -307,11 +313,18 @@ def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = N
     # One change is one commit of the main line; a merge's title is the first line of its body.
     table.setdefault(ROOT, {"lines": 0, "folded": [], "commits": 0, "fixes": 0, "added": 0, "removed": 0,
                             "examined": by_object.get(ROOT)})  # also what the tree no longer holds
-    log = git("log", "--first-parent", "-m", "--no-renames", f"--since={days} days ago", "--numstat", "-z",
-              "--format=%x01%s%x02%b%x03", rev)
+    head_ts = int(git("show", "-s", "--format=%ct", rev).decode().strip())
+    cutoff = max(0, head_ts - days * 86400)
+    log = git("log", "--first-parent", "-m", "--no-renames", f"--since=@{max(0, cutoff - 86400)}", "--numstat", "-z",
+              "--format=%x01%ct%x02%s%x02%b%x03", rev)
     for change in log.split(b"\x01")[1:]:
         message, _, body = change.partition(b"\x03")
-        title, _, rest = message.decode(errors="replace").partition("\x02")
+        parts = message.decode(errors="replace").split("\x02")
+        ts = int(parts[0]) if parts and parts[0].isdigit() else head_ts
+        if ts < cutoff:
+            continue
+        title = parts[1] if len(parts) > 1 else ""
+        rest = parts[2] if len(parts) > 2 else ""
         is_fix = bool(re.match(r"fix(\(|:|!)", rest.lstrip() if title.startswith("Merge ") else title))
         touched = set()
         for line in body.split(b"\0"):
@@ -355,7 +368,12 @@ def advise_cmd(args: argparse.Namespace) -> None:
     scan_objs = {name: {"examined": by_object.get(name)} for name in tops}
     scan_items = {name: by_item.get(name) for name in items()}
     tele = telemetry.collect_telemetry(rev, tops, lines, owner, days=args.days, long_days=args.long_days)
-    issues = json.loads(args.issues_json.read_text(encoding="utf-8")) if args.issues_json else None
+    issues = None
+    if args.issues_json:
+        try:
+            issues = json.loads(args.issues_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise SystemExit(f"invalid --issues-json {args.issues_json}: {error}") from None
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
         issues=issues, sla_days=args.sla_days,
@@ -369,6 +387,8 @@ def scope(args: argparse.Namespace) -> None:
         raise SystemExit("the scope comes before any evidence, once")
     rev = commit(args.tree)
     listed, tops = items(), objects(rev)
+    if args.theme == "steady" and (args.objects or args.items):
+        raise SystemExit("steady takes neither --objects nor --items")
     for name in args.objects:
         if name not in tops and not re.fullmatch(r"@[\w.-]+", name):
             raise SystemExit(f"{name} is neither @name nor an object of scan: {', '.join(tops)}")
@@ -667,7 +687,8 @@ def report(args: argparse.Namespace) -> None:
     print(f"\nShown: {sum(row['verdict'] == 'shown' for row in latest.values())} of {len(latest)} probed. "
           f"Of {len(old)} datable ones, the last audit already had {old.count('present')}. "
           f"Shown by a refuter's own probe too: "
-          f"{sum(row['verdict'] == 'shown' and name in reruns and reruns[name]['verdict'] == 'shown' for name, row in latest.items())}.")
+          f"{sum(row['verdict'] == 'shown' and name in reruns and reruns[name]['verdict'] == 'shown' for name, row in latest.items())}. "
+          f"Refuters ran on {len(reruns)}.")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
