@@ -30,21 +30,35 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 ## Themed audit
 
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
-signals: `doctor.py scan` (the tree's objects, two weeks of changes and fixes, when each object and perspective was
-last exercised), the open findings and CI runs by `gh`, the last two records. Take the first theme that holds, unless
-the last two audits took it (harm aside); say why and what is left out:
+signals deterministically: dump open `agent-finding` issues and recent CI runs (`gh run list --limit 80 --json databaseId,workflowName,name,status,conclusion,createdAt,updatedAt,event,headBranch`)
+to temporary JSON files and run `doctor.py advise --issues-json <issues> --ci-json <ci>` (add `--transcripts <path...>`
+for session workflow adherence, `--prod-logs <path...>` for production service logs, and `--auto --steady-exit-code 2`
+for scheduled unattended gates; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
+last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why and what is
+left out:
 
-1. **Stop harm** (`harm`): an open finding that risks money, records or wrong results and is new, changed or not yet
-   rechecked; one only waiting for authority or under a claim does not count. Merge by cause, order by reach and cost
-   paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
-2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
-   on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
-3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
-4. **Find** (`find`): otherwise. The object much changed or longest unexamined, `outside` too,
-   under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
+1. **Stop harm** (`harm`): unclaimed (or stale-claimed >= 2 days), non-`authority` open findings that risk money,
+   records or wrong results (`actionable_harm` from `advise`). Issues waiting on owner authority (`blocked_authority`
+   or `authority_drifted`) do not preempt `slim` or `find`; report drifted ones alongside the audit. Merge by cause,
+   order by reach and cost paid, probe on `origin/main`; search for nothing new (no step 2 or 5).
+2. **Slim** (`slim`): a code object hitting `advise`'s oscillation-burst, test-bloat, clone-bloat or structural-decay
+   triggers (`slim_candidates`), subject to `advise`'s cooldown while coverage SLA breaches remain. Group Shape and
+   **checks**, one or two objects: [slim.md](references/slim.md).
+3. **Friction** (`friction`): CI failure rate, wait-time growth, agent tool error rate, repeated actions or user
+   clarification burden (`friction_summary.triggers` from `advise` / `doctor.py friction`, or named directly by the
+   user). Subject to cooldown while coverage SLA breaches remain. Group Use.
+4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 friction
+   triggers, 0 coverage SLA breaches, saturated marginal yield over complete substantive audits). Declare
+   `doctor.py scope DIR steady` (with no `--objects`, `--items` or `--contracts`), report the stopping signals and
+   next re-entry trigger, and stop without manufacturing findings.
+5. **Find** (`find`): otherwise. Pair the top fresh risk/churn object with the coldest coverage-SLA-breached object from
+   `advise` (plus its top `coupled_contracts` `A+B` pair via `--contracts` and `outside`), under the stalest remaining
+   groups of [lenses.md](references/lenses.md). Review `low_yield_lenses` under the `self` perspective.
 
-Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
-only some do) with `doctor.py scope` before any evidence, harm its objects alone; `report` judges against it. Then the steps below on those alone: step 1's "every line" and step 5 (slimming aside) belong to a full audit.
+Declare one to three objects, those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where only
+some do), and any coupled `--contracts A+B` with `doctor.py scope` before any evidence (`harm` its objects alone;
+`steady` none); `report` judges against it. Then the steps below on those alone: step 1's "every line" and step 5
+(slimming aside) belong to a full audit.
 
 ## Full audit
 
@@ -66,7 +80,8 @@ only some do) with `doctor.py scope` before any evidence, harm its objects alone
    running. A script gathers; a sub-agent still judges. Once every line and object has had its pass, each object with
    a `shown` finding not plainly minor (step 6) gets one more, from another perspective. Suspects of yours still open after the
    passes you probe yourself; no agent is briefed with them.
-3. **Probe, then claim.** Record exercises with `doctor.py run` and claims with `doctor.py probe`, whose control
+3. **Probe, then claim.** Record exercises with `doctor.py run` (pass `--tree origin/main` to record `tree_drift` if
+   the checkout differs from `origin/main`) and claims with `doctor.py probe`, whose control
    must give the other reading, on current `origin/main`; a cost takes `doctor.py cost`, a rate, not one time
    (`--help` says the forms; run as `uv run --frozen python .agents/skills/product-doctor/assets/doctor.py`). Only
    `shown` proves code's behaviour; otherwise say unverified. Findings of use, words or growth (**value**,
@@ -95,8 +110,10 @@ only some do) with `doctor.py scope` before any evidence, harm its objects alone
 7. **Remedy.** In order, saying why each earlier one does not fit: none; restate the mechanism so special cases
    merge; remove; add, only for a wrong output, a trust boundary or recurrence. Net mechanisms, rules and words must
    be stated. An issue calls a code remedy unverified unless it ran on a scratch copy, where the callers, retries
-   and documented repairs it touches still worked. Any remedy that adds, tightens or relaxes a refusal, test bar or
-   CI gate is an `authority` item: ask the user.
+   and documented repairs it touches still worked. Any remedy that weakens a refusal, test bar or CI
+   gate, or crosses an irreversible `AGENTS.md` redline (fonts, primary account, destructive writes,
+   stored fields, release tags), is an `authority` item: ask the user; in `--auto` mode, verified
+   defect fixes and missing refusal guards do not block on `authority`.
 8. **Report.** Issues per [record.md](references/record.md), updating existing ones. Report `doctor.py report`
    verbatim but for `SECURITY.md`'s rows, spent against budget (time at least its evidence span; tokens the host
    hides are unknown), and the `@` objects no pass took. For an audit of one session, tell the user only of perspectives its

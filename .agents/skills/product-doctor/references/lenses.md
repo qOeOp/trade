@@ -10,10 +10,12 @@ running, cut short and at a limit.
 - **results** [any]: one number against an outside original, a conservation sum, or an input made so its answer is known.
 - **flow** [single pool]: research end to end on a temporary ledger and market, `line select` to
   `line close`, then Paper and `paper compare`, then Live's research-side refusals, short windows,
-  no credential and no run.
+  no credential and no run; include misaligned multi-track start dates (bars vs `--metrics`, `--execution quotes`,
+  and late-listed/pool symbols) so `development_period` and veto planning are tested against staggered coverage.
 - **parity** [any]: one market history through replay, Paper and Live's adapter fakes.
-- **research** [any]: noise, a true edge and a leaking strategy through the tests and verdicts; each
-  line's history read through the product's read commands, never ad hoc SQL.
+- **research** [any]: noise, a true edge and a leaking strategy through the tests and verdicts,
+  including misaligned multi-track coverage (`bars`, `--metrics`, `--execution quotes`, late-listed
+  symbols); each line's history read through the product's read commands, never ad hoc SQL.
 - **gates** [empty failed partial]: every admission, eligibility and refusal with a state never
   started, failed or cut short; a stated reason is tested, not trusted, and a good case must pass.
 
@@ -69,7 +71,8 @@ running, cut short and at a limit.
 
 - **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one.
 - **unchanged** [any]: an object the last audits' findings and the recent commits leave alone.
-- **fixed** [any]: `doctor.py recheck` on closed issues (`no test`: their own probe, `--control-tree` the
-  repair's parent) and the old rows linked in the header of `docs/plans/doctor/index.zh.md`.
+- **fixed** [any]: `doctor.py recheck` on closed issues (Python `tests/` and Node `node:test` `.test.{mjs,cjs,js,ts,tsx}`;
+  `no test`: their own probe, `--control-tree` the repair's parent) and the old rows linked in the header of
+  `docs/plans/doctor/index.zh.md`.
 - **self** [any]: what the user found first, rerun claims overturned, lenses that ran and found
   nothing for several audits (say so).
