@@ -417,3 +417,156 @@ class CapitalExposureTests(unittest.TestCase):
             observer.finish(engine.cache)
         self.assertTrue(any("CAPITAL_VALUATION_GAP" in f and "changed before the next timestamp" in f
                             for f in observer.findings), observer.findings)
+
+    def test_multicontract_mark_carry_hole_and_out_of_order_detection(self):
+        """#3652 hardening: a valid 1-minute MARK carry hole on contract 0 when contract 1 has MARK at T1
+        must not emit a false CAPITAL_VALUATION_GAP (whether contract 0 opens or modifies/closes at T1),
+        while a genuinely out-of-order Bar(AAA, T1) -> MARK(BBB, T1) -> MARK(AAA, T1) still emits one."""
+        from decimal import Decimal
+        from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+        from nautilus_trader.common import LoggerConfig, LogLevel
+        from nautilus_trader.model import (Bar, BarType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate,
+                                           OrderSide, Price, Quantity, StrategyId, Symbol, TraderId)
+        from nautilus_trader.trading import Strategy, StrategyConfig
+        from engine import run
+        from tests.engine import test_fill_model as native
+
+        inst_b = CryptoPerpetual(
+            instrument_id=InstrumentId.from_str("BBBUSDT-PERP.BINANCE"), raw_symbol=Symbol("BBBUSDT"),
+            base_currency=Currency.from_str("BBB"), quote_currency=Currency.from_str("USDT"),
+            settlement_currency=Currency.from_str("USDT"), is_inverse=False, price_precision=2, size_precision=3,
+            price_increment=Price.from_str("0.01"), size_increment=Quantity.from_str("0.001"),
+            ts_event=0, ts_init=0, margin_init=Decimal("0.10"), margin_maint=Decimal("0.05"),
+        )
+        bar_type_b = BarType.from_str("BBBUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
+        base, bar_ns, qty = native.START, native.BAR_NS, Quantity.from_str("1000.000")
+        t0, t1, t2 = (base + (i + 1) * bar_ns - 1_000_000 for i in range(3))
+        p100, p95 = Price.from_str("100.00"), Price.from_str("95.00")
+
+        def run_case(strategy_cls, data):
+            engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
+                                    logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False)))
+            self.addCleanup(engine.dispose)
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "exposures.csv.gz"
+                run.add_venue(engine, native.fees())
+                engine.add_instrument(native.INSTRUMENT)
+                engine.add_instrument(inst_b)
+                engine.add_strategy(strategy_cls())
+                observer = run.capital_observer((str(native.INSTRUMENT_ID), str(inst_b.id)), path)
+                engine.add_actor(observer)
+                engine.add_data(data)
+                engine.run()
+                observer.finish(engine.cache)
+                rows = list(csv.DictReader(io.StringIO(gzip.decompress(path.read_bytes()).decode())))
+            return observer, rows
+
+        # 1. Valid carry hole at t1 on AAA: Bar(AAA, t1) opens position before MARK(BBB, t1).
+        class OpenOnT1(Strategy):
+            def __init__(self):
+                super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+                self.n = 0
+
+            def on_start(self):
+                self.subscribe_bars(native.BAR_TYPE)
+
+            def on_bar(self, bar):
+                self.n += 1
+                if self.n == 2:
+                    self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.BUY,
+                                                                 Quantity.from_str("1.000")))
+
+        hole_data = [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            MarkPriceUpdate(inst_b.id, p100, t0, t0),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(inst_b.id, p100, t1, t1),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t2, t2),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t2, t2),
+            MarkPriceUpdate(inst_b.id, p100, t2, t2),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t2, t2),
+        ]
+        obs1, rows1 = run_case(OpenOnT1, hole_data)
+        self.assertEqual(obs1.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows1], [t1, t2])
+        self.assertEqual(len(obs1.carried), 1)
+        self.assertEqual(obs1.carried[0]["from_ns"], t1)
+
+        # 2. Valid carry hole at t1 on AAA: position open at t0 and closed on Bar(AAA, t1) before MARK(BBB, t1).
+        class OpenT0CloseT1(Strategy):
+            def __init__(self):
+                super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+                self.n = 0
+
+            def on_start(self):
+                self.subscribe_bars(native.BAR_TYPE)
+
+            def on_bar(self, bar):
+                self.n += 1
+                if self.n == 1:
+                    self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.BUY,
+                                                                 Quantity.from_str("2.000")))
+                elif self.n == 2:
+                    pos = self.cache.positions_open(strategy_id=self.strategy_id)[0]
+                    self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.SELL,
+                                                                 Quantity.from_str("2.000"), reduce_only=True),
+                                      position_id=pos.id)
+
+        obs2, rows2 = run_case(OpenT0CloseT1, hole_data)
+        self.assertEqual(obs2.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows2], [t0])
+        self.assertEqual(Decimal(rows2[0]["notional_value"].split()[0]), Decimal("200.00000000"))
+
+        # 3. True out-of-order: Bar(AAA, t1) -> MARK(BBB, t1) -> MARK(AAA, t1) must still emit CAPITAL_VALUATION_GAP.
+        ooo_data = [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            MarkPriceUpdate(inst_b.id, p100, t0, t0),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p95, p95, p95, p95, qty, t1, t1),
+            MarkPriceUpdate(inst_b.id, p100, t1, t1),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p95, t1, t1),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t1, t1),
+        ]
+        obs3, _ = run_case(OpenOnT1, ooo_data)
+        self.assertTrue(any("CAPITAL_VALUATION_GAP" in f and "changed before MARK" in f for f in obs3.findings),
+                        obs3.findings)
+
+        # 4. Single-contract 1m MARK hole at t1 -> next MARK at t2 (strictly ordered; must keep t0 exposure row).
+        obs4, rows4 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t2, t2),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t2, t2),
+        ])
+        self.assertEqual(obs4.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows4], [t0])
+
+        # 5. Simultaneous multi-contract 1m MARK hole at t1; MARK(BBB, t2) before MARK(AAA, t2).
+        obs5, rows5 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            MarkPriceUpdate(inst_b.id, p100, t0, t0),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t1, t1),
+            MarkPriceUpdate(inst_b.id, p100, t2, t2),
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t2, t2),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t2, t2),
+            Bar(bar_type_b, p100, p100, p100, p100, qty, t2, t2),
+        ])
+        self.assertEqual(obs5.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows5], [t0])
+
+        # 6. Final-bar MARK hole at t1 valued in finish() (next_ts=None).
+        obs6, rows6 = run_case(OpenT0CloseT1, [
+            MarkPriceUpdate(native.INSTRUMENT_ID, p100, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t0, t0),
+            Bar(native.BAR_TYPE, p100, p100, p100, p100, qty, t1, t1),
+        ])
+        self.assertEqual(obs6.findings, [])
+        self.assertEqual([int(r["ts_event_ns"]) for r in rows6], [t0])
