@@ -27,7 +27,7 @@ import tempfile
 import threading
 
 from ledger import publish, server
-from shared.http import encode, send_json, trusted
+from shared.http import content_length, encode, send_json, trusted
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -168,8 +168,8 @@ class _Page:
 
 def _handler(page: _Page, host: str) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        def reply(self, status: int, value: dict) -> None:
-            send_json(self, status, encode(value))
+        def reply(self, status: int, value: dict, *, close: bool = False) -> None:
+            send_json(self, status, encode(value), close=close)
 
         def admitted(self) -> bool:
             if not trusted(self, (host,)):
@@ -187,9 +187,13 @@ def _handler(page: _Page, host: str) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:
             if not self.admitted():
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = content_length(self)
+            except ValueError as exc:
+                self.reply(400, {"code": "BAD_REQUEST", "message": str(exc)}, close=True)
+                return
             if length > BODY:
-                self.reply(413, {"code": "TOO_LARGE", "message": f"{length} bytes"})
+                self.reply(413, {"code": "TOO_LARGE", "message": f"{length} bytes"}, close=True)
                 return
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")

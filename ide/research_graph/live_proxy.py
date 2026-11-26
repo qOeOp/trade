@@ -27,6 +27,18 @@ def matches(path: str) -> bool:
     return route == PREFIX or route.startswith(PREFIX + "/")
 
 
+def content_length(handler: Any) -> int:
+    """One non-negative ASCII-digit Content-Length header, or 0 when absent; raises ValueError otherwise."""
+    lengths = handler.headers.get_all("Content-Length", [])
+    if handler.headers.get("Transfer-Encoding") or len(lengths) > 1:
+        raise ValueError("invalid Content-Length")
+    if not lengths:
+        return 0
+    if not lengths[0].isascii() or not lengths[0].isdigit():
+        raise ValueError("invalid Content-Length")
+    return int(lengths[0])
+
+
 def _address(value: str):
     address = ipaddress.ip_address(value)
     return address.ipv4_mapped or address if isinstance(address, ipaddress.IPv6Address) else address
@@ -81,11 +93,7 @@ def forward(handler: Any, path: Path | None, router: str | None, token: str, tok
         return
     lengths = handler.headers.get_all("Content-Length", [])
     try:
-        if handler.headers.get("Transfer-Encoding") or len(lengths) > 1:
-            raise ValueError
-        if lengths and (not lengths[0].isascii() or not lengths[0].isdigit()):
-            raise ValueError
-        length = int(lengths[0]) if lengths else 0
+        length = content_length(handler)
         if handler.command == "GET" and length:
             raise ValueError
     except ValueError:

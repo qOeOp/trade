@@ -63,6 +63,18 @@ class ChangelogReleaseTests(unittest.TestCase):
             changelog.notes("0.5.0")
         self.assertEqual(changelog.notes("0.4.4"), "- Old.\n")
 
+    def test_malformed_fragment_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, "text outside a list entry"):
+            changelog.entries("Breaking: prose\n- x\n")
+
+    def test_repository_fragments_parse_cleanly(self):
+        fragments_dir = ROOT / "changelog.d"
+        for path in sorted(fragments_dir.glob("*.md")):
+            with self.subTest(fragment=path.name):
+                parsed = changelog.entries(path.read_text(encoding="utf-8"))
+                self.assertTrue(parsed, f"{path.name} holds no list entries")
+        changelog.newest((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -262,9 +262,16 @@ def _check_service(service_root: Path, config: dict) -> None:
             if missing:
                 raise refuse("SERVICE_CHECK_FAILED", f"service.json records databases the service does not hold: "
                                                      f"{', '.join(missing)}", missing=tuple(missing))
+            checked = set()
             for profile in db.profiles().values():
                 if Path(profile.service_root).resolve() == service_root.resolve():
                     _check_database(cursor, profile.database, profile.holds)
+                    checked.add(profile.database.lower())
+            unchecked = sorted(name for name in config.get("databases", {}) if name.lower() not in checked)
+            if unchecked:
+                raise refuse("SERVICE_CHECK_FAILED",
+                             f"service.json records databases without a profile at {service_root}: "
+                             f"{', '.join(unchecked)}", missing=tuple(unchecked))
     finally:
         conn.close()
 

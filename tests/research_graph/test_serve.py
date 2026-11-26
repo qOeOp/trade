@@ -1243,6 +1243,30 @@ class PaperForwardTests(unittest.TestCase):
             self.assertIsNone(refused.getheader(serve.PAPER_TOKEN))
         self.assertEqual(len(self.seen), 1)
 
+    def test_invalid_content_length_is_refused_without_forwarding(self):
+        token = self.token()
+        oversized = b'{"x":"' + b"a" * (serve.PAPER_BODY + 1024) + b'"}'
+        cases = (
+            ("negative", "Content-Length: -1\r\n", oversized),
+            ("non-numeric", "Content-Length: abc\r\n", b"{}"),
+            ("duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n", b"{}"),
+            ("transfer-encoding", "Transfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+        )
+        for label, header, body in cases:
+            with self.subTest(label=label), socket.create_connection(self.server.server_address, timeout=5) as raw:
+                request = (
+                    f"POST /api/paper/runs HTTP/1.1\r\nHost: here:1\r\nContent-Type: application/json\r\n"
+                    f"Sec-Fetch-Site: same-origin\r\n{serve.PAPER_TOKEN}: {token}\r\n"
+                    f"Connection: close\r\n{header}\r\n"
+                ).encode() + body
+                raw.sendall(request)
+                raw.shutdown(socket.SHUT_WR)
+                reply = b""
+                while chunk := raw.recv(4096):
+                    reply += chunk
+                self.assertTrue(reply.startswith(b"HTTP/1.1 400 "), f"{label}: {reply[:120]!r}")
+        self.assertEqual(self.seen, [])
+
 
 
 class SetupForwardTests(unittest.TestCase):

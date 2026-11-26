@@ -6,6 +6,7 @@ package, and deploy, which runs on the host's system Python, imports only the st
 
 import ast
 from collections import defaultdict
+import configparser
 import importlib.metadata
 import re
 import subprocess
@@ -17,17 +18,19 @@ from tests.test_package_layers import ISOLATED, RANK, ROOT, module_name, product
 
 
 MAX_LINES = 800
+MAX_OVERSIZED_SLACK = 5
 # Product modules over MAX_LINES, each with the most lines it may have (measured 2026-11-21). Lower a cap when its
-# module shrinks and remove the entry once the module is under MAX_LINES; never raise one or add one: split instead.
+# module shrinks (at most MAX_OVERSIZED_SLACK lines of slack allowed) and remove the entry once the module is under
+# MAX_LINES; never raise one or add one: split instead.
 OVERSIZED = {
-    "cli/research_commands.py": 973,
+    "cli/research_commands.py": 934,
     "engine/audit.py": 1099,
     "engine/paper.py": 1244,
     "engine/run.py": 945,
-    "ide/research_graph/serve.py": 1150,
+    "ide/research_graph/serve.py": 1134,
     "ledger/metrics.py": 995,
-    "paper/serve.py": 883,
-    "report/status.py": 888,
+    "paper/serve.py": 882,
+    "report/status.py": 886,
 }
 # Runtime dependencies no product module imports by name: nautilus_trader.analysis imports plotly when loaded, and
 # Nautilus 2.0.0rc7 declares no dependencies of its own.
@@ -123,6 +126,13 @@ def third_party_imports() -> dict[str, set[str]]:
     return found
 
 
+def stale_oversized(lengths: dict[str, int], caps: dict[str, int],
+                    max_slack: int = MAX_OVERSIZED_SLACK) -> dict[str, int]:
+    """Entries in `caps` whose module has shrunk more than `max_slack` lines below its cap."""
+    return {path: cap - lengths[path] for path, cap in caps.items()
+            if path in lengths and cap - lengths[path] > max_slack}
+
+
 class SourceHygieneTests(unittest.TestCase):
     def test_no_new_oversized_module(self):
         lengths = {str(path.relative_to(ROOT)): len(path.read_text(encoding="utf-8").splitlines())
@@ -131,6 +141,20 @@ class SourceHygieneTests(unittest.TestCase):
         self.assertEqual(over, {}, "split these modules: each is over its cap (OVERSIZED, else MAX_LINES)")
         under = sorted(path for path in OVERSIZED if lengths.get(path, 0) <= MAX_LINES)
         self.assertEqual(under, [], "these are under the limit now: remove them from OVERSIZED")
+        self.assertEqual(stale_oversized(lengths, OVERSIZED), {},
+                         f"lower these OVERSIZED caps: each has more than {MAX_OVERSIZED_SLACK} lines of slack")
+
+    def test_oversized_ratchet_flags_slack_above_threshold(self):
+        caps = {"a.py": 900, "b.py": 900, "c.py": 900}
+        lengths = {"a.py": 900, "b.py": 900 - MAX_OVERSIZED_SLACK, "c.py": 900 - MAX_OVERSIZED_SLACK - 1}
+        self.assertEqual(stale_oversized(lengths, caps), {"c.py": MAX_OVERSIZED_SLACK + 1})
+
+    def test_mypy_covers_every_product_package(self):
+        parser = configparser.ConfigParser()
+        parser.read(ROOT / "mypy.ini", encoding="utf-8")
+        covered = {entry.strip() for entry in parser["mypy"]["files"].split(",") if entry.strip()}
+        missing = sorted(package for package in RANK if package not in covered)
+        self.assertEqual(missing, [], "add every product package in RANK to mypy.ini [mypy] files")
 
     def test_every_top_level_definition_is_used(self):
         self.assertEqual(unused_definitions(), [], "delete these: nothing outside the tests uses them")

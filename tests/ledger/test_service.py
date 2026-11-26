@@ -614,3 +614,29 @@ class RunTests(unittest.TestCase):
         self.assertEqual(refused(self.start, origin=newer.as_uri()).code, "SERVICE_CHECK_FAILED")
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
         self.assertEqual(list(profiles.home().glob("*.json")), [])
+
+    def test_moved_profile_does_not_skip_service_schema_check(self):
+        process, config = service.start(self.service_root, self.data, self.backups, None, self.origin, self.port,
+                                        BINARY, None, self.log)
+        self.addCleanup(server.stop, process)
+        conn = server.connect_root(config, database="research")
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE ledger_schema SET version = 99")
+                cursor.execute("CALL DOLT_COMMIT('-Am', 'bad schema', '--skip-verification')")
+        finally:
+            conn.close()
+        server.stop(process)
+        profile_path = profiles.home() / "research.json"
+        stored = json.loads(profile_path.read_text(encoding="utf-8"))
+        def start_mirror():
+            proc, cfg = service.start(self.service_root, self.data, self.backups, None, self.origin,
+                                      self.port, BINARY, None, self.log)
+            self.addCleanup(server.stop, proc)
+            return proc, cfg
+
+        # Control: with the unmoved service_root, schema check refuses the start.
+        self.assertEqual(refused(start_mirror).code, "SERVICE_CHECK_FAILED")
+        # Moved deployment: profile still names the old path while the service starts at the new service_root.
+        profiles.private_write(profile_path, {**stored, "service": str(self.root / "old-path" / "s")})
+        self.assertEqual(refused(start_mirror).code, "SERVICE_CHECK_FAILED")
