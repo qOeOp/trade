@@ -256,7 +256,10 @@ class PrecheckTests(unittest.TestCase):
 
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
-                 {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'}]
+                 {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'},
+                 {"extra": {"audit/audit.json": b'{"passed": false}'}},
+                 {"extra": {"audit/audit.json": b'{"passed": "true"}'}},
+                 {"extra": {"audit/audit.json": b"{not json"}}]
         for options in cases:
             with self.subTest(options=options):
                 review = self.review(self.sealed(**options))

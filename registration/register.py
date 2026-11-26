@@ -403,16 +403,20 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def _same_mechanism(points: list[dict], parent: dict | str | None, change: str | None, prior: Mapping) -> bool:
+def _same_mechanism(points: list[dict], parent: dict | str | None, change: str | None, prior: Mapping,
+                    retryable_sources: set[str] | None = None) -> bool:
     """Whether a registration's grid repairs the same mechanism as `prior`: same published parent and difference
-    for a derived registration, or a root of one of `prior`'s strategies."""
+    for a derived registration, or a root repairing a strategy that actually had a retryable trial in `prior`."""
     parent_name = strategies.name(parent) if isinstance(parent, dict) else parent
     if parent_name != prior["parent"]:
         return False
     if prior["parent"] is not None:
         return change == prior["change"]
+    allowed = prior["grid"] if retryable_sources is None else [
+        item for item in prior["grid"] if item["source_sha256"] in retryable_sources
+    ]
     return bool({point["candidate"].split("@", 1)[0] for point in points}
-                & {item["candidate"].split("@", 1)[0] for item in prior["grid"]})
+                & {item["candidate"].split("@", 1)[0] for item in allowed})
 
 
 def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict], parent: dict | str | None,
@@ -424,7 +428,8 @@ def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict]
                      (prior["registration_id"],))
     if any(source in sources for _, source in rows):
         return True
-    return _same_mechanism(points, parent, change, prior) and any(retryable(conn, trial_id) for trial_id, _ in rows)
+    retryable_sources = {source for trial_id, source in rows if retryable(conn, trial_id)}
+    return bool(retryable_sources) and _same_mechanism(points, parent, change, prior, retryable_sources)
 
 
 def _unrelated_retry(conn: db.LedgerConnection, chain: list[dict], points: list[dict], parent: dict | None,

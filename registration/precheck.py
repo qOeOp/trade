@@ -143,8 +143,10 @@ def _clean_capture(capture: Mapping) -> bool:
     raw_stages, raw_outcome = capture.get("stages"), capture.get("outcome")
     stages = raw_stages if isinstance(raw_stages, Mapping) else {}
     outcome = raw_outcome if isinstance(raw_outcome, Mapping) else {}
+    audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT))
     return (capture["status"] == "captured" and execution.stage_ok(stages.get("native"))
             and execution.stage_ok(stages.get("audit")) and outcome.get("kind") == "completed"
+            and isinstance(audit, Mapping) and audit.get("passed") is True
             and not capture["runtime_failures"])
 
 
