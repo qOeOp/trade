@@ -158,6 +158,8 @@ class ClosedLoopSchedulerTests(unittest.TestCase):
         self.repo, self.evidence = self.home / "repo", self.home / "evidence"
         self.repo.mkdir()
         self.git("init", "-q")
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         here = Path.cwd()
         self.addCleanup(os.chdir, here)
         os.chdir(self.repo)
