@@ -53,10 +53,11 @@ def needs_redis(test):
 
 class Loopback:
     def __init__(self, *, wallet: str = "100", source: str = SOURCE, terms: dict | None = None,
-                 environment: str = "live", venue_key: tuple[str, str] | None = None):
+                 symbols: dict[str, dict] | None = None, environment: str = "live",
+                 venue_key: tuple[str, str] | None = None):
         """`environment`: the run's (its manifest's config.environment); the runner puts the fake venue on that
         environment's hosts alone. `venue_key`: the key the venue's account knows, when not the run's (another
-        environment's key)."""
+        environment's key). `symbols`: optional multi-contract spec map (defaults to single-symbol BTCUSDT)."""
         self.environment = environment
         self.temp = tempfile.TemporaryDirectory(prefix="live-loopback-")
         self.root = Path(self.temp.name)
@@ -66,8 +67,10 @@ class Loopback:
         os.chmod(self.credentials_file, 0o600)
         self.credentials = Credentials(KEY, SECRET)
         known = venue_key or (self.credentials.api_key, self.credentials.api_secret)
-        self.venue = Venue(api_key=known[0], api_secret=known[1],
-                           symbols={SYMBOL: dict(TERMS, **(terms or {}))}, wallet=wallet)
+        specs = ({name: dict(TERMS, **spec) for name, spec in symbols.items()} if symbols is not None
+                 else {SYMBOL: dict(TERMS, **(terms or {}))})
+        self.symbols = list(specs)
+        self.venue = Venue(api_key=known[0], api_secret=known[1], symbols=specs, wallet=wallet)
         self.process: subprocess.Popen | None = None
         self.stdout = None
         self.manifest = self._prepare(source, wallet)
@@ -98,18 +101,20 @@ class Loopback:
     def _prepare(self, source: str, wallet: str) -> dict:
         strategy, universe = self.root / "source.py", self.root / "universe.json"
         strategy.write_text(source)
-        universe.write_text(json.dumps({"membership": {SYMBOL: [[0, 9999999999999999999]]}}))
+        universe.write_text(json.dumps({"membership": {sym: [[0, 9999999999999999999]] for sym in self.symbols}}))
         image = "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64
+        terms = {sym: {"price_increment": self.venue.terms[sym]["tick"],
+                       "size_increment": self.venue.terms[sym]["step"],
+                       "min_notional": self.venue.terms[sym]["min_notional"]} for sym in self.symbols}
         manifest = {
             "format": MANIFEST_FORMAT, "run_id": "loopback-" + os.urandom(4).hex(), "trader_id": "LIVE-001",
-            "account_id": "BINANCE-LOOPBACK", "credential_binding": self.credentials.binding, "symbols": [SYMBOL],
+            "account_id": "BINANCE-LOOPBACK", "credential_binding": self.credentials.binding,
+            "symbols": list(self.symbols),
             "candidate": {"strategy_id": "loopback-probe", "revision": 1},
             "source": {"entry_class": "Probe", "source_sha256": hashlib.sha256(source.encode()).hexdigest()},
             "runtime": {"image_ref": image, "image_digest": "sha256:" + "a" * 64, "runtime_contract": RUNTIME_CONTRACT},
             "config": {"environment": self.environment, "drawdown_brake": "0.15", "duration_seconds": None, "leverage": "50"},
-            "market": {"market_day": datetime.now(UTC).date().isoformat(), "terms": {SYMBOL: {
-                "price_increment": self.venue.terms[SYMBOL]["tick"], "size_increment": self.venue.terms[SYMBOL]["step"],
-                "min_notional": self.venue.terms[SYMBOL]["min_notional"]}}},
+            "market": {"market_day": datetime.now(UTC).date().isoformat(), "terms": terms},
             "strategy_file": str(strategy), "universe_file": str(universe),
             "universe_sha256": hashlib.sha256(universe.read_bytes()).hexdigest(),
             "evidence": [{"trial_id": 1, "starting_balance_usdt": str(Decimal(wallet)), "image_ref": image}],
@@ -119,7 +124,7 @@ class Loopback:
 
     @property
     def strategy_id(self) -> str:
-        return strategy_ids(self.manifest)[SYMBOL]
+        return strategy_ids(self.manifest)[self.symbols[0]]
 
     def start(self, mode: str = "run", *, file_size_limit: int | None = None) -> None:
         """`file_size_limit`: RLIMIT_FSIZE for the runner, a full disk for every file it writes (Python ignores
