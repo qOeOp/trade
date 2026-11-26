@@ -7,7 +7,7 @@ or once sealed) never reach the page."""
 from __future__ import annotations
 
 from contextlib import redirect_stderr
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import gzip
 import http.client
@@ -470,6 +470,35 @@ class RestartTests(unittest.TestCase):
             self.assertEqual([call.args[:3] for call in daemon.cli.call_args_list],
                              [("resume", "--paper-id", "1"), ("seal", "--paper-id", "2"),
                               ("seal", "--paper-id", "3"), ("seal", "--paper-id", "4")])
+
+    def test_an_orphaned_unsealed_run_is_sealed_not_resumed_while_an_exited_pause_still_resumes(self):
+        """An `unsealed` run has no runner container, so `resume` can never succeed; once older than ORPHAN_SECONDS
+        it must be sealed rather than retried forever, while a real `ended` SIGTERM pause still resumes."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        old = now - timedelta(seconds=serve.ORPHAN_SECONDS + 120)
+        young = now - timedelta(seconds=60)
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            daemon = self.daemon(root)
+            daemon.stopping = set()
+            daemon.market = "/market"
+            daemon.runs.return_value = {"runs": [
+                {"paper_id": 1, "state": "unsealed", "created_at": old},
+                {"paper_id": 2, "state": "unsealed", "created_at": old},
+                {"paper_id": 3, "state": "unsealed", "created_at": young},
+                {"paper_id": 4, "state": "ended", "created_at": old},
+            ]}
+            for i in (2, 4):
+                (root / str(i) / "out").mkdir(parents=True)
+                (root / str(i) / "out/summary.json").write_text(json.dumps({"stop_reason": "SIGTERM"}))
+                paused(root / str(i) / "out")
+            with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
+                daemon.seal_found()
+            self.assertEqual([call.args for call in daemon.cli.call_args_list], [
+                ("seal", "--paper-id", "1"),
+                ("seal", "--paper-id", "2"),
+                ("resume", "--paper-id", "4", "--market", "/market"),
+            ])
 
 
 def paused(output: Path) -> None:
