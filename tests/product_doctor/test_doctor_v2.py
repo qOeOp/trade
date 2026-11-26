@@ -25,6 +25,7 @@ def _load(name: str):
 
 doctor = _load("doctor")
 friction = _load("friction")
+scheduler = _load("scheduler")
 telemetry = _load("telemetry")
 
 
@@ -1498,3 +1499,155 @@ export function load(cfg?: Config) {
             doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--steady-exit-code", "125"])
         self.assertEqual(ctx.exception.code, 125)
         self.assertEqual(json.loads(out_125.getvalue())["recommended_theme"], "steady")
+
+    def test_v3_2_r2_1_prod_logs_compose_journalctl_ansi_json_and_oom(self):
+        """R2-1 [P1]: strip ANSI escapes and docker compose / journalctl prefixes before PROD_ERROR_RE,
+        match lowercase JSON error levels without FP on INFO cleared-ERROR prose, and catch compose
+        exited-137 / Cannot allocate memory / MemoryError OOM signals."""
+        compose_log = self.home / "paper-compose.log"
+        compose_log.write_text("\n".join([
+            "\x1b[36mtrade-ide-paper-1  |\x1b[0m 2026-11-26T12:00:01Z ERROR runner crashed on BTCUSDT",
+            "trade-ide-paper-1  | Traceback (most recent call last):",
+            "trade-ide-paper-1  | 2026-11-26T12:00:02Z CRITICAL fatal failure",
+            'trade-ide-paper-1  | {"ts":"2026-11-26T12:00:03Z","level":"error","msg":"unhandled"}',
+            'trade-ide-paper-1  | {"ts":"2026-11-26T12:00:04Z","level":"fatal","msg":"aborting"}',
+            "trade-ide-paper-1  | 2026-11-26T12:00:05Z INFO metrics: cleared ERROR flag",
+            "trade-ide-paper-1 exited with code 137",
+        ]) + "\n", encoding="utf-8")
+
+        journal_log = self.home / "paper-journalctl.log"
+        journal_log.write_text("\n".join([
+            "Nov 26 12:00:01 host trade-ide-paper-1[1234]: 2026-11-26T12:00:01Z ERROR crash 1",
+            "Nov 26 12:00:02 host trade-ide-paper-1[1234]: Traceback (most recent call last):",
+            "Nov 26 12:00:03 host trade-ide-paper-1[1234]: ERROR crash 2",
+            "Nov 26 12:00:04 host trade-ide-paper-1[1234]: CRITICAL crash 3",
+            "Nov 26 12:00:05 host trade-ide-paper-1[1234]: FATAL crash 4",
+            "Nov 26 12:00:06 host trade-ide-paper-1[1234]: OSError: [Errno 12] Cannot allocate memory",
+            "Nov 26 12:00:07 host trade-ide-paper-1[1234]: MemoryError: unable to allocate array",
+        ]) + "\n", encoding="utf-8")
+
+        res = friction.analyze_prod_logs([compose_log, journal_log])
+        c_entry, j_entry = res["logs"]
+        self.assertEqual(c_entry["error_lines"], 5)
+        self.assertEqual(c_entry["oom_signals"], 1)
+        self.assertTrue(any("prod_oom_kill" in t for t in c_entry["triggers"]))
+        self.assertTrue(any("prod_error_burst" in t for t in c_entry["triggers"]))
+        self.assertEqual(j_entry["error_lines"], 5)
+        self.assertEqual(j_entry["oom_signals"], 2)
+        self.assertTrue(any("prod_oom_kill" in t for t in j_entry["triggers"]))
+        self.assertTrue(any("prod_error_burst" in t for t in j_entry["triggers"]))
+
+    def test_v3_2_r2_2_auto_redlines_full_body_comments_and_no_bug_fp(self):
+        """R2-2 [P1]: scan full body & comments (no 1200-char truncation), block all AGENTS.md redlines
+        (active market switch, GHCR image deletion, Docker/compose restart, credential reads), and avoid
+        false positives on ordinary defect/regression prose."""
+        # 1) Remedy past char 1200 must still be blocked.
+        long_body = ("Proof details. " * 90) + "\n### Remedy\nReset the Dolt ledger and place real orders on the primary live account."
+        self.assertGreater(len(long_body), 1300)
+        self.assertTrue(scheduler._is_redline_text("Schema corruption bug in ledger", long_body))
+
+        # 2) Redline in comments (e.g. #3505 active market directory rebuild/switch) must be blocked.
+        self.assertTrue(scheduler._is_redline_text(
+            "Pool history omits reused symbols",
+            "Read-only proof.",
+            comments=[{"body": "What the next version line's market directory must do: Build anew from 2020-01 and perform the directory switch."}],
+        ))
+
+        # 3) Missing AGENTS.md redlines must all be blocked.
+        for label, title, body in (
+            ("active-market-switch", "Rebuild and switch active market directory", "Switch active market directory to v2."),
+            ("delete-runtime-images", "Enable deletion of retained runtime images in GHCR", "Deletes published image versions."),
+            ("ghcr-retention", "GHCR retention only lists pull request images; turn deletion on", "Ask owner before passing --delete on the schedule."),
+            ("restart-compose", "Restart Docker Desktop and trade-ide compose services", "Terminates host process and restarts services."),
+            ("read-credentials", "Read Binance API key from .env and dolt/service.json", "Reads credentials directly."),
+            ("lower-target", "Lower maximum drawdown target to 25%", "Relaxes research target."),
+            ("weaken-refusal", "Weaken refusal check on invalid stops", "Relaxes refusal guard."),
+            ("add-stored-col", "Add stored drawdown column to ledger schema", "Adds a stored field to ledger."),
+        ):
+            with self.subTest(redline=label):
+                self.assertTrue(scheduler._is_redline_text(title, body))
+
+        # 4) Ordinary bug / regression / validation-fix prose must NOT false-positive.
+        for label, title, body in (
+            ("bug-disables-refusal", "Bug: missing check disables refusal when --universe is passed", "Fix validation in paper/serve.py."),
+            ("bug-removes-guard", "Regression removes guard on negative Content-Length", "Fix HTTP handler."),
+            ("bug-lowers-drawdown", "Warm-up bug lowers maximum drawdown in replay report", "Fix ledger/metrics.py."),
+            ("fix-stored-field-val", "Fix: add missing validation for stored field in service.json", "Reject empty databases."),
+            ("changes-number-judged", "CapitalObserver delays exposure valuation", "It changes the number the maximum drawdown target is judged on."),
+        ):
+            with self.subTest(benign=label):
+                self.assertFalse(scheduler._is_redline_text(title, body))
+
+        # 5) End-to-end `--auto` blocks #3505/#3524-style redlines while keeping ordinary bugs actionable.
+        self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        issues_p = self.home / "r2_2_issues.json"
+        issues_p.write_text(json.dumps([
+            {
+                "number": 3505, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Pool history omits earlier contracts whose symbols were reused",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": ("Proof context. " * 90) + "\n### Remedy\nStored months then recompute to other members (`UNIVERSE_CHANGED`).",
+                "comments": [{"body": "Build anew the active market directory on the owner's start."}],
+            },
+            {
+                "number": 3524, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "GHCR retention only lists pull request images; turn deletion on",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": "Action: authority (deletes published image versions).",
+                "comments": [],
+            },
+            {
+                "number": 3697, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Regression removes guard on negative Content-Length in paper/serve.py",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+                "body": "Bug: missing check disables refusal when negative Content-Length is passed.",
+                "comments": [],
+            },
+        ]), encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--auto", "--issues-json", issues_p)
+        self.assertEqual([i["number"] for i in plan["issues_summary"]["actionable_harm"]], [3697])
+        self.assertEqual(plan["issues_summary"]["blocked_authority_count"], 2)
+
+    def test_v3_2_r2_3_shell_parser_escapes_amp_subshell_wrappers_and_grep(self):
+        """R2-3 [P1]: handle unquoted backslash escapes, single `&` (not `>&`/`<&`), command
+        substitutions `$(...)`/backticks, wrappers (`env`/`sudo`/`command`/`exec`) & full paths,
+        and grep env-prefix / attached `-ePAT` & `-fFILE` flags."""
+        from collections import Counter
+
+        def scan_cmd(cmd: str) -> dict[str, int]:
+            v: Counter[str] = Counter()
+            friction._scan_workflow_args({"CommandLine": cmd}, v, [False])
+            return dict(v)
+
+        for label, cmd, want_key in (
+            ("escaped-quote-secret", r"echo \' ; cat .env", "secret_file_access"),
+            ("escaped-quote-sql", r"echo \' ; dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
+            ("single-amp-secret", "echo hi & cat .env", "secret_file_access"),
+            ("single-amp-sql", "echo hi & dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
+            ("subshell-secret", "echo $(cat .env)", "secret_file_access"),
+            ("backtick-secret", "echo `head -n 5 .env`", "secret_file_access"),
+            ("nested-subshell-sql", "echo \"$(dolt sql -q 'SELECT 1')\"", "ad_hoc_ledger_sql"),
+            ("env-wrapper-secret", "env cat .env", "secret_file_access"),
+            ("sudo-wrapper-secret", "sudo -u root /usr/bin/head .env", "secret_file_access"),
+            ("command-wrapper-secret", "command /bin/cat .env", "secret_file_access"),
+            ("exec-wrapper-secret", "exec /bin/cat .env", "secret_file_access"),
+            ("abs-path-secret", "/bin/cat .env", "secret_file_access"),
+            ("grep-attached-e", "grep -eKEY .env", "secret_file_access"),
+            ("grep-combined-ie", "grep -ieKEY .env", "secret_file_access"),
+            ("grep-attached-f", "grep -f.env README.md", "secret_file_access"),
+            ("grep-combined-if", "grep -if.env README.md", "secret_file_access"),
+            ("grep-env-wrapper-target", "LC_ALL=C env /usr/bin/grep -eKEY .env", "secret_file_access"),
+        ):
+            with self.subTest(bypass=label):
+                self.assertEqual(scan_cmd(cmd).get(want_key), 1, f"cmd={cmd!r}")
+
+        # Benign commands (env-prefixed doc grep, FD redirections, single-quoted subshell text) -> 0 violations.
+        for label, cmd in (
+            ("grep-env-prefix", "LC_ALL=C grep .env README.md"),
+            ("grep-env-wrapper-doc", "env LC_ALL=C /usr/bin/grep -n .env docs/guide.md"),
+            ("fd-redirect-no-split", "echo .env 2>&1"),
+            ("single-quoted-subshell", "echo '$(cat .env)'"),
+        ):
+            with self.subTest(benign=label):
+                self.assertEqual(scan_cmd(cmd), {}, f"cmd={cmd!r}")

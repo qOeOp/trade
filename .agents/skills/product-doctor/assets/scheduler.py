@@ -60,39 +60,95 @@ PROD_INCIDENT_PREFIXES = (
     "prod_log_empty",
 )
 REDLINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Real orders / live real-account trials.
     re.compile(r"\bprimary\s+(?:live\s+|binance\s+)?(?:account|funds?)\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:real|live)\s+orders?\b.{0,40}\b(?:primary|live\s+account|production\s+account|main\s+account)\b",
+        r"\b(?:real|live)\s+orders?\b.{0,40}\b(?:primary|live\s+account|production\s+account|main\s+account|real\s+account)\b",
         re.IGNORECASE,
     ),
+    re.compile(r"\b(?:real[\s-]account\s+trial|live\s+real[\s-]account)\b", re.IGNORECASE),
+    # Project fonts.
     re.compile(r"\bpp\s+supply\s+mono\b", re.IGNORECASE),
     re.compile(r"\b(?:change|replace|remove|override|swap)\b.{0,30}\b(?:project(?:'s)?\s+)?fonts?\b", re.IGNORECASE),
+    # Destructive writes, ledger/artifact/run/catalog/GHCR image deletion.
     re.compile(
-        r"\b(?:reset(?:ting)?|clear(?:ing)?|wipe(?:s|d|ing)?|truncat(?:e|es|ed|ing)|delet(?:e|es|ed|ing)|"
-        r"rewrit(?:e|es|ing)|drop(?:s|ped|ping)?)\b.{0,40}\b(?:dolt\s+ledger|active\s+ledger|"
-        r"ledger\s+(?:history|records?|table)|published\s+records?|sealed\s+artifacts?|database\s+backups?|"
-        r"historical\s+receipts?)\b",
+        r"\b(?:reset(?:ting)?|clear(?:ing)?|wipe(?:s|d|ing)?|truncat(?:e|es|ed|ing)|delet(?:e|es|ed|ing|ion)|"
+        r"rewrit(?:e|es|ing)|drop(?:s|ped|ping)?)\b.{0,45}\b(?:dolt\s+ledger|active\s+ledger|"
+        r"ledger\s+(?:history|records?|table)|published\s+records?|stored\s+runs?|sealed\s+artifacts?|"
+        r"database\s+backups?|historical\s+receipts?|canonical\s+catalog\s+inputs?|"
+        r"retained\s+runtime\s+images?|published\s+image\s+versions?|ghcr\s+(?:images?|versions?)|"
+        r"pull\s+request\s+images?)\b",
         re.IGNORECASE,
     ),
+    re.compile(r"\b(?:ghcr\s+retention|passes?\s+--delete\s+on\s+the\s+schedule)\b", re.IGNORECASE),
     re.compile(r"\bdestructive\s+(?:write|ledger|history|wipe)\b", re.IGNORECASE),
+    # Creating, rebuilding, or switching the active ledger or market directory.
     re.compile(r"\b(?:ledger|market)\s+init\s+--kind\s+active\b", re.IGNORECASE),
-    re.compile(r"\badd(?:s|ed|ing)?\b.{0,35}\bstored\b.{0,30}\b(?:field|column|table|value)s?\b", re.IGNORECASE),
-    re.compile(r"\bstored\s+(?:field|column|table)s?\b.{0,30}\b(?:ledger|record|schema)\b", re.IGNORECASE),
     re.compile(
-        r"\badd(?:s|ed|ing)?\b.{0,30}\b(?:column|table|field)s?\b.{0,30}\b(?:to|in|into)\s+(?:the\s+)?(?:dolt\s+)?(?:ledger|record)\b",
+        r"\b(?:rebuild(?:s|ing)?|switch(?:es|ed|ing)?|replac(?:e|es|ed|ing)|recreat(?:e|es|ed|ing)|"
+        r"build(?:s|ing)?\s+anew)\b.{0,45}\b(?:active\s+(?:dolt\s+)?(?:ledger|market\s+directory|directory)|"
+        r"market\s+directory)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\bactive\s+(?:market|ledger)\s+directory\b.{0,45}\b(?:switch(?:es|ed|ing)?|rebuild(?:s|ing)?|"
+        r"rebuilt|written|replac(?:e|es|ed|ing)|build\s+anew|made\s+active)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:directory\s+switch|stored\s+months\s+then\s+recompute|universe_changed)\b", re.IGNORECASE),
+    # Adding a stored field / column / table to ledger or record schema (tightened against validation-fix prose).
+    re.compile(
+        r"\b(?:add(?:s|ed|ing)?|introduc(?:e|es|ed|ing)|creat(?:e|es|ed|ing))\s+"
+        r"(?:a\s+|an\s+|the\s+)?(?:new\s+)?stored\s+(?:[a-z0-9_-]+\s+){0,2}(?:field|column|table|value|term)s?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:add(?:s|ed|ing)?|introduc(?:e|es|ed|ing))\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?"
+        r"(?:[a-z0-9_-]+\s+){0,2}(?:column|table|field)s?\s+(?:to|in|into)\s+(?:the\s+)?(?:dolt\s+)?(?:ledger|record|schema)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bnew\s+stored\s+(?:[a-z0-9_-]+\s+){0,2}(?:field|column|table|value|term)s?\b", re.IGNORECASE),
+    # Changing research targets (maximum drawdown target / minimum annual return target).
     re.compile(
         r"\b(?:weaken(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|lower(?:s|ed|ing)?|"
-        r"disable(?:s|d|ing)?|remove(?:s|d|ing)?)\b.{0,40}\b(?:refusal|audit\s+check|audit\s+gate|"
-        r"guard|research\s+target|max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return|test\s+bar|ci\s+gate)\b",
+        r"rais(?:e|es|ed|ing)|chang(?:e|es|ed|ing))\s+(?:the\s+|either\s+of\s+the\s+|user'?s\s+|owner'?s\s+|current\s+)?"
+        r"(?:research\s+targets?|"
+        r"(?:max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return)\s+(?:target|threshold|limit|cap|bar|floor|ceiling)s?|"
+        r"(?:target|threshold|limit|cap|bar|floor|ceiling)\s+(?:for|of|on)\s+"
+        r"(?:max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return))\b",
         re.IGNORECASE,
     ),
+    # Restarting Docker Desktop / compose services / terminating host processes / host settings.
     re.compile(
-        r"\bchange(?:s|d|ing)?\b.{0,30}\b(?:research\s+target|max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return)\b",
+        r"\b(?:start(?:s|ed|ing)?|stop(?:s|ped|ping)?|restart(?:s|ed|ing)?)\b.{0,35}\b"
+        r"(?:docker\s+desktop|trade-ide\s+compose|compose\s+services?|host\s+services?)\b",
         re.IGNORECASE,
     ),
+    re.compile(r"\bterminat(?:e|es|ed|ing)\s+(?:any\s+|a\s+|the\s+)?host\s+process(?:es)?\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:chang(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|alter(?:s|ed|ing)?)\s+"
+        r"(?:the\s+)?(?:docker|system|host)\s+(?:settings?|configuration|config)\b",
+        re.IGNORECASE,
+    ),
+    # Reading or saving credentials (.env, dolt/service.json, exchange keys, cookies, paper token).
+    re.compile(
+        r"\b(?:read(?:s|ing)?|load(?:s|ed|ing)?|print(?:s|ed|ing)?|dump(?:s|ed|ing)?|fetch(?:es|ed|ing)?|"
+        r"extract(?:s|ed|ing)?|save(?:s|d|ing)?|access(?:es|ed|ing)?)\b.{0,45}"
+        r"(?:(?<!\w)\.env\b|\bdolt/service\.json\b|\bexchange\s+credentials?\b|"
+        r"\bbinance\s+api\s+(?:key|secret)\b|\bbrowser\s+cookies?\b|\bpaper\s+token\b|\bcredentials?\s+directly\b)",
+        re.IGNORECASE,
+    ),
+    # Tagging a release.
     re.compile(r"\b(?:tag(?:s|ged|ging)?\b.{0,25}\brelease\b|\brelease\s+tag\b|\btag\s+v\d+\.\d+\.\d+\b)", re.IGNORECASE),
+)
+_POLICY_RELAX_RE = re.compile(
+    r"\b(?:weaken(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|disable|disabling|remove|removing)\b"
+    r".{0,35}\b(?:refusal|audit\s+(?:check|gate)|guard|test\s+bar|ci\s+gate)\b",
+    re.IGNORECASE,
+)
+_DEFECT_SUBJECT_RE = re.compile(
+    r"\b(?:bug|regression|defect|flaw|fault|missing\s+\w+|omission|broken|typo)\b",
+    re.IGNORECASE,
 )
 
 
@@ -103,9 +159,21 @@ def _is_redline_label(labels: set[str]) -> bool:
     )
 
 
-def _is_redline_text(title: str, body: str) -> bool:
-    sample = f"{title}\n{body[:1200]}"
-    return any(pat.search(sample) for pat in REDLINE_PATTERNS)
+def _has_policy_relaxation(text: str) -> bool:
+    for match in _POLICY_RELAX_RE.finditer(text):
+        prefix = text[max(0, match.start() - 60):match.start()]
+        clause = re.split(r"[\n.;]", prefix)[-1]
+        if not _DEFECT_SUBJECT_RE.search(clause):
+            return True
+    return False
+
+
+def _is_redline_text(title: str, body: str, comments: list[dict[str, Any]] | None = None) -> bool:
+    parts = [title, body]
+    if comments:
+        parts.extend(str(c.get("body") or "") for c in comments)
+    sample = "\n".join(p for p in parts if p)
+    return any(pat.search(sample) for pat in REDLINE_PATTERNS) or _has_policy_relaxation(sample)
 
 
 def _has_prod_incident(friction_triggers: list[str]) -> bool:
@@ -279,7 +347,7 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
         has_harm_text = False
     is_harm = not title.lower().startswith("minor:") and "enhancement" not in labels and has_harm_text
     has_redline_label = _is_redline_label(labels)
-    is_redline = has_redline_label or ("authority" in labels and _is_redline_text(title, body))
+    is_redline = has_redline_label or ("authority" in labels and _is_redline_text(title, body, comments))
     is_auth_blocked = is_redline or (authority_gate and "authority" in labels)
 
     if "claimed" in labels:

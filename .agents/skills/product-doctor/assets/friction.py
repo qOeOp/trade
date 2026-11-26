@@ -23,34 +23,53 @@ NONZERO_EXIT_RE = re.compile(
     r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
     re.MULTILINE,
 )
-GIT_SEARCH_RE = re.compile(r"^\s*git\s+(?:grep|log|show|diff|blame)\b")
-GREP_CMD_RE = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:e?grep|fgrep|rg|ag)\b")
+_PATH_PREFIX = r"(?:(?:/[\w.+-]+)+/)?"
+_CMD_WRAPPER_PREFIX = (
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
+    r"(?:" + _PATH_PREFIX
+    + r"(?:env|sudo|command|exec)(?:\s+-[ugCaS]\s+\S+|\s+-[A-Za-z]+|\s+[A-Za-z_][A-Za-z0-9_]*=\S+)*\s+)*"
+    + _PATH_PREFIX
+)
+GIT_SEARCH_RE = re.compile(r"^\s*" + _PATH_PREFIX + r"git\s+(?:grep|log|show|diff|blame)\b")
+GREP_CMD_RE = re.compile(_CMD_WRAPPER_PREFIX + r"(?:e?grep|fgrep|rg|ag)\b")
 AD_HOC_SQL_RE = re.compile(
     r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
-    r"(?:(?:env|sudo|command|exec|docker\s+exec(?:\s+-\S+)*\s+\S+)\s+)*"
-    r"(?:dolt(?:\s+-\S+(?:\s+[^-;\s]\S*)?){0,3}\s+sql|mysql)\b",
+    r"(?:" + _PATH_PREFIX + r"(?:env|sudo|command|exec|docker\s+exec(?:\s+-\S+)*\s+\S+)\s+)*"
+    + _PATH_PREFIX
+    + r"(?:dolt(?:\s+-\S+(?:\s+[^-;\s]\S*)?){0,3}\s+sql|mysql)\b",
     re.IGNORECASE,
 )
 SECRET_FILE_RE = re.compile(r"(?:^|[\s/'\"<=(])(?:\.env|dolt/service\.json)(?:$|[\s'\")|;&])")
 SECRET_REDIR_RE = re.compile(r"<\s*['\"]?(?:[^\s'\";|&]*/)?(?:\.env|dolt/service\.json)(?:['\"]|$|[\s;|&)])")
 SECRET_READ_CMD_RE = re.compile(
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
-    r"(?:\.(?=\s)|(?:cat|head|tail|less|more|sed|awk|gawk|jq|source|base64|xxd|od|strings|hexdump|"
+    _CMD_WRAPPER_PREFIX
+    + r"(?:\.(?=\s)|(?:cat|head|tail|less|more|sed|awk|gawk|jq|source|base64|xxd|od|strings|hexdump|"
     r"nl|tac|rev|cut|sort|tr|bat|view|cp|mv|tee)\b)"
 )
 INLINE_SCRIPT_CMD_RE = re.compile(
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:uv\s+run\s+(?:--\S+\s+)*)?"
+    _CMD_WRAPPER_PREFIX + r"(?:uv\s+run\s+(?:--\S+\s+)*)?"
     r"(?:python\d*(?:\.\d+)?|node|perl|ruby|bash|sh|zsh)\b"
 )
-_GREP_VAL_FLAGS = frozenset({"-e", "-f", "-m", "-A", "-B", "-C", "-g", "-t", "--regexp", "--file", "--glob", "--type"})
+_GREP_BINS = frozenset({"grep", "egrep", "fgrep", "rg", "ag"})
+_WRAPPER_BINS = frozenset({"env", "sudo", "command", "exec"})
+_WRAPPER_ARG_FLAGS = frozenset({"-u", "-g", "-C", "-a", "-S"})
+_ENV_ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_GREP_LONG_VAL_FLAGS = frozenset({"--regexp", "--file", "--glob", "--type"})
 _DOC_PATH_RE = re.compile(r"(?:^|/)(?:README\.md|AGENTS\.md|docs(?:/.*)?)$", re.IGNORECASE)
 RESEARCH_CMD_RE = re.compile(
     r"\bcli\.main(?:\s+--?[A-Za-z0-9_-]+(?:=\S+|\s+[^\s-]\S*)?)*\s+(?:research|line|trial|replay)\b"
 )
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+PROD_LOG_PREFIX_RE = re.compile(
+    r"^(?:(?!(?:DEBUG|INFO|WARN(?:ING)?|TRACE)\s+\|)[\w.-]+\s+\|\s+"
+    r"|[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\S+?:\s+)"
+)
 PROD_OOM_RE = re.compile(
     r"\b(?:oom-killer|OOMKilled(?!(?:[\"']?\s*[:=]\s*(?:false|0)\b))|"
     r"(?<!\bnot\s)(?<!\bno\s)Out of memory(?!\s+check\s+(?:passed|ok)\b)|"
-    r"ExitCode\s*[:=]\s*137|exit_code\s*[:=]\s*137|Killed process\b)",
+    r"ExitCode\s*[:=]\s*137|exit_code\s*[:=]\s*137|"
+    r"exited\s+with\s+(?:exit\s+)?code\s+137\b|"
+    r"Cannot allocate memory\b|MemoryError\b|Killed process\b)",
     re.IGNORECASE,
 )
 PROD_CHECKPOINT_DEFER_MARKER = "paper checkpoint deferred:"
@@ -60,7 +79,7 @@ PROD_ERROR_RE = re.compile(
     r"(?:^Traceback \(most recent call last\):|"
     r"^(?:\[?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?[\s|:-]+)?"
     r"[\[(]?(?:CRITICAL|FATAL|ERROR)[\])]?(?:\b|[\s:|])|"
-    r"(?:level|severity)[\"']?\s*[:=]\s*[\"']?(?:CRITICAL|FATAL|ERROR)\b)"
+    r"(?i:(?:level|severity)[\"']?\s*[:=]\s*[\"']?(?:CRITICAL|FATAL|ERROR)\b))"
 )
 PROD_SERVICE_HINTS = ("paper", "live", "ide", "ledger", "market")
 NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
@@ -197,8 +216,92 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _split_shell_segments(cmd: str) -> list[str]:
-    """Split a shell command on unquoted pipes, semicolons, newlines, && and ||."""
+def _is_shell_sep(cmd: str, i: int) -> bool:
+    ch = cmd[i]
+    if ch in (";", "\n", "|"):
+        return True
+    if ch != "&":
+        return False
+    if i + 1 < len(cmd) and cmd[i + 1] == "&":
+        return True
+    prev_redir = i > 0 and cmd[i - 1] in (">", "<")
+    next_redir = i + 1 < len(cmd) and cmd[i + 1] == ">"
+    return not prev_redir and not next_redir
+
+
+def _find_matching_paren(cmd: str, start: int) -> int:
+    depth = 1
+    quote: str | None = None
+    i = start
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if quote == "'":
+            if ch == "'":
+                quote = None
+        elif quote == '"':
+            if ch == "\\" and i + 1 < n:
+                i += 1
+            elif ch == '"':
+                quote = None
+        elif ch == "\\" and i + 1 < n:
+            i += 1
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return n
+
+
+def _find_closing_backtick(cmd: str, start: int) -> int:
+    i = start
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == "`":
+            return i
+        i += 1
+    return n
+
+
+def _extract_cmd_subs(cmd: str) -> list[str]:
+    subs: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if quote == "'":
+            if ch == "'":
+                quote = None
+        elif ch == "\\" and i + 1 < n:
+            i += 1
+        elif quote is None and ch in ("'", '"'):
+            quote = ch
+        elif quote == '"' and ch == '"':
+            quote = None
+        elif ch == "$" and i + 1 < n and cmd[i + 1] == "(":
+            end = _find_matching_paren(cmd, i + 2)
+            subs.append(cmd[i + 2:end])
+            i = end
+        elif ch == "`":
+            end = _find_closing_backtick(cmd, i + 1)
+            subs.append(cmd[i + 1:end])
+            i = end
+        i += 1
+    return subs
+
+
+def _split_shell_segments(cmd: str, _depth: int = 0) -> list[str]:
+    """Split a shell command on unquoted pipes, semicolons, newlines, &, &&, ||, and command substitutions."""
     segs: list[str] = []
     buf: list[str] = []
     quote: str | None = None
@@ -213,10 +316,14 @@ def _split_shell_segments(cmd: str) -> list[str]:
                 buf.append(cmd[i])
             elif ch == quote:
                 quote = None
+        elif ch == "\\" and i + 1 < n:
+            buf.append(ch)
+            i += 1
+            buf.append(cmd[i])
         elif ch in ("'", '"'):
             quote = ch
             buf.append(ch)
-        elif ch in (";", "\n", "|") or (ch == "&" and i + 1 < n and cmd[i + 1] == "&"):
+        elif _is_shell_sep(cmd, i):
             if buf:
                 segs.append("".join(buf).strip())
                 buf = []
@@ -227,7 +334,44 @@ def _split_shell_segments(cmd: str) -> list[str]:
         i += 1
     if buf:
         segs.append("".join(buf).strip())
+    if _depth < 4:
+        for sub in _extract_cmd_subs(cmd):
+            segs.extend(_split_shell_segments(sub, _depth + 1))
     return [s for s in segs if s]
+
+
+def _find_grep_arg_start(tokens: list[str]) -> int:
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
+        base = Path(tok).name
+        if base in _GREP_BINS:
+            return idx + 1
+        if base in _WRAPPER_BINS or _ENV_ASSIGN_TOKEN_RE.match(tok):
+            idx += 1
+            continue
+        if tok.startswith("-"):
+            idx += 2 if tok in _WRAPPER_ARG_FLAGS else 1
+            continue
+        break
+    return min(idx + 1, len(tokens))
+
+
+def _parse_grep_short_flag(tok: str, next_tok: str | None) -> tuple[bool, bool, int]:
+    """Inspect a short-option token like `-n`, `-ePAT`, `-fFILE`, `-if.env`.
+
+    Returns `(reads_secret_file, supplies_pattern, token_step)`.
+    """
+    for j, ch in enumerate(tok[1:], 1):
+        attached = j + 1 < len(tok)
+        if ch == "f":
+            arg = tok[j + 1:] if attached else (next_tok or "")
+            return bool(SECRET_FILE_RE.search(arg)), True, (1 if attached else 2)
+        if ch == "e":
+            return False, True, (1 if attached else 2)
+        if ch in ("m", "A", "B", "C", "g", "t"):
+            return False, False, (1 if attached else 2)
+    return False, False, 1
 
 
 def _grep_reads_secret(seg: str) -> bool:
@@ -239,27 +383,37 @@ def _grep_reads_secret(seg: str) -> bool:
         tokens = seg.split()
     has_pattern_flag = False
     positionals: list[str] = []
-    idx = 1
+    idx = _find_grep_arg_start(tokens)
     while idx < len(tokens):
         tok = tokens[idx]
         if tok == "--":
             positionals.extend(tokens[idx + 1:])
             break
-        if tok in ("-f", "--file") and idx + 1 < len(tokens):
-            if SECRET_FILE_RE.search(tokens[idx + 1]):
-                return True
-            idx += 2
-            continue
-        if tok in _GREP_VAL_FLAGS:
-            has_pattern_flag = has_pattern_flag or tok in ("-e", "--regexp")
-            idx += 2
-            continue
-        if tok.startswith("-"):
-            if tok.startswith("--regexp="):
+        if tok.startswith("--"):
+            if tok == "--file" and idx + 1 < len(tokens):
+                if SECRET_FILE_RE.search(tokens[idx + 1]):
+                    return True
                 has_pattern_flag = True
-            elif tok.startswith("--file=") and SECRET_FILE_RE.search(tok.split("=", 1)[1]):
+                idx += 2
+            elif tok in _GREP_LONG_VAL_FLAGS:
+                has_pattern_flag = has_pattern_flag or tok == "--regexp"
+                idx += 2
+            elif tok.startswith("--file="):
+                if SECRET_FILE_RE.search(tok.split("=", 1)[1]):
+                    return True
+                has_pattern_flag = True
+                idx += 1
+            else:
+                has_pattern_flag = has_pattern_flag or tok.startswith("--regexp=")
+                idx += 1
+            continue
+        if tok.startswith("-") and len(tok) >= 2:
+            next_tok = tokens[idx + 1] if idx + 1 < len(tokens) else None
+            secret_file, pat_flag, step = _parse_grep_short_flag(tok, next_tok)
+            if secret_file:
                 return True
-            idx += 1
+            has_pattern_flag = has_pattern_flag or pat_flag
+            idx += step
             continue
         positionals.append(tok)
         idx += 1
@@ -502,16 +656,19 @@ def _inspect_prod_log(path: Path) -> tuple[dict[str, Any], list[str]]:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
             for ln in fh:
                 line_count += 1
-                if PROD_RECOVERY_UNAVAIL_MARKER in ln:
+                clean = ANSI_ESCAPE_RE.sub("", ln) if "\x1b" in ln else ln
+                low = clean.lower()
+                if PROD_RECOVERY_UNAVAIL_MARKER in clean:
                     rec_unavail += 1
-                if ("ERROR" in ln or "CRITICAL" in ln or "FATAL" in ln or "Traceback" in ln) and PROD_ERROR_RE.search(ln):
+                if ("error" in low or "critical" in low or "fatal" in low or "traceback" in low) and PROD_ERROR_RE.search(
+                    PROD_LOG_PREFIX_RE.sub("", clean, count=1)
+                ):
                     errors += 1
-                low = ln.lower()
-                if ("oom" in low or "memory" in low or "137" in ln or "killed" in low) and PROD_OOM_RE.search(ln):
+                if ("oom" in low or "memory" in low or "137" in clean or "killed" in low) and PROD_OOM_RE.search(clean):
                     oom += 1
                 if PROD_CHECKPOINT_DEFER_MARKER in low:
                     ckpt_defer += 1
-                if ("reconnect" in low or "disconnect" in low or "websocket" in low or "connection reset" in low) and PROD_RECONNECT_RE.search(ln):
+                if ("reconnect" in low or "disconnect" in low or "websocket" in low or "connection reset" in low) and PROD_RECONNECT_RE.search(clean):
                     reconnects += 1
     except OSError as error:
         return _prod_log_error_entry(path, service, error.strerror or str(error))
