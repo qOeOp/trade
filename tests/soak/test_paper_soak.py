@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import gc
 import time
 import unittest
+import warnings
 
 from engine import paper_checkpoint as checkpoint
-from tests.soak.harness import DEFAULT_SYMBOLS, LogContractVerifier, PaperSoakHarness
+from tests.soak.harness import DEFAULT_SYMBOLS, LogContractVerifier, MemoryEnvelope, MemorySample, PaperSoakHarness
 
 
 class PaperSoakTests(unittest.TestCase):
@@ -132,6 +134,62 @@ class PaperSoakTests(unittest.TestCase):
             expected_ts = [cut_ns, cut_ns + 5 * 60 * 10**9, cut_ns + 10 * 60 * 10**9]
             for iid in soak.iids:
                 self.assertEqual(delivered[iid], expected_ts, f"missed or duplicate Metrics rows for {iid}")
+
+    def test_oom_log_contract_avoids_benign_false_positives_and_catches_real_signals(self):
+        verifier = LogContractVerifier()
+        events = [{"event": "started"}, {"event": "stopped"}]
+        benign_lines = [
+            'INFO container inspect {"OOMKilled": false, "ExitCode": 0}',
+            "INFO OOMKilled=0 status=ok",
+            "INFO IOC order killed (unfilled remainder cancelled)",
+            "INFO healthcheck ok: Out of memory monitor active",
+            "INFO old worker killed cleanly on shutdown",
+        ]
+        audit = verifier.audit(events=events, log_lines=benign_lines)
+        self.assertEqual(audit.anomalies, {})
+
+        for label, line in (
+            ("oomkilled-true", 'ERROR container {"OOMKilled": true, "ExitCode": 137}'),
+            ("memory-error", "ERROR MemoryError: unable to allocate buffer"),
+            ("kernel-oom", "kernel: Out of memory: Killed process 1234 (python)"),
+            ("exit-137", "ERROR runner exited with status 137"),
+        ):
+            with self.subTest(signal=label), self.assertRaises(AssertionError) as ctx:
+                verifier.audit(events=events, log_lines=[line])
+            self.assertIn("oom=1", str(ctx.exception))
+
+    def test_memory_envelope_enforces_max_rss_and_optional_container_cap(self):
+        env = MemoryEnvelope(max_growth_kib=4096.0, max_rss_mib=512.0)
+        env.samples = [
+            MemorySample(step=0, current_kib=100.0, peak_kib=100.0, rss_mib=600.0),
+            MemorySample(step=1, current_kib=110.0, peak_kib=110.0, rss_mib=600.0),
+        ]
+        with self.assertRaises(AssertionError) as ctx:
+            env.assert_within_budget(contracts=6)
+        self.assertIn("process RSS exceeded soak ceiling", str(ctx.exception))
+
+        # Above container_limit_mib but below max_rss_mib: passes by default, fails with enforce_container_cap=True.
+        env_cap = MemoryEnvelope(max_growth_kib=4096.0, max_rss_mib=4096.0)
+        env_cap.samples = [
+            MemorySample(step=0, current_kib=100.0, peak_kib=100.0, rss_mib=1024.0),
+            MemorySample(step=1, current_kib=110.0, peak_kib=110.0, rss_mib=1024.0),
+        ]
+        stats = env_cap.assert_within_budget(contracts=6)
+        self.assertGreater(stats["peak_rss_mib"], stats["container_limit_mib"])
+        with self.assertRaises(AssertionError) as cap_ctx:
+            env_cap.assert_within_budget(contracts=6, enforce_container_cap=True)
+        self.assertIn("process RSS exceeded soak ceiling", str(cap_ctx.exception))
+
+    def test_paper_soak_harness_closes_journal_on_exception_without_resource_warning(self):
+        bad_syms = {"BADUSDT": {"price": "0.0", "tick": "0.10", "step": "1", "min_notional": "10"}}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            with PaperSoakHarness(symbols=bad_syms, cut_every_minutes=30) as soak:
+                with self.assertRaises(AssertionError):
+                    soak.run(hours=1)
+            gc.collect()
+        resource_warnings = [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
+        self.assertEqual(resource_warnings, [])
 
 
 if __name__ == "__main__":
