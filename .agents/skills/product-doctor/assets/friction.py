@@ -18,6 +18,32 @@ from typing import Any
 
 SKILL_PATH_MARKER = ".agents/skills/"
 NONZERO_EXIT_RE = re.compile(r"^Command exited with code ([1-9]\d*)\.", re.MULTILINE)
+NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
+_SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
+    (re.compile(r"(?i)\b(Authorization\s*:\s*(?:Bearer|Basic|Token)\s+)\S+"), r"\1<REDACTED>"),
+    (re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 <REDACTED>"),
+    (re.compile(
+        r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|token|secret|password|passwd|pwd|cookie)"
+        r"(\s*[=:]\s*)\S+"
+    ), r"\1\2<REDACTED>"),
+    (re.compile(
+        r"\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|"
+        r"AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{16,}|xox[baprs]-[A-Za-z0-9-]{8,})\b"
+    ), "<REDACTED>"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9._-]{6,}"), "<REDACTED>"),
+)
+MAX_SUMMARY_LEN = 80
+
+
+def _sanitize_summary(text: str) -> str:
+    """Scrub credential-like tokens from a transcript toolSummary and cap its length."""
+    cleaned = " ".join(text.split())
+    for pat, repl in _SUMMARY_REDACT_PATTERNS:
+        cleaned = pat.sub(repl, cleaned)
+    if len(cleaned) > MAX_SUMMARY_LEN:
+        return cleaned[: MAX_SUMMARY_LEN - 3] + "..."
+    return cleaned
 
 
 def _unwrap_str(value: Any) -> str:
@@ -59,14 +85,18 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     for name, items in sorted(by_workflow.items()):
         completed = [r for r in items if str(r.get("status") or "").lower() in ("completed", "")]
         conclusions = Counter(str(r.get("conclusion") or "unknown").lower() for r in completed)
-        total = len(completed)
+        effective = [
+            r for r in completed
+            if str(r.get("conclusion") or "unknown").lower() not in NON_EFFECTIVE_CONCLUSIONS
+        ]
+        total = len(effective)
         failures = conclusions["failure"] + conclusions["timed_out"] + conclusions["startup_failure"]
         cancelled = conclusions["cancelled"]
         fail_rate = round(failures / total, 3) if total else 0.0
 
-        # Order oldest -> newest to measure recent-half vs earlier-half wait-time growth.
+        # Order oldest -> newest to measure recent-half vs earlier-half wait-time growth (excluding cancelled/skipped).
         dated: list[tuple[datetime, float]] = []
-        for r in completed:
+        for r in effective:
             c_at = _parse_iso(r.get("createdAt") or r.get("created_at"))
             u_at = _parse_iso(r.get("updatedAt") or r.get("updated_at"))
             if c_at and u_at and u_at >= c_at:
@@ -121,7 +151,7 @@ def _record_skill_args(tname: str, args: Any, skills_loaded: set[str], cmd_summa
         skills_loaded.add(fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0])
     if tname == "Skill" and args.get("skill"):
         skills_loaded.add(_unwrap_str(args["skill"]))
-    summary = _unwrap_str(args.get("toolSummary") or "")
+    summary = _sanitize_summary(_unwrap_str(args.get("toolSummary") or ""))
     if summary:
         cmd_summaries[summary] += 1
 

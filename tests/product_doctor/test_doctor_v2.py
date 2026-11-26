@@ -881,3 +881,111 @@ export function load(cfg?: Config) {
         plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", issues_path, "--ci-json", ci_path)
         self.assertEqual(plan["recommended_theme"], "find")
         self.assertIn("cold", plan["recommended_scope"]["objects"])
+
+    def test_v2_7_friction_excludes_cancelled_and_redacts_secrets(self):
+        """Round 8 (H8.1): cancelled/skipped/neutral CI runs must not dilute failure_rate or durations,
+        and transcript toolSummary strings must scrub credentials before emitting triggers."""
+        ci_runs = [
+            {"workflowName": "quality", "status": "completed", "conclusion": "cancelled",
+             "createdAt": f"2026-11-2{i}T00:00:00Z", "updatedAt": f"2026-11-2{i}T00:00:10Z"}
+            for i in range(5)
+        ] + [
+            {"workflowName": "quality", "status": "completed", "conclusion": "skipped",
+             "createdAt": "2026-11-25T00:00:00Z", "updatedAt": "2026-11-25T00:00:02Z"},
+            {"workflowName": "quality", "status": "completed", "conclusion": "neutral",
+             "createdAt": "2026-11-25T01:00:00Z", "updatedAt": "2026-11-25T01:00:03Z"},
+            {"workflowName": "quality", "status": "completed", "conclusion": "failure",
+             "createdAt": "2026-11-26T00:00:00Z", "updatedAt": "2026-11-26T00:25:00Z"},
+            {"workflowName": "quality", "status": "completed", "conclusion": "failure",
+             "createdAt": "2026-11-26T01:00:00Z", "updatedAt": "2026-11-26T01:25:00Z"},
+            {"workflowName": "quality", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-26T02:00:00Z", "updatedAt": "2026-11-26T02:20:00Z"},
+            {"workflowName": "quality", "status": "completed", "conclusion": "success",
+             "createdAt": "2026-11-26T03:00:00Z", "updatedAt": "2026-11-26T03:20:00Z"},
+        ]
+        ci = friction.analyze_ci_runs(ci_runs)
+        q = ci["workflows"]["quality"]
+        self.assertEqual(q["runs"], 4)
+        self.assertEqual(q["failures"], 2)
+        self.assertEqual(q["cancelled"], 5)
+        self.assertEqual(q["failure_rate"], 0.5)
+        self.assertEqual(q["median_minutes"], 22.5)
+        self.assertEqual(q["p90_minutes"], 25.0)
+        self.assertTrue(any("ci_failure_rate" in t for t in ci["triggers"]))
+        self.assertTrue(any("ci_long_wait" in t for t in ci["triggers"]))
+
+        tx_path = self.home / "secret_tx.jsonl"
+        tx_rows = [
+            json.dumps({"type": "PLANNER_RESPONSE", "created_at": f"2026-11-26T00:0{i}:00Z", "tool_calls": [
+                {"name": "run_command", "args": {
+                    "toolSummary": '"curl https://u:pass99@x.io -H Authorization: Bearer eyJhbGciOi.secret123 sk-ant-api03-SECRET999 token=ghp_abc1234567890"'
+                }},
+            ]})
+            for i in range(4)
+        ] + [
+            json.dumps({"type": "PLANNER_RESPONSE", "created_at": f"2026-11-26T01:0{i}:00Z", "tool_calls": [
+                {"name": "run_command", "args": {"toolSummary": '"Count token usage"'}},
+            ]})
+            for i in range(4)
+        ]
+        tx_path.write_text("\n".join(tx_rows) + "\n", encoding="utf-8")
+        tx = friction.analyze_transcripts([tx_path])
+        dumped = json.dumps(tx)
+        for leak in ("pass99", "eyJhbGciOi", "secret123", "SECRET999", "ghp_abc1234567890"):
+            self.assertNotIn(leak, dumped)
+        self.assertIn("<REDACTED>", dumped)
+        self.assertIn("Count token usage", dumped)
+        for act in tx["sessions"][0]["repeated_actions"]:
+            self.assertLessEqual(len(act["action"]), friction.MAX_SUMMARY_LEN)
+
+    def test_v2_7_delta_docs_bypass_self_contract_and_js_nested_subtests(self):
+        """Round 8 (H8.2 & H8.3): docs/chore commit cannot bypass tangled_refactor_risk, self-contract
+        A+A is rejected by scope, and Node node:test nested subtests do not record spurious parent error."""
+        import shutil
+
+        # H8.2: fix(...) + docs: must still trigger tangled_refactor_risk; explicit refactor: clears it.
+        base = self.git("rev-parse", "HEAD")
+        filler = "\n".join(f"V_{i} = {i}" for i in range(60)) + "\n"
+        self.commit({
+            "alpha/t1.py": filler, "alpha/t2.py": filler,
+            "beta/t3.py": filler, "beta/t4.py": filler,
+            "cold/t5.py": filler, "cold/t6.py": filler,
+        }, message="fix(alpha): sprawling tangled rewrite")
+        after_docs = self.commit({"docs/readme.md": "# Updated\n"}, message="docs: update readme")
+        d_bypass = self.call_json("delta", base, after_docs)
+        self.assertTrue(d_bypass["tangled_refactor_risk"])
+
+        after_ref = self.commit({"cold/stable.py": "def ok(v):\n    return v + 0\n"}, message="refactor(cold): cleanup")
+        d_explicit = self.call_json("delta", base, after_ref)
+        self.assertFalse(d_explicit["tangled_refactor_risk"])
+
+        # H8.3b: self-contract A+A must be rejected.
+        with self.assertRaises(SystemExit):
+            doctor.main([
+                "scope", str(self.home / "ev-self-contract"), "find",
+                "--objects", "alpha", "--items", "results", "--contracts", "alpha+alpha", "--tree", "HEAD",
+            ])
+
+        # H8.3a: Node node:test nested subtest failure records only child fail, zero parent error.
+        if shutil.which("node"):
+            self.commit({"alpha/math.mjs": "export const dbl = (x) => x + 1;\n"}, message="feat(alpha): buggy dbl")
+            repair_nested = self.commit({
+                "alpha/math.mjs": "export const dbl = (x) => x * 2;\n",
+                "alpha/math.test.mjs": (
+                    'import assert from "node:assert/strict";\n'
+                    'import { test } from "node:test";\n'
+                    'import { dbl } from "./math.mjs";\n'
+                    'test("dbl suite", async (t) => {\n'
+                    '  await t.test("zero", () => { assert.equal(dbl(0), 0); });\n'
+                    '  await t.test("nonzero", () => { assert.equal(dbl(3), 6); });\n'
+                    '});\n'
+                ),
+            }, message="fix(alpha): fix dbl")
+            ev_nested = self.home / "ev-recheck-nested"
+            out = io.StringIO()
+            with redirect_stdout(out):
+                doctor.main(["recheck", str(ev_nested), repair_nested, "--tree", "HEAD"])
+            row = doctor.rows(ev_nested)[-1]
+            self.assertEqual(row["verdict"], "confirmed")
+            self.assertEqual(row["outcomes"]["reverted"]["error"], 0)
+            self.assertEqual(row["outcomes"]["reverted"]["fail"], 2)

@@ -242,5 +242,23 @@
    - 用本轮 commit 跑 `doctor.py delta HEAD~1 HEAD` 自验：`pareto_verdict = "improved"`（`max_cognitive: 113 -> 72`，`min_health: 2.37 -> 3.14`，`new_break_even_regressions: []`）。
 3. **验证**：`unittest` **39/39 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
 
+## 12. 第八轮迭代（v2.7）：对抗边界漏洞与隐私红线加固（H8.1–H8.3）
+
+1. **假设与对抗复现（`/tmp/doctor-rd-sources/repro_round8.py`）**：
+   - **H8.1a（`friction.py` CI 取消/跳过稀释）**：在 5 个 10s `cancelled` + 2 个 25m `failure` 的对抗样本中，v2.6 把 `cancelled` 计入分母和耗时导致 `median_minutes` 失真为 `0.17m`、`failure_rate` 稀释为 `0.286`（真实 `ci_runs.json` 中 `pr-title` 也受 `cancelled` 干扰）。
+   - **H8.1b（`friction.py` 凭据回显泄漏）**：`toolSummary` 中的 `Bearer <JWT>`、`sk-ant-...`、`token=ghp_...` 与 URL 账密会被原样输出到 `repeated_actions` 和 `triggers`，触碰隐私红线。
+   - **H8.2（`telemetry.py` `tangled_refactor_risk` 绕过）**：区间内夹带 1 条 `docs:`/`chore:` 提交即可使 `all(FIX_RE.match)` 失效，绕过 Refactoring Runaway 检测。
+   - **H8.3a/b（`doctor.py` 嵌套子测试误报与自契约）**：Node `node:test` 嵌套 `t.test()` 子断言失败时，父测试发出的 `failureType === "subtestsFailed"` 被误记为 `error: 1`；`scope --contracts engine+engine` 未被拒绝。
+2. **最小修复**：
+   - `friction.py`：引入 `NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})` 将其移出有效 `runs` 分母与耗时列表（单独保留 `cancelled` 计数）；新增 `_sanitize_summary()` 脱敏 URL 账密、`Authorization` / `Bearer` / `Basic`、密钥键值对、主流 API Token 前缀与 JWT 并截断至 80 字符（保留普通短语如 `Count token usage`）。
+   - `telemetry.py`：`compute_delta` 改为按合并提交解包后的 subject 判定“含 `fix(...)` 且不含显式 `feat`/`refactor`”即触发 `tangled_refactor_risk` 检查。
+   - `doctor.py`：`JS_TESTS` 跳过 `err?.failureType === "subtestsFailed"`；`scope --contracts` 强制 `parts[0] != parts[1]`。
+3. **对照验证**：
+   - 对抗样本重测：CI `runs=2, cancelled=5, failure_rate=1.0, median=25.0m`；凭据全部脱敏为 `<REDACTED>` 且 `<= 80` 字符；`fix + docs` 准确触发 `tangled_refactor_risk: true`（显式 `refactor:` 则放行）；嵌套 `t.test()` 准确给出 `confirmed` 且 `reverted.error == 0`；`engine+engine` 被 `scope` 拒绝。
+   - `unittest` **41/41 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors；`doctor.py delta HEAD~1 HEAD` 自验无 `tangled_refactor_risk`、无 `new_break_even_regressions`。
+4. **下一轮假设（Round 9 — H8.4 结构减负与 517 文件 bit-exact parity）**：
+   - 当前资产自检仍有 3 个文件存在 `max_cognitive > 55`：`js_analyzer.py`（`max_cog=266, health=2.73`）、`telemetry.py`（`max_cog=72, health=3.14`）、`doctor.py`（`max_cog=61, health=3.06`）。下一轮专注纯结构拆解减负（不混功能改动），要求全 5 文件 `max_cognitive <= 55`、517 文件 JS/TS 100% bit-exact parity、`doctor.py delta HEAD~1 HEAD` 达 `pareto_verdict == "improved"`。
+
+
 
 

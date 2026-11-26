@@ -133,6 +133,7 @@ for await (const ev of run({ files })) {
     put(key, (d.skip || d.todo) ? "skip" : "ok");
   } else {
     const err = d.details?.error;
+    if (err?.failureType === "subtestsFailed") continue;
     const cause = err?.cause || err;
     const isAssertion = cause?.code === "ERR_ASSERTION" || cause?.name === "AssertionError";
     put(key, isAssertion ? "fail" : "error");
@@ -458,8 +459,12 @@ def scope(args: argparse.Namespace) -> None:
             raise SystemExit(f"{name} is neither @name nor an object of scan: {', '.join(tops)}")
     for pair in contracts:
         parts = pair.split("+")
-        if len(parts) != 2 or any(p not in tops and not re.fullmatch(r"@[\w.-]+", p) for p in parts):
-            raise SystemExit(f"{pair} is not OBJECT_A+OBJECT_B of scan: {', '.join(tops)}")
+        if (
+            len(parts) != 2
+            or parts[0] == parts[1]
+            or any(p not in tops and not re.fullmatch(r"@[\w.-]+", p) for p in parts)
+        ):
+            raise SystemExit(f"{pair} is not two distinct objects OBJECT_A+OBJECT_B of scan: {', '.join(tops)}")
     for wanted in args.items:
         item, _, scenario = wanted.partition("/")
         if item not in listed or "/" in wanted and not scenario:

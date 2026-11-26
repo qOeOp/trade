@@ -38,6 +38,7 @@ JSX_EXTS = frozenset({".tsx", ".jsx"})
 DOC_EXTS = frozenset({".md", ".mdx", ".rst", ".txt", ".svg", ".png", ".jpg", ".css", ".html"})
 SATD_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX|WORKAROUND|TEMP)\b", re.IGNORECASE)
 FIX_RE = re.compile(r"fix(\(|:|!)")
+EXPLICIT_CHANGE_RE = re.compile(r"(?:feat|refactor)(\(|:|!)")
 REVERT_RE = re.compile(r"^Revert\s+", re.IGNORECASE)
 TEST_FILE_RE = re.compile(r"(?:^|/)__tests__/|\.(?:test|spec)\.[a-z0-9]+$", re.IGNORECASE)
 BREAK_EVEN_HEALTH = 6.0  # midpoint of arXiv:2610.33343 break-even range (4.9..7.1)
@@ -834,10 +835,16 @@ def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
     cog_delta = a_cog - b_cog
     health_delta = round((a_health - b_health), 2) if (a_health is not None and b_health is not None) else 0.0
 
-    # Check whether commits in range are `fix(...)` commits to detect Refactoring Runaway (arXiv:2605.22526).
-    subjects = _git("log", "--format=%s", f"{base_rev}..{head_rev}").decode(errors="replace").splitlines()
-    all_fix = bool(subjects) and all(bool(FIX_RE.match(s)) for s in subjects)
-    tangled_refactor_risk = all_fix and len(touched_prod) >= 6 and len(touched_pkgs) >= 3 and prod_churn >= 300
+    # Check whether commits in range carry fix-only intent (contain `fix(...)`, no explicit `feat`/`refactor`)
+    # so sneaking in a `docs:`/`chore:` commit cannot bypass Refactoring Runaway detection (arXiv:2605.22526).
+    raw_log = _git("log", "--format=%x01%s%x02%b%x03", f"{base_rev}..{head_rev}").decode(errors="replace")
+    subjects: list[str] = []
+    for entry in raw_log.split("\x01")[1:]:
+        hdr, _, _ = entry.partition("\x03")
+        title, _, body = hdr.partition("\x02")
+        subjects.append(body.lstrip() if title.startswith("Merge ") else title)
+    fix_only_intent = any(FIX_RE.match(s) for s in subjects) and not any(EXPLICIT_CHANGE_RE.match(s) for s in subjects)
+    tangled_refactor_risk = fix_only_intent and len(touched_prod) >= 6 and len(touched_pkgs) >= 3 and prod_churn >= 300
 
     moved_only = (
         prod_added >= 20
