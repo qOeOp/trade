@@ -54,12 +54,18 @@ import time
 from nautilus_trader.model import Price, Venue
 from nautilus_trader.trading import Strategy
 
-from engine import history, klines, paper_checkpoint as checkpoint, paper_terms, strategy as strategy_runtime, warmup
+from engine import history, klines, metrics, paper_checkpoint as checkpoint, paper_terms, strategy as strategy_runtime, warmup
 from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 
 # An order the venue has not yet answered: a checkpoint could restore neither its command nor its answer.
 IN_FLIGHT = {"INITIALIZED", "SUBMITTED", "PENDING_UPDATE", "PENDING_CANCEL"}
+# Runner-owned internal timers on a strategy's clock (not user timers; restored on recovery by on_start).
+RUNNER_TIMERS = frozenset({metrics.TIMER_NAME})
+
+
+def _source_timers(strategy) -> list[str]:
+    return [name for name in strategy.clock.timer_names() if name not in RUNNER_TIMERS]
 # The triggers LAST klines show: a MARK trigger fires on the bars' LAST prices in the Sandbox, which takes no mark price
 # and matches bars with bid = ask = last (docs/plans/paper-recovery-open-orders-20261117.zh.md).
 TRIGGERS = ("DEFAULT", "LAST_PRICE", "MARK_PRICE")
@@ -335,12 +341,45 @@ class Session:
                 return
             self.ready = True
 
+    def metrics_after(self) -> int | None:
+        """During an active recovery's startup (before `ready`), the checkpoint cut Metrics should resume after."""
+        if self.saved and self.saved.get("sources") and not self.held and not self.ready:
+            return self.saved["cut_ns"]
+        return None
+
+    def _backfill_metrics(self) -> str | None:
+        """Deliver Metrics rows whose due time fell in (cut_ns, warm_at] during Paper recovery (#3783)."""
+        if not self.saved or not self.saved.get("sources") or self.held:
+            return None
+        deliveries: list[tuple[int, str, int, str, Any, Any]] = []
+        for idx, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
+            backfill_fn = getattr(strategy, "_metrics_backfill_due", None)
+            if not callable(backfill_fn) or not getattr(strategy, "_metrics_followed", None):
+                continue
+            try:
+                rows = backfill_fn(self.warm_at)
+            except Exception as exc:
+                return f"Metrics recovery backfill failed: {type(exc).__name__}: {exc}"
+            for due_ns, m_iid, custom in rows:
+                deliveries.append((due_ns, m_iid, idx, iid, strategy, custom))
+        for due_ns, m_iid, _, iid, strategy, custom in sorted(deliveries, key=lambda item: item[:3]):
+            self.handing = (f"metrics({m_iid})", due_ns, self.downtime.get(iid) or [], iid)
+            try:
+                strategy.on_data(custom)
+                if self.release is not None:
+                    self.release(None)
+            finally:
+                self.handing = None
+            if self.refused:
+                return self.refused
+        return None
+
     def backfill(self) -> str | None:
-        """Hand each source the aggregated bars its recovery's warm-up completed (`since`), in time order, through the
-        held data callbacks live bars take (engine.paper._hold), each released at once: nothing it does reaches the
-        Sandbox before the next, and no live data is dispatched before all have run. rc7 delivers a request's bars
-        only through the cache, under the bar's standard type, which is the type a live aggregated bar has. The bars
-        must be those of every bucket ending after the checkpoint's cut and by T, or the recovery is refused."""
+        """Hand each source the aggregated bars its recovery's warm-up completed (`since`) and any Metrics rows due
+        during the interruption, in time order, before any live data is dispatched."""
+        metrics_err = self._backfill_metrics()
+        if metrics_err:
+            return metrics_err
         if not self.since:
             return None
         assert self.saved is not None and self.release is not None
@@ -412,7 +451,7 @@ class Session:
         if self.refused or self.handing is None:
             return self.refused
         period, bar, minutes, own = self.handing
-        end = self.bucket_end(bar)
+        end = bar if isinstance(bar, int) else self.bucket_end(bar)
         if order is None or _name(order.order_type) == "MARKET":
             found: str | None = "a position close is a MARKET order" if order is None else (
                 f"{order.client_order_id} is a MARKET order")
@@ -467,6 +506,10 @@ class Session:
                 latest = cache.bar(warmup.aggregated_type(iid, period).standard())
                 if latest is None or latest.ts_event < end:
                     return f"the {iid} {period} bar of the bucket ending at {history.utc(end)} has not reached the source"
+            for m_iid, m_state in (getattr(strategy_runtime.STRATEGIES[iid], "_metrics_followed", None) or {}).items():
+                due_ns = m_state["ts_event"] + metrics.VISIBLE_NS
+                if due_ns <= now:
+                    return f"the {m_iid} metrics row due at {history.utc(due_ns)} has not reached {iid}"
         return None
 
     def try_cut(self, cache) -> None:
@@ -557,7 +600,7 @@ class Session:
                                           "aggregation (also of the run's other contracts), without custom routing")
                 if strategy._paper_user_timers:
                     raise checkpoint.fail("the source registered timers outside the recovery protocol")
-                if strategy._paper_held or strategy.clock.timer_names():
+                if strategy._paper_held or _source_timers(strategy):
                     raise checkpoint.fail("a strategy callback or timer remains pending")
                 source_state = strategy.save()
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
@@ -566,7 +609,7 @@ class Session:
                                 "cadence": {key: asdict(value) for key, value in strategy._paper_cadence.items()}}
             self._restorable(cache)
             if (self.depth or strategy_runtime.FAILURES
-                    or any(cast(Any, source)._paper_held or source.clock.timer_names()
+                    or any(cast(Any, source)._paper_held or _source_timers(source)
                            or cast(Any, source)._paper_user_timers
                            for source in strategy_runtime.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left a callback or timer pending")
@@ -598,5 +641,5 @@ class Session:
         if paper_terms.QUEUE:  # the source sent it, the venue never had it: no checkpoint can hold it
             self.pause_error = "the pause had an entry waiting for its terms read; its original state is retained"
         # A held checkpoint restores no source, so a source's timers are not lost by it.
-        if self.supported and any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
+        if self.supported and any(_source_timers(source) for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"
