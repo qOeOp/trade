@@ -1,5 +1,5 @@
 """Pure-stdlib JS/TS/TSX/JSX/MJS/CJS stateful lexer, function extractor, Sonar/Campbell cognitive
-complexity scorer, and normalized Type-2 clone hasher for product-doctor (v2.2).
+complexity scorer, and normalized Type-2 clone hasher for product-doctor (v2.8).
 
 Replaces naive line-regex scanning to eliminate:
 - `https://` URLs split by `line.partition("//")` leaking closing braces.
@@ -30,6 +30,10 @@ REGEX_PREV_PUNC = frozenset({"(", "[", "{", ",", ";", ":", "!", "?", "=", "+", "
 REGEX_PREV_KW = frozenset({"return", "case", "throw", "typeof", "void", "delete", "in", "of", "new", "else", "do", "yield", "await"})
 JSX_PREV_PUNC = frozenset({"(", "[", "{", ",", ";", ":", "!", "?", "=", "=>", "&&", "||", "??"})
 JSX_PREV_KW = frozenset({"return", "case", "throw", "else", "yield", "await"})
+TYPE_DECL_STOPS = frozenset({"export", "import", "function", "const", "let", "var", "class", "type", "interface"})
+METHOD_PREV_TOKENS = frozenset({"", "{", "}", ";", "async", "static", "public", "private", "protected", "get", "set"})
+TRI_OPS = frozenset({"===", "!==", "??=", "&&=", "||=", "..."})
+DUO_OPS = frozenset({"??", "?.", "&&", "||", "=>", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "++", "--"})
 
 Tok = tuple[str, str, int]  # (kind, value, line)
 
@@ -60,312 +64,331 @@ def _can_start_jsx(prev: Tok | None) -> bool:
     return kind == "KW" and val in JSX_PREV_KW
 
 
-def _tokenize(source: str, *, is_jsx: bool) -> tuple[list[Tok], int]:
-    """Single-pass JS/TS/TSX lexer returning (code_tokens, satd_comment_count)."""
-    tokens: list[Tok] = []
-    satd = 0
-    n = len(source)
-    i = 0
-    line = 1
-    # Stack for template literal `${ ... }` nesting: each entry is open brace depth inside that `${`.
-    tpl_brace_stack: list[int] = []
-    # JSX element stack when `is_jsx`: tracks nested JSX elements vs `{expr}` blocks.
-    jsx_depth = 0
-    jsx_expr_stack: list[int] = []  # open `{` depth inside a JSX `{...}` expression
-    in_jsx_tag = False
-    jsx_tag_expr_depth = 0  # `{...}` inside a JSX opening tag attribute like `foo={a > b}`
-    jsx_tag_paren_depth = 0
+class _Lexer:
+    """Single-pass JS/TS/TSX stateful lexer."""
 
-    def prev_tok() -> Tok | None:
-        return tokens[-1] if tokens else None
+    def __init__(self, source: str, *, is_jsx: bool) -> None:
+        self.source = source
+        self.is_jsx = is_jsx
+        self.n = len(source)
+        self.i = 0
+        self.line = 1
+        self.satd = 0
+        self.tokens: list[Tok] = []
+        self.tpl_brace_stack: list[int] = []
+        self.jsx_depth = 0
+        self.jsx_expr_stack: list[int] = []
+        self.in_jsx_tag = False
+        self.jsx_tag_expr_depth = 0
+        self.jsx_tag_paren_depth = 0
 
-    def scan_string(quote: str) -> None:
-        nonlocal i, line
-        start_line = line
-        i += 1
-        while i < n:
-            ch = source[i]
+    def _prev_tok(self) -> Tok | None:
+        return self.tokens[-1] if self.tokens else None
+
+    def _scan_string(self, quote: str) -> None:
+        src, n = self.source, self.n
+        start_line = self.line
+        self.i += 1
+        while self.i < n:
+            ch = src[self.i]
             if ch == "\\":
-                if i + 1 < n and source[i + 1] == "\n":
-                    line += 1
-                i += 2
+                if self.i + 1 < n and src[self.i + 1] == "\n":
+                    self.line += 1
+                self.i += 2
                 continue
             if ch == "\n":
-                line += 1
-                i += 1
+                self.line += 1
+                self.i += 1
                 break
             if ch == quote:
-                i += 1
+                self.i += 1
                 break
-            i += 1
-        tokens.append(("STR", quote, start_line))
+            self.i += 1
+        self.tokens.append(("STR", quote, start_line))
 
-    def scan_template_piece() -> None:
-        nonlocal i, line
-        start_line = line
-        while i < n:
-            ch = source[i]
+    def _scan_template_piece(self) -> None:
+        src, n = self.source, self.n
+        start_line = self.line
+        while self.i < n:
+            ch = src[self.i]
             if ch == "\\":
-                if i + 1 < n and source[i + 1] == "\n":
-                    line += 1
-                i += 2
+                if self.i + 1 < n and src[self.i + 1] == "\n":
+                    self.line += 1
+                self.i += 2
                 continue
             if ch == "\n":
-                line += 1
-                i += 1
+                self.line += 1
+                self.i += 1
                 continue
             if ch == "`":
-                i += 1
-                tokens.append(("STR", "`", start_line))
+                self.i += 1
+                self.tokens.append(("STR", "`", start_line))
                 return
-            if ch == "$" and i + 1 < n and source[i + 1] == "{":
-                tokens.append(("STR", "`", start_line))
-                i += 2
-                tpl_brace_stack.append(1)
+            if ch == "$" and self.i + 1 < n and src[self.i + 1] == "{":
+                self.tokens.append(("STR", "`", start_line))
+                self.i += 2
+                self.tpl_brace_stack.append(1)
                 return
-            i += 1
-        tokens.append(("STR", "`", start_line))
+            self.i += 1
+        self.tokens.append(("STR", "`", start_line))
 
-    while i < n:
-        ch = source[i]
+    def _scan_jsx_comment(self, j: int) -> None:
+        src, n = self.source, self.n
+        end = src.find("*/", j + 2)
+        comment = src[j + 2:end] if end != -1 else src[j + 2:]
+        if SATD_RE.search(comment):
+            self.satd += 1
+        self.line += comment.count("\n")
+        self.i = (end + 2) if end != -1 else n
+        while self.i < n and src[self.i] in " \t\r\n":
+            if src[self.i] == "\n":
+                self.line += 1
+            self.i += 1
+        if self.i < n and src[self.i] == "}":
+            self.i += 1
 
-        # Inside JSX element body (not inside an opening tag or `{expr}`): skip plain JSX text.
-        if is_jsx and jsx_depth > 0 and not in_jsx_tag and not jsx_expr_stack:
-            if ch == "\n":
-                line += 1
-                i += 1
-                continue
-            if ch == "{":
-                # Check for JSX comment `{/* ... */}`
-                j = i + 1
-                while j < n and source[j] in " \t":
-                    j += 1
-                if source[j:j + 2] == "/*":
-                    end = source.find("*/", j + 2)
-                    comment = source[j + 2:end] if end != -1 else source[j + 2:]
-                    if SATD_RE.search(comment):
-                        satd += 1
-                    line += comment.count("\n")
-                    i = (end + 2) if end != -1 else n
-                    while i < n and source[i] in " \t\r\n":
-                        if source[i] == "\n":
-                            line += 1
-                        i += 1
-                    if i < n and source[i] == "}":
-                        i += 1
-                    continue
-                jsx_expr_stack.append(1)
-                tokens.append(("PUNC", "(", line))  # isolate JSX expr cleanly without adding a block `{}`
-                i += 1
-                continue
-            if ch == "<":
-                if i + 1 < n and source[i + 1] == "/":
-                    # Closing tag `</...>`
-                    end = source.find(">", i + 2)
-                    if end != -1:
-                        line += source[i:end].count("\n")
-                        i = end + 1
-                    else:
-                        i = n
-                    jsx_depth = max(0, jsx_depth - 1)
-                    continue
-                if i + 1 < n and (source[i + 1] == ">" or _is_ident_start(source[i + 1])):
-                    # Nested opening tag or fragment `<>`
-                    if source[i + 1] == ">":
-                        jsx_depth += 1
-                        i += 2
-                        continue
-                    in_jsx_tag = True
-                    jsx_tag_expr_depth = 0
-                    jsx_tag_paren_depth = 0
-                    i += 1
-                    continue
-            i += 1
-            continue
-
-        # Inside a JSX opening tag `<Comp prop={expr} />`
-        if is_jsx and in_jsx_tag and jsx_tag_expr_depth == 0:
-            if ch == "\n":
-                line += 1
-                i += 1
-                continue
-            if ch in ('"', "'"):
-                scan_string(ch)
-                tokens.pop()  # drop JSX literal attribute string
-                continue
-            if ch == "{":
-                jsx_tag_expr_depth = 1
-                tokens.append(("PUNC", "(", line))
-                i += 1
-                continue
-            if ch == "/" and i + 1 < n and source[i + 1] == ">":
-                in_jsx_tag = False
-                i += 2
-                continue
-            if ch == ">" and jsx_tag_paren_depth == 0:
-                in_jsx_tag = False
-                jsx_depth += 1
-                i += 1
-                continue
-            if ch in ("(", "["):
-                jsx_tag_paren_depth += 1
-            elif ch in (")", "]"):
-                jsx_tag_paren_depth = max(0, jsx_tag_paren_depth - 1)
-            i += 1
-            continue
-
-        # Whitespace
-        if ch in " \t\r":
-            i += 1
-            continue
+    def _step_jsx_body(self, ch: str) -> None:
+        src, n = self.source, self.n
         if ch == "\n":
-            line += 1
-            i += 1
-            continue
-
-        # Comments
-        if ch == "/" and i + 1 < n and source[i + 1] == "/":
-            end = source.find("\n", i + 2)
-            comment = source[i + 2:end] if end != -1 else source[i + 2:]
-            if SATD_RE.search(comment):
-                satd += 1
-            i = end if end != -1 else n
-            continue
-        if ch == "/" and i + 1 < n and source[i + 1] == "*":
-            end = source.find("*/", i + 2)
-            comment = source[i + 2:end] if end != -1 else source[i + 2:]
-            if SATD_RE.search(comment):
-                satd += 1
-            line += comment.count("\n")
-            i = (end + 2) if end != -1 else n
-            continue
-
-        # Strings & template literals
-        if ch in ('"', "'"):
-            scan_string(ch)
-            continue
-        if ch == "`":
-            i += 1
-            scan_template_piece()
-            continue
-
-        # Regex literal vs division
-        if ch == "/" and _can_start_regex(prev_tok()):
-            start_line = line
-            i += 1
-            in_class = False
-            while i < n:
-                rc = source[i]
-                if rc == "\\":
-                    i += 2
-                    continue
-                if rc == "[":
-                    in_class = True
-                elif rc == "]":
-                    in_class = False
-                elif rc == "/" and not in_class:
-                    i += 1
-                    while i < n and source[i].isalpha():
-                        i += 1
-                    break
-                elif rc == "\n":
-                    line += 1
-                    i += 1
-                    break
-                i += 1
-            tokens.append(("REGEX", "/", start_line))
-            continue
-
-        # JSX opening tag inside JS expression
-        if is_jsx and ch == "<" and _can_start_jsx(prev_tok()):
-            if i + 1 < n and source[i + 1] == ">":
-                jsx_depth += 1
-                i += 2
-                continue
-            if i + 1 < n and _is_ident_start(source[i + 1]):
-                # Distinguish `<Tag ...>` from TS generic `<T>(...)` by peeking past identifier.
-                j = i + 1
-                while j < n and (_is_ident_part(source[j]) or source[j] == "."):
-                    j += 1
-                nxt = source[j] if j < n else ""
-                if nxt in (" ", "\t", "\n", "\r", ">", "/"):
-                    in_jsx_tag = True
-                    jsx_tag_expr_depth = 0
-                    jsx_tag_paren_depth = 0
-                    i += 1
-                    continue
-
-        # Braces (track template `${...}`, JSX tag `{...}`, and JSX body `{...}` scopes)
+            self.line += 1
+            self.i += 1
+            return
         if ch == "{":
-            if tpl_brace_stack:
-                tpl_brace_stack[-1] += 1
-            elif jsx_tag_expr_depth > 0:
-                jsx_tag_expr_depth += 1
-            elif jsx_expr_stack:
-                jsx_expr_stack[-1] += 1
-            tokens.append(("PUNC", "{", line))
-            i += 1
-            continue
-        if ch == "}":
-            if tpl_brace_stack:
-                tpl_brace_stack[-1] -= 1
-                if tpl_brace_stack[-1] == 0:
-                    tpl_brace_stack.pop()
-                    i += 1
-                    scan_template_piece()
-                    continue
-            elif jsx_tag_expr_depth > 0:
-                jsx_tag_expr_depth -= 1
-                if jsx_tag_expr_depth == 0:
-                    tokens.append(("PUNC", ")", line))
-                    i += 1
-                    continue
-            elif jsx_expr_stack:
-                jsx_expr_stack[-1] -= 1
-                if jsx_expr_stack[-1] == 0:
-                    jsx_expr_stack.pop()
-                    tokens.append(("PUNC", ")", line))
-                    i += 1
-                    continue
-            tokens.append(("PUNC", "}", line))
-            i += 1
-            continue
+            j = self.i + 1
+            while j < n and src[j] in " \t":
+                j += 1
+            if src[j:j + 2] == "/*":
+                self._scan_jsx_comment(j)
+                return
+            self.jsx_expr_stack.append(1)
+            self.tokens.append(("PUNC", "(", self.line))
+            self.i += 1
+            return
+        if ch == "<" and self.i + 1 < n:
+            nxt = src[self.i + 1]
+            if nxt == "/":
+                end = src.find(">", self.i + 2)
+                if end != -1:
+                    self.line += src[self.i:end].count("\n")
+                    self.i = end + 1
+                else:
+                    self.i = n
+                self.jsx_depth = max(0, self.jsx_depth - 1)
+                return
+            if nxt == ">":
+                self.jsx_depth += 1
+                self.i += 2
+                return
+            if _is_ident_start(nxt):
+                self.in_jsx_tag = True
+                self.jsx_tag_expr_depth = 0
+                self.jsx_tag_paren_depth = 0
+                self.i += 1
+                return
+        self.i += 1
 
-        # Numbers
+    def _step_jsx_tag(self, ch: str) -> None:
+        src, n = self.source, self.n
+        if ch == "\n":
+            self.line += 1
+            self.i += 1
+            return
+        if ch in ('"', "'"):
+            self._scan_string(ch)
+            self.tokens.pop()
+            return
+        if ch == "{":
+            self.jsx_tag_expr_depth = 1
+            self.tokens.append(("PUNC", "(", self.line))
+            self.i += 1
+            return
+        if ch == "/" and self.i + 1 < n and src[self.i + 1] == ">":
+            self.in_jsx_tag = False
+            self.i += 2
+            return
+        if ch == ">" and self.jsx_tag_paren_depth == 0:
+            self.in_jsx_tag = False
+            self.jsx_depth += 1
+            self.i += 1
+            return
+        if ch in ("(", "["):
+            self.jsx_tag_paren_depth += 1
+        elif ch in (")", "]"):
+            self.jsx_tag_paren_depth = max(0, self.jsx_tag_paren_depth - 1)
+        self.i += 1
+
+    def _try_scan_comment(self) -> bool:
+        src, n = self.source, self.n
+        if self.i + 1 >= n:
+            return False
+        nxt = src[self.i + 1]
+        if nxt == "/":
+            end = src.find("\n", self.i + 2)
+            comment = src[self.i + 2:end] if end != -1 else src[self.i + 2:]
+            if SATD_RE.search(comment):
+                self.satd += 1
+            self.i = end if end != -1 else n
+            return True
+        if nxt == "*":
+            end = src.find("*/", self.i + 2)
+            comment = src[self.i + 2:end] if end != -1 else src[self.i + 2:]
+            if SATD_RE.search(comment):
+                self.satd += 1
+            self.line += comment.count("\n")
+            self.i = (end + 2) if end != -1 else n
+            return True
+        return False
+
+    def _scan_regex(self) -> None:
+        src, n = self.source, self.n
+        start_line = self.line
+        self.i += 1
+        in_class = False
+        while self.i < n:
+            rc = src[self.i]
+            if rc == "\\":
+                self.i += 2
+                continue
+            if rc == "[":
+                in_class = True
+            elif rc == "]":
+                in_class = False
+            elif rc == "/" and not in_class:
+                self.i += 1
+                while self.i < n and src[self.i].isalpha():
+                    self.i += 1
+                break
+            elif rc == "\n":
+                self.line += 1
+                self.i += 1
+                break
+            self.i += 1
+        self.tokens.append(("REGEX", "/", start_line))
+
+    def _try_start_jsx_expr(self) -> bool:
+        src, n = self.source, self.n
+        if self.i + 1 >= n or not _can_start_jsx(self._prev_tok()):
+            return False
+        nxt = src[self.i + 1]
+        if nxt == ">":
+            self.jsx_depth += 1
+            self.i += 2
+            return True
+        if not _is_ident_start(nxt):
+            return False
+        j = self.i + 1
+        while j < n and (_is_ident_part(src[j]) or src[j] == "."):
+            j += 1
+        if j < n and src[j] in (" ", "\t", "\n", "\r", ">", "/"):
+            self.in_jsx_tag = True
+            self.jsx_tag_expr_depth = 0
+            self.jsx_tag_paren_depth = 0
+            self.i += 1
+            return True
+        return False
+
+    def _step_open_brace(self) -> None:
+        if self.tpl_brace_stack:
+            self.tpl_brace_stack[-1] += 1
+        elif self.jsx_tag_expr_depth > 0:
+            self.jsx_tag_expr_depth += 1
+        elif self.jsx_expr_stack:
+            self.jsx_expr_stack[-1] += 1
+        self.tokens.append(("PUNC", "{", self.line))
+        self.i += 1
+
+    def _step_close_brace(self) -> None:
+        if self.tpl_brace_stack:
+            self.tpl_brace_stack[-1] -= 1
+            if self.tpl_brace_stack[-1] == 0:
+                self.tpl_brace_stack.pop()
+                self.i += 1
+                self._scan_template_piece()
+                return
+        elif self.jsx_tag_expr_depth > 0:
+            self.jsx_tag_expr_depth -= 1
+            if self.jsx_tag_expr_depth == 0:
+                self.tokens.append(("PUNC", ")", self.line))
+                self.i += 1
+                return
+        elif self.jsx_expr_stack:
+            self.jsx_expr_stack[-1] -= 1
+            if self.jsx_expr_stack[-1] == 0:
+                self.jsx_expr_stack.pop()
+                self.tokens.append(("PUNC", ")", self.line))
+                self.i += 1
+                return
+        self.tokens.append(("PUNC", "}", self.line))
+        self.i += 1
+
+    def _step_code_token(self, ch: str) -> None:
+        src, n = self.source, self.n
         if ch.isdigit():
-            start_line = line
-            i += 1
-            while i < n and (source[i].isalnum() or source[i] in (".", "_")):
-                i += 1
-            tokens.append(("NUM", "0", start_line))
-            continue
-
-        # Identifiers / Keywords
+            start_line = self.line
+            self.i += 1
+            while self.i < n and (src[self.i].isalnum() or src[self.i] in (".", "_")):
+                self.i += 1
+            self.tokens.append(("NUM", "0", start_line))
+            return
         if _is_ident_start(ch):
-            start = i
-            i += 1
-            while i < n and _is_ident_part(source[i]):
-                i += 1
-            word = source[start:i]
-            tokens.append(("KW" if word in KEYWORDS else "ID", word, line))
-            continue
+            start = self.i
+            self.i += 1
+            while self.i < n and _is_ident_part(src[self.i]):
+                self.i += 1
+            word = src[start:self.i]
+            self.tokens.append(("KW" if word in KEYWORDS else "ID", word, self.line))
+            return
+        tri = src[self.i:self.i + 3]
+        if tri in TRI_OPS:
+            self.tokens.append(("OP", tri, self.line))
+            self.i += 3
+            return
+        duo = src[self.i:self.i + 2]
+        if duo in DUO_OPS:
+            self.tokens.append(("OP", duo, self.line))
+            self.i += 2
+            return
+        self.tokens.append(("PUNC", ch, self.line))
+        self.i += 1
 
-        # Multi-character operators
-        tri = source[i:i + 3]
-        if tri in ("===", "!==", "??=", "&&=", "||=", "..."):
-            tokens.append(("OP", tri, line))
-            i += 3
-            continue
-        duo = source[i:i + 2]
-        if duo in ("??", "?.", "&&", "||", "=>", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "++", "--"):
-            tokens.append(("OP", duo, line))
-            i += 2
-            continue
+    def tokenize(self) -> tuple[list[Tok], int]:
+        src, n = self.source, self.n
+        while self.i < n:
+            ch = src[self.i]
+            if self.is_jsx and self.jsx_depth > 0 and not self.in_jsx_tag and not self.jsx_expr_stack:
+                self._step_jsx_body(ch)
+                continue
+            if self.is_jsx and self.in_jsx_tag and self.jsx_tag_expr_depth == 0:
+                self._step_jsx_tag(ch)
+                continue
+            if ch in " \t\r":
+                self.i += 1
+            elif ch == "\n":
+                self.line += 1
+                self.i += 1
+            elif ch == "/" and self._try_scan_comment():
+                continue
+            elif ch in ('"', "'"):
+                self._scan_string(ch)
+            elif ch == "`":
+                self.i += 1
+                self._scan_template_piece()
+            elif ch == "/" and _can_start_regex(self._prev_tok()):
+                self._scan_regex()
+            elif self.is_jsx and ch == "<" and self._try_start_jsx_expr():
+                continue
+            elif ch == "{":
+                self._step_open_brace()
+            elif ch == "}":
+                self._step_close_brace()
+            else:
+                self._step_code_token(ch)
+        return self.tokens, self.satd
 
-        tokens.append(("PUNC", ch, line))
-        i += 1
 
-    return tokens, satd
+def _tokenize(source: str, *, is_jsx: bool) -> tuple[list[Tok], int]:
+    """Single-pass JS/TS/TSX lexer returning (code_tokens, satd_comment_count)."""
+    return _Lexer(source, is_jsx=is_jsx).tokenize()
 
 
 def _match_close(tokens: list[Tok], start: int, open_ch: str, close_ch: str) -> int:
@@ -403,7 +426,6 @@ def _skip_type_annotation(tokens: list[Tok], idx: int) -> int:
             bracket -= 1
         elif val == "{":
             if angle == 0 and paren == 0 and bracket == 0 and brace == 0:
-                # Could be a function body `{` OR an object return type `{ a: T } {`.
                 end_b = _match_close(tokens, i, "{", "}")
                 if end_b + 1 < len(tokens) and tokens[end_b + 1][1] in ("{", "=>", "|", "&", "["):
                     i = end_b + 1
@@ -418,121 +440,168 @@ def _skip_type_annotation(tokens: list[Tok], idx: int) -> int:
     return i
 
 
+def _skip_ts_declaration(tokens: list[Tok], i: int) -> int | None:
+    """Skip TypeScript `interface Foo { ... }` or `type Foo = ...;` declarations."""
+    n = len(tokens)
+    kind, val, _ = tokens[i]
+    if kind != "KW" or i + 1 >= n or tokens[i + 1][0] != "ID":
+        return None
+    if val == "interface":
+        j = i + 2
+        while j < n and tokens[j][1] != "{":
+            j += 1
+        return (_match_close(tokens, j, "{", "}") + 1) if j < n else None
+    if val != "type":
+        return None
+    j = i + 2
+    if j < n and tokens[j][1] == "<":
+        j = _match_close(tokens, j, "<", ">") + 1
+    if j >= n or tokens[j][1] != "=":
+        return None
+    j += 1
+    b_depth = p_depth = 0
+    while j < n:
+        tv = tokens[j][1]
+        if tv == "{":
+            b_depth += 1
+        elif tv == "}":
+            b_depth = max(0, b_depth - 1)
+        elif tv in ("(", "["):
+            p_depth += 1
+        elif tv in (")", "]"):
+            p_depth = max(0, p_depth - 1)
+        elif b_depth == 0 and p_depth == 0 and tv == ";":
+            return j + 1
+        elif b_depth == 0 and p_depth == 0 and tokens[j][0] == "KW" and tv in TYPE_DECL_STOPS:
+            return j
+        j += 1
+    return j
+
+
+def _match_named_function(tokens: list[Tok], i: int) -> tuple[tuple[str, int, int], int] | None:
+    n = len(tokens)
+    if tokens[i][0] != "KW" or tokens[i][1] != "function":
+        return None
+    j = i + 1
+    if j < n and tokens[j][1] == "*":
+        j += 1
+    name = "<anon>"
+    if j < n and tokens[j][0] == "ID":
+        name = tokens[j][1]
+        j += 1
+    if j < n and tokens[j][1] == "<":
+        j = _match_close(tokens, j, "<", ">") + 1
+    if j < n and tokens[j][1] == "(":
+        j = _skip_type_annotation(tokens, _match_close(tokens, j, "(", ")") + 1)
+        if j < n and tokens[j][1] == "{":
+            end_b = _match_close(tokens, j, "{", "}")
+            return (name, j, end_b), end_b + 1
+    return None
+
+
+def _match_arrow_decl(tokens: list[Tok], i: int) -> tuple[tuple[str, int, int], int] | None:
+    n = len(tokens)
+    if tokens[i][0] != "KW" or tokens[i][1] not in ("const", "let", "var"):
+        return None
+    if i + 2 >= n or tokens[i + 1][0] != "ID":
+        return None
+    name = tokens[i + 1][1]
+    j = _skip_type_annotation(tokens, i + 2)
+    if j >= n or tokens[j][1] != "=":
+        return None
+    j += 1
+    if j < n and tokens[j][1] == "async":
+        j += 1
+    if j < n and tokens[j][1] == "<":
+        j = _match_close(tokens, j, "<", ">") + 1
+    if j < n and tokens[j][1] == "(":
+        j = _skip_type_annotation(tokens, _match_close(tokens, j, "(", ")") + 1)
+        if j + 1 < n and tokens[j][1] == "=>" and tokens[j + 1][1] == "{":
+            end_b = _match_close(tokens, j + 1, "{", "}")
+            return (name, j + 1, end_b), end_b + 1
+    elif j + 2 < n and tokens[j][0] == "ID" and tokens[j + 1][1] == "=>" and tokens[j + 2][1] == "{":
+        end_b = _match_close(tokens, j + 2, "{", "}")
+        return (name, j + 2, end_b), end_b + 1
+    return None
+
+
+def _match_class_method(tokens: list[Tok], i: int) -> tuple[tuple[str, int, int], int] | None:
+    n = len(tokens)
+    kind, val, _ = tokens[i]
+    if kind != "ID" or i + 1 >= n or tokens[i + 1][1] != "(":
+        return None
+    prev_v = tokens[i - 1][1] if i > 0 else ""
+    if prev_v not in METHOD_PREV_TOKENS:
+        return None
+    j = _skip_type_annotation(tokens, _match_close(tokens, i + 1, "(", ")") + 1)
+    if j < n and tokens[j][1] == "{":
+        end_b = _match_close(tokens, j, "{", "}")
+        return (val, j, end_b), end_b + 1
+    return None
+
+
 def _extract_functions(tokens: list[Tok]) -> list[tuple[str, int, int]]:
     """Extract (name, body_open_brace_idx, body_close_brace_idx) for top-level and class functions."""
     funcs: list[tuple[str, int, int]] = []
-    n = len(tokens)
-    i = 0
+    n, i = len(tokens), 0
     while i < n:
-        kind, val, _ = tokens[i]
-
-        # Skip TypeScript `interface Foo { ... }` and `type Foo = ...;` declarations completely.
-        if kind == "KW" and val == "interface" and i + 1 < n and tokens[i + 1][0] == "ID":
-            j = i + 2
-            while j < n and tokens[j][1] != "{":
-                j += 1
-            if j < n:
-                i = _match_close(tokens, j, "{", "}") + 1
-                continue
-        if kind == "KW" and val == "type" and i + 1 < n and tokens[i + 1][0] == "ID":
-            j = i + 2
-            if j < n and tokens[j][1] == "<":
-                j = _match_close(tokens, j, "<", ">") + 1
-            if j < n and tokens[j][1] == "=":
-                # Advance past top-level type alias to `;` or next statement keyword at brace 0.
-                j += 1
-                b_depth = p_depth = 0
-                while j < n:
-                    tv = tokens[j][1]
-                    if tv == "{":
-                        b_depth += 1
-                    elif tv == "}":
-                        b_depth = max(0, b_depth - 1)
-                    elif tv in ("(", "["):
-                        p_depth += 1
-                    elif tv in (")", "]"):
-                        p_depth = max(0, p_depth - 1)
-                    elif b_depth == 0 and p_depth == 0 and tv == ";":
-                        j += 1
-                        break
-                    elif b_depth == 0 and p_depth == 0 and tokens[j][0] == "KW" and tv in ("export", "import", "function", "const", "let", "var", "class", "type", "interface"):
-                        break
-                    j += 1
-                i = j
-                continue
-
-        # 1. Named `function foo(...) [: Ret] { ... }`
-        if kind == "KW" and val == "function":
-            j = i + 1
-            if j < n and tokens[j][1] == "*":
-                j += 1
-            name = "<anon>"
-            if j < n and tokens[j][0] == "ID":
-                name = tokens[j][1]
-                j += 1
-            if j < n and tokens[j][1] == "<":
-                j = _match_close(tokens, j, "<", ">") + 1
-            if j < n and tokens[j][1] == "(":
-                j = _match_close(tokens, j, "(", ")") + 1
-                j = _skip_type_annotation(tokens, j)
-                if j < n and tokens[j][1] == "{":
-                    end_b = _match_close(tokens, j, "{", "}")
-                    funcs.append((name, j, end_b))
-                    i = end_b + 1
-                    continue
-
-        # 2. `const/let/var foo = [async] (...) [: Ret] => { ... }`
-        if kind == "KW" and val in ("const", "let", "var") and i + 2 < n and tokens[i + 1][0] == "ID":
-            name = tokens[i + 1][1]
-            j = i + 2
-            j = _skip_type_annotation(tokens, j)
-            if j < n and tokens[j][1] == "=":
-                j += 1
-                if j < n and tokens[j][1] == "async":
-                    j += 1
-                if j < n and tokens[j][1] == "<":
-                    j = _match_close(tokens, j, "<", ">") + 1
-                if j < n and tokens[j][1] == "(":
-                    j = _match_close(tokens, j, "(", ")") + 1
-                    j = _skip_type_annotation(tokens, j)
-                    if j < n and tokens[j][1] == "=>":
-                        j += 1
-                        if j < n and tokens[j][1] == "{":
-                            end_b = _match_close(tokens, j, "{", "}")
-                            funcs.append((name, j, end_b))
-                            i = end_b + 1
-                            continue
-                elif j < n and tokens[j][0] == "ID" and j + 1 < n and tokens[j + 1][1] == "=>":
-                    j += 2
-                    if j < n and tokens[j][1] == "{":
-                        end_b = _match_close(tokens, j, "{", "}")
-                        funcs.append((name, j, end_b))
-                        i = end_b + 1
-                        continue
-
-        # 3. Class method `foo(...) [: Ret] { ... }`
-        if kind == "ID" and i + 1 < n and tokens[i + 1][1] == "(" and (i == 0 or tokens[i - 1][1] not in (".", "new", "function")):
-            prev_v = tokens[i - 1][1] if i > 0 else ""
-            if prev_v in ("", "{", "}", ";", "async", "static", "public", "private", "protected", "get", "set"):
-                j = _match_close(tokens, i + 1, "(", ")") + 1
-                j = _skip_type_annotation(tokens, j)
-                if j < n and tokens[j][1] == "{":
-                    end_b = _match_close(tokens, j, "{", "}")
-                    funcs.append((val, j, end_b))
-                    i = end_b + 1
-                    continue
-
+        skipped = _skip_ts_declaration(tokens, i)
+        if skipped is not None:
+            i = skipped
+            continue
+        matched = (
+            _match_named_function(tokens, i)
+            or _match_arrow_decl(tokens, i)
+            or _match_class_method(tokens, i)
+        )
+        if matched is not None:
+            fn_entry, i = matched
+            funcs.append(fn_entry)
+            continue
         i += 1
     return funcs
 
 
+def _step_control_keyword(
+    tokens: list[Tok], i: int, body_end: int, nesting: int, val: str, next_val: str,
+) -> tuple[int, int, bool] | None:
+    """Return (score_delta, next_idx, pending_nest) for control-flow/nested-function keywords."""
+    if val == "else":
+        if next_val == "if":
+            j, delta = i + 2, 1
+            if j < body_end and tokens[j][1] == "(":
+                cond_end = _match_close(tokens, j, "(", ")")
+                delta += _expr_complexity(tokens, j + 1, cond_end, nesting)
+                j = cond_end + 1
+            return delta, j, (j < body_end and tokens[j][1] == "{")
+        return 1, i + 1, (i + 1 < body_end and tokens[i + 1][1] == "{")
+    if val in ("if", "for", "while", "switch", "catch"):
+        delta, j = 1 + nesting, i + 1
+        if j < body_end and tokens[j][1] == "(":
+            cond_end = _match_close(tokens, j, "(", ")")
+            delta += _expr_complexity(tokens, j + 1, cond_end, nesting)
+            j = cond_end + 1
+        return delta, j, (j < body_end and tokens[j][1] == "{")
+    if val == "do":
+        return 1 + nesting, i + 1, (i + 1 < body_end and tokens[i + 1][1] == "{")
+    if val == "function":
+        j = i + 1
+        if j < body_end and tokens[j][1] == "*":
+            j += 1
+        if j < body_end and tokens[j][0] == "ID":
+            j += 1
+        if j < body_end and tokens[j][1] == "<":
+            j = _match_close(tokens, j, "<", ">") + 1
+        if j < body_end and tokens[j][1] == "(":
+            j = _skip_type_annotation(tokens, _match_close(tokens, j, "(", ")") + 1)
+        return 0, j, (j < body_end and tokens[j][1] == "{")
+    return None
+
+
 def _function_cognitive(tokens: list[Tok], body_start: int, body_end: int, fn_name: str) -> int:
     """Sonar/Campbell cognitive complexity over a single JS/TS function body token slice."""
-    score = 0
-    # Each entry in `brace_stack` records whether that `{` incremented control/function nesting.
+    score = nesting = 0
     brace_stack: list[bool] = []
-    nesting = 0
-    # Track pending control-flow `{` (set when we finish `if (...)`, `for (...)`, `while (...)`, etc.)
     pending_nest = False
     last_bool_op: str | None = None
     i = body_start + 1
@@ -545,93 +614,34 @@ def _function_cognitive(tokens: list[Tok], body_start: int, body_end: int, fn_na
         if kind not in ("ID", "NUM", "STR", "REGEX") and val not in ("&&", "||", ".", "?.", "[", "]", "(", ")", "!"):
             last_bool_op = None
 
-        # Control flow keywords (ignore member access `.catch`, `.for`, etc.)
         if kind == "KW" and prev_val != ".":
-            if val == "else":
-                if next_val == "if":
-                    score += 1  # `else if`: +1 flat, no nesting penalty
-                    i += 2
-                    if i < body_end and tokens[i][1] == "(":
-                        cond_end = _match_close(tokens, i, "(", ")")
-                        score += _expr_complexity(tokens, i + 1, cond_end, nesting)
-                        i = cond_end + 1
-                    pending_nest = i < body_end and tokens[i][1] == "{"
-                    continue
-                score += 1  # `else`: +1 flat
-                i += 1
-                pending_nest = i < body_end and tokens[i][1] == "{"
-                continue
-            if val in ("if", "for", "while", "switch", "catch"):
-                score += 1 + nesting
-                i += 1
-                if i < body_end and tokens[i][1] == "(":
-                    cond_end = _match_close(tokens, i, "(", ")")
-                    score += _expr_complexity(tokens, i + 1, cond_end, nesting)
-                    i = cond_end + 1
-                pending_nest = i < body_end and tokens[i][1] == "{"
-                continue
-            if val == "do":
-                score += 1 + nesting
-                i += 1
-                pending_nest = i < body_end and tokens[i][1] == "{"
-                continue
-            if val == "function":
-                j = i + 1
-                if j < body_end and tokens[j][1] == "*":
-                    j += 1
-                if j < body_end and tokens[j][0] == "ID":
-                    j += 1
-                if j < body_end and tokens[j][1] == "<":
-                    j = _match_close(tokens, j, "<", ">") + 1
-                if j < body_end and tokens[j][1] == "(":
-                    j = _match_close(tokens, j, "(", ")") + 1
-                    j = _skip_type_annotation(tokens, j)
-                i = j
-                pending_nest = i < body_end and tokens[i][1] == "{"
+            ctrl = _step_control_keyword(tokens, i, body_end, nesting, val, next_val)
+            if ctrl is not None:
+                delta, i, pending_nest = ctrl
+                score += delta
                 continue
 
-        # Nested arrow function `=> {` increases nesting for its body without adding +1 itself.
         if val == "=>" and next_val == "{":
             pending_nest = True
-            i += 1
-            continue
-
-        # Boolean chains (`&&`, `||`): +1 per operator-kind transition (`??` nullish fallback = 0 per SonarJS).
-        if val in ("&&", "||"):
+        elif val in ("&&", "||"):
             if val != last_bool_op:
                 score += 1
                 last_bool_op = val
-            i += 1
-            continue
-
-        # True ternary `?`: exclude TS optional `?:`, `?)`, `?,` and optional chaining `?.` (already tokenized as `?.`).
-        if val == "?" and next_val not in (":", ")", ",", ";", "=", "}"):
+        elif val == "?" and next_val not in (":", ")", ",", ";", "=", "}"):
             score += 1 + nesting
-            i += 1
-            continue
-
-        # Direct recursion
-        if kind == "ID" and val == fn_name and next_val == "(" and prev_val != ".":
-            score += 1
-
-        if val == "{":
+        elif val == "{":
             brace_stack.append(pending_nest)
             if pending_nest:
                 nesting += 1
                 pending_nest = False
-            i += 1
-            continue
-        if val == "}":
-            if brace_stack:
-                was_nest = brace_stack.pop()
-                if was_nest:
-                    nesting = max(0, nesting - 1)
-            i += 1
-            continue
-
-        if val == ";":
-            pending_nest = False
-
+        elif val == "}":
+            if brace_stack and brace_stack.pop():
+                nesting = max(0, nesting - 1)
+        else:
+            if kind == "ID" and val == fn_name and next_val == "(" and prev_val != ".":
+                score += 1
+            if val == ";":
+                pending_nest = False
         i += 1
     return score
 

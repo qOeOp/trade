@@ -348,6 +348,27 @@ def history(rev: str, tops: dict[str, dict[str, Any]],
     return by_object, by_item
 
 
+def _apply_scan_commit(
+    body: bytes, is_fix: bool, tops: dict[str, dict[str, Any]],
+    table: dict[str, dict[str, Any]], fixed: dict[str, int],
+) -> None:
+    touched: set[str] = set()
+    for line in body.split(b"\0"):
+        if line.count(b"\t") < 2:
+            continue
+        added, removed, raw = line.lstrip(b"\n").split(b"\t", 2)
+        path = spelled(raw)
+        name = owner(path, tops) or ROOT
+        touched.add(name)
+        table[name]["added"] += int(added) if added.isdigit() else 0
+        table[name]["removed"] += int(removed) if removed.isdigit() else 0
+        if is_fix and not path.endswith(".md"):
+            fixed[path] = fixed.get(path, 0) + 1
+    for name in touched:
+        table[name]["commits"] += 1
+        table[name]["fixes"] += is_fix
+
+
 def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = None,
               paths: dict[str, int] | None = None) -> dict[str, Any]:
     paths = tracked(rev) if paths is None else paths
@@ -372,21 +393,7 @@ def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = N
         title = parts[1] if len(parts) > 1 else ""
         rest = parts[2] if len(parts) > 2 else ""
         is_fix = bool(re.match(r"fix(\(|:|!)", rest.lstrip() if title.startswith("Merge ") else title))
-        touched = set()
-        for line in body.split(b"\0"):
-            if line.count(b"\t") < 2:
-                continue
-            added, removed, raw = line.lstrip(b"\n").split(b"\t", 2)
-            path = spelled(raw)
-            name = owner(path, tops) or ROOT
-            touched.add(name)
-            table[name]["added"] += int(added) if added.isdigit() else 0
-            table[name]["removed"] += int(removed) if removed.isdigit() else 0
-            if is_fix and not path.endswith(".md"):
-                fixed[path] = fixed.get(path, 0) + 1
-        for name in touched:
-            table[name]["commits"] += 1
-            table[name]["fixes"] += is_fix
+        _apply_scan_commit(body, is_fix, tops, table, fixed)
     return {"tree": rev, "days": days, "objects": table,
             "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
             "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
@@ -689,6 +696,34 @@ def run_js_tests(root: Path, js_files: Sequence[str], timeout: float) -> tuple[d
             return None, f"invalid runner output: {error}"
 
 
+def _run_recheck_tree(
+    at: str, paths_back: Sequence[str], modules: Sequence[str], js_tests: Sequence[str], timeout: float,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    merged: dict[str, str] = {}
+    whys: list[str] = []
+    with tree(at, paths_back) as root:
+        here_py = [m for m in modules if (root / (m.replace(".", "/") + ".py")).exists()]
+        if here_py:
+            py_res, py_tail = child(root, TESTS, ["OUT", *here_py], timeout)
+            if py_res is None:
+                whys.append(f"py: {py_tail}")
+            else:
+                merged.update(py_res)
+        here_js = [p for p in js_tests if (root / p).exists()]
+        if here_js:
+            js_res, js_tail = run_js_tests(root, here_js, timeout)
+            if js_res is None:
+                whys.append(f"js: {js_tail}")
+            else:
+                merged.update(js_res)
+                if any(st == "error" for st in js_res.values()) and js_tail:
+                    whys.append(f"js: {js_tail}")
+    note: dict[str, Any] = {st: list(merged.values()).count(st) for st in ("ok", "fail", "error", "skip")}
+    if whys:
+        note["why"] = "; ".join(whys)
+    return merged, note
+
+
 def recheck(args: argparse.Namespace) -> None:
     rev, main_rev = commit(args.commit), commit(args.tree)
     paths = git("diff-tree", "-r", "--no-renames", "--no-commit-id", "--name-only", f"{rev}^", rev).decode().splitlines()
@@ -711,29 +746,9 @@ def recheck(args: argparse.Namespace) -> None:
     found: list[dict[str, str]] = []
     notes: dict[str, dict[str, Any]] = {}
     for name, at, paths_back in (("fixed", rev, ()), ("reverted", rev, product), ("now", main_rev, ())):
-        merged: dict[str, str] = {}
-        whys: list[str] = []
-        with tree(at, paths_back) as root:
-            here_py = [module for module in modules if (root / (module.replace(".", "/") + ".py")).exists()]
-            if here_py:
-                py_res, py_tail = child(root, TESTS, ["OUT", *here_py], args.timeout)
-                if py_res is None:
-                    whys.append(f"py: {py_tail}")
-                else:
-                    merged.update(py_res)
-            here_js = [path for path in js_tests if (root / path).exists()]
-            if here_js:
-                js_res, js_tail = run_js_tests(root, here_js, args.timeout)
-                if js_res is None:
-                    whys.append(f"js: {js_tail}")
-                else:
-                    merged.update(js_res)
-                    if any(st == "error" for st in js_res.values()) and js_tail:
-                        whys.append(f"js: {js_tail}")
+        merged, note = _run_recheck_tree(at, paths_back, modules, js_tests, args.timeout)
         found.append(merged)
-        notes[name] = {state: list(merged.values()).count(state) for state in ("ok", "fail", "error", "skip")}
-        if whys:
-            notes[name]["why"] = "; ".join(whys)
+        notes[name] = note
     decided, tests = judge(*found)
     keep(args.directory, {**row, "verdict": decided, "tests": tests, "outcomes": notes})
 
@@ -759,6 +774,33 @@ def state(row: dict, seen: list[dict]) -> str:
     return "failed" if row["exit"] else "examined"
 
 
+def _missing_coverage(
+    done: set[tuple[str, str]], declared: dict[str, Any] | None,
+    listed: dict[str, list[str]], tops: dict[str, dict[str, Any]], found: list[dict],
+) -> list[str]:
+    missing: list[str] = []
+    for wanted in declared["items"] if declared else listed:
+        item, _, only = wanted.partition("/")
+        if listed[item] == [ANY] and not only:
+            if not any(name == item for name, _ in done):
+                missing.append(item)
+        else:
+            reached = {split(subject)[1] for name, subject in done if name == item}
+            missing.extend(f"{item}/{sc}" for sc in ([only] if only else listed[item]) if sc not in reached)
+    reached_tops = {top for _, subject in done for top in covers(subject, tops)}
+    wanted_tops = tops if not declared else declared["objects"] if declared["items"] else []
+    missing.extend(f"{top} (object)" for top in wanted_tops if top not in reached_tops)
+    for pair in (declared.get("contracts") or []) if declared else []:
+        needed = set(pair.split("+"))
+        if not any(needed <= covers(subject, tops) for _, subject in done):
+            missing.append(f"{pair} (contract)")
+    if declared and declared["theme"] == "harm" and not any(
+        row["kind"] == "probe" and row["verdict"] in ("shown", "absent") for row in found
+    ):
+        missing.append("a probe of an open finding")
+    return missing
+
+
 def coverage(found: list[dict], tops: dict[str, dict[str, Any]]) -> tuple[dict[tuple[str, str], list[tuple[dict, str]]], list[str]]:
     """({(item, subject): [(row, state)]}, what of the declared scope, or of everything, is missing)."""
     listed = items()
@@ -772,26 +814,7 @@ def coverage(found: list[dict], tops: dict[str, dict[str, Any]]) -> tuple[dict[t
         scoped = {wanted.partition("/")[0] for wanted in declared["items"]}
         done = {(item, subject) for item, subject in done
                 if item in scoped and (item == "fixed" or covers(subject, tops) & set(declared["objects"]))}
-    missing = []
-    for wanted in declared["items"] if declared else listed:
-        item, _, only = wanted.partition("/")
-        if listed[item] == [ANY] and not only:
-            missing += [] if any(name == item for name, _ in done) else [item]
-        else:
-            reached = {split(subject)[1] for name, subject in done if name == item}
-            missing += [f"{item}/{scenario}" for scenario in ([only] if only else listed[item]) if scenario not in reached]
-    reached = {top for _, subject in done for top in covers(subject, tops)}
-    wanted_tops = tops if not declared else declared["objects"] if declared["items"] else []
-    missing += [f"{top} (object)" for top in wanted_tops if top not in reached]
-    if declared and declared.get("contracts"):
-        for pair in declared["contracts"]:
-            needed = set(pair.split("+"))
-            if not any(needed <= covers(subject, tops) for _, subject in done):
-                missing.append(f"{pair} (contract)")
-    if declared and declared["theme"] == "harm" and not any(
-            row["kind"] == "probe" and row["verdict"] in ("shown", "absent") for row in found):
-        missing.append("a probe of an open finding")
-    return table, missing
+    return table, _missing_coverage(done, declared, listed, tops, found)
 
 
 def stopped(found: list[dict]) -> list[dict]:
@@ -821,6 +844,52 @@ def last(reading: dict) -> str:
     return (reading.get("why") or "none").splitlines()[-1]
 
 
+def _format_evidence_row(row: dict[str, Any]) -> str:
+    if row["kind"] == "run":
+        cmd = cell(" ".join(row["command"]))
+        if len(cmd) > 120:
+            cmd = cmd[:117] + "..."
+        return (
+            f"`{cmd}` exit {row['exit']}, {row['checkout'][:9]}"
+            f"{' with changes' if row['dirty'] else ''}"
+            f"{' [tree_drift]' if row.get('tree_drift') else ''}"
+        )
+    if row["kind"] == "cost":
+        return f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
+    return f"{len(row['tests'])} telling tests"
+
+
+def _print_coverage_table(table: dict[tuple[str, str], list[tuple[dict, str]]]) -> None:
+    print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
+    order = list(items())
+    for (item, subject), entries in sorted(table.items(), key=lambda pair: order.index(pair[0][0])):
+        # Every attempt that exercised it (examined or failed) is printed so retries never hide failures;
+        # the others are only counted, and alone the last one speaks.
+        other = [said for _, said in entries if said not in ("examined", "failed")]
+        tried = ", ".join(f"{other.count(one)} {one}" for one in dict.fromkeys(other))
+        more = f" (of {len(entries)} attempts: {tried})" if tried and len(entries) > 1 else ""
+        for row, said in [entry for entry in entries if entry[1] in ("examined", "failed")] or entries[-1:]:
+            print(f"| {item} | {cell(subject)} | {said} | {_format_evidence_row(row)}{more} |")
+
+
+def _print_probe_table(found: list[dict]) -> None:
+    latest = {row["id"]: row for row in found if row["kind"] == "probe"}
+    reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}
+    print("\n| Finding | Verdict | Observed | Expected | Control | At the last audit | Refuter's probe |\n"
+          "|---|---|---|---|---|---|---|")
+    for name, row in latest.items():
+        main_r, ctrl_r = row["main"], row["control"] or {}
+        print(f"| {cell(name)} | {row['verdict']} | {cell(main_r.get('observed', last(main_r)))} | "
+              f"{cell(main_r.get('expected', '-'))} | {cell(ctrl_r.get('observed', last(ctrl_r)))} | "
+              f"{row['before'] or '-'} | {reruns[name]['verdict'] if name in reruns else 'none'} |")
+    old = [r["before"] for r in latest.values() if r["verdict"] == "shown" and r["before"] not in (None, "unknown")]
+    shown_n = sum(r["verdict"] == "shown" for r in latest.values())
+    refuted_shown = sum(r["verdict"] == "shown" and n in reruns and reruns[n]["verdict"] == "shown" for n, r in latest.items())
+    print(f"\nShown: {shown_n} of {len(latest)} probed. "
+          f"Of {len(old)} datable ones, the last audit already had {old.count('present')}. "
+          f"Shown by a refuter's own probe too: {refuted_shown}. Refuters ran on {len(reruns)}.")
+
+
 def report(args: argparse.Namespace) -> None:
     found = rows(args.directory)
     rev = commit(args.tree)
@@ -844,46 +913,15 @@ def report(args: argparse.Namespace) -> None:
         dropped = [name for name in history(rev, tops)[0] if name.startswith("@") and name not in named]
         print("Outside the tree, in earlier records but not here: " + (", ".join(sorted(dropped)) or "none") + ".\n")
     print(f"Evidence: {spent(found)}.\n")
-    print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
-    order = list(items())
-    for (item, subject), entries in sorted(table.items(), key=lambda pair: order.index(pair[0][0])):
-        # Every attempt that exercised it (examined or failed) is printed so retries never hide failures;
-        # the others are only counted, and alone the last one speaks.
-        other = [said for _, said in entries if said not in ("examined", "failed")]
-        tried = ", ".join(f"{other.count(one)} {one}" for one in dict.fromkeys(other))
-        for row, said in [entry for entry in entries if entry[1] in ("examined", "failed")] or entries[-1:]:
-            if row["kind"] == "run":
-                cmd = cell(" ".join(row["command"]))
-                if len(cmd) > 120:
-                    cmd = cmd[:117] + "..."
-                evidence = (f"`{cmd}` exit {row['exit']}, {row['checkout'][:9]}"
-                            f"{' with changes' if row['dirty'] else ''}"
-                            f"{' [tree_drift]' if row.get('tree_drift') else ''}")
-            elif row["kind"] == "cost":
-                evidence = f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
-            else:
-                evidence = f"{len(row['tests'])} telling tests"
-            more = f" (of {len(entries)} attempts: {tried})" if tried and len(entries) > 1 else ""
-            print(f"| {item} | {cell(subject)} | {said} | {evidence}{more} |")
-    probes = [row for row in found if row["kind"] == "probe"]
-    latest = {row["id"]: row for row in probes}
-    reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}
-    print("\n| Finding | Verdict | Observed | Expected | Control | At the last audit | Refuter's probe |\n"
-          "|---|---|---|---|---|---|---|")
-    for name, row in latest.items():
-        main, control = row["main"], row["control"] or {}
-        print(f"| {cell(name)} | {row['verdict']} | {cell(main.get('observed', last(main)))} | "
-              f"{cell(main.get('expected', '-'))} | {cell(control.get('observed', last(control)))} | "
-              f"{row['before'] or '-'} | {reruns[name]['verdict'] if name in reruns else 'none'} |")
-    old = [row["before"] for row in latest.values() if row["verdict"] == "shown" and row["before"] not in (None, "unknown")]
-    print(f"\nShown: {sum(row['verdict'] == 'shown' for row in latest.values())} of {len(latest)} probed. "
-          f"Of {len(old)} datable ones, the last audit already had {old.count('present')}. "
-          f"Shown by a refuter's own probe too: "
-          f"{sum(row['verdict'] == 'shown' and name in reruns and reruns[name]['verdict'] == 'shown' for name, row in latest.items())}. "
-          f"Refuters ran on {len(reruns)}.")
+    _print_coverage_table(table)
+    _print_probe_table(found)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def _named_csv(text: str) -> list[str]:
+    return [part for part in text.split(",") if part]
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(required=True)
 
@@ -893,9 +931,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         added.add_argument("--timeout", type=float, default=seconds, help="seconds per process (default: %(default)g)")
         added.set_defaults(function=function)
         return added
-
-    def named(text: str) -> list[str]:
-        return [part for part in text.split(",") if part]
 
     zero = commands.add_parser("scan", help="list the tree's objects with what changed and when each was last examined")
     zero.add_argument("--days", type=int, default=14)
@@ -922,40 +957,44 @@ def main(argv: Sequence[str] | None = None) -> None:
     adv_p.set_defaults(function=advise_cmd)
     declared = add("scope", scope, "declare a themed audit's items and objects, before any evidence", 0)
     declared.add_argument("theme", choices=THEMES)
-    declared.add_argument("--items", type=named, default=[], help="comma-separated: ITEM, or ITEM/SCENARIO of a listed one")
-    declared.add_argument("--objects", type=named, default=[], help="comma-separated, of those scan lists")
-    declared.add_argument("--contracts", type=named, default=[], help="comma-separated OBJECT_A+OBJECT_B pairs that must be exercised jointly")
-    one = add("run", run, "record a command that exercises an audit item (syntax: run DIR ITEM OBJECT:SCENARIO -- CMD)", 3600)
-    one.add_argument("item", help="lens name from lenses.md (without /SCENARIO; put scenario in SUBJECT)")
-    one.add_argument("subject", help="OBJECT:SCENARIO or OBJECT_A+OBJECT_B:SCENARIO")
-    one.add_argument("--artifact", type=Path, help="the file the command writes that shows the result (a page's text)")
-    one.add_argument("--tree", metavar="REV", help="optional baseline tree to flag `tree_drift` if target paths differ from HEAD")
-    one = add("probe", probe, "judge a finding's probe against its control", 600)
-    one.add_argument("id")
-    one.add_argument("probe", type=Path)
-    one.add_argument("--control-tree", metavar="REV", help="run probe() there instead of control() here")
-    one.add_argument("--before", metavar="REV", help="the last full audit's checkout: was it already there?")
-    one.add_argument("--refutes", action="store_true", help="a refuter's own probe of claim ID, beside the claim's")
-    two = add("cost", cost, "time a cost probe at three or more sizes", 600)
-    two.add_argument("subject")
-    two.add_argument("probe", type=Path)
-    two.add_argument("--sizes", required=True, help="comma-separated")
-    three = add("recheck", recheck, "whether a repair's own tests fail without it and pass now", 1800)
-    three.add_argument("commit")
-    for parsed in (one, two, three):
+    declared.add_argument("--items", type=_named_csv, default=[], help="comma-separated: ITEM, or ITEM/SCENARIO of a listed one")
+    declared.add_argument("--objects", type=_named_csv, default=[], help="comma-separated, of those scan lists")
+    declared.add_argument("--contracts", type=_named_csv, default=[], help="comma-separated OBJECT_A+OBJECT_B pairs that must be exercised jointly")
+    run_p = add("run", run, "record a command that exercises an audit item (syntax: run DIR ITEM OBJECT:SCENARIO -- CMD)", 3600)
+    run_p.add_argument("item", help="lens name from lenses.md (without /SCENARIO; put scenario in SUBJECT)")
+    run_p.add_argument("subject", help="OBJECT:SCENARIO or OBJECT_A+OBJECT_B:SCENARIO")
+    run_p.add_argument("--artifact", type=Path, help="the file the command writes that shows the result (a page's text)")
+    run_p.add_argument("--tree", metavar="REV", help="optional baseline tree to flag `tree_drift` if target paths differ from HEAD")
+    probe_p = add("probe", probe, "judge a finding's probe against its control", 600)
+    probe_p.add_argument("id")
+    probe_p.add_argument("probe", type=Path)
+    probe_p.add_argument("--control-tree", metavar="REV", help="run probe() there instead of control() here")
+    probe_p.add_argument("--before", metavar="REV", help="the last full audit's checkout: was it already there?")
+    probe_p.add_argument("--refutes", action="store_true", help="a refuter's own probe of claim ID, beside the claim's")
+    cost_p = add("cost", cost, "time a cost probe at three or more sizes", 600)
+    cost_p.add_argument("subject")
+    cost_p.add_argument("probe", type=Path)
+    cost_p.add_argument("--sizes", required=True, help="comma-separated")
+    rec_p = add("recheck", recheck, "whether a repair's own tests fail without it and pass now", 1800)
+    rec_p.add_argument("commit")
+    for parsed in (probe_p, cost_p, rec_p):
         parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
-    four = add("unexamined", unexamined, "name what a pass did not reach; the audit is then partial", 0)
-    four.add_argument("item")
-    four.add_argument("subject")
-    four.add_argument("why", help="what stopped it")
+    unex_p = add("unexamined", unexamined, "name what a pass did not reach; the audit is then partial", 0)
+    unex_p.add_argument("item")
+    unex_p.add_argument("subject")
+    unex_p.add_argument("why", help="what stopped it")
     final = add("report", report, "print coverage and findings from the evidence", 0)
     for parsed in (zero, tele_p, adv_p, declared, final):
         parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
     given = list(sys.argv[1:] if argv is None else argv)
     command: list[str] = []
     if given[:1] == ["run"] and "--" in given:
         given, command = given[:given.index("--")], given[given.index("--") + 1:]
-    args = parser.parse_args(given)
+    args = _build_parser().parse_args(given)
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")

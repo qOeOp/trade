@@ -255,9 +255,35 @@
    - `doctor.py`：`JS_TESTS` 跳过 `err?.failureType === "subtestsFailed"`；`scope --contracts` 强制 `parts[0] != parts[1]`。
 3. **对照验证**：
    - 对抗样本重测：CI `runs=2, cancelled=5, failure_rate=1.0, median=25.0m`；凭据全部脱敏为 `<REDACTED>` 且 `<= 80` 字符；`fix + docs` 准确触发 `tangled_refactor_risk: true`（显式 `refactor:` 则放行）；嵌套 `t.test()` 准确给出 `confirmed` 且 `reverted.error == 0`；`engine+engine` 被 `scope` 拒绝。
-   - `unittest` **41/41 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors；`doctor.py delta HEAD~1 HEAD` 自验无 `tangled_refactor_risk`、无 `new_break_even_regressions`。
-4. **下一轮假设（Round 9 — H8.4 结构减负与 517 文件 bit-exact parity）**：
-   - 当前资产自检仍有 3 个文件存在 `max_cognitive > 55`：`js_analyzer.py`（`max_cog=266, health=2.73`）、`telemetry.py`（`max_cog=72, health=3.14`）、`doctor.py`（`max_cog=61, health=3.06`）。下一轮专注纯结构拆解减负（不混功能改动），要求全 5 文件 `max_cognitive <= 55`、517 文件 JS/TS 100% bit-exact parity、`doctor.py delta HEAD~1 HEAD` 达 `pareto_verdict == "improved"`。
+   - `unittest` **41/41 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors；`doctor.py delta HEAD~1 HEAD`：`tangled_refactor_risk: false`，同时自检抓出 `friction.py` 因内联列表推导使 `analyze_ci_runs` 认知复杂度 `40→43`、健康分由 `6.25` 短暂跌至 `5.90`（`telemetry.py` `3.14→3.08`），直接成为 Round 9 纯结构减负的实证输入。
+
+## 13. 第九轮迭代（v2.8）：全 5 资产结构减负与 517 文件 Bit-Exact Parity（H8.4）
+
+1. **假设与基线**：
+   - Round 8 后仍有 3 个资产存在 `max_cognitive > 55` 的单函数热点：`js_analyzer.py`（`_tokenize` 266 / `_extract_functions` 120 / `_function_cognitive` 93，`health=2.73`）、`telemetry.py`（`cognitive_complexity` 72、`health=3.08`）、`doctor.py`（`report` 61、`health=3.05`），且 `friction.py` 在 `5.90` 略低于 break-even 线。
+   - 假设：在不改变任何外部语义的前提下，将上述热点拆分为单一职责的模块级函数与状态机方法，可将全部 5 个资产压至 `max_cognitive <= 45`、全面抬升健康分、保持 517 个真实 JS/TS/TSX/MJS/CJS 文件与全仓 `telemetry` **100% bit-exact parity**，并通过 `doctor.py delta HEAD~1 HEAD` 的 `pareto_verdict == "improved"` 检验。
+2. **纯结构拆解**：
+   - `js_analyzer.py`：`_tokenize` 拆为 `_Lexer` 状态机方法组（`_step_jsx_body` / `_step_jsx_tag` / `_try_scan_comment` / `_scan_regex` / `_try_start_jsx_expr` / `_step_open_brace` / `_step_close_brace` / `_step_code_token`）；`_extract_functions` 拆为 `_skip_ts_declaration` / `_match_named_function` / `_match_arrow_decl` / `_match_class_method`；`_function_cognitive` 抽出 `_step_control_keyword`。
+   - `telemetry.py`：消除 `cognitive_complexity` 和 `_isolated_roots` 的嵌套闭包嵌套罚分（平铺为模块级 `_visit_cognitive` / `_visit_if_node` / `_visit_comp_node` / `_extract_isolated_value`）；拆解 `_map_test_paths` 与 `compute_delta`。
+   - `doctor.py`：拆解 `report`（`_format_evidence_row` / `_print_coverage_table` / `_print_probe_table`）、`coverage`（`_missing_coverage`）、`recheck`（`_run_recheck_tree`）、`scan_data`（`_apply_scan_commit`）与 `main`（`_build_parser`）。
+   - `friction.py` / `scheduler.py`：分别抽出 `_summarize_workflow_runs` 与 `_extract_cooldown_dates`。
+3. **前后对照实测（Round 7 基线 → Round 9）**：
+
+| 资产文件 | R7 行数 → R9 行数 | R7 `max_cog` → **R9 `max_cog`** | R7 `max_fn` → **R9 `max_fn`** | R7 `health` → **R9 `health`** |
+|---|---:|---:|---:|---:|
+| `doctor.py` | 967 → 1011 | 61 → **32 (−48%)** | 83 → **66** | 3.06 → **5.31 (+2.25)** |
+| `friction.py` | 257 → 290 | 40 → **25 (−38%)** | 69 → **51** | 6.25 → **8.00 (+1.75)** |
+| `js_analyzer.py` | 707 → 717 | 266 → **40 (−85%)** | 306 → **46** | 2.73 → **4.90 (+2.17)** |
+| `scheduler.py` | 675 → 658 | 46 → **38 (−17%)** | 135 → **101** | 3.91 → **4.88 (+0.97)** |
+| `telemetry.py` | 874 → 836 | 72 → **27 (−62%)** | 108 → **92** | 3.14 → **6.31 (+3.17)** |
+
+4. **验收结果**：
+   - **517 文件 JS/TS/TSX/MJS/CJS 对标**（vs `/tmp/doctor-rd-sources/js_parity_before.json`）：**517/517 100% bit-exact**；全仓 `origin/main` `telemetry` 输出 **100% bit-exact**。
+   - **`doctor.py delta HEAD~1 HEAD`**：`pareto_verdict = "improved"`，`prod_lines.net = -10`，`max_cognitive: 266 → 40 (−226)`，`min_health: 2.73 → 4.88 (+2.15)`，`new_break_even_regressions = []`，`tangled_refactor_risk = false`（相对 Round 7 `572866784` 同样为 `improved`）。
+   - `unittest` **41/41 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
+5. **下一轮假设（Round 10 — 30+ 轮动态长程压测 + 全链路对抗红队 1）**：
+   - 构造 36 轮动态长程闭环压测（含周期性代码提交、新 `fix` 连击、跨包耦合漂移、`harm` 注入、间歇性 CI 慢/取消摩擦、过期 `claimed`、`authority_drifted`、部分审计中断），同时对 `probe`/`cost`/`run`/`recheck`/`attach`/`lenses.md`/`record.md` 做系统对抗红队，检验是否还存在 P0/P1 级调度振荡、冷区漂移、过早/过晚 `steady` 或缺失确定性护栏的薄弱环节。
+
 
 
 

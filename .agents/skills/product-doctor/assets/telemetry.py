@@ -68,90 +68,68 @@ def is_test_path(path: str) -> bool:
     return path.startswith("tests/") or bool(TEST_FILE_RE.search(path))
 
 
+def _visit_bool_chain(expr: ast.AST, parent_op: type[ast.boolop] | None, nesting: int, func_name: str | None) -> int:
+    if isinstance(expr, ast.BoolOp):
+        op_type = type(expr.op)
+        score = 1 if op_type is not parent_op else 0
+        return score + sum(_visit_bool_chain(val, op_type, nesting, func_name) for val in expr.values)
+    return _visit_cognitive(expr, nesting, func_name)
+
+
+def _visit_if_node(cur: ast.If, nesting: int, func_name: str | None) -> int:
+    score = 1 + nesting + _visit_bool_chain(cur.test, None, nesting, func_name)
+    score += sum(_visit_cognitive(stmt, nesting + 1, func_name) for stmt in cur.body)
+    orelse = cur.orelse
+    while len(orelse) == 1 and isinstance(orelse[0], ast.If):
+        elif_node = orelse[0]
+        score += 1 + _visit_bool_chain(elif_node.test, None, nesting, func_name)
+        score += sum(_visit_cognitive(stmt, nesting + 1, func_name) for stmt in elif_node.body)
+        orelse = elif_node.orelse
+    if orelse:
+        score += 1 + sum(_visit_cognitive(stmt, nesting + 1, func_name) for stmt in orelse)
+    return score
+
+
+def _visit_comp_node(cur: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
+                     nesting: int, func_name: str | None) -> int:
+    score = 0
+    for gen in cur.generators:
+        score += _visit_cognitive(gen.iter, nesting, func_name)
+        for cond in gen.ifs:
+            score += 1 + nesting + _visit_bool_chain(cond, None, nesting + 1, func_name)
+    if isinstance(cur, ast.DictComp):
+        return score + _visit_cognitive(cur.key, nesting, func_name) + _visit_cognitive(cur.value, nesting, func_name)
+    return score + _visit_cognitive(cur.elt, nesting, func_name)
+
+
+def _visit_cognitive(cur: ast.AST, nesting: int, func_name: str | None) -> int:
+    if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return sum(_visit_cognitive(stmt, nesting + 1, func_name) for stmt in cur.body)
+    if isinstance(cur, ast.If):
+        return _visit_if_node(cur, nesting, func_name)
+    if isinstance(cur, (ast.For, ast.AsyncFor, ast.While, ast.Match)):
+        return 1 + nesting + sum(_visit_cognitive(c, nesting + 1, func_name) for c in ast.iter_child_nodes(cur))
+    if isinstance(cur, ast.ExceptHandler):
+        return 1 + nesting + sum(_visit_cognitive(stmt, nesting + 1, func_name) for stmt in cur.body)
+    if isinstance(cur, ast.IfExp):
+        return (
+            1 + nesting
+            + _visit_bool_chain(cur.test, None, nesting, func_name)
+            + _visit_cognitive(cur.body, nesting + 1, func_name)
+            + _visit_cognitive(cur.orelse, nesting + 1, func_name)
+        )
+    if isinstance(cur, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        return _visit_comp_node(cur, nesting, func_name)
+    if isinstance(cur, ast.BoolOp):
+        return _visit_bool_chain(cur, None, nesting, func_name)
+    score = 1 if (isinstance(cur, ast.Call) and func_name and isinstance(cur.func, ast.Name) and cur.func.id == func_name) else 0
+    return score + sum(_visit_cognitive(child, nesting, func_name) for child in ast.iter_child_nodes(cur))
+
+
 def cognitive_complexity(node: ast.AST) -> int:
     """Sonar/Campbell cognitive complexity for a Python function/method AST node."""
     func_name = getattr(node, "name", None)
-    score = 0
-
-    def visit_bool_chain(expr: ast.AST, parent_op: type[ast.boolop] | None, nesting: int) -> None:
-        nonlocal score
-        if isinstance(expr, ast.BoolOp):
-            op_type = type(expr.op)
-            if op_type is not parent_op:
-                score += 1
-            for val in expr.values:
-                visit_bool_chain(val, op_type, nesting)
-        else:
-            visit(expr, nesting)
-
-    def visit(cur: ast.AST, nesting: int) -> None:
-        nonlocal score
-        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            for stmt in cur.body:
-                visit(stmt, nesting + 1)
-            return
-        if isinstance(cur, ast.If):
-            score += 1 + nesting
-            visit_bool_chain(cur.test, None, nesting)
-            for stmt in cur.body:
-                visit(stmt, nesting + 1)
-            orelse = cur.orelse
-            while len(orelse) == 1 and isinstance(orelse[0], ast.If):
-                elif_node = orelse[0]
-                score += 1
-                visit_bool_chain(elif_node.test, None, nesting)
-                for stmt in elif_node.body:
-                    visit(stmt, nesting + 1)
-                orelse = elif_node.orelse
-            if orelse:
-                score += 1
-                for stmt in orelse:
-                    visit(stmt, nesting + 1)
-            return
-        if isinstance(cur, (ast.For, ast.AsyncFor, ast.While)):
-            score += 1 + nesting
-            for child in ast.iter_child_nodes(cur):
-                visit(child, nesting + 1)
-            return
-        if isinstance(cur, ast.ExceptHandler):
-            score += 1 + nesting
-            for stmt in cur.body:
-                visit(stmt, nesting + 1)
-            return
-        if isinstance(cur, ast.Match):
-            score += 1 + nesting
-            for child in ast.iter_child_nodes(cur):
-                visit(child, nesting + 1)
-            return
-        if isinstance(cur, ast.IfExp):
-            score += 1 + nesting
-            visit_bool_chain(cur.test, None, nesting)
-            visit(cur.body, nesting + 1)
-            visit(cur.orelse, nesting + 1)
-            return
-        if isinstance(cur, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-            for gen in cur.generators:
-                visit(gen.iter, nesting)
-                for cond in gen.ifs:
-                    score += 1 + nesting
-                    visit_bool_chain(cond, None, nesting + 1)
-            if isinstance(cur, ast.DictComp):
-                visit(cur.key, nesting)
-                visit(cur.value, nesting)
-            else:
-                visit(cur.elt, nesting)
-            return
-        if isinstance(cur, ast.BoolOp):
-            visit_bool_chain(cur, None, nesting)
-            return
-        if isinstance(cur, ast.Call) and func_name and isinstance(cur.func, ast.Name) and cur.func.id == func_name:
-            score += 1
-        for child in ast.iter_child_nodes(cur):
-            visit(child, nesting)
-
-    for stmt in getattr(node, "body", ()):
-        visit(stmt, 0)
-    return score
+    return sum(_visit_cognitive(stmt, 0, func_name) for stmt in getattr(node, "body", ()))
 
 
 def _non_docstring_body(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
@@ -297,6 +275,23 @@ def read_blobs(rev: str, paths: list[str]) -> dict[str, bytes]:
     return contents
 
 
+def _extract_isolated_value(name: str, value: ast.AST | None) -> set[str]:
+    if value is None or name not in ("ISOLATED", "LAYERS", "RANK"):
+        return set()
+    target = value.args[0] if name == "ISOLATED" and isinstance(value, ast.Call) and value.args else value
+    try:
+        lit = ast.literal_eval(target)
+    except (ValueError, SyntaxError):
+        return set()
+    if name == "ISOLATED" and isinstance(lit, (tuple, list, set, frozenset)):
+        return {str(x) for x in lit}
+    if name == "LAYERS" and isinstance(lit, (tuple, list)) and lit and isinstance(lit[0], (tuple, list)):
+        return {str(x) for x in lit[0]}
+    if name == "RANK" and isinstance(lit, dict):
+        return {str(k) for k, v in lit.items() if v == 0}
+    return set()
+
+
 def _isolated_roots(rev: str, tracked_lines: dict[str, int]) -> set[str]:
     """Discover intentionally isolated package roots (`ISOLATED`, lowest `LAYERS[0]`, or `RANK == 0`)
     from `tests/test_package_layers.py` supporting both `ast.Assign` and PEP 526 `ast.AnnAssign`."""
@@ -304,45 +299,18 @@ def _isolated_roots(rev: str, tracked_lines: dict[str, int]) -> set[str]:
     if layer_file not in tracked_lines:
         return set()
     raw = read_blobs(rev, [layer_file]).get(layer_file, b"").decode("utf-8", errors="replace")
-    roots: set[str] = set()
     try:
         mod = ast.parse(raw)
     except SyntaxError:
-        return roots
-
-    def extract(name: str, value: ast.AST | None) -> None:
-        if value is None:
-            return
-        if name == "ISOLATED":
-            val = value.args[0] if isinstance(value, ast.Call) and value.args else value
-            try:
-                lit = ast.literal_eval(val)
-                if isinstance(lit, (tuple, list, set, frozenset)):
-                    roots.update(str(x) for x in lit)
-            except (ValueError, SyntaxError):
-                pass
-        elif name == "LAYERS":
-            try:
-                lit = ast.literal_eval(value)
-                if isinstance(lit, (tuple, list)) and lit and isinstance(lit[0], (tuple, list)):
-                    roots.update(str(x) for x in lit[0])
-            except (ValueError, SyntaxError):
-                pass
-        elif name == "RANK":
-            try:
-                lit = ast.literal_eval(value)
-                if isinstance(lit, dict):
-                    roots.update(str(k) for k, v in lit.items() if v == 0)
-            except (ValueError, SyntaxError):
-                pass
-
+        return set()
+    roots: set[str] = set()
     for node in mod.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    extract(target.id, node.value)
+                    roots.update(_extract_isolated_value(target.id, node.value))
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            extract(node.target.id, node.value)
+            roots.update(_extract_isolated_value(node.target.id, node.value))
     return roots
 
 
@@ -485,6 +453,35 @@ def _git_dual_window(rev: str, days: int, long_days: int,
     return short, long, file_latest_ts, file_latest_fix_ts
 
 
+def _sibling_code_target(test_path: str, code_objects: list[str]) -> str | None:
+    parts = test_path.split("/")
+    for depth in range(len(parts) - 2, 0, -1):
+        prefix = "/".join(parts[:depth])
+        candidates = sorted(o for o in code_objects if o == prefix or o.startswith(prefix + "/"))
+        if candidates:
+            if f"{prefix}/src" in candidates:
+                return f"{prefix}/src"
+            return min(candidates, key=lambda c: (c.count("/"), c))
+    return None
+
+
+def _resolve_tests_dir_target(path: str, roots: dict[str, str], unique_subdir: dict[str, str]) -> str | None:
+    rest = path[len("tests/"):]
+    sub = rest.split("/", 1)[0]
+    if sub in roots:
+        return roots[sub]
+    if sub in unique_subdir:
+        return unique_subdir[sub]
+    prefix = sub.split("_", 1)[0]
+    if prefix in roots:
+        return roots[prefix]
+    if "/" not in rest and rest.startswith("test_"):
+        stem = rest[len("test_"):].split("_", 1)[0].removesuffix(".py")
+        if stem in roots:
+            return roots[stem]
+    return None
+
+
 def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
                     tops: dict[str, dict[str, Any]], owner_fn) -> dict[str, list[str]]:
     """Map test files (both `tests/` and co-located/sibling `*.test.*` suites) to their owning code object
@@ -493,63 +490,26 @@ def _map_test_paths(tracked_lines: dict[str, int], code_objects: list[str],
     code_set = set(code_objects)
     roots = {obj: obj for obj in code_objects if "/" not in obj}
 
-    # Build subpackage directory map: immediate subdir name inside a code object -> code object
-    # (e.g. `ide/research_graph/...` -> subdir `research_graph` maps to `ide`).
+    # Build subpackage directory map: immediate subdir name inside a code object -> code object.
     subdir_owner: dict[str, set[str]] = defaultdict(set)
     for path in tracked_lines:
-        if is_test_path(path):
-            continue
-        o = owner_fn(path, tops)
-        if o in code_set and "/" in path:
+        if not is_test_path(path) and "/" in path:
+            o = owner_fn(path, tops)
             parts = path.split("/")
-            if len(parts) >= 3:
+            if o in code_set and len(parts) >= 3:
                 subdir_owner[parts[1]].add(o)
     unique_subdir = {sub: next(iter(owners)) for sub, owners in subdir_owner.items() if len(owners) == 1}
-
-    # Map package parent prefixes for sibling test dirs (e.g. `ide/web/scripts/*.test.mjs` -> `ide/web/src`).
-    def sibling_code_target(test_path: str) -> str | None:
-        parts = test_path.split("/")
-        for depth in range(len(parts) - 2, 0, -1):
-            prefix = "/".join(parts[:depth])
-            candidates = sorted(o for o in code_objects if o == prefix or o.startswith(prefix + "/"))
-            if candidates:
-                # Prefer `<prefix>/src` if present, otherwise the shallowest matching code object.
-                if f"{prefix}/src" in candidates:
-                    return f"{prefix}/src"
-                return min(candidates, key=lambda c: (c.count("/"), c))
-        return None
 
     for path in tracked_lines:
         if not is_test_path(path):
             continue
-        if not path.startswith("tests/"):
-            # Co-located test inside a code object (e.g. `ide/agent/src/app.test.ts` -> `ide/agent`).
+        if path.startswith("tests/"):
+            target = _resolve_tests_dir_target(path, roots, unique_subdir)
+        else:
             o = owner_fn(path, tops)
-            if o in code_set:
-                by_code[o].append(path)
-                continue
-            # Sibling test dir inside a package (e.g. `ide/web/scripts/*.test.mjs` -> `ide/web/src`).
-            sib = sibling_code_target(path)
-            if sib:
-                by_code[sib].append(path)
-            continue
-
-        rest = path[len("tests/"):]
-        sub = rest.split("/", 1)[0]
-        if sub in roots:
-            by_code[roots[sub]].append(path)
-            continue
-        if sub in unique_subdir:
-            by_code[unique_subdir[sub]].append(path)
-            continue
-        prefix = sub.split("_", 1)[0]
-        if prefix in roots:
-            by_code[roots[prefix]].append(path)
-            continue
-        if "/" not in rest and rest.startswith("test_"):
-            stem = rest[len("test_"):].split("_", 1)[0].removesuffix(".py")
-            if stem in roots:
-                by_code[roots[stem]].append(path)
+            target = o if o in code_set else _sibling_code_target(path, code_objects)
+        if target:
+            by_code[target].append(path)
     return by_code
 
 
@@ -765,14 +725,11 @@ def collect_telemetry(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: 
     }
 
 
-def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
-    """Pareto delta-gate and Refactoring Runaway checker between `base_rev` and `head_rev`
-    (arXiv:2605.22526 + arXiv:2610.33343 + slim.md Rule 1)."""
+def _parse_delta_diff(base_rev: str, head_rev: str) -> tuple[int, int, int, int, list[str], set[str]]:
     raw_diff = _git("diff", "--numstat", "--no-renames", "-z", base_rev, head_rev)
     prod_added = prod_removed = test_added = test_removed = 0
     touched_prod: list[str] = []
     touched_pkgs: set[str] = set()
-
     for line in raw_diff.split(b"\0"):
         if line.count(b"\t") < 2:
             continue
@@ -788,35 +745,49 @@ def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
             prod_removed += d
             touched_prod.append(path)
             touched_pkgs.add(path.split("/", 1)[0])
+    return prod_added, prod_removed, test_added, test_removed, touched_prod, touched_pkgs
 
+
+def _summarize_delta_blobs(blobs: dict[str, bytes]) -> tuple[dict[str, dict[str, Any]], int, int, float | None, int]:
+    per_file: dict[str, dict[str, Any]] = {}
+    fns = max_cog = satd = 0
+    healths: list[float] = []
+    for path, raw in blobs.items():
+        if b"\0" in raw:
+            continue
+        text = raw.decode("utf-8", errors="replace")
+        ext = Path(path).suffix.lower()
+        info = analyze_python_source(text) if ext == ".py" else analyze_js_ts_source(text, is_jsx=ext in JSX_EXTS)
+        health = compute_health_score(
+            info["lines"], info["max_cognitive"], info["top3_cognitive"], info["max_fn_lines"], 0, info["satd"],
+        )
+        per_file[path] = {"lines": info["lines"], "functions": info["functions"],
+                          "max_cognitive": info["max_cognitive"], "health": health, "satd": info["satd"]}
+        fns += info["functions"]
+        max_cog = max(max_cog, info["max_cognitive"])
+        satd += info["satd"]
+        healths.append(health)
+    return per_file, fns, max_cog, (min(healths) if healths else None), satd
+
+
+def _commit_subjects(base_rev: str, head_rev: str) -> list[str]:
+    raw_log = _git("log", "--format=%x01%s%x02%b%x03", f"{base_rev}..{head_rev}").decode(errors="replace")
+    subjects: list[str] = []
+    for entry in raw_log.split("\x01")[1:]:
+        hdr, _, _ = entry.partition("\x03")
+        title, _, body = hdr.partition("\x02")
+        subjects.append(body.lstrip() if title.startswith("Merge ") else title)
+    return subjects
+
+
+def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
+    """Pareto delta-gate and Refactoring Runaway checker between `base_rev` and `head_rev`
+    (arXiv:2605.22526 + arXiv:2610.33343 + slim.md Rule 1)."""
+    prod_added, prod_removed, test_added, test_removed, touched_prod, touched_pkgs = _parse_delta_diff(base_rev, head_rev)
     analyzable = sorted(p for p in touched_prod if p.endswith(".py") or Path(p).suffix.lower() in JS_TS_EXTS)
-    before_blobs = read_blobs(base_rev, analyzable)
-    after_blobs = read_blobs(head_rev, analyzable)
-
-    def summarize(blobs: dict[str, bytes]) -> tuple[dict[str, dict[str, Any]], int, int, float | None, int]:
-        per_file: dict[str, dict[str, Any]] = {}
-        fns = max_cog = satd = 0
-        healths: list[float] = []
-        for path, raw in blobs.items():
-            if b"\0" in raw:
-                continue
-            text = raw.decode("utf-8", errors="replace")
-            ext = Path(path).suffix.lower()
-            info = analyze_python_source(text) if ext == ".py" else analyze_js_ts_source(text, is_jsx=ext in JSX_EXTS)
-            health = compute_health_score(
-                info["lines"], info["max_cognitive"], info["top3_cognitive"],
-                info["max_fn_lines"], 0, info["satd"],
-            )
-            per_file[path] = {"lines": info["lines"], "functions": info["functions"],
-                              "max_cognitive": info["max_cognitive"], "health": health, "satd": info["satd"]}
-            fns += info["functions"]
-            max_cog = max(max_cog, info["max_cognitive"])
-            satd += info["satd"]
-            healths.append(health)
-        return per_file, fns, max_cog, (min(healths) if healths else None), satd
-
-    b_files, b_fns, b_cog, b_health, b_satd = summarize(before_blobs)
-    a_files, a_fns, a_cog, a_health, a_satd = summarize(after_blobs)
+    before_blobs, after_blobs = read_blobs(base_rev, analyzable), read_blobs(head_rev, analyzable)
+    b_files, b_fns, b_cog, b_health, b_satd = _summarize_delta_blobs(before_blobs)
+    a_files, a_fns, a_cog, a_health, a_satd = _summarize_delta_blobs(after_blobs)
 
     deleted_contents = {raw for p, raw in before_blobs.items() if p not in after_blobs}
     new_break_even: list[dict[str, Any]] = []
@@ -829,30 +800,17 @@ def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
             new_break_even.append({"file": path, "before_health": prev_h, "after_health": af["health"],
                                    "after_cognitive": af["max_cognitive"]})
 
-    prod_net = prod_added - prod_removed
-    test_net = test_added - test_removed
-    prod_churn = prod_added + prod_removed
+    prod_net, test_net, prod_churn = prod_added - prod_removed, test_added - test_removed, prod_added + prod_removed
     cog_delta = a_cog - b_cog
     health_delta = round((a_health - b_health), 2) if (a_health is not None and b_health is not None) else 0.0
 
-    # Check whether commits in range carry fix-only intent (contain `fix(...)`, no explicit `feat`/`refactor`)
-    # so sneaking in a `docs:`/`chore:` commit cannot bypass Refactoring Runaway detection (arXiv:2605.22526).
-    raw_log = _git("log", "--format=%x01%s%x02%b%x03", f"{base_rev}..{head_rev}").decode(errors="replace")
-    subjects: list[str] = []
-    for entry in raw_log.split("\x01")[1:]:
-        hdr, _, _ = entry.partition("\x03")
-        title, _, body = hdr.partition("\x02")
-        subjects.append(body.lstrip() if title.startswith("Merge ") else title)
+    subjects = _commit_subjects(base_rev, head_rev)
     fix_only_intent = any(FIX_RE.match(s) for s in subjects) and not any(EXPLICIT_CHANGE_RE.match(s) for s in subjects)
     tangled_refactor_risk = fix_only_intent and len(touched_prod) >= 6 and len(touched_pkgs) >= 3 and prod_churn >= 300
 
     moved_only = (
-        prod_added >= 20
-        and prod_removed >= 20
-        and abs(prod_net) <= max(5, int(0.05 * prod_churn))
-        and cog_delta >= 0
-        and health_delta <= 0.0
-        and a_fns >= b_fns
+        prod_added >= 20 and prod_removed >= 20 and abs(prod_net) <= max(5, int(0.05 * prod_churn))
+        and cog_delta >= 0 and health_delta <= 0.0 and a_fns >= b_fns
     )
     if new_break_even or health_delta < -0.25 or cog_delta >= 5:
         pareto_verdict = "regressed"
@@ -864,11 +822,8 @@ def compute_delta(base_rev: str, head_rev: str) -> dict[str, Any]:
         pareto_verdict = "neutral"
 
     return {
-        "base": base_rev,
-        "head": head_rev,
-        "commits": len(subjects),
-        "touched_prod_files": len(touched_prod),
-        "touched_packages": sorted(touched_pkgs),
+        "base": base_rev, "head": head_rev, "commits": len(subjects),
+        "touched_prod_files": len(touched_prod), "touched_packages": sorted(touched_pkgs),
         "prod_lines": {"added": prod_added, "removed": prod_removed, "net": prod_net},
         "test_lines": {"added": test_added, "removed": test_removed, "net": test_net},
         "functions": {"before": b_fns, "after": a_fns, "delta": a_fns - b_fns},

@@ -538,6 +538,23 @@ def _select_theme_and_scope(
     return "find", objs, chosen_items, rat
 
 
+def _extract_cooldown_dates(records: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
+    last_slimmed: dict[str, str] = {}
+    last_friction_zero: dict[str, str] = {}
+    for rec in records:
+        if rec["is_partial"]:
+            continue
+        if rec["theme"] == "slim":
+            for obj in rec["objects"]:
+                if rec["date"] > last_slimmed.get(obj, ""):
+                    last_slimmed[obj] = rec["date"]
+        elif rec["theme"] == "friction" and rec["confirmed"] == 0:
+            for obj in rec["objects"]:
+                if rec["date"] > last_friction_zero.get(obj, ""):
+                    last_friction_zero[obj] = rec["date"]
+    return last_slimmed, last_friction_zero
+
+
 def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
            scan_objects: dict[str, dict[str, Any]], scan_items: dict[str, str | None],
            telemetry_data: dict[str, Any], owner_fn, *,
@@ -556,20 +573,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         and ((r["probed"] or 0) >= 1 or (r["shown"] == 0 and len(r["objects"]) >= 1))
     ]
     zero_yield_streak, lens_zero_streak, lens_runs = _compute_yield_streaks(substantive_audits)
-
-    last_slimmed: dict[str, str] = {}
-    last_friction_zero: dict[str, str] = {}
-    for rec in records:
-        if rec["is_partial"]:
-            continue
-        if rec["theme"] == "slim":
-            for obj in rec["objects"]:
-                if rec["date"] > last_slimmed.get(obj, ""):
-                    last_slimmed[obj] = rec["date"]
-        elif rec["theme"] == "friction" and rec["confirmed"] == 0:
-            for obj in rec["objects"]:
-                if rec["date"] > last_friction_zero.get(obj, ""):
-                    last_friction_zero[obj] = rec["date"]
+    last_slimmed, last_friction_zero = _extract_cooldown_dates(records)
 
     object_kinds = {name: obj["kind"] for name, obj in telemetry_data["objects"].items()}
     issue_buckets = classify_issues(
@@ -585,9 +589,9 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         key=lambda pair: (pair[1], pair[0]),
     )
 
-    last_two_substantive = substantive_audits[-2:]
-    recent_confirmed = sum(r["confirmed"] for r in last_two_substantive) if len(last_two_substantive) >= 2 else None
-    any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_substantive)
+    last_two_sub = substantive_audits[-2:]
+    recent_confirmed = sum(r["confirmed"] for r in last_two_sub) if len(last_two_sub) >= 2 else None
+    any_recent_bugs = any((r["confirmed"] or 0) > 0 for r in last_two_sub)
     code_commits_short = sum(o["commits_short"] for o in telemetry_data["objects"].values() if o["kind"] == "code")
 
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
@@ -602,7 +606,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         "no_staleness_breaches": len(staleness_breaches) == 0,
         "marginal_yield_saturated": (
             (recent_confirmed == 0)
-            or (code_commits_short < 5 and len(staleness_breaches) == 0 and not any_recent_bugs and len(last_two_substantive) >= 1)
+            or (code_commits_short < 5 and len(staleness_breaches) == 0 and not any_recent_bugs and len(last_two_sub) >= 1)
         ),
     }
 
@@ -623,50 +627,29 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         slim_cooled_down, friction_cooled_down, all(stopping_checks.values()),
         ranked_objects, stalest_items, staleness_breaches, sla_days,
     )
-
     coupled_contracts = [
         c for c in telemetry_data["couplings"]
         if any(obj in c["pair"].split("+") for obj in chosen_objs)
     ][:3]
 
     return {
-        "tree": rev,
-        "as_of": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "sla_days": sla_days,
-        "recommended_theme": theme,
-        "rationale": rationale,
-        "recommended_scope": {
-            "theme": theme,
-            "objects": chosen_objs,
-            "items": chosen_items,
-            "coupled_contracts": coupled_contracts,
-        },
-        "stopping_checks": stopping_checks,
-        "last_two_themes": last_two_themes,
-        "dynamic_bars": dynamic_bars,
+        "tree": rev, "as_of": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), "sla_days": sla_days,
+        "recommended_theme": theme, "rationale": rationale,
+        "recommended_scope": {"theme": theme, "objects": chosen_objs, "items": chosen_items, "coupled_contracts": coupled_contracts},
+        "stopping_checks": stopping_checks, "last_two_themes": last_two_themes, "dynamic_bars": dynamic_bars,
         "issues_summary": {
-            "provided": issues is not None,
-            "actionable_harm": issue_buckets["actionable_harm"][:10],
-            "authority_drifted": issue_buckets["authority_drifted"][:10],
-            "stale_claimed": issue_buckets["stale_claimed"][:10],
+            "provided": issues is not None, "actionable_harm": issue_buckets["actionable_harm"][:10],
+            "authority_drifted": issue_buckets["authority_drifted"][:10], "stale_claimed": issue_buckets["stale_claimed"][:10],
             "blocked_authority_count": len(issue_buckets["blocked_authority"]),
-            "claimed_count": len(issue_buckets["claimed"]),
-            "other_open_count": len(issue_buckets["other_open"]),
+            "claimed_count": len(issue_buckets["claimed"]), "other_open_count": len(issue_buckets["other_open"]),
         },
-        "slim_total_count": len(slim_list),
-        "slim_cooled_objects": slim_cooled_objects,
-        "slim_candidates": slim_list[:6],
-        "friction_summary": {
-            "provided": friction_data is not None,
-            "triggers": friction_triggers[:8],
-        },
-        "staleness_breach_count": len(staleness_breaches),
-        "ranked_code_objects": ranked_objects[:12],
+        "slim_total_count": len(slim_list), "slim_cooled_objects": slim_cooled_objects, "slim_candidates": slim_list[:6],
+        "friction_summary": {"provided": friction_data is not None, "triggers": friction_triggers[:8]},
+        "staleness_breach_count": len(staleness_breaches), "ranked_code_objects": ranked_objects[:12],
         "stalest_items": [{"item": i, "examined": None if d == "0000-00-00" else d} for i, d in stalest_items[:8]],
         "low_yield_lenses": [
             {"item": item, "zero_yield_streak": streak, "recent_runs": lens_runs.get(item, 0)}
-            for item, streak in sorted(lens_zero_streak.items(), key=lambda p: (-p[1], p[0]))
-            if streak >= 2
+            for item, streak in sorted(lens_zero_streak.items(), key=lambda p: (-p[1], p[0])) if streak >= 2
         ],
         "next_trigger_if_steady": (
             "Re-enter audit when a new unclaimed harm finding opens, a code object hits >=3 fix commits "

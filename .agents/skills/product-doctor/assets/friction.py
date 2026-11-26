@@ -68,6 +68,59 @@ def _parse_iso(ts: str | None) -> datetime | None:
         return None
 
 
+def _summarize_workflow_runs(name: str, items: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
+    completed = [r for r in items if str(r.get("status") or "").lower() in ("completed", "")]
+    conclusions = Counter(str(r.get("conclusion") or "unknown").lower() for r in completed)
+    effective = [
+        r for r in completed
+        if str(r.get("conclusion") or "unknown").lower() not in NON_EFFECTIVE_CONCLUSIONS
+    ]
+    total = len(effective)
+    failures = conclusions["failure"] + conclusions["timed_out"] + conclusions["startup_failure"]
+    cancelled = conclusions["cancelled"]
+    fail_rate = round(failures / total, 3) if total else 0.0
+
+    # Order oldest -> newest to measure recent-half vs earlier-half wait-time growth (excluding cancelled/skipped).
+    dated: list[tuple[datetime, float]] = []
+    for r in effective:
+        c_at = _parse_iso(r.get("createdAt") or r.get("created_at"))
+        u_at = _parse_iso(r.get("updatedAt") or r.get("updated_at"))
+        if c_at and u_at and u_at >= c_at:
+            dated.append((c_at, round((u_at - c_at).total_seconds() / 60.0, 2)))
+    dated.sort(key=lambda pair: pair[0])
+    durations = [m for _, m in dated]
+    median_min = round(statistics.median(durations), 2) if durations else None
+    p90_idx = max(0, math.ceil(0.9 * len(durations)) - 1) if durations else 0
+    p90_min = round(sorted(durations)[p90_idx], 2) if durations else None
+
+    wait_growth_pct: float | None = None
+    if len(durations) >= 6:
+        mid = len(durations) // 2
+        early_med = statistics.median(durations[:mid])
+        late_med = statistics.median(durations[mid:])
+        if early_med >= 1.0:
+            wait_growth_pct = round(((late_med - early_med) / early_med) * 100.0, 1)
+
+    wf_triggers: list[str] = []
+    if total >= 4 and fail_rate >= 0.25:
+        wf_triggers.append(f"ci_failure_rate ({name}: {failures}/{total} = {fail_rate:.0%})")
+    if p90_min is not None and p90_min >= 20.0:
+        wf_triggers.append(f"ci_long_wait ({name}: p90={p90_min}m, median={median_min}m)")
+    if wait_growth_pct is not None and wait_growth_pct >= 30.0 and (median_min or 0.0) >= 3.0:
+        wf_triggers.append(f"ci_wait_growth ({name}: +{wait_growth_pct}% recent median)")
+
+    return {
+        "runs": total,
+        "failures": failures,
+        "cancelled": cancelled,
+        "failure_rate": fail_rate,
+        "median_minutes": median_min,
+        "p90_minutes": p90_min,
+        "wait_growth_pct": wait_growth_pct,
+        "triggers": wf_triggers,
+    }, wf_triggers
+
+
 def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize GitHub Actions runs (`gh run list --json ...`) into deterministic delivery friction signals."""
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
@@ -81,60 +134,10 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
     workflows_out: dict[str, dict[str, Any]] = {}
     triggers: list[str] = []
-
     for name, items in sorted(by_workflow.items()):
-        completed = [r for r in items if str(r.get("status") or "").lower() in ("completed", "")]
-        conclusions = Counter(str(r.get("conclusion") or "unknown").lower() for r in completed)
-        effective = [
-            r for r in completed
-            if str(r.get("conclusion") or "unknown").lower() not in NON_EFFECTIVE_CONCLUSIONS
-        ]
-        total = len(effective)
-        failures = conclusions["failure"] + conclusions["timed_out"] + conclusions["startup_failure"]
-        cancelled = conclusions["cancelled"]
-        fail_rate = round(failures / total, 3) if total else 0.0
-
-        # Order oldest -> newest to measure recent-half vs earlier-half wait-time growth (excluding cancelled/skipped).
-        dated: list[tuple[datetime, float]] = []
-        for r in effective:
-            c_at = _parse_iso(r.get("createdAt") or r.get("created_at"))
-            u_at = _parse_iso(r.get("updatedAt") or r.get("updated_at"))
-            if c_at and u_at and u_at >= c_at:
-                mins = round((u_at - c_at).total_seconds() / 60.0, 2)
-                dated.append((c_at, mins))
-        dated.sort(key=lambda pair: pair[0])
-        durations = [m for _, m in dated]
-        median_min = round(statistics.median(durations), 2) if durations else None
-        p90_idx = max(0, math.ceil(0.9 * len(durations)) - 1) if durations else 0
-        p90_min = round(sorted(durations)[p90_idx], 2) if durations else None
-
-        wait_growth_pct: float | None = None
-        if len(durations) >= 6:
-            mid = len(durations) // 2
-            early_med = statistics.median(durations[:mid])
-            late_med = statistics.median(durations[mid:])
-            if early_med >= 1.0:
-                wait_growth_pct = round(((late_med - early_med) / early_med) * 100.0, 1)
-
-        wf_triggers: list[str] = []
-        if total >= 4 and fail_rate >= 0.25:
-            wf_triggers.append(f"ci_failure_rate ({name}: {failures}/{total} = {fail_rate:.0%})")
-        if p90_min is not None and p90_min >= 20.0:
-            wf_triggers.append(f"ci_long_wait ({name}: p90={p90_min}m, median={median_min}m)")
-        if wait_growth_pct is not None and wait_growth_pct >= 30.0 and (median_min or 0.0) >= 3.0:
-            wf_triggers.append(f"ci_wait_growth ({name}: +{wait_growth_pct}% recent median)")
+        wf_summary, wf_triggers = _summarize_workflow_runs(name, items)
+        workflows_out[name] = wf_summary
         triggers.extend(wf_triggers)
-
-        workflows_out[name] = {
-            "runs": total,
-            "failures": failures,
-            "cancelled": cancelled,
-            "failure_rate": fail_rate,
-            "median_minutes": median_min,
-            "p90_minutes": p90_min,
-            "wait_growth_pct": wait_growth_pct,
-            "triggers": wf_triggers,
-        }
 
     return {
         "total_runs": len(runs),
