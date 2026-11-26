@@ -555,9 +555,14 @@ class Session:
 
     def commanded(self, close: bool = False) -> str | None:
         """Why a cancel, or a position close (`close`), the source sends is not sent, or None: nothing is once the
-        recovery is refused, and a close on a back-filled bar is a MARKET order (`submitted`)."""
+        recovery is refused, a close on a back-filled bar is a MARKET order (`submitted`), and a close before a saved
+        recovery is admitted refuses the recovery."""
         if close:
-            return self.submitted(None)
+            found = self.submitted(None)
+            if found is None and self.saved and not self.admitted:
+                self.refused = "a position close before the recovery was admitted cannot run before touched"
+                return self.refused
+            return found
         return self.refused
 
     def _has_backfill(self) -> bool:
@@ -575,12 +580,8 @@ class Session:
         while a position is open, past the source's overrides, and Python cannot end a running exit: timer events
         already queued outlive a cancelled timer. So it would go on sending if touched, the restore deadline or the
         back-fill then refused the recovery."""
-        if self.commanded(close=True) is None and not self.ready:
-            if self.saved and not self.admitted:
-                self.refused = ("a market exit begun before the recovery was admitted would go on closing after "
-                                "a refusal")
-            elif self._has_backfill():
-                self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
+        if self.commanded(close=True) is None and not self.ready and self._has_backfill():
+            self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
         return self.refused
 
     def due(self, cache, now: int) -> str | None:

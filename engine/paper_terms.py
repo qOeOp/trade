@@ -131,11 +131,15 @@ class Waiting:
     _paper_entry_terms: Any
     _orders_allowed: Any
 
-    def _wait(self, order, position_id, client_id, params) -> None:
+    def _wait(self, order, position_id, client_id, params) -> Any:
+        if (str(getattr(order, "strategy_id", None)) in WARMING
+                or isinstance(self, Strategy) and str(Strategy.strategy_id.__get__(self, type(self))) in WARMING):
+            return super().submit_order(order, position_id, client_id, params)  # type: ignore[misc]
         submitted_ns = Strategy.clock.__get__(self, type(self)).timestamp_ns() if isinstance(self, Strategy) else None
         send = functools.partial(self._send_waiting, order, position_id, client_id, params, submitted_ns)
         end = functools.partial(self._end_waiting, order, position_id, client_id, params, submitted_ns)
         queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
+        return None
 
     def _send_waiting(self, order, position_id, client_id, params, submitted_ns: int | None) -> Any:
         if submitted_ns is None:
