@@ -21,9 +21,15 @@ export function app(hosts: ReadonlySet<string>, reads: Reads, minutes: Minutes) 
                                    "x-content-type-options": "nosniff", "content-length": Buffer.byteLength(text) });
       response.end(text);
     };
-    const url = new URL(request.url ?? "/", "http://overview"), path = url.pathname;
     if (!hosts.has(request.headers.host ?? "")) return send(403, { code: "FORBIDDEN", message: "requests come through the page's server" });
     if (request.method !== "GET") return send(405, { code: "METHOD_NOT_ALLOWED", message: "the overview only answers GET" });
+    const raw = request.url ?? "/";
+    if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\"))
+      return send(400, { code: "BAD_REQUEST", message: "invalid request path" });
+    let url: URL;
+    try { url = new URL(raw, "http://overview"); } catch { return send(400, { code: "BAD_REQUEST", message: "invalid request path" }); }
+    if (url.origin !== "http://overview") return send(400, { code: "BAD_REQUEST", message: "invalid request path" });
+    const path = url.pathname;
     if (path === "/api/overview/health") return send(200, { ok: true });
     if (path === "/api/overview/snapshot") return send(200, reads.snapshot());
     if (path === "/api/overview/news") return send(200, { items: reads.news() });

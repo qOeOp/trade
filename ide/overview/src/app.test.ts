@@ -40,6 +40,12 @@ test("health, the snapshot, a coin and the news answer GET; other methods, paths
     assert.equal((await call("/api/overview/snapshot", { method: "POST" })).status, 405);
     assert.equal((await call("/api/overview/elsewhere")).status, 404);
     assert.equal((await call("/api/overview/health", { host: "evil.example:8768" })).status, 403);
+    assert.equal((await call("//x:99999/", { host: "evil.example:8768" })).status, 403);
+    for (const bad of ["//x:99999/", "/\\x:99999/", "/\\evil.example/api/overview/health", "http://[/"]) {
+      const answer = await call(bad);
+      assert.deepEqual([answer.status, (answer.json() as { code: string }).code], [400, "BAD_REQUEST"], bad);
+    }
+    assert.deepEqual((await call("/api/overview/health")).json(), { ok: true }, "server stays alive after malformed paths");
   });
 });
 
