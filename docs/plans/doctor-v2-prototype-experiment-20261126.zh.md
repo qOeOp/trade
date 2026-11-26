@@ -324,3 +324,35 @@
    - `unittest` **43/43 OK**、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
 4. **下一轮假设（Round 12 — 连续干净红队验证轮 1 + Claude 拆 PR 视角审计）**：
    - Round 11 发现了 `HARM_RE` 屈折漏报与 `friction.py` 混合时区崩溃，因此连续干净红队计数归零；下一轮从全新对抗维度（深度嵌套 JS/TS/TSX 语法、Python 3.14 AST 特性、并发/多文件耦合、边界 `recheck`、`attach`/`lenses.md`/`record.md` 一致性、`SKILL.md` 词数与 Claude 拆 PR 结构审计）展开独立对抗红队验证，检验是否已达 0 P0/P1。
+
+## 16. 第十二–十三轮收官验收（连续 2 轮零 P0/P1 红队 + 面向 Claude 拆 PR 的交接蓝图）
+
+### 1. 连续两轮独立对抗红队与长程压测结果（0 P0/P1）
+
+| 验收轮次 | 压测脚本与覆盖面 | 关键量化结果 | P0/P1 漏洞 |
+|---|---|---|---:|
+| **Round 12（红队轮 1）** | `/tmp/doctor-rd-sources/redteam_round12.py`：真实 `origin/main` 35 条 open issues + 80 条 CI runs 召回/精确审计、Python 3.14 & JS/TS/TSX 极限语法（含 50KB 单行混淆包）、CLI 信任边界（非 `/tmp` 拒写、分拆 `A`/`B` 不可冒充 `A+B` 契约、异路径同源探针防伪）、15 包超高速仓 30 轮演化、517 文件 parity、技能词数与 `test_doctor.py` 零改动核验 | 真实 35 issue 分流精准（2 actionable_harm / 10 authority_drifted / 15 blocked_authority / 8 other_open，0 漏报、0 误拉 authority）；15 包仓 R1 仅聚焦 3/15 离群点、R9 满覆盖、R10–R23 稳定保持 `steady`、R24 按 21d 周期 SLA 准确唤醒；517/517 JS/TS bit-exact；`test_doctor.py` vs `origin/main` 0 diff | **0** |
+| **Round 13（红队轮 2）** | `/tmp/doctor-rd-sources/redteam_round13.py`：30 轮周期 SLA 完整轨迹验证、Unicode/空格/`%`/二进制文件跨 `telemetry`+`delta`+`recheck`、目标 `now` 删除 JS 测试文件后的 `recheck` 降级、双次 `advise()` 字节级确定性、`SKILL.md`/`references/*.md` 全部 12 子命令与 `argparse` 100% 对齐、9 个新 eval case 软链完整度核验 | 13/13 静默轮稳态保持至 21d SLA 到期；删测试文件准确返回 `undecided`；`advise()` 在 `origin/main` 上 100% byte-identical（7.08s）；12/12 子命令文档与解析器一致；9/9 新增 eval case 软链 `graders/skill-fired.md -> ../../skill-fired.md` 全部合规 | **0** |
+
+### 2. 全 5 个纯 stdlib 资产最终自检（Round 7 基线 → 收官）
+
+| 资产文件 | R7 行数 → 终版 | R7 `max_cog` → **终版** | R7 `max_fn` → **终版** | R7 `health` → **终版** | 职责边界 |
+|---|---:|---:|---:|---:|---|
+| `doctor.py` | 967 → 1017 | 61 → **32 (−48%)** | 83 → **66** | 3.06 → **5.30 (+2.24)** | CLI 入口、证据账本、隔离 `tree()`、`run`/`probe`/`cost`/`recheck`/`scope`/`report` |
+| `friction.py` | 257 → 324 | 40 → **25 (−38%)** | 69 → **51** | 6.25 → **7.92 (+1.67)** | CI 交付遥测（排除 `cancelled`/`skipped`/`neutral`）与三宿主（Antigravity/Claude/Codex）隐私脱敏 transcript 遥测 |
+| `js_analyzer.py` | 707 → 717 | 266 → **40 (−85%)** | 306 → **46** | 2.73 → **4.90 (+2.17)** | 纯 stdlib JS/TS/TSX/JSX/MJS/CJS `_Lexer` 状态机、函数级 Campbell 复杂度与 Type-2 克隆哈希（517/517 bit-exact） |
+| `scheduler.py` | 675 → 691 | 46 → **38 (−17%)** | 135 → **85** | 3.91 → **4.90 (+0.99)** | 闭环调度控制器：`harm` 屈折匹配与授权分流、动态 p75 `slim` 与按对象冷却、防饿死联合冷却、`steady` 反作弊门禁 |
+| `telemetry.py` | 874 → 836 | 72 → **27 (−62%)** | 108 → **92** | 3.14 → **6.31 (+3.17)** | 单趟双窗 git 演化遥测、Python AST 复杂度/克隆/隔离边界识别、跨包耦合与 Pareto `compute_delta` 门控 |
+
+- **`doctor.py delta 572866784 HEAD`（R7 → 终版）**：`pareto_verdict = "improved"`、`max_cognitive: 266 → 40 (−226)`、`min_health: 2.73 → 4.90 (+2.17)`、`new_break_even_regressions = []`、`tangled_refactor_risk = false`、`satd = 0`。
+- **文档体量**：`SKILL.md` 1,684 词（Round 8–13 净增 0 词），全套技能文档 4,176 词，无膨胀。
+
+### 3. 面向后续接手者（Claude / 维护者）的拆 PR 合入建议（按依赖顺序，每 PR 独立基于 `main`）
+
+本实验分支 `exp/doctor-v2-convergence` 共 37 个改动文件（`+4,766 / -150`），建议拆为 **5 个独立、可单独验收的小 PR** 依次合入 `main`（绝不堆叠 PR）：
+
+1. **PR 1（Telemetry 底座）**：`js_analyzer.py` + `telemetry.py` + `doctor.py`（仅 `telemetry` / `delta` 子命令与提交时间锚定 `scan_data`）+ 对应单测。验收：`517/517` JS/TS parity、纯 stdlib 过 `test_source_hygiene`、`test_doctor.py` 全绿。
+2. **PR 2（Friction 遥测）**：`friction.py` + `doctor.py`（`friction` 子命令）+ 对应单测（CI 取消排除、三宿主 JSONL、环境变量/Token 脱敏、混合时区）。
+3. **PR 3（闭环调度与停止门禁）**：`scheduler.py` + `doctor.py`（`advise` / `scope steady` / `scope --contracts` / `run --tree` / `report` Refuters 行）+ 对应单测。
+4. **PR 4（跨语言 `recheck` 与 CLI 安全硬化）**：`doctor.py`（`JS_TESTS` / `run_js_tests` / `_link_node_modules` / `subtestsFailed` / `PROBE_ID_RE` / `cost --sizes` / `scope` 自契约拒收）+ 对应单测。
+5. **PR 5（技能文档与 9 个新 Eval Case）**：`SKILL.md`、`references/{lenses,slim}.md`（顺手收口 `#3762`）+ `.agents/evals/product-doctor/` 9 个新 eval case，并用 `claude plugin eval .agents` 跑完整 A/B 配对回归（同时不改任何既有 eval grader，符合 `AGENTS.md`）。
