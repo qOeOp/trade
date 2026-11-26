@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import timedelta
 
-from ledger import db, execution, problems
+from ledger import db, execution, problems, review_activity
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import reproduction
@@ -165,10 +165,11 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
         raise refuse("SOURCE_PRECHECK_FAILED", f"source review {review_id} did not pass: "
                      + ", ".join(item for item in ITEMS if record[item]["status"] != "passed"),
                      missing=(str(review_id),))
-    failed = [str(item["review_id"]) for item in review_records(conn, source_sha256)
-              if item["trial_id"] == trial["trial_id"] and item["verdict"] == "failed"]
+    reviewed = [item for item in review_records(conn, source_sha256) if item["image_digest"] == digest]
+    failed = [str(item["review_id"]) for item in reviewed if item["verdict"] == "failed"
+              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(conn, item, reviewed))]
     if failed:
-        raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} also has failed reviews: "
+        raise refuse("SOURCE_PRECHECK_FAILED", f"source has failed reviews on {digest}: "
                      + ", ".join(failed), missing=tuple(failed))
     return trial["trial_id"]
 

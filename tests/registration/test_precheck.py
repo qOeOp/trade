@@ -192,12 +192,37 @@ class PrecheckTests(unittest.TestCase):
                                          self.identity(effective)).code, "SOURCE_PRECHECK_REQUIRED")
 
     def test_any_failed_review_of_the_precheck_fails_admission(self):
-        trial_id = self.sealed()
+        data = self.world.publish("same-trial-failed")["source"]
+        trial_id = self.sealed(data)
         passed = self.review(trial_id)
-        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), self.identity()), trial_id)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(data), self.identity()), trial_id)
         self.review(trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
-        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(self.data), self.identity()).code,
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(data), self.identity()).code,
                          "SOURCE_PRECHECK_FAILED")
+
+    def test_a_failed_source_review_on_an_earlier_precheck_fails_admission_unless_resolved(self):
+        leaking = self.world.publish("leaking-causal")["source"]
+        first = self.sealed(leaking, fingerprint=untraded(2, 1))
+        self.review(first, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
+        second = self.sealed(leaking, fingerprint=untraded(2, 1))
+        passed = self.review(second)
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(leaking), self.identity()).code,
+                         "SOURCE_PRECHECK_FAILED")
+        # An activity-only failure on an untraded precheck yields to a later traded precheck that passed.
+        quiet = self.world.publish("quiet-then-active")["source"]
+        untraded_trial = self.sealed(quiet, fingerprint=untraded(0, 0))
+        self.review(untraded_trial, "failed", activity={"status": "unresolved", "note": "no fill on short window"})
+        traded_trial = self.sealed(quiet, fingerprint=untraded(2, 1))
+        resolved_pass = self.review(traded_trial)
+        self.assertEqual(precheck.require_precheck(self.conn, resolved_pass, sha(quiet), self.identity()), traded_trial)
+        # A failed causal review on another runtime image does not block this runtime image.
+        other_img = self.world.publish("failed-other-image")["source"]
+        other_trial = self.sealed(other_img, runtime=OTHER_RUNTIME)
+        self.review(other_trial, "failed", causal={"status": "failed", "note": "failed on old image"})
+        current_trial = self.sealed(other_img)
+        current_pass = self.review(current_trial)
+        self.assertEqual(precheck.require_precheck(self.conn, current_pass, sha(other_img), self.identity()),
+                         current_trial)
 
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
@@ -209,8 +234,10 @@ class PrecheckTests(unittest.TestCase):
                                          self.identity()).code, "SOURCE_PRECHECK_FAILED")
         for status in ("failed", "unresolved"):
             with self.subTest(status=status):
-                review = self.review(self.sealed(), "failed", readiness={"status": status, "note": "indicator cold"})
-                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(self.data),
+                data = self.world.publish(f"readiness-{status}")["source"]
+                review = self.review(self.sealed(data), "failed",
+                                     readiness={"status": status, "note": "indicator cold"})
+                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(data),
                                          self.identity()).code, "SOURCE_PRECHECK_FAILED")
 
     # Exposure exemption

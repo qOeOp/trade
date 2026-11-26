@@ -98,8 +98,14 @@ def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> b
 def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on_commit: str, body: str,
                  subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None) -> dict:
     """Append one judgment and its subjects in one write; the same payload again is a replay."""
+    if not isinstance(body, str):
+        raise refuse("JUDGMENT_BODY_EMPTY", "the judgment body is empty", missing=("body",),
+                     expected="nonempty UTF-8 text")
     if kind == "search_exposure":
         declared_variants(body)
+    if not body.strip():
+        raise refuse("JUDGMENT_BODY_EMPTY", "the judgment body is empty", missing=("body",),
+                     expected="nonempty UTF-8 text")
     check_decision_opening(kind, body)
     normalized = _subjects(subjects)
     with db.connect(profile, "writer") as conn:

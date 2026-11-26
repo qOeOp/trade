@@ -76,7 +76,9 @@ def runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--start", required=True)
     parser.add_argument("--trade-start")
     parser.add_argument("--end", required=True)
-    parser.add_argument("--symbols", nargs="+")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--symbols", nargs="+")
+    scope.add_argument("--universe", choices=("pool",))
     parser.add_argument("--lifecycle-bundle")
     parser.add_argument("--execution", default="bars")  # the runtime owns validation of this value
     parser.add_argument("--trade-ticks", action="store_true")

@@ -330,18 +330,18 @@ class Daemon:
         return found
 
     def start(self, body: dict) -> dict:
-        candidate, symbols, universe = body.get("candidate"), body.get("symbols"), body.get("universe")
-        operation = body.get("op_id")
+        candidate, symbols, universe, operation = (body.get(k) for k in ("candidate", "symbols", "universe", "op_id"))
         if operation is not None and (not isinstance(operation, str) or not START_ID.fullmatch(operation)):
             raise Failure(400, "USAGE_ERROR", "op_id is paper-web:<UUID v4>")
         if not isinstance(candidate, str) or not candidate:
             raise Failure(400, "USAGE_ERROR", "the body names a candidate")
         if universe not in (None, "pool") or (symbols is not None and (
-                not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and SYMBOL.fullmatch(s)
-                                                                       for s in symbols))):
+                universe is not None or not isinstance(symbols, list) or not symbols
+                or not all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in symbols))):
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
         if operation and (prior := self.start_result(operation)["run"]):
-            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
+            if (prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols)
+                    or (universe == "pool" and not runs.matches_pool(self.profile, self.market, operation))):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
         with db.read_as_of(self.research_profile) as source:

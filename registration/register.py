@@ -193,68 +193,6 @@ def _candidate(conn: db.LedgerConnection, ref: str, field: str) -> dict:
         raise
 
 
-def _check_duties(body: Mapping, root: bool) -> None:
-    changed = body["changed_duties"]
-    unknown = [duty for duty in changed if duty not in strategies.DUTIES]
-    if unknown:
-        raise refuse("DUTY_UNKNOWN", "changed_duties names unknown duties: " + ", ".join(unknown), missing=tuple(unknown),
-                     expected="duty IDs A1 to I2")
-    if root and changed:
-        raise refuse("DUTY_UNKNOWN", "a root registration changes no duty", missing=("changed_duties",))
-    if not root and not changed:
-        raise refuse("DUTY_UNKNOWN", "a derived registration names at least one changed duty",
-                     missing=("changed_duties",))
-
-
-def _check_prediction(body: Mapping, root: bool) -> None:
-    catalogue = duties.slice_measures()
-    every = frozenset().union(*catalogue.values())
-    changed = set(body["changed_duties"])
-    allowed = strategies.DUTIES if root else changed  # a root changes no duty, predicts any
-    predicted = set()
-    for index, item in enumerate(body["prediction"]["mechanism"]):
-        where = f"prediction.mechanism[{index}]"
-        if item["duty"] not in allowed:
-            raise refuse("PREDICTION_INVALID", f"{where} predicts duty {item['duty']}, which changed_duties does not "
-                                               "name", missing=(where,))
-        if item["slice"] is None:
-            if not item["reason"].strip():
-                raise refuse("PREDICTION_INVALID", f"{where} has no slice and no reason", missing=(where,))
-            if item["measure"] is not None and item["measure"] not in every:
-                raise refuse("PREDICTION_INVALID", f"{where} names measure {item['measure']} outside the catalogue",
-                             missing=(where,), expected="null or a catalogue measure: " + ", ".join(sorted(every)))
-        elif item["slice"] not in catalogue:
-            raise refuse("PREDICTION_INVALID", f"{where} names slice {item['slice']}, which is not in the measure "
-                                               "catalogue", missing=(where,),
-                         expected="null or a catalogue slice: " + ", ".join(sorted(catalogue)))
-        elif item["measure"] not in catalogue[item["slice"]]:
-            raise refuse("PREDICTION_INVALID", f"{where} names {item['slice']}/{item['measure']}, which is not in the "
-                                               "measure catalogue", missing=(where,),
-                         expected=f"a measure of {item['slice']}: " + ", ".join(sorted(catalogue[item["slice"]])))
-        predicted.add(item["duty"])
-    unpredicted = sorted(changed - predicted)
-    if unpredicted:
-        raise refuse("PREDICTION_INVALID", "changed duties without a prediction: " + ", ".join(unpredicted),
-                     missing=tuple(unpredicted))
-    _check_counting(body["prediction"]["mechanism"], changed, every)
-
-
-def _check_counting(mechanism: list, changed: set[str], every: frozenset[str]) -> None:
-    """A changed duty whose named measures are all counts: a threshold change moves them mechanically."""
-    counts = duties.counting_measures()
-    named: dict[str, set[str]] = {}
-    for item in mechanism:
-        if item["duty"] in changed and item["measure"] is not None:
-            named.setdefault(item["duty"], set()).add(item["measure"])
-    counting_only = sorted(duty for duty, measures in named.items() if measures <= counts)
-    if counting_only:
-        raise refuse("PREDICTION_INVALID", "changed duties predicted only on counting measures ("
-                     + ", ".join(sorted(counts)) + "), which a threshold change moves mechanically: "
-                     + ", ".join(counting_only), missing=tuple(counting_only),
-                     expected="for each such duty, also a catalogue measure of quality, return, drawdown or exit "
-                              "structure: " + ", ".join(sorted(every - counts)))
-
-
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
     """A run joined with its trial's comparable identity and the identities of its reproductions: the
     comparability record."""
@@ -314,24 +252,11 @@ def _check_window(execution: Mapping, line: Mapping) -> None:
                      missing=("window",), expected=f"{line['dev_start']} to {line['dev_end']}")
 
 
-def _check_header(body: Mapping, parent: dict | None, sources: Mapping[str, bytes]) -> None:
-    """A derived registration's changed duties are the duty lines each grid candidate's header changes from its
-    parent's."""
-    if parent is None:
-        return
-    changed = sorted(set(body["changed_duties"]))
-    for ref, source in sources.items():
-        edited = duties.header_changes(parent["source"], source)
-        if edited != changed:
-            raise refuse("DUTY_HEADER_MISMATCH", f"grid candidate {ref} changes the header lines of "
-                                                 f"{', '.join(edited) or 'no duty'} from {strategies.name(parent)}; "
-                                                 f"changed_duties names {', '.join(changed)}",
-                         missing=tuple(sorted(set(edited) ^ set(changed))), expected=", ".join(edited) or "none")
-
-
-def _check_grid(conn: db.LedgerConnection, grid: list[str]) -> tuple[list[dict], dict | None, dict[str, bytes]]:
-    """The grid points {candidate, source_sha256}, their shared parent (None for a root) and their sources by
-    reference: every grid candidate has the first one's parent and published difference and a distinct source."""
+def _check_grid(conn: db.LedgerConnection, grid: list[str]
+                ) -> tuple[list[dict], dict | None, dict[str, bytes], str | None]:
+    """The grid points {candidate, source_sha256}, their shared parent (None for a root), their sources by
+    reference and their shared published difference (None for a root): every grid candidate has the first one's
+    parent and published difference and a distinct source."""
     points, seen, first, sources = [], set(), None, {}
     for index, ref in enumerate(grid):
         row = _candidate(conn, ref, f"grid[{index}]")
@@ -349,7 +274,7 @@ def _check_grid(conn: db.LedgerConnection, grid: list[str]) -> tuple[list[dict],
         sources[ref] = row["source"]
     assert first is not None  # the schema requires one grid point
     parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) if first["parent_source_sha256"] else None
-    return points, parent, sources
+    return points, parent, sources, first["difference"]
 
 
 def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int) -> dict:
@@ -478,18 +403,53 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def _check_plan(conn: db.LedgerConnection, plan: Mapping) -> tuple[list[dict], dict | None, dict[str, bytes]]:
+def _same_mechanism(points: list[dict], parent: dict | None, change: str | None, prior: Mapping) -> bool:
+    """Whether a registration's grid repairs the same mechanism as `prior`: same published parent and difference
+    for a derived registration, or a root of one of `prior`'s strategies."""
+    parent_name = strategies.name(parent) if parent is not None else None
+    if parent_name != prior["parent"]:
+        return False
+    if prior["parent"] is not None:
+        return change == prior["change"]
+    return bool({point["candidate"].split("@", 1)[0] for point in points}
+                & {item["candidate"].split("@", 1)[0] for item in prior["grid"]})
+
+
+def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict], parent: dict | None,
+                   change: str | None) -> bool:
+    """Whether `prior` has a consumed trial whose source is in `points`, or is a same-mechanism registration with
+    at least one retryable consumed trial (a repaired-source retry)."""
+    sources = {point["source_sha256"] for point in points}
+    rows = conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE research_registration_id = %s ORDER BY trial_id",
+                     (prior["registration_id"],))
+    if any(source in sources for _, source in rows):
+        return True
+    return _same_mechanism(points, parent, change, prior) and any(retryable(conn, trial_id) for trial_id, _ in rows)
+
+
+def _valid_retry_of(conn: db.LedgerConnection, retry_of: int | None, points: list[dict], parent: dict | None,
+                    change: str | None) -> int | None:
+    """`retry_of` when every registration in its chain relates to this plan; None otherwise (so an unrelated
+    retry_of cannot excuse an uninterpreted invalid trial)."""
+    if retry_of is None:
+        return None
+    chain = _retry_chain(conn, retry_of)
+    return retry_of if all(_retry_relates(conn, prior, points, parent, change) for prior in chain) else None
+
+
+def _check_plan(conn: db.LedgerConnection, plan: Mapping
+                ) -> tuple[list[dict], dict | None, dict[str, bytes], str | None]:
     """The checks of a registration `plan` (validate's) that read only its body and its grid candidates' published
     sources: the comparison design, the grid, the changed duties, the predictions and the header lines; _check_grid's
     result. register runs them before the market export and the image probe, which take half a minute."""
     body = plan["body"]
     if plan["control_trial_id"] is not None or plan["comparison"] is not None:  # nothing to test without a control
         validate_design(plan["comparison"])
-    points, parent, sources = _check_grid(conn, plan["grid"])
-    _check_duties(body, parent is None)
-    _check_prediction(body, parent is None)
-    _check_header(body, parent, sources)
-    return points, parent, sources
+    points, parent, sources, change = _check_grid(conn, plan["grid"])
+    duties.check_duties(body, parent is None)
+    duties.check_prediction(body, parent is None)
+    duties.check_header(body, parent, sources)
+    return points, parent, sources, change
 
 
 def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, binding: bool, line: Mapping,
@@ -498,7 +458,7 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, bindi
     prechecks (review_id by reference)} against its execution identity and its line's record; the grid points
     {candidate, source_sha256, review_id, precheck_trial}. Read only. `exclude` is the registration being bound:
     its earlier attempts are not exposures of the grid."""
-    points, parent, _ = _check_plan(conn, plan)
+    points, parent, _, change = _check_plan(conn, plan)
     absent = [bundle for bundle in plan["body"]["sources"] if not _bundle_exists(conn, bundle)]
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
@@ -514,6 +474,11 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, bindi
         point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"], execution)
     transitions = _check_retry(conn, chain, {**plan, "points": points}, execution)
     _check_exposure(conn, execution, points, chain, exclude, transitions)
+    for prior in chain:
+        if not _retry_relates(conn, prior, points, parent, change):
+            raise refuse("RETRY_NOT_ALLOWED",
+                         f"registration {prior['registration_id']} consumed neither a grid source of this plan nor a "
+                         "retryable attempt of the same mechanism", missing=(str(prior["registration_id"]),))
     return points
 
 
@@ -621,11 +586,12 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
         lines.require_not_closing(conn, held["line_id"])
-        _check_plan(conn, plan)
+        plan_points, parent, _, change = _check_plan(conn, plan)
         # Before the export and the probe too; the same body again is left to the write, which may replay it.
         if not any(db.json_column(stored) == plan["body"] for (stored,) in conn.rows(
                 "SELECT body FROM research_registration WHERE line_id = %s", (held["line_id"],))):
-            require_line_records(conn, held["line_id"], plan["retry_of"])
+            require_line_records(conn, held["line_id"],
+                                 _valid_retry_of(conn, plan["retry_of"], plan_points, parent, change))
         identity = seams.current.resolve_runtime(runtime_ref)
         parsed = runner.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_day"], parsed["window"],
@@ -665,7 +631,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                     evidence.write_files(c, name, files, kind="source")
             lines.open_line(c, held["line_id"])
             lines.require_not_closing(c, held["line_id"])
-            require_line_records(c, held["line_id"], plan["retry_of"])
+            require_line_records(c, held["line_id"], _valid_retry_of(c, plan["retry_of"], plan_points, parent, change))
             points = validate(c, plan, execution, binding=False, line=held)
             design_id = write_design(c, plan["comparison"])
             c.rows("INSERT INTO research_registration (line_id, retry_of, control_trial_id, comparison_design_id, "
