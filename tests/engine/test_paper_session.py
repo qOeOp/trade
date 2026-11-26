@@ -587,6 +587,18 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(session.refused, found)
         self.assertEqual(session.commanded(close=True), found)
 
+    def test_a_close_before_a_saved_recovery_is_admitted_refuses_without_back_fill(self):
+        """#3650: pre-admission Session.commanded(close=True) refuses close_position before maybe_begin passes touched."""
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T):
+            session = self.recovery(T + MINUTE_NS)
+        session.since = {}
+        found = session.commanded(close=True)
+        self.assertIsNotNone(found)
+        self.assertEqual(session.refused, found)
+        # Once admitted and not refused, closes outside backfill are allowed.
+        session.admitted, session.refused = True, None
+        self.assertIsNone(session.commanded(close=True))
+
     def test_a_cut_waits_for_the_bar_of_a_bucket_that_ended(self):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T):
             session = self.recovery(T + MINUTE_NS)

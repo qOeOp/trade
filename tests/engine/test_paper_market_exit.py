@@ -342,3 +342,50 @@ class MarketExitTests(Clocked):
         self.assertIn("warm-up", strategy_runtime.BREACHES[0][1])
         self.assertFalse(self.source.is_exiting())
         self.assertEqual(len(self.engine.cache.positions_open()), 1)
+
+    def test_a_close_position_before_a_saved_recovery_is_admitted_is_refused(self):
+        """#3650: pre-admission Session.commanded(close=True) refuses close_position before touched admits recovery."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        [pos] = self.engine.cache.positions_open()
+        session = paper_session.Session.__new__(paper_session.Session)
+        session.saved, session.since, session.admitted, session.ready = {"cut_ns": self.now, "sources": {}}, {}, False, False
+        session.refused, session.handing = None, None
+        session.callback = nullcontext  # type: ignore[method-assign]
+        with mock.patch.object(paper, "SESSION", session):
+            self.on_next_bar(lambda source: source.close_position(pos))
+            self.feed(self.now + MINUTE)
+        self.assertIsNotNone(session.refused)
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+
+    def test_a_close_position_or_close_all_during_warming_is_refused_by_order_rules(self):
+        """#3650: rule 8 refuses close_position while in WARMING, and close_all_positions never escapes."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        [pos] = self.engine.cache.positions_open()
+        order_rules.WARMING.add("SOURCE-001")
+        self.on_next_bar(lambda source: source.close_position(pos))
+        self.feed(self.now + MINUTE)
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+        self.assertIn("warm-up", strategy_runtime.BREACHES[0][1])
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        strategy_runtime.BREACHES.clear()
+        self.on_next_bar(lambda source: source.close_all_positions(fixture.INSTRUMENT_ID))
+        self.feed(self.now + MINUTE)
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+
+    def test_an_entry_submitted_during_warming_is_refused_immediately_and_never_queued(self):
+        """#3650/#3658: Waiting._wait checks WARMING before queueing so warm-up entries cannot bypass rule 8."""
+        order_rules.WARMING.add("SOURCE-001")
+        order = self.entry("limit", "90.00")
+        self.on_next_bar(lambda source: source.submit_order(order))
+        self.assertEqual(paper_terms.QUEUE, [])
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+        self.assertIn("warm-up", strategy_runtime.BREACHES[0][1])
+        order_rules.WARMING.discard("SOURCE-001")
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertIsNone(self.engine.cache.order(order.client_order_id))

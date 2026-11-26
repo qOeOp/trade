@@ -101,7 +101,7 @@ def entry_price(order):
 def violation(source, order, position_id=None, client_id=None, params=None, *,
               submitted_ns: int | None = None) -> str | None:
     """Why `order` breaks a rule, or None."""
-    if str(order.strategy_id) in WARMING:
+    if str(order.strategy_id) in WARMING or str(_strategy_id(source)) in WARMING:
         return "no order before the warm-up has ended and on_start has run"
     if (order.emulation_trigger is not None or order.contingency_type is not None or order.order_list_id is not None
             or order.parent_order_id is not None or order.linked_order_ids or order.exec_algorithm_id is not None
@@ -261,6 +261,8 @@ class OrderRules:
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
                        quote_quantity=None, params=None):
+        if str(_strategy_id(self)) in WARMING:
+            return self._order_rule("no order before the warm-up has ended and on_start has run")
         if (position is None or not position.is_open or position.strategy_id != _strategy_id(self)
                 or reduce_only is False or quote_quantity or params or client_id not in (None, ClientId(VENUE))):
             return self._order_rule("a strategy closes only its own open position, by a base-quantity reduction")
