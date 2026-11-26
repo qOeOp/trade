@@ -80,3 +80,39 @@
 2. **推导式认知复杂度细化**：对齐 `complexipy` 对列表/生成器推导式中 `if` 子句的计分规则。
 3. **JS/TS 前端结构遥测**：当前 AST 分析仅覆盖 `.py`，`ide/web/src` 仅靠 git 演化信号覆盖；可评估是否用轻量正则/外部 `jscpd` 补齐前端复杂度与克隆检测。
 4. **配对 Skill Evals（A/B）**：按 `.agents/README.md` 跑 `claude plugin eval .agents`，同步测量 `#3764`–`#3768` 并验证新版 `SKILL.md` / `slim.md` 不降低任何既有 eval 通过率。
+
+---
+
+## 六、第 2 轮实战闭环（v2 上阵实跑 `origin/main` → 独立反驳 → 迭代到 v2.1 + 提炼 Eval Case）
+
+按照「假设 → 开发 → 真实项目回测 → 独立反驳 → 迭代」闭环，我们在隔离证据目录 `/tmp/doctor-v2-combat-20261126` 对 `origin/main`（`d4460250a`）并行跑了 3 路实战通道 + 2 个无证明上下文的独立反驳子代理（`--refutes`）：
+
+### 1. 实战战果（全套 10/10 独立 `--refutes` 确认，0 推翻，0 重复）
+
+| 实战通道 | 驱动信号（来自 v2） | 耗时 | 实战发现与验证 |
+|---|---|---:|---|
+| **Pass 1：Metric-Guided `Slim`**（`cli`, `engine`） | `slim_candidates` + AST 克隆 + `break_even_caution` | ~10 min | 在 scratch 副本实跑验证 2 组无须授权的 `cli/` 结构合并（**S1+S2 净减 69 行、函数 77→65、`cli` 4 组克隆归零**，65 项单测全绿）；实证实认 `engine/audit.py`（`health=1.79`）的 **`break_even_caution` 护栏准确有效**（内部含 `REPORT_PAYLOAD_INVALID` 边界且在 `replay.Dockerfile` 摘要闭包内，绝不可一次重写） |
+| **Pass 2：跨包耦合 `Find`**（`cli+report`） | `couplings` 头号跨包耦合（`31×`） | 13 min | 挖出 **5 个全新 `shown` 缺陷，独立 `--refutes` 5/5 确认**（3 个中高影响正常可达：`unchanged` 漏判 `retry_of` 清门禁致 IDE 缓存过期、`state --line --full` 丢失 `line` 混入他线数据、`comparison --at` 吞掉 `UNKNOWN_REF`；2 个次要契约缺口：`unchanged --line` 跳过存在性检查、`replay report --reproduction-trial` 缺 `--reproduction` 静默丢弃） |
+| **Pass 3：冷区 SLA `Find`**（`runtime`） | 最冷 Python 对象（`555` 行、30d 仅 24 提交、0 open issues） | 12 min | **强验证 H3**：挖出 **5 个全新 `shown` 缺陷，独立 `--refutes` 5/5 确认**（4 个正常可达：`resolve("")` 回退 `:main` 绕过空检查、离线 `git fetch` 误报 `RUNTIME_NOT_MAIN`、`--single-branch` 非 `main` 克隆误拒合法主干镜像、显式 `repo@sha256` 遇多 `RepoDigests` 报 `RUNTIME_DIGEST_AMBIGUOUS`；1 个次要信任边界：`live_command` 在 `normpath` 前查 `/run/secrets/binance.json`） |
+
+### 2. 实战反哺出的 8 项缺陷与 v2.1 迭代修复
+
+| 实战暴露的问题 | v2.1 修复与实测效果 |
+|---|---|
+| `telemetry.py` 的 `test_map` 漏掉被 `ALONE=0.01` 折叠的测试目录 | 改为直接扫描 `tracked_lines` 匹配 `tests/<pkg>/` 与 `tests/<pkg>_*/`：`runtime` 真实测试比 `1.46`、`live` `1.33`、`paper` `0.99`、`cli` `0.30` 全部浮出 |
+| `cognitive_complexity` 在非 `if.test` 处重复计嵌套 `BoolOp` 且漏算推导式 `if` | 改 `visit_bool_chain` 单次递归 + 补齐 `ListComp`/`SetComp`/`DictComp`/`GeneratorExp` 的 `ifs` 计分 |
+| AST 克隆把 docstring/注解算进 18 节点，导致 1–3 行回调重写污染且误伤 `deploy`/`ide` 隔离拷贝 | 去 docstring/注解、门槛提至 `≥28` 节点且 `≥5` 正文行、AST 解析 `tests/test_package_layers.py` 自动识别 `isolated_roots = ['deploy', 'ide']` 并拆出 `boundary_clones`（假阳归零） |
+| 前端 JS/TS/TSX 对象因无 `.py` 被默认标成 `health=10.00` | 新增轻量 stdlib `analyze_js_ts_source`，无源码对象改报 `min_health: null`；`ide/web/src` 实测暴露真实 `health=4.5`、`cog=60` 进入 `slim` 前三 |
+| `scheduler.py` `test_bloat` 误把 `engine` 新安全测试（比值 `1.11`）报成膨胀 | 门禁收紧为 `test_to_prod_ratio >= 1.35 && test_net > 150` 或 `prod_net <= 0 && test_net > 300`，`engine` 误报消除 |
+| `cli+report` 只给包级耦合，缺少具体热文件对 | `couplings` 内嵌每个跨包对的 `top_file_pairs` Top 5（直接暴露 `cli/research_commands.py <-> report/graph.py` 5×） |
+| `doctor.py run` 未打印 `.out` 路径、`report` 长命令撑爆表格 | `run` 写入 `output_file`；`report` 截断超 120 字符命令；**踩坑警示**：尝试把 `failed` 折叠进 `examined` 时被 `test_doctor.py` 拦截——打印 `failed` 是防止重试掩盖失败的刻意信任边界，必须保留 |
+| 3 项实战规则缺少回归 eval | 在 `.agents/evals/product-doctor/` 新增 3 个 eval case（见下），不改任何既有 grader |
+
+### 3. 从实战提炼的 3 个新 Eval Case（`.agents/evals/product-doctor/`）
+1. `authority-does-not-starve-slim`：验证 `authority_drifted` / `blocked_authority` 不得抢占 `Stop harm` 饿死高振荡模块的 `Slim`，且 `engine` 遵循 `break_even_caution`。
+2. `steady-stops-without-nitpicking`：验证 `advise` 全部 `stopping_checks` 成立时直接宣布 `steady` 停手，不强行编造 minor 问题。
+3. `slim-break-even-and-isolation-boundary`：验证 `Slim` 通道拒绝合并 `deploy`/`ide` 隔离边界拷贝，且拒绝一次性重写 `replay.Dockerfile` 闭包内的 `break_even_caution` 文件。
+
+### 4. v2.1 验证结果
+- `tests.product_doctor.test_doctor` + `tests.product_doctor.test_doctor_v2` + `tests.test_source_hygiene` + `tests.test_eval_cases` + `tests.test_package_layers`：**29/29 通过**
+- `ruff check`：**0 errors**；`mypy`：**0 errors**

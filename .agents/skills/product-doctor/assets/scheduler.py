@@ -197,12 +197,12 @@ def _slim_candidates(telemetry_data: dict[str, Any]) -> list[dict[str, Any]]:
         if max_file_fixes >= 4 or (obj["fixes_short"] >= 8 and obj["oscillation_ratio"] >= 2.5):
             reasons.append(f"oscillation_burst (max_file_fixes={max_file_fixes}, obj_fixes={obj['fixes_short']}, osc={obj['oscillation_ratio']})")
             severity += max_file_fixes * 4.0 + obj["fixes_short"] * 1.5
-        if obj["test_net_short"] > max(300, 1.5 * max(obj["net_short"], 0)) or (
-            (obj["test_to_prod_ratio"] or 0) >= 1.2 and obj["test_net_short"] > 100
+        if ((obj["test_to_prod_ratio"] or 0) >= 1.35 and obj["test_net_short"] > 150) or (
+            obj["net_short"] <= 0 and obj["test_net_short"] > 300
         ):
             reasons.append(f"test_bloat (test_net={obj['test_net_short']:+d}, prod_net={obj['net_short']:+d}, ratio={obj['test_to_prod_ratio']})")
             severity += min(30.0, obj["test_net_short"] / 50.0)
-        if obj["break_even_caution"] and obj["fixes_short"] >= 2:
+        if obj["break_even_caution"] and obj["min_health"] is not None and obj["fixes_short"] >= 2:
             reasons.append(f"structural_decay (min_health={obj['min_health']}, max_cognitive={obj['max_cognitive']}, fixes={obj['fixes_short']})")
             severity += (6.0 - obj["min_health"]) * 5.0 + obj["fixes_short"] * 1.5
         if obj["duplicate_fns"] >= 6 and obj["net_short"] > 100:

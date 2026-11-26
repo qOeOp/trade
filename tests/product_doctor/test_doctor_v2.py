@@ -29,26 +29,58 @@ telemetry = _load("telemetry")
 
 CLONE_A = """def compute_alpha(items, limit):
     total = 0
+    seen = []
     for item in items:
         if item > 0 and item < limit:
             total += item * 2
+            seen.append(item)
         elif item == limit:
             total += 1
         else:
             continue
-    return total
+    return total, len(seen)
 """
 
 CLONE_B = """def evaluate_beta(records, cap):
     acc = 0
+    kept = []
     for rec in records:
         if rec > 10 and rec < cap:
             acc += rec * 5
+            kept.append(rec)
         elif rec == cap:
             acc += 9
         else:
             continue
-    return acc
+    return acc, len(kept)
+"""
+
+TINY_OVERRIDE_A = '''def cancel_order(self, order):
+    """Docstring must not inflate clone node count."""
+    return self._cancel(order)
+'''
+
+TINY_OVERRIDE_B = '''def cancel_orders(self, orders):
+    """Docstring must not inflate clone node count."""
+    return self._cancel(orders)
+'''
+
+TS_COMPLEX = """export function renderGraph(nodes: Node[], flag: boolean) {
+  // TODO: simplify branchy layout
+  let acc = 0;
+  for (const n of nodes) {
+    if (n.active && (flag || n.weight > 3)) {
+      if (n.children && n.children.length > 0) {
+        for (const c of n.children) {
+          if (c.ready ? c.score > 1 : false) {
+            acc += c.score;
+          }
+        }
+      }
+    }
+  }
+  return acc;
+}
 """
 
 COMPLEX_BLOB = """def tangled(a, b, c, xs):
@@ -77,16 +109,32 @@ class TelemetryUnitTests(unittest.TestCase):
         simple = ast.parse("def f(x):\n    return x + 1\n").body[0]
         self.assertEqual(telemetry.cognitive_complexity(simple), 0)
 
+        # Nested BoolOp outside `if.test` must NOT be double-counted.
+        bool_assign = ast.parse("def g(a, b, c):\n    return a and b or c\n").body[0]
+        self.assertEqual(telemetry.cognitive_complexity(bool_assign), 2)
+
+        # Comprehension `if` filter adds cognitive complexity.
+        comp = ast.parse("def h(xs):\n    return [x for x in xs if x > 0 and x < 10]\n").body[0]
+        self.assertEqual(telemetry.cognitive_complexity(comp), 2)
+
         nested = ast.parse(COMPLEX_BLOB).body[0]
         score = telemetry.cognitive_complexity(nested)
-        # Loops + nested ifs + boolop transition + try/except + ternary + recursion must score high.
         self.assertGreaterEqual(score, 25)
 
-    def test_ast_clone_and_health_break_even(self):
+    def test_ast_clone_ignores_tiny_overrides_and_js_ts_gets_real_health(self):
+        tiny_a = telemetry.analyze_python_source(TINY_OVERRIDE_A)
+        tiny_b = telemetry.analyze_python_source(TINY_OVERRIDE_B)
+        self.assertEqual(tiny_a["clone_hashes"], [])
+        self.assertEqual(tiny_b["clone_hashes"], [])
+
         a_info = telemetry.analyze_python_source(CLONE_A)
         b_info = telemetry.analyze_python_source(CLONE_B)
         self.assertTrue(a_info["clone_hashes"])
         self.assertEqual(a_info["clone_hashes"][0][0], b_info["clone_hashes"][0][0])
+
+        ts_info = telemetry.analyze_js_ts_source(TS_COMPLEX)
+        self.assertEqual(ts_info["satd"], 1)
+        self.assertGreater(ts_info["max_cognitive"], 5)
 
         clean_health = telemetry.compute_health_score(
             lines=80, max_cognitive=6, top3_cognitive=4.0, max_fn_lines=25, duplicate_fns=0, satd=0
@@ -244,3 +292,37 @@ class ClosedLoopSchedulerTests(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("# Themed audit: steady", text)
         self.assertIn("Not exercised: nothing listed.", text)
+
+    def test_v2_1_folded_tests_boundary_clones_and_report_folding(self):
+        # Add package layer isolation boundary + isolated `ide` copy of CLONE_A + folded test dir.
+        self.commit({
+            "tests/test_package_layers.py": 'RANK = {"deploy": 0, "alpha": 1}\nISOLATED = frozenset({"ide"})\n',
+            "ide/server.py": CLONE_A,
+            "tests/cold/test_stable.py": "def test_cold():\n    assert True\n",
+        }, message="feat: add isolated ide copy and folded cold test")
+
+        data = self.call_json("telemetry", "--tree", "HEAD", "--days", "14")
+        # `cold` tests must be counted even when tests/cold is tiny/folded.
+        self.assertGreater(data["objects"]["cold"]["test_lines"], 0)
+        self.assertIsNotNone(data["objects"]["cold"]["test_to_prod_ratio"])
+        # Cross-isolation clone involving `ide` is separated into `boundary_clones`.
+        self.assertGreaterEqual(data["summary"]["boundary_isolation_clones"], 1)
+        # Docs object has no analyzed source files -> min_health must be None, not fake 10.0.
+        self.assertIsNone(data["objects"]["docs"]["min_health"])
+
+        # Verify `run` records `output_file` and `report` truncates long commands while keeping failed visible.
+        ev = self.home / "ev-fold"
+        long_script = "print('" + "x" * 160 + "')"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["run", str(ev), "results", "alpha:check", "--", "python3", "-c", "print('oops'); raise SystemExit(1)"])
+            doctor.main(["run", str(ev), "results", "alpha:check", "--", "python3", "-c", long_script])
+        rows = doctor.rows(ev)
+        self.assertTrue(Path(rows[-1]["output_file"]).is_file())
+        rep = io.StringIO()
+        with redirect_stdout(rep):
+            doctor.main(["report", str(ev), "--tree", "HEAD"])
+        rep_text = rep.getvalue()
+        self.assertIn("| results | alpha:check | failed |", rep_text)
+        self.assertIn("| results | alpha:check | examined |", rep_text)
+        self.assertIn("...` exit 0", rep_text)

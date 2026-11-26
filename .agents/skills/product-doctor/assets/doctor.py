@@ -398,13 +398,15 @@ def run(args: argparse.Namespace) -> None:
         status, output = None, str(error).encode()
     digest = hashlib.sha256(output).hexdigest()
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (args.directory / f"{digest[:16]}.out").write_bytes(output)
+    out_file = args.directory / f"{digest[:16]}.out"
+    out_file.write_bytes(output)
     # A file the command did not write (its own script, an earlier run's page) shows nothing of this run.
     shown = args.artifact.read_bytes() if written(args.artifact) != before else None
     keep(args.directory, {
         "kind": "run", "item": args.item, "subject": args.subject, "command": args.command, "cwd": str(Path.cwd()),
         "checkout": commit("HEAD"), "dirty": bool(git("status", "--porcelain").strip()), "exit": status,
         "seconds": round(time.monotonic() - began, 2), "output_bytes": len(output), "output_sha256": digest,
+        "output_file": str(out_file),
         "skipped": sum(int(count) for count in re.findall(rb"skipped=(\d+)", output)),
         "artifact": str(args.artifact) if args.artifact else None,
         "artifact_sha256": None if not shown else hashlib.sha256(shown).hexdigest()})
@@ -634,14 +636,21 @@ def report(args: argparse.Namespace) -> None:
     print("| Item | Subject | State | Evidence |\n|---|---|---|---|")
     order = list(items())
     for (item, subject), entries in sorted(table.items(), key=lambda pair: order.index(pair[0][0])):
-        # Every attempt that exercised it is printed; the others are only counted, and alone the last one speaks.
+        # Every attempt that exercised it (examined or failed) is printed so retries never hide failures;
+        # the others are only counted, and alone the last one speaks.
         other = [said for _, said in entries if said not in ("examined", "failed")]
         tried = ", ".join(f"{other.count(one)} {one}" for one in dict.fromkeys(other))
         for row, said in [entry for entry in entries if entry[1] in ("examined", "failed")] or entries[-1:]:
-            evidence = (f"`{cell(' '.join(row['command']))}` exit {row['exit']}, {row['checkout'][:9]}"
-                        f"{' with changes' if row['dirty'] else ''}" if row["kind"] == "run"
-                        else f"exponent {row.get('exponent')}, warm {row.get('warm_s')}" if row["kind"] == "cost"
-                        else f"{len(row['tests'])} telling tests")
+            if row["kind"] == "run":
+                cmd = cell(" ".join(row["command"]))
+                if len(cmd) > 120:
+                    cmd = cmd[:117] + "..."
+                evidence = (f"`{cmd}` exit {row['exit']}, {row['checkout'][:9]}"
+                            f"{' with changes' if row['dirty'] else ''}")
+            elif row["kind"] == "cost":
+                evidence = f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
+            else:
+                evidence = f"{len(row['tests'])} telling tests"
             more = f" (of {len(entries)} attempts: {tried})" if tried and len(entries) > 1 else ""
             print(f"| {item} | {cell(subject)} | {said} | {evidence}{more} |")
     probes = [row for row in found if row["kind"] == "probe"]
@@ -692,9 +701,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     declared.add_argument("theme", choices=THEMES)
     declared.add_argument("--items", type=named, default=[], help="comma-separated: ITEM, or ITEM/SCENARIO of a listed one")
     declared.add_argument("--objects", type=named, default=[], help="comma-separated, of those scan lists")
-    one = add("run", run, "record a command that exercises an audit item; after `--`, the command", 3600)
-    one.add_argument("item")
-    one.add_argument("subject")
+    one = add("run", run, "record a command that exercises an audit item (syntax: run DIR ITEM OBJECT:SCENARIO -- CMD)", 3600)
+    one.add_argument("item", help="lens name from lenses.md (without /SCENARIO; put scenario in SUBJECT)")
+    one.add_argument("subject", help="OBJECT:SCENARIO or OBJECT_A+OBJECT_B:SCENARIO")
     one.add_argument("--artifact", type=Path, help="the file the command writes that shows the result (a page's text)")
     one = add("probe", probe, "judge a finding's probe against its control", 600)
     one.add_argument("id")
