@@ -204,3 +204,23 @@
    - 新增 2 个 eval case：`friction-ci-and-transcript-signals`、`delta-gate-rejects-moved-code-and-tangled-fix`（累计新增 8 个 eval case）。
    - 验证：`unittest` 37/37 OK（含 `test_doctor`、`test_doctor_v2`、`test_source_hygiene`、`test_eval_cases`、`test_package_layers`）、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors、`SKILL.md` 1684 词（全套技能文本 4170 词）。
 
+## 10. 第六轮迭代（v2.5）：跨语言 `recheck` + 工作树漂移强化 + 全链路压力测试
+
+1. **补齐 `doctor.py recheck` 跨语言/前端盲区**：
+   - **背景**：v1 的 `recheck` 只认 `tests/test_*.py`，对本仓 4 套基于 Node 内置 `node:test` 的 JS/TS 测试（`ide/web/scripts/*.test.mjs`、`ide/agent/src/*.test.ts`、`ide/overview/src/*.test.ts`、`.github/scripts/*.test.cjs`）全部返回 `no test`，甚至在混合修复提交（如 `2e5d412f9`）里误把 `.test.mjs` 当作 `product` 文件一起回滚。
+   - **实现**：新增 `JS_TEST_RE`、`JS_TESTS`（基于 Node `node:test` 编程式 `run()` 事件流，精准区分 `ERR_ASSERTION`/`AssertionError` 为 `fail` 与导入/运行异常为 `error`，绝不误报 `confirmed`）、`_link_node_modules`（在临时 `tree()` 内只读软链宿主非空 `node_modules`，不写宿主 checkout）以及脱敏错误摘要 `why`（剥离临时根路径）。
+2. **`run --tree` 与 `report` 强化**：
+   - `run --tree REV` 改为直接用 `git diff --name-only REV -- <obj_parts>` 对比实时工作树，同时捕获**已提交漂移与未提交脏改动**；`report` 在证据行尾部显式标出 `[tree_drift]`，并在头部打印声明的 `contracts`。
+3. **v2.5 全链路端到端压力测试（真实 `origin/main` 提交与证据链）**：
+   - 串联 `scope --contracts cli+report` → `run --tree origin/main`（干净路径 `tree_drift: false` vs 改动路径 `.agents` `tree_drift: true`）→ 5 个真实历史 `fix` 提交 `recheck` → `probe` + `probe --refutes`（拦截同源探针防作弊）→ `cost`（线性循环实测 `exponent: 1.04`）→ `report`。
+   - 5 个真实历史提交 `recheck` 结果：
+     - `5ec40b6aa`（Python `fix(report)`）：`confirmed`（`53 ok -> 52 ok / 1 fail -> 53 ok`）
+     - `0af6c4171`（CJS `.github/scripts/release-ready.test.cjs`）：v1 为 `no test` → v2.5 **`confirmed`**（`28 ok -> 27 ok / 1 fail -> 28 ok`）
+     - `4959469a2`（TS `ide/overview/src/fetching.test.ts`）：成功执行 TypeScript 用例（`fixed/now: 4 ok`），回滚态因新增导出缺失报 `SyntaxError` → 准确判 `error: 1` / **`undecided`**（带脱敏 `why`，绝不误判 `confirmed`）
+     - `1acd3cf70`（ESM `ide/web/scripts/live.test.mjs`，本地 `ide/web/node_modules` 为空）：优雅降级为 **`undecided`** 并明确给出 `Cannot find package 'typescript' imported from ./ide/web/scripts/load.mjs`
+     - `2e5d412f9`（混合 Python + JS）：不误回滚 `.test.mjs`，Python 两侧双用例 **`confirmed`**
+4. **验证与新增 Eval Case**：
+   - 新增 eval case：`recheck-cross-language-js-ts`（分支累计新增 9 个 eval case）。
+   - 验证：`unittest` 38/38 OK、`ruff check` 0 errors、`mypy` 5/5 源文件 0 errors。
+
+

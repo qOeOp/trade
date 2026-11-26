@@ -28,6 +28,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -52,6 +53,7 @@ THEMES = ("harm", "slim", "find", "friction", "steady")
 RECORDS = "docs/plans/doctor/"
 RECORDED = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
 NOT_PRODUCT = ("tests/", "docs/", "changelog.d/", ".agents/evals/")
+JS_TEST_RE = re.compile(r"\.(test|spec)\.(mjs|cjs|js|ts|tsx)$")
 REPEATS = 3
 SHOWN = 400  # characters of a value kept
 
@@ -98,6 +100,48 @@ class Result(unittest.TestResult):
     def addUnexpectedSuccess(self, test): self.put(test, "fail")
 unittest.defaultTestLoader.loadTestsFromNames(sys.argv[2:]).run(Result())
 pathlib.Path(sys.argv[1]).write_text(json.dumps(seen))
+'''
+
+# Runs in Node (`node --experimental-vm-modules runner.mjs OUT file...`) for cross-language JS/TS `recheck`.
+JS_TESTS = r'''
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { run } from "node:test";
+const [outFile, ...files] = process.argv.slice(2);
+const root = process.cwd();
+const seen = {};
+const diag = [];
+const order = ["ok", "skip", "fail", "error"];
+const put = (key, st) => {
+  seen[key] = !seen[key] || order.indexOf(st) > order.indexOf(seen[key]) ? st : seen[key];
+};
+for await (const ev of run({ files })) {
+  if (ev.type === "test:stderr") {
+    for (const line of String(ev.data?.message || "").split("\n")) {
+      if (/(?:Error|SyntaxError|TypeError|ReferenceError)[^:\n]*:/.test(line) && diag.length < 3) {
+        diag.push(line.replaceAll(root, ".").trim().slice(0, 180));
+      }
+    }
+    continue;
+  }
+  if (ev.type !== "test:pass" && ev.type !== "test:fail") continue;
+  const d = ev.data;
+  if (d.details?.type === "suite") continue;
+  const rel = d.file ? path.relative(root, d.file).replaceAll("\\", "/") : "";
+  const key = `${rel}::${d.name}`;
+  if (ev.type === "test:pass") {
+    put(key, (d.skip || d.todo) ? "skip" : "ok");
+  } else {
+    const err = d.details?.error;
+    const cause = err?.cause || err;
+    const isAssertion = cause?.code === "ERR_ASSERTION" || cause?.name === "AssertionError";
+    put(key, isAssertion ? "fail" : "error");
+    if (!isAssertion && cause?.message && diag.length < 3) {
+      diag.push(String(cause.message).replaceAll(root, ".").trim().slice(0, 180));
+    }
+  }
+}
+writeFileSync(outFile, JSON.stringify({ seen, diag }));
 '''
 
 
@@ -449,21 +493,17 @@ def run(args: argparse.Namespace) -> None:
     out_file.write_bytes(output)
     # A file the command did not write (its own script, an earlier run's page) shows nothing of this run.
     shown = args.artifact.read_bytes() if written(args.artifact) != before else None
-    # Check optional `--tree` drift on the target subject's object paths so feature-worktree drift is visible.
+    # Check optional `--tree` drift on the target subject's object paths (catches both committed and uncommitted drift).
     tree_drift: bool | None = None
     target_tree = getattr(args, "tree", None)
     if target_tree:
         target_rev = commit(target_tree)
-        head_rev = commit("HEAD")
-        if target_rev == head_rev:
-            tree_drift = False
+        obj_parts = [p.rstrip("/") for p in split(args.subject)[0] if not p.startswith("@") and p != ROOT]
+        if obj_parts:
+            diff_out = git("diff", "--name-only", target_rev, "--", *obj_parts)
+            tree_drift = bool(diff_out.strip())
         else:
-            obj_parts = [p.rstrip("/") for p in split(args.subject)[0] if not p.startswith("@") and p != ROOT]
-            if obj_parts:
-                diff_out = git("diff", "--name-only", target_rev, head_rev, "--", *obj_parts)
-                tree_drift = bool(diff_out.strip())
-            else:
-                tree_drift = False
+            tree_drift = False
 
     row_out: dict[str, Any] = {
         "kind": "run", "item": args.item, "subject": args.subject, "command": args.command, "cwd": str(Path.cwd()),
@@ -576,26 +616,119 @@ def judge(fixed: dict[str, str], reverted: dict[str, str], now: dict[str, str]) 
     return ("confirmed", held) if held else ("undecided", telling)
 
 
+def _repo_roots() -> list[Path]:
+    """Candidate host checkout roots (current checkout, plus main worktree root if in a worktree) for read-only
+    `node_modules` resolution during cross-language JS/TS `recheck`."""
+    roots: list[Path] = []
+    for args in (["git", "rev-parse", "--show-toplevel"], ["git", "rev-parse", "--git-common-dir"]):
+        done = subprocess.run(args, capture_output=True, text=True, check=False)
+        if done.returncode == 0 and done.stdout.strip():
+            raw = Path(done.stdout.strip()).resolve()
+            cand = raw.parent if raw.name == ".git" else raw
+            if cand.is_dir() and cand not in roots:
+                roots.append(cand)
+    return roots
+
+
+def _link_node_modules(root: Path, js_files: Sequence[str]) -> None:
+    """Symlink non-empty host `node_modules` into temporary `tree()` package dirs when present."""
+    pkg_dirs: set[Path] = set()
+    for rel in js_files:
+        cur = (root / rel).parent
+        while cur != root and cur.is_relative_to(root):
+            if (cur / "package.json").is_file():
+                pkg_dirs.add(cur.relative_to(root))
+                break
+            cur = cur.parent
+    if not pkg_dirs:
+        return
+    host_roots = _repo_roots()
+    for pkg_rel in pkg_dirs:
+        dest = root / pkg_rel / "node_modules"
+        if dest.exists() or dest.is_symlink():
+            continue
+        for hroot in host_roots:
+            src = hroot / pkg_rel / "node_modules"
+            if src.is_dir() and any(src.iterdir()):
+                dest.symlink_to(src)
+                break
+
+
+def run_js_tests(root: Path, js_files: Sequence[str], timeout: float) -> tuple[dict[str, str] | None, str]:
+    """Run Node.js built-in `node:test` files (`.mjs`/`.cjs`/`.js`/`.ts`) in `root`, mapping each test to
+    `ok`/`fail`/`error`/`skip` (only `AssertionError`/`ERR_ASSERTION` counts as `fail`)."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return None, "node not found"
+    _link_node_modules(root, js_files)
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    with tempfile.TemporaryDirectory(prefix="doctor-js-") as tmp_dir:
+        runner = Path(tmp_dir) / "runner.mjs"
+        out_path = Path(tmp_dir) / "out.json"
+        runner.write_text(JS_TESTS, encoding="utf-8")
+        try:
+            done = subprocess.run(
+                [node_bin, "--experimental-vm-modules", str(runner), str(out_path), *js_files],
+                capture_output=True, text=True, cwd=root, env=environment, timeout=timeout, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return None, f"timed out after {timeout:g}s"
+        tail = ((done.stdout or "") + (done.stderr or "")).strip()[-SHOWN:]
+        if done.returncode or not out_path.is_file():
+            return None, tail or f"exited {done.returncode}"
+        try:
+            payload = json.loads(out_path.read_text(encoding="utf-8"))
+            diag = "; ".join(payload.get("diag") or [])
+            return payload.get("seen", {}), diag or tail
+        except json.JSONDecodeError as error:
+            return None, f"invalid runner output: {error}"
+
+
 def recheck(args: argparse.Namespace) -> None:
     rev, main_rev = commit(args.commit), commit(args.tree)
     paths = git("diff-tree", "-r", "--no-renames", "--no-commit-id", "--name-only", f"{rev}^", rev).decode().splitlines()
-    product = [path for path in paths if not path.startswith(NOT_PRODUCT) and not path.endswith(".md")]
     modules = [path[:-3].replace("/", ".") for path in paths
                if path.startswith("tests/") and Path(path).name.startswith("test_") and path.endswith(".py")]
-    row = {"kind": "recheck", "item": "fixed", "subject": rev[:9], "tree": main_rev, "modules": modules}
-    if not product or not modules:
+    js_tests = [path for path in paths if JS_TEST_RE.search(path)]
+    product = [
+        path for path in paths
+        if not path.startswith(NOT_PRODUCT)
+        and not path.endswith(".md")
+        and not JS_TEST_RE.search(path)
+        and ".test-support." not in Path(path).name
+    ]
+    row: dict[str, Any] = {"kind": "recheck", "item": "fixed", "subject": rev[:9], "tree": main_rev, "modules": modules}
+    if js_tests:
+        row["js_tests"] = js_tests
+    if not product or (not modules and not js_tests):
         keep(args.directory, {**row, "verdict": "no test", "tests": []})
         return
     found: list[dict[str, str]] = []
     notes: dict[str, dict[str, Any]] = {}
     for name, at, paths_back in (("fixed", rev, ()), ("reverted", rev, product), ("now", main_rev, ())):
+        merged: dict[str, str] = {}
+        whys: list[str] = []
         with tree(at, paths_back) as root:
-            here = [module for module in modules if (root / (module.replace(".", "/") + ".py")).exists()]
-            result, tail = child(root, TESTS, ["OUT", *here], args.timeout) if here else ({}, "")
-        found.append(result or {})
-        notes[name] = {state: list((result or {}).values()).count(state) for state in ("ok", "fail", "error", "skip")}
-        if result is None:
-            notes[name]["why"] = tail
+            here_py = [module for module in modules if (root / (module.replace(".", "/") + ".py")).exists()]
+            if here_py:
+                py_res, py_tail = child(root, TESTS, ["OUT", *here_py], args.timeout)
+                if py_res is None:
+                    whys.append(f"py: {py_tail}")
+                else:
+                    merged.update(py_res)
+            here_js = [path for path in js_tests if (root / path).exists()]
+            if here_js:
+                js_res, js_tail = run_js_tests(root, here_js, args.timeout)
+                if js_res is None:
+                    whys.append(f"js: {js_tail}")
+                else:
+                    merged.update(js_res)
+                    if any(st == "error" for st in js_res.values()) and js_tail:
+                        whys.append(f"js: {js_tail}")
+        found.append(merged)
+        notes[name] = {state: list(merged.values()).count(state) for state in ("ok", "fail", "error", "skip")}
+        if whys:
+            notes[name]["why"] = "; ".join(whys)
     decided, tests = judge(*found)
     keep(args.directory, {**row, "verdict": decided, "tests": tests, "outcomes": notes})
 
@@ -695,8 +828,9 @@ def report(args: argparse.Namespace) -> None:
              else "Full audit" if whole else "Partial audit")
     print(f"# {title}\n")
     if declared:
+        contracts_note = f"; contracts: {', '.join(declared['contracts'])}" if declared.get("contracts") else ""
         print(f"Scope, declared first: {', '.join(declared['items']) or 'no item'}; "
-              f"{', '.join(declared['objects']) or 'no object'}. Nothing else is judged here.\n")
+              f"{', '.join(declared['objects']) or 'no object'}{contracts_note}. Nothing else is judged here.\n")
     print("Not exercised: " + (", ".join(missing) if missing else "nothing listed") + ".\n")
     print("Not examined: " + ("; ".join(f"{row['item']}/{cell(row['subject'])} ({cell(row['why'])})" for row in late)
                               or "nothing named") + ".\n")
@@ -718,7 +852,8 @@ def report(args: argparse.Namespace) -> None:
                 if len(cmd) > 120:
                     cmd = cmd[:117] + "..."
                 evidence = (f"`{cmd}` exit {row['exit']}, {row['checkout'][:9]}"
-                            f"{' with changes' if row['dirty'] else ''}")
+                            f"{' with changes' if row['dirty'] else ''}"
+                            f"{' [tree_drift]' if row.get('tree_drift') else ''}")
             elif row["kind"] == "cost":
                 evidence = f"exponent {row.get('exponent')}, warm {row.get('warm_s')}"
             else:

@@ -70,7 +70,8 @@ running, cut short and at a limit.
 
 - **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one.
 - **unchanged** [any]: an object the last audits' findings and the recent commits leave alone.
-- **fixed** [any]: `doctor.py recheck` on closed issues (`no test`: their own probe, `--control-tree` the
-  repair's parent) and the old rows linked in the header of `docs/plans/doctor/index.zh.md`.
+- **fixed** [any]: `doctor.py recheck` on closed issues (Python `tests/` and Node `node:test` `.test.{mjs,cjs,js,ts,tsx}`;
+  `no test`: their own probe, `--control-tree` the repair's parent) and the old rows linked in the header of
+  `docs/plans/doctor/index.zh.md`.
 - **self** [any]: what the user found first, rerun claims overturned, lenses that ran and found
   nothing for several audits (say so).

@@ -771,3 +771,75 @@ export function load(cfg?: Config) {
         with redirect_stdout(rep2):
             doctor.main(["report", str(ev), "--tree", prev_rev])
         self.assertNotIn("alpha+beta (contract)", rep2.getvalue())
+
+        # Uncommitted working-tree edit to alpha/core.py must ALSO trigger `tree_drift: True` against HEAD
+        # and render `[tree_drift]` in `report`.
+        (self.repo / "alpha" / "core.py").write_text(CLONE_A + "# dirty\n", encoding="utf-8")
+        with redirect_stdout(out):
+            doctor.main(["run", str(ev), "results", "alpha:dirty-check", "--tree", "HEAD",
+                         "--", "python3", "-c", "print('dirty')"])
+        self.assertTrue(doctor.rows(ev)[-1]["tree_drift"])
+        rep3 = io.StringIO()
+        with redirect_stdout(rep3):
+            doctor.main(["report", str(ev), "--tree", "HEAD"])
+        self.assertIn("[tree_drift]", rep3.getvalue())
+
+    def test_v2_5_recheck_cross_language_js_ts_and_error_vs_fail(self):
+        """Round 6: `recheck` verifies JS/TS `node:test` repairs (confirmed + regressed) and treats
+        import/load errors in `reverted` as `error` -> `undecided` (never false `fail` -> `confirmed`)."""
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("node is required for cross-language recheck tests")
+
+        ev = self.home / "ev-recheck-js"
+
+        # 1) ESM `.mjs` repair: confirmed while held, regressed after a breaking commit.
+        self.commit({"alpha/calc.mjs": "export const add = (a, b) => a - b;\n"}, message="feat(alpha): buggy add")
+        repair_mjs = self.commit({
+            "alpha/calc.mjs": "export const add = (a, b) => a + b;\n",
+            "alpha/calc.test.mjs": (
+                'import assert from "node:assert/strict";\n'
+                'import { test } from "node:test";\n'
+                'import { add } from "./calc.mjs";\n'
+                'test("adds two numbers", () => { assert.equal(add(2, 3), 5); });\n'
+            ),
+        }, message="fix(alpha): fix add operator")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["recheck", str(ev), repair_mjs, "--tree", "HEAD"])
+        r1 = doctor.rows(ev)[-1]
+        self.assertEqual(r1["verdict"], "confirmed")
+        self.assertEqual(r1["js_tests"], ["alpha/calc.test.mjs"])
+        self.assertEqual(r1["outcomes"]["reverted"]["fail"], 1)
+
+        # Break it later -> `regressed`.
+        self.commit({"alpha/calc.mjs": "export const add = (a, b) => a * b;\n"}, message="fix(alpha): accidentally break add")
+        with redirect_stdout(out):
+            doctor.main(["recheck", str(ev), repair_mjs, "--tree", "HEAD"])
+        r2 = doctor.rows(ev)[-1]
+        self.assertEqual(r2["verdict"], "regressed")
+
+        # 2) TypeScript `.ts` repair introducing a NEW export: reverted tree throws SyntaxError (import error),
+        # which MUST be classified as `error` -> `undecided` with sanitized `why`, NOT false `confirmed`.
+        self.commit({"alpha/helper.ts": "export function existing(x: number): number { return x; }\n"},
+                    message="feat(alpha): add helper.ts")
+        repair_ts = self.commit({
+            "alpha/helper.ts": (
+                "export function existing(x: number): number { return x; }\n"
+                "export function added(x: number): number { return x + 1; }\n"
+            ),
+            "alpha/helper.test.ts": (
+                'import assert from "node:assert/strict";\n'
+                'import { test } from "node:test";\n'
+                'import { added } from "./helper.ts";\n'
+                'test("calls new export", () => { assert.equal(added(1), 2); });\n'
+            ),
+        }, message="fix(alpha): add helper export")
+        with redirect_stdout(out):
+            doctor.main(["recheck", str(ev), repair_ts, "--tree", "HEAD"])
+        r3 = doctor.rows(ev)[-1]
+        self.assertEqual(r3["verdict"], "undecided")
+        self.assertEqual(r3["outcomes"]["fixed"]["ok"], 1)
+        self.assertEqual(r3["outcomes"]["reverted"]["fail"], 0)
+        self.assertEqual(r3["outcomes"]["reverted"]["error"], 1)
+        self.assertIn("added", r3["outcomes"]["reverted"].get("why", ""))
