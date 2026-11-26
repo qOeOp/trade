@@ -228,7 +228,8 @@ def gate(events: list[dict]) -> dict:
 def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
     """The run's own parts of the record replay.comparison.run_record reads with its evidence pack's market rows:
     its native order events, the entries its gate changed, its process's start, its equity path from `balance` with
-    the funding `settled`, its contracts' terms and the account's fee rates in `snapshot`."""
+    the funding `settled`, when each minute's result was taken, its contracts' terms and the account's fee rates in
+    `snapshot`."""
     equity, _ = run_journal.with_funding(sorted(
         ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
@@ -236,6 +237,9 @@ def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -
     # One process (segment): its side connection is down from its first journal line to its first up.
     return {"side_starts": [row["observed_ns"] for row in pack["events"][:1] if isinstance(row.get("observed_ns"), int)],
             "events": pack["orders"], "gate": gate(pack["events"]), "settlements": settled, "equity": equity,
+            "taken": {row["minute_ns"]: row["observed_ns"] for row in pack["events"]
+                      if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
+                      and isinstance(row.get("observed_ns"), int) and row.get("result") is not None},
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}),
             "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 
