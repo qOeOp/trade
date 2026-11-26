@@ -74,6 +74,22 @@ class SegmentTests(unittest.TestCase):
         self.assertEqual([(item["kind"], item["start"], item["end"]) for item in found], [
             ("control", date(2026, 1, 1), date(2026, 2, 1)), ("holdout", date(2026, 2, 1), date(2026, 4, 1))])
 
+    def test_whole_year_keeps_warmup_shifted_reserved_year_and_rejects_short_or_market_cut_years(self):
+        from datetime import datetime
+        dt = datetime.fromisoformat
+        self.assertTrue(report_history._whole_year({
+            "input_start": dt("2021-10-01T00:00:00"), "trade_start": dt("2021-10-01T00:00:00"),
+            "trade_end": dt("2022-10-01T00:00:00")}), "zero warm-up full year")
+        self.assertTrue(report_history._whole_year({
+            "input_start": dt("2021-10-01T00:00:00"), "trade_start": dt("2021-10-31T00:00:00"),
+            "trade_end": dt("2022-10-01T00:00:00")}), "#3760: reserved veto year shifted by 30-day warm-up")
+        self.assertFalse(report_history._whole_year({
+            "input_start": dt("2021-10-01T00:00:00"), "trade_start": dt("2022-07-20T00:00:00"),
+            "trade_end": dt("2022-10-01T00:00:00")}), "warm-up leaving fewer than SHORT_DAYS stays partial")
+        self.assertFalse(report_history._whole_year({
+            "input_start": dt("2020-01-01T00:00:00"), "trade_start": dt("2020-01-02T00:00:00"),
+            "trade_end": dt("2020-10-01T00:00:00")}), "market-cut 9-month partial year stays partial")
+
 
 class VerdictTests(unittest.TestCase):
     """3.7 (user 2026-11-11, "否决和留出分开都要过"): the veto years and the holdout are judged apart on the two targets,
@@ -402,8 +418,7 @@ class HistoryRunTests(unittest.TestCase):
 
         backups = tempdir(self.addCleanup, prefix="backups-", dir="/tmp")
         profile = replace(world.profile, backup_root=backups / "export")
-        with patch.object(report_history, "market_days", return_value=days):
-            closed = research_commands.line_close(profile, line, b"summary", {})
+        closed = research_commands.line_close(profile, line, b"summary", world.market)
         self.assertFalse(closed["replayed"])
         self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
         self.assertEqual(admin.backup_head(admin.backup_path(profile)), closed["ledger_commit"])
@@ -693,9 +708,259 @@ class HistoryRunTests(unittest.TestCase):
         days = (date(2025, 11, 1), date(2026, 4, 1))
         caught = refused(lines.close_line, world.profile, line, b"summary", days)
         self.assertEqual(caught.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
-        with patch.object(report_history, "market_days", return_value=days):
-            closed = research_commands.line_close(world.profile, line, b"summary", {})
+        closed = research_commands.line_close(world.profile, line, b"summary", world.market)
         self.assertFalse(closed["replayed"], "`line close` requires the candidates' segments only")
+
+    def test_interrupted_control_trial_reports_missing_instead_of_reproduction_failure(self):
+        """#3761: an interrupted control history trial (status=None, no run row) must leave control_reproduces=None
+        and keep summary with 'control' in missing, not void summary=None as a reproduction failure."""
+        world = self.world
+        line = world.line["line"]
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        registration, (ref,) = registered_grid(world, ["kept"])
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        # Complete the veto segment first, then interrupt while the control segment runs.
+        history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
+
+        def interrupt(command, stdout, stderr, timeout):
+            raise KeyboardInterrupt
+
+        with replay_seams.use(run=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                history.run_history(world.profile, world.market, MARKET_DAY, line, limit=1)
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+        self.assertIsNone(row["control_reproduces"])
+        self.assertIsNotNone(row["summary"])
+        self.assertIn("control", row["summary"]["missing"])
+        self.assertIsNone(row["summary"]["meets_targets"])
+        # Resuming finishes the control and recovers the row.
+        history.run_history(world.profile, world.market, MARKET_DAY, line)
+        (resumed,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+        self.assertTrue(resumed["control_reproduces"])
+        self.assertNotIn("control", resumed["summary"]["missing"])
+
+    def test_nonzero_warmup_does_not_defeat_reserved_veto_year(self):
+        """#3760: on a C in 16..24 line (dev_start - covered == 1 year), a participant with non-zero warm-up must
+        still have its reserved veto year counted as a whole year and enforced by require_unfalsified."""
+        world = self.world
+        months = [f"{y}-{m:02d}" for y in range(2020, 2025) for m in range(1, 13)][:57]  # 2020-01 .. 2024-09
+
+        class SpanMarket(Market):
+            def days(self, market_day):
+                return date(2020, 1, 1), date(2024, 9, 30)
+
+        world.market = SpanMarket({MARKET_DAY: months_rows(months)})
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        start = world.publish("warmstart", parent=None)
+        world.prechecked(start["source"])
+        world._period.stop()
+        try:
+            def market_facts(at):
+                day = world.market.resolve_day(at)
+                _, latest = world.market.days(day)
+                return {"market_day": day, "universe_rule": world.market.universe_rule(day),
+                        "latest_complete_day": latest, "members": world.market.universe_month(day)}
+
+            selected = lines.select_line(
+                world.conn, MARKET_DAY, start["candidate"], slug="warm-line", market=market_facts,
+                reviews=precheck.review_records, targets=(0.20, 0.15), today=date(2024, 10, 5))
+            rec = lines.read_line(world.conn, selected["line_id"])
+            self.assertEqual((rec["dev_start"], rec["dev_end"]), ("2021-01-01", "2022-10-01"))
+            argv = ["--start", "2020-12-31T00:00:00Z", "--trade-start", "2021-01-01T00:00:00Z",
+                    "--end", "2022-10-01T00:00:00Z", "--symbols", "AAAUSDT"]
+            cand = world.publish("warmcand", parent=None)
+            rev = world.prechecked(cand["source"])
+            reg = world.register(world.body([cand["candidate"]], {cand["candidate"]: rev}),
+                                 runner_argv=argv, line=rec["name"])
+            world.scenario = {"returns": [0.001]}
+            passed = entry.run(world.profile, world.market, MARKET_DAY, cand["candidate"], None, argv,
+                               registration=reg["registration_id"])
+            source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s",
+                                    (passed["trial_id"],))["source_sha256"]
+            # Veto segment blows up while control and holdout pass targets.
+            world.scenario = {"returns": [-0.01]}
+            history.run_history(world.profile, world.market, MARKET_DAY, rec["name"], limit=1)
+            world.scenario = {"returns": [0.001]}
+            history.run_history(world.profile, world.market, MARKET_DAY, rec["name"])
+            (row,) = report_history.research_history(world.profile, world.market, line=rec["name"])["lines"][0]["rows"]
+            summary = row["summary"]
+            self.assertEqual((summary["veto"]["whole_years"], summary["judged_on"], summary["meets_targets"]),
+                             (1, "veto and holdout", False))
+            self.assertEqual(refused(report_history.require_unfalsified, world.conn, source, world.market).code,
+                             "CANDIDATE_FALSIFIED")
+        finally:
+            world._period.start()
+
+    def test_history_bounds_veto_by_effective_coverage_for_metrics_pool_and_late_symbol(self):
+        """#3759: history_plan must bound veto segments by effective coverage (required tracks like --metrics and
+        --execution quotes, first universe month for --universe pool, and listing month for late --symbols)."""
+        # 1. --metrics starting at 2025-12 while bars start at 2023-12: no uncovered pre-metrics veto years.
+        world = self.world
+        line = world.line["line"]
+        metrics_months = [m for m in YEARS_MONTHS if m >= "2025-12"]
+
+        class MetricsYearsMarket(YearsMarket):
+            def track_months(self, market_day, table):
+                if table == "metrics":
+                    return months_rows(metrics_months)
+                return super().universe_month(market_day)
+
+        world.market = MetricsYearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)})
+        lines.set_targets(world.conn, world.line["line_id"], 0.15, 0.20)
+        argv = [*RUNNER_ARGV, "--metrics"]
+        world.scenario = {"returns": [0.001]}
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        registration, (ref,) = registered_grid(world, ["kept"])
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, argv, registration=registration)
+        source = world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s",
+                                (passed["trial_id"],))["source_sha256"]
+        real_run = replay_seams.current.run
+
+        def metrics_aware_run(command, stdout, stderr, timeout):
+            import json as _json
+            if len(command) >= 4:
+                try:
+                    spec = _json.loads(command[3])
+                except ValueError:
+                    spec = None
+                if spec and spec.get("module") == "runner":
+                    rargv = spec.get("argv") or []
+                    if ("--metrics" in rargv and "--trade-start" in rargv
+                            and rargv[rargv.index("--trade-start") + 1] < "2025-12-01T00:00:00Z"):
+                        stderr.write("METRICS_MISSING: no metrics in veto window\n")
+                        return 1
+            return real_run(command, stdout, stderr, timeout)
+
+        with replay_seams.use(run=metrics_aware_run):
+            first = history.run_history(world.profile, world.market, MARKET_DAY, line)
+            second = history.run_history(world.profile, world.market, MARKET_DAY, line)
+        self.assertEqual([item["segment"] for item in second["ran"]], [])
+        self.assertNotIn("2023-01", [item["segment"] for item in first["ran"]])
+        self.assertNotIn("2024-01", [item["segment"] for item in first["ran"]])
+        self.assertEqual(report_history.require_unfalsified(world.conn, source, world.market),
+                         {"line": line, "judged_on": "holdout"})
+        closed = research_commands.line_close(world.profile, line, b"metrics done", world.market)
+        self.assertFalse(closed["replayed"])
+
+    def test_quotes_execution_history_and_precheck_window_respect_quote_track_coverage(self):
+        """#3759: --execution quotes bounds both precheck's line-less window check and history_plan's veto segments
+        by stored quote coverage rather than bar coverage."""
+        world = self.world
+        quotes_months = [m for m in YEARS_MONTHS if m >= "2025-12"]
+        world.market = YearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)},
+                                   tracks={"quote": {MARKET_DAY: months_rows(quotes_months)}})
+        quote_account = {"starting_balance_usdt": "100000", "execution": "quotes", "default_leverage": "3",
+                         "oms_type": "HEDGING", "fees": "assumed-v1", "initial_margin_rate": "0.05",
+                         "maintenance_margin_rate": "0.025"}
+
+        def quote_windowed(identity, runner_argv, inputs):
+            at = {name: runner_argv[runner_argv.index(name) + 1] for name in ("--start", "--trade-start", "--end")}
+            acct = quote_account if "--execution" in runner_argv else None
+            return {"runtime_contract": identity["runtime_contract"], "effective_config": config(
+                symbols=inputs["symbols"], root=str(inputs["root"]), start=at["--start"], trade_start=at["--trade-start"],
+                end=at["--end"], **({"account": acct} if acct is not None else {}))}
+
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", quote_windowed))
+        # Precheck without a line uses quote track coverage -> LINE_HISTORY_SHORT when quotes cover < 12 quarters.
+        world._period.stop()
+        try:
+            qstart = world.publish("qstart", parent=None)
+            qpre_argv = ["--start", "2026-01-01T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z",
+                         "--end", "2026-01-04T00:00:00Z", "--execution", "quotes",
+                         "--initial-margin", "0.05", "--maintenance-margin", "0.025"]
+            self.assertEqual(refused(entry.precheck, world.profile, world.market, MARKET_DAY, qstart["candidate"],
+                                     None, qpre_argv, world.output("qpre")).code, "LINE_HISTORY_SHORT")
+        finally:
+            world._period.start()
+        # History plan for a --execution quotes research run skips pre-quote veto years (2023-01, 2024-01).
+        qargv = [*RUNNER_ARGV, "--execution", "quotes", "--initial-margin", "0.05", "--maintenance-margin", "0.025"]
+        qcand = world.publish("qcand", parent=None)
+        qcpre = entry.precheck(world.profile, world.market, MARKET_DAY, qcand["candidate"], None, qpre_argv,
+                               world.output("qcpre"), line=world.line["line"])
+        qrev = precheck.record_review(world.profile, world.review_body(qcpre["trial_id"]), "reviewer-b")["review_id"]
+        qreg = world.register(world.body([qcand["candidate"]], {qcand["candidate"]: qrev}), runner_argv=qargv)
+        entry.run(world.profile, world.market, MARKET_DAY, qcand["candidate"], None, qargv,
+                  registration=qreg["registration_id"])
+        ran = history.run_history(world.profile, world.market, MARKET_DAY, world.line["line"])
+        self.assertNotIn("2023-01", [item["segment"] for item in ran["ran"]])
+        self.assertNotIn("2024-01", [item["segment"] for item in ran["ran"]])
+        self.assertIn("2025-01", [item["segment"] for item in ran["ran"]])
+
+    def test_pool_and_late_symbol_history_plan_respect_covered_from(self):
+        """#3759: --universe pool does not plan veto segments before the first universe month (avoiding UNIVERSE_EMPTY)
+        and late-listed --symbols do not plan pre-listing veto segments."""
+        world = self.world
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        world._period.stop()
+        try:
+            btc = [(f"{y}-{m:02d}", "BTCUSDT") for y in range(2020, 2027) for m in range(1, 13)][:81]  # 2020-01..2026-09
+            sol = [(f"{y}-{m:02d}", "SOLUSDT") for y in range(2022, 2027) for m in range(1, 13)][:57]  # 2022-01..2026-09
+
+            class EarlyBarSpanMarket(Market):
+                def days(self, market_day):
+                    return date(2019, 9, 1), date(2026, 9, 30)
+
+            world.market = EarlyBarSpanMarket({MARKET_DAY: btc + sol})
+
+            def market_facts(at):
+                day = world.market.resolve_day(at)
+                _, latest = world.market.days(day)
+                return {"market_day": day, "universe_rule": world.market.universe_rule(day),
+                        "latest_complete_day": latest, "members": world.market.universe_month(day)}
+
+            # 1. Pool line: market first_day is 2019-09-01, first universe month is 2020-01.
+            pstart = world.publish("poolstart", parent=None)
+            ppre_argv = ["--start", "2023-01-01T00:00:00Z", "--trade-start", "2023-01-01T00:00:00Z",
+                         "--end", "2023-01-04T00:00:00Z", "--universe", "pool"]
+            ppre = entry.precheck(world.profile, world.market, MARKET_DAY, pstart["candidate"], None, ppre_argv,
+                                  world.output("ppre1"))
+            precheck.record_review(world.profile, world.review_body(ppre["trial_id"]), "reviewer-b")
+            pline = lines.read_line(world.conn, lines.select_line(
+                world.conn, MARKET_DAY, pstart["candidate"], slug="pool-line", market=market_facts,
+                reviews=precheck.review_records, targets=(0.20, 0.15), today=date(2026, 10, 5))["line_id"])
+            pargv = ["--start", f"{pline['dev_start']}T00:00:00Z", "--trade-start", f"{pline['dev_start']}T00:00:00Z",
+                     "--end", f"{pline['dev_end']}T00:00:00Z", "--universe", "pool"]
+            pcand = world.publish("poolcand", parent=None)
+            pcpre = entry.precheck(world.profile, world.market, MARKET_DAY, pcand["candidate"], None, ppre_argv,
+                                   world.output("ppre2"), line=pline["name"])
+            pcrev = precheck.record_review(world.profile, world.review_body(pcpre["trial_id"]), "reviewer-b")["review_id"]
+            preg = world.register(world.body([pcand["candidate"]], {pcand["candidate"]: pcrev}),
+                                  runner_argv=pargv, line=pline["name"])
+            entry.run(world.profile, world.market, MARKET_DAY, pcand["candidate"], None, pargv,
+                      registration=preg["registration_id"])
+            history.run_history(world.profile, world.market, MARKET_DAY, pline["name"])
+
+            # 2. Late-symbol line (SOLUSDT listed 2022-01) with 1-day warm-up: 0 pre-listing vetos, 1 whole veto year.
+            sstart = world.publish("solstart", parent=None)
+            spre_argv = ["--start", "2023-02-01T00:00:00Z", "--trade-start", "2023-02-02T00:00:00Z",
+                         "--end", "2023-02-04T00:00:00Z", "--symbols", "SOLUSDT"]
+            spre = entry.precheck(world.profile, world.market, MARKET_DAY, sstart["candidate"], None, spre_argv,
+                                  world.output("spre1"))
+            precheck.record_review(world.profile, world.review_body(spre["trial_id"]), "reviewer-b")
+            sline = lines.read_line(world.conn, lines.select_line(
+                world.conn, MARKET_DAY, sstart["candidate"], slug="sol-line", market=market_facts,
+                reviews=precheck.review_records, targets=(0.20, 0.15), today=date(2026, 10, 5))["line_id"])
+            self.assertEqual((sline["dev_start"], sline["dev_end"]), ("2023-01-01", "2024-10-01"))
+            sargv = ["--start", "2022-12-31T00:00:00Z", "--trade-start", "2023-01-01T00:00:00Z",
+                     "--end", "2024-10-01T00:00:00Z", "--symbols", "SOLUSDT"]
+            scand = world.publish("solcand", parent=None)
+            scpre = entry.precheck(world.profile, world.market, MARKET_DAY, scand["candidate"], None, spre_argv,
+                                   world.output("spre2"), line=sline["name"])
+            screv = precheck.record_review(world.profile, world.review_body(scpre["trial_id"]), "reviewer-b")["review_id"]
+            sreg = world.register(world.body([scand["candidate"]], {scand["candidate"]: screv}),
+                                  runner_argv=sargv, line=sline["name"])
+            world.scenario = {"returns": [0.001]}
+            entry.run(world.profile, world.market, MARKET_DAY, scand["candidate"], None, sargv,
+                      registration=sreg["registration_id"])
+            history.run_history(world.profile, world.market, MARKET_DAY, sline["name"])
+            (srow,) = report_history.research_history(world.profile, world.market, line=sline["name"])["lines"][0]["rows"]
+            veto_cells = [c for c in srow["cells"] if c["kind"] == "veto"]
+            self.assertEqual([c["label"] for c in veto_cells], ["2022-01"], "no pre-listing veto years before 2022-01")
+            self.assertTrue(veto_cells[0]["whole_year"], "reserved 2022-01 veto year stays whole despite 1-day warm-up")
+            self.assertEqual((srow["summary"]["veto"]["whole_years"], srow["summary"]["judged_on"]),
+                             (1, "veto and holdout"))
+        finally:
+            world._period.start()
 
 
 @unittest.skipUnless(BINARY, SKIP)

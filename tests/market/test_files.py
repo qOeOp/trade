@@ -309,3 +309,19 @@ class Refusals(Directory):
             written = files.write_file(market, "universe_month", JAN_1, None, [members(JAN_1, ["ETHUSDT"])])
             self.assertEqual(files.data_tests(market, universe.RULE), [])
             files.place(market, [written])
+
+    def test_track_months_lists_visible_contract_months(self):
+        self.write([
+            ("quote", JAN_1, "BTCUSDT", [quotes("BTCUSDT", [JAN + DAY])]),
+            ("quote", FEB_1, "BTCUSDT", [quotes("BTCUSDT", [FEB + 5 * DAY])]),
+            ("quote", FEB_1, "ETHUSDT", [quotes("ETHUSDT", [FEB + 10 * DAY])]),
+        ])
+        market = files.open_market(self.profile, "reader")
+        self.assertEqual(files.track_months(market, "2025-01-31", "quote"), [("2025-01", "BTCUSDT")])
+        self.assertEqual(files.track_months(market, "2025-02-04", "quote"), [("2025-01", "BTCUSDT")],
+                         "a month whose first row lies after market_day is not visible yet")
+        self.assertEqual(files.track_months(market, "2025-02-06", "quote"),
+                         [("2025-01", "BTCUSDT"), ("2025-02", "BTCUSDT")])
+        self.assertEqual(files.track_months(market, "2025-02-15", "quote"),
+                         [("2025-01", "BTCUSDT"), ("2025-02", "BTCUSDT"), ("2025-02", "ETHUSDT")])
+        self.assertEqual(files.track_months(market, "2025-02-15", "metrics"), [])

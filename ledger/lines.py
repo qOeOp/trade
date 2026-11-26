@@ -148,27 +148,124 @@ def dev_window(line: Mapping) -> tuple[datetime, datetime]:
             datetime.combine(date.fromisoformat(line["dev_end"]), time()))
 
 
+def _argv_list(runner_argv) -> list[str]:
+    return json.loads(runner_argv) if isinstance(runner_argv, (str, bytes)) else list(runner_argv)
+
+
+def _option(argv: list[str], name: str) -> str | None:
+    found = None
+    for index, item in enumerate(argv):
+        if item == name and index + 1 < len(argv):
+            found = argv[index + 1]
+        elif item.startswith(name + "="):
+            found = item.split("=", 1)[1]
+    return found
+
+
 def selection(runner_argv) -> list[str] | None:
     """The symbols a replay's runner arguments name after --symbols, or None for the pool (`--universe pool`)."""
-    argv = json.loads(runner_argv) if isinstance(runner_argv, (str, bytes)) else list(runner_argv)
+    argv = _argv_list(runner_argv)
     if "--symbols" not in argv:
         return None
     rest = argv[argv.index("--symbols") + 1:]
     return [item for item in itertools.takewhile(lambda item: not item.startswith("--"), rest)]
 
 
-def covered_from(selection: list[str] | None, members: list[tuple[str, str]]) -> date | None:
+def _read_tracks(tracks: Mapping[str, list[tuple[str, str]]] | Callable[[str], list[tuple[str, str]]] | None,
+                 tables: tuple[str, ...], cache: dict[str, list[tuple[str, str]]]
+                 ) -> dict[str, list[tuple[str, str]]]:
+    found: dict[str, list[tuple[str, str]]] = {}
+    for table in tables:
+        if table not in cache:
+            if callable(tracks):
+                cache[table] = list(tracks(table))
+            elif isinstance(tracks, Mapping):
+                cache[table] = list(tracks.get(table) or ())
+            else:
+                cache[table] = []
+        found[table] = cache[table]
+    return found
+
+
+def _trial_requirements(conn: db.LedgerConnection, trial_ids: list[int]
+                        ) -> dict[int, tuple[list[str] | None, tuple[str, ...]]]:
+    """For each trial ID, (symbol selection or None for pool, required track tables)."""
+    if not trial_ids:
+        return {}
+    rows = {row["trial_id"]: row for row in conn.rows_in(
+        "SELECT trial_id, execution, runner_argv FROM trial WHERE trial_id IN ()", trial_ids, dicts=True)}
+    bundles = [f"trial-{trial_id}-start" for trial_id in rows]
+    coverages: dict[str, dict] = {}
+    for bundle, content in conn.rows_in(
+            "SELECT e.bundle, c.content FROM evidence e JOIN evidence_content c ON c.sha256 = e.sha256 "
+            "WHERE e.path = 'input-coverage.json' AND e.bundle IN ()", bundles):
+        try:
+            parsed = json.loads(content.decode("utf-8"))
+            if isinstance(parsed, dict):
+                coverages[bundle] = parsed
+        except (UnicodeDecodeError, ValueError):
+            pass
+    result: dict[int, tuple[list[str] | None, tuple[str, ...]]] = {}
+    for trial_id, row in rows.items():
+        argv = _argv_list(row["runner_argv"])
+        cov = coverages.get(f"trial-{trial_id}-start") or {}
+        raw_identity = cov.get("input_identity")
+        identity: Mapping = raw_identity if isinstance(raw_identity, Mapping) else {}
+        raw_sel = identity.get("selection")
+        sel = raw_sel if isinstance(raw_sel, Mapping) else None
+        if sel is not None and (sel.get("universe") is True or isinstance(sel.get("symbols"), list)):
+            chosen = None if sel.get("universe") is True else list(sel["symbols"])
+        else:
+            chosen = selection(argv)
+        raw_receipts = cov.get("export_receipts")
+        receipts: Mapping = raw_receipts if isinstance(raw_receipts, Mapping) else {}
+        counts = [raw_counts for receipt in receipts.values() if isinstance(receipt, Mapping)
+                  for piece in receipt.get("pieces", ()) if isinstance(piece, Mapping)
+                  and isinstance((raw_counts := piece.get("counts")), Mapping)]
+        tables = tuple(table for table, needed in (
+            ("quote", row["execution"] == "quotes" or _option(argv, "--execution") == "quotes"),
+            ("agg_trade", "--trade-ticks" in argv or any("trade" in count for count in counts)),
+            ("metrics", "--metrics" in argv or any("metrics" in count for count in counts)),
+        ) if needed)
+        result[trial_id] = (chosen, tables)
+    return result
+
+
+def covered_from(selection: list[str] | None, members: list[tuple[str, str]],
+                 tracks: Mapping[str, list[tuple[str, str]]] | None = None) -> date | None:
     """The first day every instrument of a replay selection has market coverage, from the market day's universe
-    (YYYY-MM, symbol) rows: the first universe month for the pool (`selection` None), otherwise the latest of
-    the symbols' first universe months; None when one of them is never a universe member."""
-    first: dict[str, str] = {}
-    for month, symbol in sorted(members):
-        first.setdefault(symbol, month)
-    found = [min(first.values())] if selection is None and first else [
-        first[symbol] for symbol in selection or () if symbol in first]
-    if not found or (selection is not None and len(found) != len(selection)):
+    (YYYY-MM, symbol) rows and any required contract-month tracks (`tracks`, e.g. metrics, quote, agg_trade): for
+    the pool (`selection` None), the first universe month whose every member is present in every required track;
+    otherwise the latest of the symbols' first months across `members` and every required track; None when any
+    instrument lacks coverage."""
+    if selection is None:
+        pool_by_month: dict[str, set[str]] = {}
+        for month, symbol in members:
+            pool_by_month.setdefault(month, set()).add(symbol)
+        if not pool_by_month:
+            return None
+        track_maps = []
+        for rows in (tracks or {}).values():
+            by_month: dict[str, set[str]] = {}
+            for month, symbol in rows:
+                by_month.setdefault(month, set()).add(symbol)
+            track_maps.append(by_month)
+        for month in sorted(pool_by_month):
+            wanted = pool_by_month[month]
+            if all(wanted.issubset(by_month.get(month, ())) for by_month in track_maps):
+                return date.fromisoformat(month + "-01")
         return None
-    return date.fromisoformat(max(found) + "-01")
+    if not selection:
+        return None
+    starts: list[str] = []
+    for rows in (members, *(tracks or {}).values()):
+        first: dict[str, str] = {}
+        for month, symbol in sorted(rows):
+            first.setdefault(symbol, month)
+        if any(symbol not in first for symbol in selection):
+            return None
+        starts.append(max(first[symbol] for symbol in selection))
+    return date.fromisoformat(max(starts) + "-01")
 
 
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
@@ -269,8 +366,9 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
     passed = max((record for record in reviewed if record["verdict"] == "passed"), key=lambda record: record["review_id"])
-    argv = conn.rows("SELECT runner_argv FROM trial WHERE trial_id = %s", (passed["trial_id"],))
-    covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("members") or [])
+    chosen, tables = _trial_requirements(conn, [passed["trial_id"]]).get(passed["trial_id"], (None, ()))
+    track_data = _read_tracks(facts.get("tracks"), tables, {})
+    covered = covered_from(chosen, facts.get("members") or [], track_data)
     window_start, window_end = development_period(today, latest_day, covered)
     choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["market_day"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),
@@ -381,33 +479,49 @@ class HistoryBinder:
 
 def history_trials(conn: db.LedgerConnection, line_id: int) -> list[dict]:
     """The line's history trials with their run's status (None while it has no run), in trial order."""
-    return conn.dicts("SELECT t.trial_id, t.source_sha256, t.trade_start, t.trade_end, r.status FROM trial t "
-                      "LEFT JOIN run r ON r.trial_id = t.trial_id WHERE t.purpose = 'history' AND t.line_id = %s "
-                      "ORDER BY t.trial_id", (line_id,))
+    return conn.dicts("SELECT t.trial_id, t.source_sha256, t.input_start, t.trade_start, t.trade_end, r.status "
+                      "FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
+                      "WHERE t.purpose = 'history' AND t.line_id = %s ORDER BY t.trial_id", (line_id,))
 
 
 def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after_last: date,
-                 participants: list[dict]) -> list[dict]:
+                 participants: list[dict], *, members: list[tuple[str, str]] | None = None,
+                 tracks: Mapping[str, list[tuple[str, str]]] | Callable[[str], list[tuple[str, str]]] | None = None
+                 ) -> list[dict]:
     """Every pair of participant and segment of the line's closing history test (`participants`: the
     history_participants the test replays; history_segments), participant by participant: the segment with the
     participant's `source_sha256`, its
     research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
-    start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
-    the segment is left to trade), `done` (the latest history trial with a run that covers it, or None) and
-    `status` (that run's). A forward segment is covered by any history run trading from the holdout's end: its end
-    moves with the market."""
+    start no earlier than the segment's or than the participant's effective coverage start plus that warm-up;
+    None when nothing of the segment is left to trade), `done` (the latest history trial with a run that covers
+    it, or None) and `status` (that run's). When `members` (and `tracks` for required tracks such as metrics or
+    quotes) are given, each participant's veto segments are bounded by its effective coverage start (`covered_from`).
+    A forward segment is covered by any history run trading from the holdout's end: its end moves with the market."""
     record = read_line(conn, line_id)
     dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
-    segments = history_segments(dev_start, dev_end, first_day, after_last)
     ran = [row for row in history_trials(conn, line_id) if row["status"] is not None]
+    ids = [participant["trial_id"] for participant in participants]
+    trial_rows = {row["trial_id"]: row for row in conn.rows_in(
+        "SELECT trial_id, input_start, trade_start FROM trial WHERE trial_id IN ()", ids, dicts=True)}
+    reqs = _trial_requirements(conn, ids) if members is not None else {}
+    track_cache: dict[str, list[tuple[str, str]]] = {}
     plan = []
     for participant in participants:
-        trial = conn.one("SELECT input_start, trade_start FROM trial WHERE trial_id = %s", (participant["trial_id"],))
+        trial = trial_rows.get(participant["trial_id"])
         assert trial is not None  # a participant is a run's trial
         warmup = trial["trade_start"] - trial["input_start"]
-        earliest = datetime.combine(first_day, time()) + warmup
+        if members is not None:
+            chosen, tables = reqs.get(participant["trial_id"], (None, ()))
+            covered = covered_from(chosen, members, _read_tracks(tracks, tables, track_cache))
+            veto_first = dev_start if covered is None else max(first_day, covered)
+        else:
+            veto_first = first_day
+        segments = history_segments(dev_start, dev_end, veto_first, after_last)
+        veto_earliest = datetime.combine(veto_first, time()) + warmup
+        other_earliest = datetime.combine(first_day, time()) + warmup
         own = [row for row in reversed(ran) if row["source_sha256"] == participant["source_sha256"]]
         for segment in segments:
+            earliest = veto_earliest if segment["kind"] == "veto" else other_earliest
             start = max(datetime.combine(segment["start"], time()), earliest)
             end = datetime.combine(segment["end"], time())
             window = ({"input_start": start - warmup, "trade_start": start, "trade_end": end} if start < end
@@ -427,11 +541,15 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
 # Closing lines
 
 def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days: tuple[date, date],
-               candidates: Callable[[db.LedgerConnection, int], list[dict]] = history_participants) -> dict:
+               candidates: Callable[[db.LedgerConnection, int], list[dict]] = history_participants, *,
+               members: list[tuple[str, str]] | None = None,
+               tracks: Mapping[str, list[tuple[str, str]]] | Callable[[str], list[tuple[str, str]]] | None = None
+               ) -> dict:
     """End the line `line` with the Agent's summary (UTF-8, at most SUMMARY_LIMIT bytes, stored without
     surrounding blank space); the same summary again is a replay, another one LINE_CLOSED (a closing is never
     replaced). HISTORY_INCOMPLETE until every segment of its closing history test (history_plan, with
-    `market_days`: the market's first day and the day after its latest complete day) has a history run.
+    `market_days`: the market's first day and the day after its latest complete day, plus `members` and `tracks`
+    for effective coverage) has a history run.
     `candidates` gives the participants the test replays: every one by default; the product passes those whose
     run carries economic evidence (report.history.candidates)."""
     try:
@@ -449,7 +567,8 @@ def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days
                 raise refuse("LINE_CLOSED", f"{record['name']} is already closed", missing=(record["name"],))
         else:
             left = [item for item in history_plan(conn, record["line_id"], *market_days,
-                                                  candidates(conn, record["line_id"]))
+                                                  candidates(conn, record["line_id"]),
+                                                  members=members, tracks=tracks)
                     if item["window"] is not None and item["done"] is None]
             if left:
                 raise refuse("HISTORY_INCOMPLETE", f"{len(left)} segments of the closing history test of "

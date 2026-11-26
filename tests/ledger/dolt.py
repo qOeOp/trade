@@ -134,13 +134,16 @@ class Service:
 
 
 def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "usdt-perp-listed30d-v1",
-           first_day=date(2019, 9, 1)):
+           first_day=date(2019, 9, 1), members=None, tracks=None):
     """A stand-in for the market facts line select reads, covered from `first_day`."""
 
     def facts(market_at: str) -> dict:
-        return {"market_day": market_day, "universe_rule": universe_rule,
-                "latest_complete_day": latest_complete_day or date(2026, 3, 31),
-                "members": [(f"{first_day:%Y-%m}", "BTCUSDT")]}
+        found = {"market_day": market_day, "universe_rule": universe_rule,
+                 "latest_complete_day": latest_complete_day or date(2026, 3, 31),
+                 "members": [(f"{first_day:%Y-%m}", "BTCUSDT")] if members is None else list(members)}
+        if tracks is not None:
+            found["tracks"] = tracks
+        return found
     return facts
 
 

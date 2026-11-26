@@ -148,8 +148,62 @@ class ResearchLineTests(unittest.TestCase):
                                                               ["--universe", "pool", "--start", "x"])],
                          [["BTCUSDT", "ETHUSDT"], None])
         line = self.select()
-        self.assertEqual((line["line"], lines.read_line(self.conn, line["line_id"])["dev_start"]),
-                         ("ema-trend", "2021-04-01"))
+        self.assertEqual(lines.read_line(self.conn, line["line_id"])["dev_start"], "2021-04-01")
+
+    def test_covered_from_and_select_line_respect_required_tracks(self):
+        """#3759: covered_from and select_line intersect universe membership with required tracks (--metrics,
+        --execution quotes, --trade-ticks) for both pool and explicit --symbols."""
+        members = [(f"{y}-{m:02d}", sym) for y in range(2020, 2027) for m in range(1, 13)
+                   for sym in ("BTCUSDT", "ETHUSDT") if "2020-02" <= f"{y}-{m:02d}" <= "2026-11"]
+        metrics_full = [(mo, sym) for mo, sym in members if mo >= "2021-12"]
+        metrics_btc_only = [(mo, sym) for mo, sym in metrics_full if sym == "BTCUSDT"]
+        quotes_late = [(mo, sym) for mo, sym in members if mo >= "2023-01"]
+        self.assertEqual(lines.covered_from(None, members, {"metrics": metrics_full}), date(2021, 12, 1))
+        self.assertIsNone(lines.covered_from(None, members, {"metrics": metrics_btc_only}),
+                          "pool month needs every member of that month to hold the required track")
+        self.assertEqual(lines.covered_from(["BTCUSDT"], members, {"metrics": metrics_btc_only}), date(2021, 12, 1))
+        self.assertIsNone(lines.covered_from(["BTCUSDT", "ETHUSDT"], members, {"metrics": metrics_btc_only}))
+        self.assertEqual(lines.covered_from(["BTCUSDT"], members, {"metrics": metrics_full, "quote": quotes_late}),
+                         date(2023, 1, 1))
+
+        # select_line with --metrics shifts dev_start to reserve a covered veto year (2023-01-01 vs 2021-10-01).
+        def open_reviewed(tag: str, extra_argv: list[str], execution: str = "bars"):
+            data = source(tag)
+            strategies.publish_candidate(self.profile, data, tag, "Fixture", "track test")
+            receipt = coverage(effective_config={
+                "runtime_contract": RUNTIME["runtime_contract"], **window(), "execution_bar_minutes": 1440,
+                "symbols": ["BTCUSDT"],
+                "account": {"starting_balance_usdt": "100000", "execution": execution,
+                            "oms_type": "NETTING", "fees": "assumed-v1"},
+            })
+            ctx = {**context(data), "argv": [*context(data)["argv"], *extra_argv]}
+            tid = trials.open_trial(self.conn, "precheck", sha(data), RUNTIME, receipt, window(), ctx)["trial_id"]
+            item = {"status": "passed", "note": "fixture"}
+            reviews = lambda conn, s=None: [{"review_id": tid, "trial_id": tid, "source_sha256": sha(data),
+                                             "verdict": "passed", "reviewer": "fixture", "created_at": None,
+                                             "image_digest": RUNTIME["image_digest"], "api": item, "causal": item,
+                                             "activity": item, "readiness": item}]
+            return f"{tag}@1", reviews
+
+        bars_ref, bars_rev = open_reviewed("barsstart", [])
+        metrics_ref, metrics_rev = open_reviewed("metstart", ["--metrics"])
+        quotes_ref, quotes_rev = open_reviewed("quotestart", ["--execution", "quotes"], execution="quotes")
+        mkt = market(latest_complete_day=date(2026, 11, 22), members=members,
+                     tracks={"metrics": metrics_full, "quote": quotes_late})
+        bars_line = lines.select_line(self.conn, MARKET_DAY, bars_ref, slug="bars-line", market=mkt,
+                                      reviews=bars_rev, today=date(2026, 11, 22))
+        metrics_line = lines.select_line(self.conn, MARKET_DAY, metrics_ref, slug="metrics-line", market=mkt,
+                                         reviews=metrics_rev, today=date(2026, 11, 22))
+        quotes_line = lines.select_line(self.conn, MARKET_DAY, quotes_ref, slug="quotes-line", market=mkt,
+                                        reviews=quotes_rev, today=date(2026, 11, 22))
+        self.assertEqual(lines.read_line(self.conn, bars_line["line_id"])["dev_start"], "2021-10-01")
+        self.assertEqual(lines.read_line(self.conn, metrics_line["line_id"])["dev_start"], "2023-01-01")
+        self.assertEqual(lines.read_line(self.conn, quotes_line["line_id"])["dev_start"], "2023-10-01")
+        # Missing track coverage refuses LINE_HISTORY_SHORT rather than falling back to bars.
+        short = refused(lines.select_line, self.conn, MARKET_DAY, metrics_ref, slug="metrics-missing",
+                        market=market(latest_complete_day=date(2026, 11, 22), members=members, tracks={"metrics": []}),
+                        reviews=metrics_rev, today=date(2026, 11, 22))
+        self.assertEqual(short.code, "LINE_HISTORY_SHORT")
 
     def test_explore_and_precheck_trade_only_inside_a_development_period(self):
         """B5 (line-close-history-test 3.2, user 2026-11-11): a replay with a line trades inside that line's period;

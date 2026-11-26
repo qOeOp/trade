@@ -294,6 +294,15 @@ def check_day(market_day) -> str:
     return market_day
 
 
+def first_time(market: Market, entry: DataFile) -> int | None:
+    """The earliest value of the table's time column in a file, from its footer's statistics; None with no rows."""
+    reader = pq.ParquetFile(pa.BufferReader(file_bytes(market, entry)))
+    column = reader.schema_arrow.get_field_index(TABLES[entry.table].time)
+    found = [stats.min for group in range(reader.num_row_groups)
+             if (stats := reader.metadata.row_group(group).column(column).statistics) is not None and stats.has_min_max]
+    return min(found, default=None)
+
+
 def last_time(market: Market, entry: DataFile) -> int | None:
     """The latest value of the table's time column in a file, from its footer's statistics; None with no rows."""
     reader = pq.ParquetFile(pa.BufferReader(file_bytes(market, entry)))
@@ -301,6 +310,22 @@ def last_time(market: Market, entry: DataFile) -> int | None:
     found = [stats.max for group in range(reader.num_row_groups)
              if (stats := reader.metadata.row_group(group).column(column).statistics) is not None and stats.has_min_max]
     return max(found, default=None)
+
+
+def track_months(market: Market, market_day: str, table: str) -> list[tuple[str, str]]:
+    """(YYYY-MM, symbol) months of a contract-layout table (quote, agg_trade, metrics) with a row visible at
+    `market_day`."""
+    visible = day_end(table, market_day)
+    found = []
+    for entry in entries(market, table, None, None, visible):
+        if entry.symbol is None:
+            continue
+        if entry.end_ms > visible:
+            earliest = first_time(market, entry)
+            if earliest is None or earliest >= visible:
+                continue
+        found.append((clock.ms_day(entry.start_ms).strftime("%Y-%m"), entry.symbol))
+    return found
 
 
 def last_day(market: Market, table: str) -> date | None:
