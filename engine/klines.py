@@ -102,7 +102,9 @@ def symbol(instrument_id) -> str:
 
 def terms(instrument_id, proxy_url: str | None) -> dict:
     """Binance's terms of the contract now (engine.config.venue_terms of its public fapi/v1/exchangeInfo row), which
-    Paper compares with the market's for each entry, as Live does (TERMS_CHANGED)."""
+    Paper compares with the market's for each entry, as Live does (TERMS_CHANGED); a contract that is not an active
+    USDT-margined perpetual (status TRADING, contractType PERPETUAL, marginAsset USDT) is refused too, as in
+    engine.live_venue.require_admission."""
     for attempt in range(1, TERMS_READ_ATTEMPTS + 1):
         try:
             answer = get_json(f"{REST_BASE}/fapi/v1/exchangeInfo", proxy_url)
@@ -115,4 +117,10 @@ def terms(instrument_id, proxy_url: str | None) -> dict:
     rows = [row for row in answer["symbols"] if row["symbol"] == symbol(instrument_id)]
     if len(rows) != 1:
         raise ValueError(f"Binance has no unique USD-M instrument {symbol(instrument_id)}")
-    return venue_terms(rows[0])
+    row = rows[0]
+    if row.get("status") != "TRADING" or row.get("contractType") != "PERPETUAL" or row.get("marginAsset") != "USDT":
+        raise ValueError(
+            f"the trial requires an active USDT-margined perpetual ({symbol(instrument_id)}: "
+            f"status={row.get('status')}, contractType={row.get('contractType')}, marginAsset={row.get('marginAsset')})"
+        )
+    return venue_terms(row)

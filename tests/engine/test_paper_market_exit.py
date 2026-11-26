@@ -9,10 +9,10 @@ from unittest import mock
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
-from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, TraderId
+from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, TimeInForce, TraderId
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 
-from engine import order_rules, paper, paper_terms, run
+from engine import order_rules, paper, paper_session, paper_terms, run
 from engine import strategy as strategy_runtime
 from engine.load import load_strategy
 from tests.engine import test_fill_model as fixture
@@ -263,3 +263,82 @@ class MarketExitTests(Clocked):
             self.release()
             self.feed(self.now + 2 * MINUTE)
         self.assertEqual((self.engine.cache.positions_open(), self.engine.cache.orders_open()), ([], []))
+
+    def test_a_waiting_gtd_entry_on_the_lead_boundary_counts_lead_from_submit_time(self):
+        """#3658: a valid GTD entry at the 605 s boundary must not fail ORDER_RULE after waiting for its terms read,
+        whether cancelled while waiting or sent; one below 605 s at submit time is still refused."""
+        cases = (
+            ("boundary_canceled", order_rules.GTD_LEAD_NS, True, [], "CANCELED"),
+            ("boundary_uncanceled", order_rules.GTD_LEAD_NS, False, [], "ACCEPTED"),
+            ("short_canceled", order_rules.GTD_LEAD_NS - 1_000_000_000, True, [order_rules.CODE], None),
+            ("short_uncanceled", order_rules.GTD_LEAD_NS - 1_000_000_000, False, [order_rules.CODE], None),
+        )
+        for name, lead_ns, cancel_waiting, expected_codes, expected_status in cases:
+            with self.subTest(case=name):
+                created = []
+
+                def act(source, lead=lead_ns, cancel=cancel_waiting):
+                    order = source.order_factory.limit(
+                        fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("0.010"), Price.from_str("90.00"),
+                        time_in_force=TimeInForce.GTD, expire_time=source.clock.timestamp_ns() + lead)
+                    created.append(order)
+                    source.submit_order(order)
+                    if cancel:
+                        source.cancel_order(order.client_order_id)
+
+                self.on_next_bar(act)
+                self.feed(self.now + MINUTE)  # clock moves past the 605 s boundary while the entry waits
+                self.release()
+                self.feed(self.now + MINUTE)
+                [order] = created
+                self.assertEqual([code for code, _ in strategy_runtime.BREACHES], expected_codes)
+                found = self.engine.cache.order(order.client_order_id)
+                self.assertEqual(None if found is None else found.status.name, expected_status)
+                if expected_status == "CANCELED":
+                    self.assertEqual(self.source.cancels, [(str(order.client_order_id), "CANCELED")])
+            self.doCleanups()
+            self.setUp()
+
+    def test_two_waiting_entries_still_enforce_the_exposure_limit_at_release(self):
+        """Keeping OrderRules at release preserves cumulative exposure checks across queued entries."""
+        first = self.source.order_factory.limit(
+            fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("2000.000"), Price.from_str("90.00"))
+        second = self.source.order_factory.limit(
+            fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("2000.000"), Price.from_str("90.00"))
+        self.on_next_bar(lambda source: (source.submit_order(first), source.submit_order(second)))
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status.name, "ACCEPTED")
+        self.assertIsNone(self.engine.cache.order(second.client_order_id))
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+
+    def test_a_market_exit_before_a_saved_recovery_is_admitted_with_empty_since_is_refused(self):
+        """#3650: even with Session.since empty, a saved recovery before maybe_begin refuses market_exit."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        session = paper_session.Session.__new__(paper_session.Session)
+        session.saved, session.since, session.ready = {"cut_ns": self.now, "sources": {}}, {}, False
+        session.refused, session.handing = None, None
+        session.callback = nullcontext  # type: ignore[method-assign]
+        with mock.patch.object(paper, "SESSION", session):
+            self.on_next_bar(lambda source: source.market_exit())
+            self.feed(self.now + 2 * MINUTE)
+        self.assertIsNotNone(session.refused)
+        self.assertFalse(self.source.is_exiting())
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+
+    def test_a_market_exit_during_warming_is_refused_by_order_rules(self):
+        """#3650: rule 8 refuses market_exit while the instance is in WARMING."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        order_rules.WARMING.add("SOURCE-001")
+        self.on_next_bar(lambda source: source.market_exit())
+        self.feed(self.now + 2 * MINUTE)
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+        self.assertIn("warm-up", strategy_runtime.BREACHES[0][1])
+        self.assertFalse(self.source.is_exiting())
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)

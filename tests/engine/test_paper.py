@@ -1025,14 +1025,16 @@ class EntryTermsTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     @staticmethod
-    def exchange(tick: str) -> dict:
+    def exchange(tick: str, *, status: str | None = "TRADING", contract_type: str | None = "PERPETUAL",
+                 margin_asset: str | None = "USDT") -> dict:
         """fapi/v1/exchangeInfo as Binance answers it, the contract's filters among others."""
-        return {"symbols": [
-            {"symbol": "ETHUSDT", "filters": []},
-            {"symbol": "BTCUSDT", "filters": [
-                {"filterType": "PRICE_FILTER", "tickSize": tick, "minPrice": "556.80", "maxPrice": "4529764"},
-                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
-                {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]}
+        btc: dict = {"symbol": "BTCUSDT", "filters": [
+            {"filterType": "PRICE_FILTER", "tickSize": tick, "minPrice": "556.80", "maxPrice": "4529764"},
+            {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
+            {"filterType": "MIN_NOTIONAL", "notional": "50"}],
+            **{key: value for key, value in (("status", status), ("contractType", contract_type),
+                                             ("marginAsset", margin_asset)) if value is not None}}
+        return {"symbols": [{"symbol": "ETHUSDT", "filters": []}, btc]}
 
     def source(self):
         source = object.__new__(paper._PaperConfigured)
@@ -1087,6 +1089,31 @@ class EntryTermsTests(unittest.TestCase):
                 self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
                 paper.STOP.clear()
                 paper.STOP_REASON.clear()
+
+    def test_non_trading_non_perpetual_or_non_usdt_contract_refuses_the_entry(self):
+        """#3674: Paper's entry terms check matches Live's instrument admission (TRADING USDT PERPETUAL)."""
+        cases = (
+            ("settling", {"status": "SETTLING"}),
+            ("pending", {"status": "PENDING_TRADING"}),
+            ("missing_status", {"status": None}),
+            ("delivery", {"contract_type": "CURRENT_QUARTER"}),
+            ("non_usdt", {"margin_asset": "USDC"}),
+        )
+        for name, overrides in cases:
+            with self.subTest(case=name):
+                self.sent.reset_mock()
+                self.journal.reset_mock()
+                self.submit(self.exchange("0.10", **overrides))
+                self.sent.assert_not_called()
+                self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
+                self.assertEqual(self.journal.call_args.kwargs["code"], "TERMS_CHANGED")
+                paper.STOP.clear()
+                paper.STOP_REASON.clear()
+        # Control: reduce-only orders on a SETTLING contract are still sent without reading terms.
+        order, get = self.submit(self.exchange("0.10", status="SETTLING"), reduce_only=True)
+        get.assert_not_called()
+        self.assertIs(self.sent.call_args.args[0], order)
+        self.assertEqual(paper.STOP_REASON, [])
 
     def test_a_slow_read_holds_only_its_entry_and_later_ones_not_the_node(self):
         """While Binance is slow to answer, the entry waits unsent and the node goes on: its submit returns at once, a

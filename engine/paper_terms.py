@@ -11,6 +11,7 @@ market exit does not wait: Nautilus denies it at once, as in a replay."""
 
 from __future__ import annotations
 
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig
 
 from engine import klines, unsent
 from engine.config import terms_changed
-from engine.order_rules import native_cache
+from engine.order_rules import WARMING, native_cache
 from engine.strategy import source_config
 
 ENTRY_GATE = ExecAlgorithmId("PAPER-GATE")  # ends an entry its source cancelled while it waited (engine.unsent)
@@ -130,15 +131,24 @@ class Waiting:
     _paper_entry_terms: Any
     _orders_allowed: Any
 
-    def _wait(self, order, send, end) -> None:
+    def _wait(self, order, position_id, client_id, params) -> None:
+        submitted_ns = Strategy.clock.__get__(self, type(self)).timestamp_ns() if isinstance(self, Strategy) else None
+        send = functools.partial(self._send_waiting, order, position_id, client_id, params, submitted_ns)
+        end = functools.partial(self._end_waiting, order, position_id, client_id, params, submitted_ns)
         queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
 
-    def _end_waiting(self, order, position_id, client_id, params) -> None:
+    def _send_waiting(self, order, position_id, client_id, params, submitted_ns: int | None) -> Any:
+        if submitted_ns is None:
+            return super().submit_order(order, position_id, client_id, params)  # type: ignore[misc]
+        return super()._submit_checked(order, position_id, client_id, params,  # type: ignore[misc]
+                                       submitted_ns=submitted_ns)
+
+    def _end_waiting(self, order, position_id, client_id, params, submitted_ns: int | None = None) -> None:
         """End a cancelled entry. An unsent order keeps the order rules too, as in a replay, which checks it before
         its cancel."""
         if native_cache(self).order(order.client_order_id) is not None:  # an order the source submitted before
             super().cancel_order(order.client_order_id, None, None)  # type: ignore[misc]
-        elif self._orders_allowed(order, position_id, client_id, params):
+        elif self._orders_allowed(order, position_id, client_id, params, submitted_ns=submitted_ns):
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
@@ -172,7 +182,8 @@ class Waiting:
 
     def market_exit(self):
         """The native exit cancels the orders in its cache; the entries that wait are the source's working orders too.
-        A call natively ignored (not running, or exiting already) cancels none."""
-        if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]
+        A call natively ignored (not running, or exiting already) or refused during warm-up cancels none."""
+        if (Strategy.is_running(self) and not Strategy.is_exiting(self)  # type: ignore[arg-type]
+                and str(Strategy.strategy_id.__get__(self, type(self))) not in WARMING):
             cancel(self._paper_instrument_id, lambda order: True)
         return super().market_exit()  # type: ignore[misc]

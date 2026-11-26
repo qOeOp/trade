@@ -198,6 +198,8 @@ def declares_recovery(strategy_class: type) -> bool:
 
 
 class Session:
+    admitted = False  # maybe_begin passed missed_settlement, account and touched
+
     def __init__(self, backend, journal, loaded, saved: dict | None, started_ns: int, input_start_ns: int,
                  warm_at: int, release=None):
         self.backend, self.journal, self.loaded, self.saved = backend, journal, loaded, saved
@@ -212,6 +214,7 @@ class Session:
         # Whether the pause of a source without the protocol keeps its orders: a position was open when the stop was
         # requested (engine.paper.pausing; latched there, since the pause itself may close it).
         self.holding = False
+        self.admitted = False
         self.ready = False
         self.recorder: Any = None
         self.cache: Any = None
@@ -326,6 +329,7 @@ class Session:
                 self.refused = touched(self.cache.orders(), self.downtime, self.last_bar, self.warm_at)
                 if self.refused:
                     return
+            self.admitted = True
             for callback in self.starts:
                 callback()
             # Until the back-filled bars are handed over and their orders checked, the recovery is not ready: a refusal
@@ -444,12 +448,17 @@ class Session:
         return self.refused
 
     def exiting(self) -> str | None:
-        """Why a market exit the source begins is not begun, or None: as a close (`commanded`), and one before the
-        back-fill has ended refuses the recovery. rc7 closes again every 100 ms while a position is open, past the
-        source's overrides, and Python cannot end a running exit: timer events already queued outlive a cancelled
-        timer. So it would go on sending if the back-fill then refused the recovery."""
-        if self.commanded(close=True) is None and self.since and not self.ready:
-            self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
+        """Why a market exit the source begins is not begun, or None: as a close (`commanded`), and one before a saved
+        recovery is admitted or before its back-fill has ended refuses the recovery. rc7 closes again every 100 ms
+        while a position is open, past the source's overrides, and Python cannot end a running exit: timer events
+        already queued outlive a cancelled timer. So it would go on sending if touched, the restore deadline or the
+        back-fill then refused the recovery."""
+        if self.commanded(close=True) is None and not self.ready:
+            if self.saved and not self.admitted:
+                self.refused = ("a market exit begun before the recovery was admitted would go on closing after "
+                                "a refusal")
+            elif self.since:
+                self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
         return self.refused
 
     def due(self, cache, now: int) -> str | None:
