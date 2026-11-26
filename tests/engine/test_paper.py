@@ -1355,6 +1355,7 @@ class MetricsFollowRecoveryTests(unittest.TestCase):
     @staticmethod
     def _source(clock_ns: int, reader=None):
         source = object.__new__(paper._PaperConfigured)
+        source._paper_instrument_id = str(IID)
         source._paper_subscription_changes = False
         source._replay_input_start_ns = 0
         source._metrics_setup(reader)
@@ -1365,7 +1366,7 @@ class MetricsFollowRecoveryTests(unittest.TestCase):
 
     def test_startup_metrics_follow_is_checkpointable_while_mid_run_follow_and_unfollow_defer(self):
         source, clock = self._source(DAY + 30 * 10**9)
-        session = SimpleNamespace(ready=False, metrics_after=lambda: None)
+        session = SimpleNamespace(ready=False, metrics_cursor=lambda _own, _m: None)
         with mock.patch.object(paper, "SESSION", session), \
                 mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock):
             source._metrics_follow(str(IID))
@@ -1382,8 +1383,7 @@ class MetricsFollowRecoveryTests(unittest.TestCase):
                 source._metrics_unfollow(str(IID))
             self.assertTrue(source._paper_subscription_changes, "mid-run unfollow must defer checkpoints")
 
-    def test_recovery_metrics_follow_starts_after_cut_and_backfills_due_rows_without_duplicates(self):
-        cut_ns = DAY + 2 * MINUTE_NS
+    def test_recovery_metrics_follow_uses_exact_saved_cursor_and_backfills_without_duplicates(self):
         warm_at = DAY + 16 * MINUTE_NS
         seen_reads: list[tuple[str, int]] = []
 
@@ -1392,11 +1392,17 @@ class MetricsFollowRecoveryTests(unittest.TestCase):
             return {name: Decimal("2.5").quantize(metrics.EXACT) for name in wanted}
 
         source, clock = self._source(warm_at + 10**9, reader=reader)
-        session = SimpleNamespace(ready=False, metrics_after=lambda: cut_ns)
+        asked: list[tuple[str, str]] = []
+
+        def cursor(own_iid: str, m_iid: str) -> int:
+            asked.append((own_iid, m_iid))
+            return DAY
+
+        session = SimpleNamespace(ready=False, metrics_cursor=cursor)
         with mock.patch.object(paper, "SESSION", session), \
                 mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock):
             source._metrics_follow(str(IID))
-        # First row due strictly after cut_ns (DAY + 2m) is due at DAY + 5m (ts_event = DAY).
+        self.assertEqual(asked, [(str(IID), str(IID))])
         self.assertEqual(source._metrics_followed[str(IID)]["ts_event"], DAY)
 
         rows = source._metrics_backfill_due(warm_at)
@@ -1408,3 +1414,12 @@ class MetricsFollowRecoveryTests(unittest.TestCase):
         # Cursor moved past warm_at so a second backfill or live tick produces zero duplicates.
         self.assertEqual(source._metrics_followed[str(IID)]["ts_event"], DAY + 3 * metrics.PERIOD_NS)
         self.assertEqual(source._metrics_backfill_due(warm_at), [])
+
+    def test_fetch_at_reads_metrics_minutes_for_recovery_even_without_working_orders(self):
+        at = DAY + 10 * MINUTE_NS
+        session = SimpleNamespace(working=set(), read_downtime=mock.Mock(), read_metrics_minutes=mock.Mock())
+        with mock.patch.object(paper.history, "fetch", return_value=([], [], [])):
+            paper.fetch_at(IID, at, (), (1, 3), catalog=Path("c"), proxy_url="http://proxy", session=session,
+                           funding=0, follow=False)
+        session.read_downtime.assert_not_called()
+        session.read_metrics_minutes.assert_called_once_with(IID, at, (1, 3), "http://proxy")

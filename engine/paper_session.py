@@ -227,6 +227,7 @@ class Session:
         self.pause_error: str | None = None
         self.refused: str | None = None  # why the recovery was refused before it was ready (touched, backfill)
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
+        self.metrics_minutes: dict[str, list] = {}  # contract: one-minute klines covering Metrics backfill rows
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
         self.handing: tuple | None = None  # (period, aggregated bar, the receiver's minutes up to T, its contract)
@@ -318,6 +319,29 @@ class Session:
             self.downtime[str(instrument_id)] = klines.bars(instrument_id, "1-MINUTE", last + warmup.MILLISECOND_NS,
                                                             at - warmup.MILLISECOND_NS, precisions, proxy_url, get)
 
+    def metrics_window_start(self, iid: str) -> int | None:
+        """Earliest minute open (ns) needed to check orders submitted on back-filled Metrics rows of `iid`, or None."""
+        if not self.saved or not self.saved.get("sources") or self.held:
+            return None
+        saved_metrics = (self.saved["sources"].get(iid) or {}).get("metrics") or {}
+        if not saved_metrics:
+            return None
+        earliest_due = min(int(ts_event) + metrics.VISIBLE_NS for ts_event in saved_metrics.values())
+        return earliest_due - MINUTE_NS if earliest_due <= self.warm_at else None
+
+    def reads_at_warmup(self, iid: str) -> bool:
+        """Whether `iid` must run its warm-up reader thread at T even without a declared WARMUP request."""
+        return iid in self.working or self.metrics_window_start(iid) is not None
+
+    def read_metrics_minutes(self, instrument_id, at: int, precisions: tuple[int, int], proxy_url: str | None,
+                             get=klines.get_json) -> None:
+        """On the warm-up's reader thread at T: the one-minute klines of `instrument_id` covering every Metrics row
+        to be back-filled (from the minute closing at the earliest due row up to the one closing at T)."""
+        start = self.metrics_window_start(str(instrument_id))
+        if start is not None:
+            self.metrics_minutes[str(instrument_id)] = klines.bars(
+                instrument_id, "1-MINUTE", start, at - warmup.MILLISECOND_NS, precisions, proxy_url, get)
+
     def maybe_begin(self) -> None:
         if not self.ready and not self.refused and len(self.starts) == self.expected_starts:
             if self.missed_settlement():  # one due since the process started: the node already runs the source
@@ -347,77 +371,127 @@ class Session:
             return self.saved["cut_ns"]
         return None
 
-    def _backfill_metrics(self) -> str | None:
-        """Deliver Metrics rows whose due time fell in (cut_ns, warm_at] during Paper recovery (#3783)."""
-        if not self.saved or not self.saved.get("sources") or self.held:
+    def metrics_cursor(self, own_iid: str, m_iid: str) -> int | None:
+        """During an active recovery's startup (before `ready`), the exact `ts_event` cursor Metrics should resume
+        from: the saved per-contract cursor when present in the checkpoint, falling back to `cut_ns` alignment."""
+        if not (self.saved and self.saved.get("sources") and not self.held and not self.ready):
             return None
-        deliveries: list[tuple[int, str, int, str, Any, Any]] = []
+        saved_metrics = (self.saved["sources"].get(own_iid) or {}).get("metrics") or {}
+        if m_iid in saved_metrics:
+            return int(saved_metrics[m_iid])
+        start = max(self.input_start_ns, self.saved["cut_ns"] - metrics.VISIBLE_NS + 1)
+        return -(-start // metrics.PERIOD_NS) * metrics.PERIOD_NS
+
+    def _metrics_minutes(self, iid: str, strategy) -> list:
+        """All known one-minute bars of `iid`, ascending and deduplicated, for checking Metrics backfill orders."""
+        by_ts: dict[int, Any] = {}
+        minute_bt = str(warmup.bar_type(iid, "1-MINUTE"))
+        if self.cache is not None and hasattr(self.cache, "bars"):
+            for bar in self.cache.bars(warmup.bar_type(iid, "1-MINUTE")) or ():
+                if str(getattr(bar, "bar_type", "")) == minute_bt:
+                    by_ts[bar.ts_event] = bar
+        warming = getattr(strategy, "_warming_state", None)
+        if callable(warming):
+            expected = warming().get("expected") or {}
+            for (role, period), bars in expected.items():
+                if role == "warm" or (role == "history" and period == "1-MINUTE"):
+                    for bar in bars or ():
+                        by_ts[bar.ts_event] = bar
+        for source in (self.downtime.get(iid), self.metrics_minutes.get(iid)):
+            for bar in source or ():
+                by_ts[bar.ts_event] = bar
+        return [by_ts[ts] for ts in sorted(by_ts)]
+
+    def _collect_metrics(self) -> tuple[list[tuple[tuple[int, int, int, str, int], tuple]], str | None]:
+        """Read all due Metrics rows across strategies for recovery backfill without delivering them yet."""
+        if not self.saved or not self.saved.get("sources") or self.held:
+            return [], None
+        items: list[tuple[tuple[int, int, int, str, int], tuple]] = []
         for idx, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
             backfill_fn = getattr(strategy, "_metrics_backfill_due", None)
-            if not callable(backfill_fn) or not getattr(strategy, "_metrics_followed", None):
+            followed = getattr(strategy, "_metrics_followed", None)
+            if not callable(backfill_fn) or not followed:
                 continue
+            states = dict(followed)
             try:
                 rows = backfill_fn(self.warm_at)
             except Exception as exc:
-                return f"Metrics recovery backfill failed: {type(exc).__name__}: {exc}"
+                return [], f"Metrics recovery backfill failed: {type(exc).__name__}: {exc}"
             for due_ns, m_iid, custom in rows:
-                deliveries.append((due_ns, m_iid, idx, iid, strategy, custom))
-        for due_ns, m_iid, _, iid, strategy, custom in sorted(deliveries, key=lambda item: item[:3]):
-            self.handing = (f"metrics({m_iid})", due_ns, self.downtime.get(iid) or [], iid)
-            try:
-                strategy.on_data(custom)
-                if self.release is not None:
-                    self.release(None)
-            finally:
-                self.handing = None
+                items.append(((due_ns, 0, 0, m_iid, idx),
+                              ("metrics", iid, strategy, m_iid, due_ns, custom, states.get(m_iid))))
+        return items, None
+
+    def _deliver_backfill(self, items: list[tuple[tuple[int, int, int, str, int], tuple]]) -> str | None:
+        """Deliver merged Metrics and aggregated bar backfill items in strict chronological order."""
+        for _, payload in sorted(items, key=lambda item: item[0]):
+            if payload[0] == "metrics":
+                _, iid, strategy, m_iid, due_ns, custom, state = payload
+                if (getattr(strategy, "_metrics_followed", None) or {}).get(m_iid) is not state:
+                    continue
+                self.handing = (f"metrics({m_iid})", due_ns, self._metrics_minutes(iid, strategy), iid)
+                try:
+                    strategy.on_data(custom)
+                    if self.release is not None:
+                        self.release(None)
+                finally:
+                    self.handing = None
+            else:
+                _, iid, strategy, period, bar, minutes = payload
+                self.handing = (period, bar, minutes, iid)
+                try:
+                    strategy.on_bar(bar)
+                    if self.release is not None:
+                        self.release(None)
+                finally:
+                    self.handing = None
             if self.refused:
                 return self.refused
         return None
 
+    def _backfill_metrics(self) -> str | None:
+        """Deliver Metrics rows due during Paper recovery (#3783)."""
+        items, err = self._collect_metrics()
+        return err or self._deliver_backfill(items)
+
     def backfill(self) -> str | None:
         """Hand each source the aggregated bars its recovery's warm-up completed (`since`) and any Metrics rows due
-        during the interruption, in time order, before any live data is dispatched."""
-        metrics_err = self._backfill_metrics()
+        during the interruption, interleaved in chronological order, before any live data is dispatched."""
+        if not self.saved or not self.saved.get("sources") or self.held:
+            return None
+        items: list[tuple[tuple[int, int, int, str, int], tuple]] = []
+        if self.since:
+            assert self.release is not None
+            contracts = list(strategy_runtime.STRATEGIES)
+            built: dict[tuple[str, str], list] = {}
+            for iid in contracts:  # each instance warmed its own contract's aggregations
+                for period, first in self.since.items():
+                    step = warmup.period_ns(period)
+                    cached = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
+                    found = sorted((bar for bar in cached if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
+                                   key=lambda bar: bar.ts_event)
+                    ends = list(range(first + step, self.warm_at + 1, step))
+                    if [self.bucket_end(bar) for bar in found] != ends:
+                        return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars ending "
+                                f"from {history.utc(ends[0])} to {history.utc(ends[-1])}")
+                    built[(iid, period)] = found
+            # By time, then each contract's bar in the run's order of contracts, each to its subscribers in that order.
+            # A fixed order: the live node has none for bars ending at the same instant (rc7 fires each aggregator's
+            # timer as its own task and breaks subscriber ties by a random handler id; 2026-11-18 native probe).
+            for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
+                minutes = cast(Any, strategy)._warming_state()["expected"]
+                subscribed = cast(Any, strategy)._paper_subscriptions
+                for order, other in enumerate(contracts):
+                    for period in self.since:
+                        if other == iid or self.subscription(other, period) in subscribed:
+                            items += [((self.bucket_end(bar), 1, order, "", index),
+                                       ("bar", iid, strategy, period, bar, minutes.get(("warm", period)) or []))
+                                      for bar in built[(other, period)]]
+        metrics_items, metrics_err = self._collect_metrics()
         if metrics_err:
             return metrics_err
-        if not self.since:
-            return None
-        assert self.saved is not None and self.release is not None
-        contracts = list(strategy_runtime.STRATEGIES)
-        built: dict[tuple[str, str], list] = {}
-        for iid in contracts:  # each instance warmed its own contract's aggregations
-            for period, first in self.since.items():
-                step = warmup.period_ns(period)
-                cached = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
-                found = sorted((bar for bar in cached if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
-                               key=lambda bar: bar.ts_event)
-                ends = list(range(first + step, self.warm_at + 1, step))
-                if [self.bucket_end(bar) for bar in found] != ends:
-                    return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars ending "
-                            f"from {history.utc(ends[0])} to {history.utc(ends[-1])}")
-                built[(iid, period)] = found
-        handed = []
-        # By time, then each contract's bar in the run's order of contracts, each to its subscribers in that order.
-        # A fixed order: the live node has none for bars ending at the same instant (rc7 fires each aggregator's
-        # timer as its own task and breaks subscriber ties by a random handler id; 2026-11-18 native probe).
-        for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
-            minutes = cast(Any, strategy)._warming_state()["expected"]
-            subscribed = cast(Any, strategy)._paper_subscriptions
-            for order, other in enumerate(contracts):
-                for period in self.since:
-                    if other == iid or self.subscription(other, period) in subscribed:
-                        handed += [(bar.ts_event, order, index, strategy, period, bar,
-                                    minutes.get(("warm", period)) or [], iid) for bar in built[(other, period)]]
-        for *_, strategy, period, bar, minutes, iid in sorted(handed, key=lambda item: item[:3]):
-            self.handing = (period, bar, minutes, iid)
-            try:
-                strategy.on_bar(bar)
-                self.release(None)
-            finally:
-                self.handing = None
-            if self.refused:
-                return self.refused
-        return None
+        items.extend(metrics_items)
+        return self._deliver_backfill(items)
 
     @staticmethod
     def subscription(iid: str, period: str) -> str:
@@ -482,12 +556,21 @@ class Session:
             return self.submitted(None)
         return self.refused
 
+    def _has_backfill(self) -> bool:
+        """Whether this active recovery has aggregated bars or Metrics backfill still ahead before `ready`."""
+        if not self.saved or not self.saved.get("sources") or self.held:
+            return False
+        if self.since or any(getattr(strategy, "_metrics_followed", None)
+                             for strategy in strategy_runtime.STRATEGIES.values()):
+            return True
+        return any(source.get("metrics") for source in self.saved["sources"].values())
+
     def exiting(self) -> str | None:
         """Why a market exit the source begins is not begun, or None: as a close (`commanded`), and one before the
         back-fill has ended refuses the recovery. rc7 closes again every 100 ms while a position is open, past the
         source's overrides, and Python cannot end a running exit: timer events already queued outlive a cancelled
         timer. So it would go on sending if the back-fill then refused the recovery."""
-        if self.commanded(close=True) is None and self.since and not self.ready:
+        if self.commanded(close=True) is None and not self.ready and self._has_backfill():
             self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
         return self.refused
 
@@ -606,7 +689,9 @@ class Session:
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
                     raise checkpoint.fail("strategy save hooks must return string-to-bytes state")
                 sources[iid] = {"state": {key: base64.b64encode(value).decode() for key, value in source_state.items()},
-                                "cadence": {key: asdict(value) for key, value in strategy._paper_cadence.items()}}
+                                "cadence": {key: asdict(value) for key, value in strategy._paper_cadence.items()},
+                                "metrics": {m_iid: m_state["ts_event"]
+                                            for m_iid, m_state in (getattr(strategy, "_metrics_followed", None) or {}).items()}}
             self._restorable(cache)
             if (self.depth or strategy_runtime.FAILURES
                     or any(cast(Any, source)._paper_held or _source_timers(source)

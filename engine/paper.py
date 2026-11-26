@@ -317,7 +317,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared,
                             vars(type(self))["_runner_funding"], inputs.fetch,
                             follows=vars(type(self))["_runner_reads_funding"],
-                            reads=bool(SESSION and inputs.instrument_id in SESSION.working),
+                            reads=bool(SESSION and SESSION.reads_at_warmup(inputs.instrument_id)),
                             since=SESSION.since if SESSION else None)
         self._metrics_setup(inputs.read_metrics)
         super().__init__(*args, **kwargs)
@@ -346,9 +346,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         if SESSION and SESSION.submitted(order):
             return None
         send = functools.partial(super().submit_order, order, position_id, client_id, params)
-        if order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order):
-            return send()
-        return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
+        return send() if order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order) else (
+            self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params)))
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         return None if SESSION and SESSION.commanded() else super().cancel_order(client_order_id, client_id, params)
@@ -364,14 +363,11 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
                        quote_quantity=None, params=None):
         """A close on a back-filled bar is a MARKET order the recovery refuses; after a refusal no cancel or close is sent
         (engine.paper_session.Session.commanded). A market exit is native past these overrides (Session.exiting)."""
-        if SESSION and SESSION.commanded(close=True):
-            return None
-        return super().close_position(position, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
+        return None if SESSION and SESSION.commanded(close=True) else super().close_position(
+            position, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
 
     def market_exit(self):
-        if SESSION and SESSION.exiting():
-            return None
-        return super().market_exit()
+        return None if SESSION and SESSION.exiting() else super().market_exit()
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         if SESSION and (SESSION.ready or args or kwargs):
@@ -379,9 +375,11 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         self._paper_subscriptions.add(str(bar_type))
         return super().subscribe_bars(bar_type, *args, **kwargs)
 
-    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None) -> None:
+    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None, start_ts_ns: int | None = None) -> None:
         self._paper_subscription_changes |= bool(SESSION and SESSION.ready)
-        super()._metrics_follow(instrument_id, after_ns=SESSION.metrics_after() if after_ns is None and SESSION else after_ns)
+        if start_ts_ns is None and after_ns is None and SESSION:
+            start_ts_ns = SESSION.metrics_cursor(getattr(self, "_paper_instrument_id", instrument_id), instrument_id)
+        super()._metrics_follow(instrument_id, after_ns=after_ns, start_ts_ns=start_ts_ns)
 
     def _metrics_unfollow(self, instrument_id: str) -> None:
         """Journal unsubscribed metrics (`paper compare` expects no row after it) and flag mid-run change."""
@@ -425,11 +423,13 @@ class PaperInputs:
 
 def fetch_at(instrument_id, at: int, declared, precisions: tuple[int, int], *, catalog: Path, proxy_url: str | None,
              session: Session | None, **kwargs):
-    """engine.history.fetch, and for a recovery of a contract with working orders the contract's klines of the
-    interruption on the same reader thread (engine.paper_session.Session.read_downtime)."""
+    """engine.history.fetch, and for a recovery the klines needed by restored orders or Metrics backfill on the same
+    reader thread (engine.paper_session.Session.read_downtime, read_metrics_minutes)."""
     found = history.fetch(instrument_id, at, declared, precisions, catalog, proxy_url, **kwargs)
     if session is not None and str(instrument_id) in session.working:
         session.read_downtime(instrument_id, at, precisions, proxy_url)
+    if session is not None and hasattr(session, "read_metrics_minutes"):
+        session.read_metrics_minutes(instrument_id, at, precisions, proxy_url)
     return found
 
 

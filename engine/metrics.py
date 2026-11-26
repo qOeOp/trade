@@ -76,15 +76,20 @@ class Feed:
     def _metrics_clock(self):
         return Strategy.clock.__get__(self, type(self))  # the runner's, not the source's guarded clock
 
-    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None) -> None:
+    def _metrics_follow(self, instrument_id: str, *, after_ns: int | None = None,
+                        start_ts_ns: int | None = None) -> None:
         """From the first row the replay would still deliver: stamped at or after the instance's input start
-        (engine.strategy.guard_callback) and due after now (or after `after_ns` during Paper recovery)."""
+        (engine.strategy.guard_callback) and due after now (or after `after_ns`, or from exact `start_ts_ns`,
+        during Paper recovery)."""
         if instrument_id in self._metrics_followed:
             return
         clock = self._metrics_clock()
-        ref_ns = after_ns if after_ns is not None else clock.timestamp_ns()
-        start = max(getattr(self, "_replay_input_start_ns", 0), ref_ns - VISIBLE_NS + 1)
-        first = -(-start // PERIOD_NS) * PERIOD_NS
+        if start_ts_ns is not None:
+            first = start_ts_ns
+        else:
+            ref_ns = after_ns if after_ns is not None else clock.timestamp_ns()
+            start = max(getattr(self, "_replay_input_start_ns", 0), ref_ns - VISIBLE_NS + 1)
+            first = -(-start // PERIOD_NS) * PERIOD_NS
         self._metrics_followed[instrument_id] = {"instrument_id": instrument_id, "ts_event": first, "found": {},
                                                  "thread": None, "retry_ns": 0}
         if TIMER_NAME not in clock.timer_names():
