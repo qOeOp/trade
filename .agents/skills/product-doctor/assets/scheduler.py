@@ -53,6 +53,63 @@ FULL_RE = re.compile(
 )
 RECORDED_ROW_RE = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
 CLAIM_EXPIRY_SECONDS = 2 * 86400  # record.md: a claim under 2 days old is left alone
+PROD_INCIDENT_PREFIXES = (
+    "prod_oom_kill",
+    "prod_recovery_unavailable",
+    "prod_checkpoint_deferred",
+    "prod_log_empty",
+)
+REDLINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bprimary\s+(?:live\s+|binance\s+)?(?:account|funds?)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:real|live)\s+orders?\b.{0,40}\b(?:primary|live\s+account|production\s+account|main\s+account)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bpp\s+supply\s+mono\b", re.IGNORECASE),
+    re.compile(r"\b(?:change|replace|remove|override|swap)\b.{0,30}\b(?:project(?:'s)?\s+)?fonts?\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:reset(?:ting)?|clear(?:ing)?|wipe(?:s|d|ing)?|truncat(?:e|es|ed|ing)|delet(?:e|es|ed|ing)|"
+        r"rewrit(?:e|es|ing)|drop(?:s|ped|ping)?)\b.{0,40}\b(?:dolt\s+ledger|active\s+ledger|"
+        r"ledger\s+(?:history|records?|table)|published\s+records?|sealed\s+artifacts?|database\s+backups?|"
+        r"historical\s+receipts?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bdestructive\s+(?:write|ledger|history|wipe)\b", re.IGNORECASE),
+    re.compile(r"\b(?:ledger|market)\s+init\s+--kind\s+active\b", re.IGNORECASE),
+    re.compile(r"\badd(?:s|ed|ing)?\b.{0,35}\bstored\b.{0,30}\b(?:field|column|table|value)s?\b", re.IGNORECASE),
+    re.compile(r"\bstored\s+(?:field|column|table)s?\b.{0,30}\b(?:ledger|record|schema)\b", re.IGNORECASE),
+    re.compile(
+        r"\badd(?:s|ed|ing)?\b.{0,30}\b(?:column|table|field)s?\b.{0,30}\b(?:to|in|into)\s+(?:the\s+)?(?:dolt\s+)?(?:ledger|record)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:weaken(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|lower(?:s|ed|ing)?|"
+        r"disable(?:s|d|ing)?|remove(?:s|d|ing)?)\b.{0,40}\b(?:refusal|audit\s+check|audit\s+gate|"
+        r"guard|research\s+target|max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return|test\s+bar|ci\s+gate)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bchange(?:s|d|ing)?\b.{0,30}\b(?:research\s+target|max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:tag(?:s|ged|ging)?\b.{0,25}\brelease\b|\brelease\s+tag\b|\btag\s+v\d+\.\d+\.\d+\b)", re.IGNORECASE),
+)
+
+
+def _is_redline_label(labels: set[str]) -> bool:
+    return any(
+        (low := lbl.lower()) in ("authority:redline", "redline") or low.startswith("authority:redline")
+        for lbl in labels
+    )
+
+
+def _is_redline_text(title: str, body: str) -> bool:
+    sample = f"{title}\n{body[:1200]}"
+    return any(pat.search(sample) for pat in REDLINE_PATTERNS)
+
+
+def _has_prod_incident(friction_triggers: list[str]) -> bool:
+    return any(t.startswith(PROD_INCIDENT_PREFIXES) for t in friction_triggers)
 
 
 def _git(*args: str) -> bytes:
@@ -221,7 +278,9 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
     if docs_only and not SECURITY_RE.search(f"{title}\n{body}"[:600]):
         has_harm_text = False
     is_harm = not title.lower().startswith("minor:") and "enhancement" not in labels and has_harm_text
-    is_auth_blocked = authority_gate and "authority" in labels
+    has_redline_label = _is_redline_label(labels)
+    is_redline = has_redline_label or ("authority" in labels and _is_redline_text(title, body))
+    is_auth_blocked = is_redline or (authority_gate and "authority" in labels)
 
     if "claimed" in labels:
         # Per record.md:24, claims under 2 days old are left alone; older ones are stale.
@@ -235,12 +294,18 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
         return buckets, entry
 
     if is_auth_blocked:
+        if is_redline:
+            entry["redline"] = True
         changed = [p for p in cited_files if file_latest_ts.get(p, 0) > touch_ts] if touch_ts else []
         if changed and is_harm:
             entry["changed_files"] = changed
-            entry["reason"] = f"authority-blocked; cited file(s) changed since last check: {', '.join(changed[:3])}"
+            prefix = "irreversible AGENTS.md redline (authority-blocked)" if is_redline else "authority-blocked"
+            entry["reason"] = f"{prefix}; cited file(s) changed since last check: {', '.join(changed[:3])}"
             return ["authority_drifted"], entry
-        entry["reason"] = "waiting on owner authority; cited code unchanged since last check"
+        entry["reason"] = (
+            "irreversible AGENTS.md redline; waiting on owner authority"
+            if is_redline else "waiting on owner authority; cited code unchanged since last check"
+        )
         return ["blocked_authority"], entry
 
     if is_harm and "needs-evidence" not in labels:
@@ -517,6 +582,7 @@ def _select_theme_and_scope(
     slim_cooled_down: bool, friction_cooled_down: bool, can_steady: bool,
     ranked_objects: list[dict[str, Any]], stalest_items: list[tuple[str, str]],
     staleness_breaches: list[str], sla_days: int, tops: dict[str, dict[str, Any]] | None = None,
+    has_prod_incident: bool = False,
 ) -> tuple[str, list[str], list[str], str]:
     if issue_buckets["actionable_harm"]:
         objs = sorted({o for iss in issue_buckets["actionable_harm"] for o in iss["objects"]})[:3]
@@ -528,6 +594,13 @@ def _select_theme_and_scope(
             f"{len(issue_buckets['authority_drifted'])} drifted authority issue(s) excluded)."
         )
         return "harm", objs, [], rat
+    if has_prod_incident:
+        prod_trigs = [t for t in friction_triggers if t.startswith(PROD_INCIDENT_PREFIXES)]
+        rat = (
+            f"{len(prod_trigs)} active production operational incident(s) preempt cooldown/steady: "
+            f"{'; '.join(prod_trigs[:3])}."
+        )
+        return "friction", friction_objs, friction_items, rat
     if slim_list and not slim_cooled_down:
         rat = (
             f"{len(slim_list)} code object(s) hit anti-bloat/oscillation thresholds; top: "
@@ -590,7 +663,7 @@ def _compute_gates(
     slim_list: list[dict[str, Any]], friction_triggers: list[str], friction_obj_cooled: bool,
     staleness_breaches: list[str], ranked_objects: list[dict[str, Any]],
     substantive_audits: list[dict[str, Any]], last_two_themes: list[str],
-    telemetry_data: dict[str, Any],
+    telemetry_data: dict[str, Any], *, has_prod_incident: bool = False,
 ) -> tuple[dict[str, bool], bool, bool, bool]:
     last_two_sub = substantive_audits[-2:]
     recent_confirmed = sum(r["confirmed"] for r in last_two_sub) if len(last_two_sub) >= 2 else None
@@ -610,13 +683,22 @@ def _compute_gates(
     non_find_pair = len(last_two_themes) == 2 and all(t in ("slim", "friction") for t in last_two_themes)
     slim_cooled = (("slim" in last_two_themes or non_find_pair) and bool(staleness_breaches)) or last_two_themes == ["slim", "slim"]
     fric_cooled = (
-        friction_obj_cooled
-        or (("friction" in last_two_themes or non_find_pair) and bool(staleness_breaches))
-        or last_two_themes == ["friction", "friction"]
+        not has_prod_incident
+        and (
+            friction_obj_cooled
+            or (("friction" in last_two_themes or non_find_pair) and bool(staleness_breaches))
+            or last_two_themes == ["friction", "friction"]
+        )
     )
     all_unchanged = all(r["unchanged_since_examined"] for r in ranked_objects)
     non_fric_ready = all(v for k, v in stopping_checks.items() if k != "no_friction_triggers")
-    can_steady = all(stopping_checks.values()) or (bool(friction_triggers) and friction_obj_cooled and non_fric_ready and all_unchanged)
+    can_steady = all(stopping_checks.values()) or (
+        bool(friction_triggers)
+        and not has_prod_incident
+        and friction_obj_cooled
+        and non_fric_ready
+        and all_unchanged
+    )
     return stopping_checks, slim_cooled, fric_cooled, can_steady
 
 
@@ -655,17 +737,20 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         key=lambda pair: (pair[1], pair[0]),
     )
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
+    has_prod_incident = _has_prod_incident(friction_triggers)
     friction_objs, friction_items = _friction_targets(friction_data, tops, ranked_objects)
     friction_obj_cooled = _friction_is_object_cooled(friction_objs, last_friction_zero, now_dt)
 
     stopping_checks, slim_cooled_down, friction_cooled_down, can_steady = _compute_gates(
         issues is not None, issue_buckets, slim_list, friction_triggers, friction_obj_cooled,
         staleness_breaches, ranked_objects, substantive_audits, last_two_themes, telemetry_data,
+        has_prod_incident=has_prod_incident,
     )
     theme, chosen_objs, chosen_items, rationale = _select_theme_and_scope(
         issue_buckets, slim_list, friction_triggers, friction_objs, friction_items,
         slim_cooled_down, friction_cooled_down, can_steady,
         ranked_objects, stalest_items, staleness_breaches, sla_days, tops=tops,
+        has_prod_incident=has_prod_incident,
     )
     coupled_contracts = [
         c for c in telemetry_data["couplings"]
@@ -674,6 +759,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
 
     return {
         "tree": rev, "as_of": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), "sla_days": sla_days,
+        "auto_mode": not authority_gate,
         "recommended_theme": theme, "rationale": rationale,
         "recommended_scope": {"theme": theme, "objects": chosen_objs, "items": chosen_items, "coupled_contracts": coupled_contracts},
         "stopping_checks": stopping_checks, "last_two_themes": last_two_themes, "dynamic_bars": dynamic_bars,
@@ -686,7 +772,8 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         "slim_total_count": len(slim_list), "slim_cooled_objects": slim_cooled_objects, "slim_candidates": slim_list[:6],
         "friction_summary": {
             "provided": friction_data is not None,
-            "in_cooldown": friction_obj_cooled,
+            "in_cooldown": friction_obj_cooled and not has_prod_incident,
+            "prod_incident_active": has_prod_incident,
             "triggers": friction_triggers[:8],
         },
         "staleness_breach_count": len(staleness_breaches), "ranked_code_objects": ranked_objects[:12],

@@ -13,6 +13,7 @@ import json
 import math
 from pathlib import Path
 import re
+import shlex
 import statistics
 from typing import Any
 
@@ -22,20 +23,55 @@ NONZERO_EXIT_RE = re.compile(
     r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
     re.MULTILINE,
 )
-AD_HOC_SQL_RE = re.compile(r"\b(?:dolt\s+sql|mysql\b)", re.IGNORECASE)
-SECRET_FILE_RE = re.compile(r"(?:^|[\s/'\"])(?:\.env|dolt/service\.json)(?:$|[\s'\"])")
-RESEARCH_CMD_RE = re.compile(r"\bcli\.main\s+(?:research|line|trial|replay)\b")
-PROD_OOM_RE = re.compile(r"\b(?:oom-killer|OOMKilled|Out of memory|ExitCode:\s*137|Killed process)\b", re.IGNORECASE)
-PROD_CHECKPOINT_DEFER_RE = re.compile(r"Paper checkpoint deferred:", re.IGNORECASE)
-PROD_RECOVERY_UNAVAIL_RE = re.compile(r"PAPER_RECOVERY_UNAVAILABLE")
+GIT_SEARCH_RE = re.compile(r"^\s*git\s+(?:grep|log|show|diff|blame)\b")
+GREP_CMD_RE = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:e?grep|fgrep|rg|ag)\b")
+AD_HOC_SQL_RE = re.compile(
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
+    r"(?:(?:env|sudo|command|exec|docker\s+exec(?:\s+-\S+)*\s+\S+)\s+)*"
+    r"(?:dolt(?:\s+-\S+(?:\s+[^-;\s]\S*)?){0,3}\s+sql|mysql)\b",
+    re.IGNORECASE,
+)
+SECRET_FILE_RE = re.compile(r"(?:^|[\s/'\"<=(])(?:\.env|dolt/service\.json)(?:$|[\s'\")|;&])")
+SECRET_REDIR_RE = re.compile(r"<\s*['\"]?(?:[^\s'\";|&]*/)?(?:\.env|dolt/service\.json)(?:['\"]|$|[\s;|&)])")
+SECRET_READ_CMD_RE = re.compile(
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
+    r"(?:\.(?=\s)|(?:cat|head|tail|less|more|sed|awk|gawk|jq|source|base64|xxd|od|strings|hexdump|"
+    r"nl|tac|rev|cut|sort|tr|bat|view|cp|mv|tee)\b)"
+)
+INLINE_SCRIPT_CMD_RE = re.compile(
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:uv\s+run\s+(?:--\S+\s+)*)?"
+    r"(?:python\d*(?:\.\d+)?|node|perl|ruby|bash|sh|zsh)\b"
+)
+_GREP_VAL_FLAGS = frozenset({"-e", "-f", "-m", "-A", "-B", "-C", "-g", "-t", "--regexp", "--file", "--glob", "--type"})
+_DOC_PATH_RE = re.compile(r"(?:^|/)(?:README\.md|AGENTS\.md|docs(?:/.*)?)$", re.IGNORECASE)
+RESEARCH_CMD_RE = re.compile(
+    r"\bcli\.main(?:\s+--?[A-Za-z0-9_-]+(?:=\S+|\s+[^\s-]\S*)?)*\s+(?:research|line|trial|replay)\b"
+)
+PROD_OOM_RE = re.compile(
+    r"\b(?:oom-killer|OOMKilled(?!(?:[\"']?\s*[:=]\s*(?:false|0)\b))|"
+    r"(?<!\bnot\s)(?<!\bno\s)Out of memory(?!\s+check\s+(?:passed|ok)\b)|"
+    r"ExitCode\s*[:=]\s*137|exit_code\s*[:=]\s*137|Killed process\b)",
+    re.IGNORECASE,
+)
+PROD_CHECKPOINT_DEFER_MARKER = "paper checkpoint deferred:"
+PROD_RECOVERY_UNAVAIL_MARKER = "PAPER_RECOVERY_UNAVAILABLE"
 PROD_RECONNECT_RE = re.compile(r"\b(?:reconnecting|WebSocket[^\n]*closed|connection reset|disconnected)\b", re.IGNORECASE)
-PROD_ERROR_RE = re.compile(r"(?:Traceback \(most recent call last\):|\b(?:CRITICAL|FATAL|ERROR)\b)")
+PROD_ERROR_RE = re.compile(
+    r"(?:^Traceback \(most recent call last\):|"
+    r"^(?:\[?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?[\s|:-]+)?"
+    r"[\[(]?(?:CRITICAL|FATAL|ERROR)[\])]?(?:\b|[\s:|])|"
+    r"(?:level|severity)[\"']?\s*[:=]\s*[\"']?(?:CRITICAL|FATAL|ERROR)\b)"
+)
 PROD_SERVICE_HINTS = ("paper", "live", "ide", "ledger", "market")
 NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
 _SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
     (re.compile(r"(?i)\b(Authorization\s*:\s*(?:Bearer|Basic|Token)\s+)\S+"), r"\1<REDACTED>"),
     (re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 <REDACTED>"),
+    (re.compile(
+        r"(?i)(--(?:[a-z0-9_-]*-)?(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token|"
+        r"refresh[_-]?token|token|secret|password|passwd|pwd|cookie))(\s+)(?!-)(\S+)"
+    ), r"\1\2<REDACTED>"),
     (re.compile(
         r"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|"
         r"token|secret|password|passwd|pwd|cookie))(\s*[=:]\s*)\S+"
@@ -45,6 +81,7 @@ _SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         r"AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{16,}|xox[baprs]-[A-Za-z0-9-]{8,})\b"
     ), "<REDACTED>"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9._-]{6,}"), "<REDACTED>"),
+    (re.compile(r"\b[0-9a-fA-F]{40,64}\b"), "<REDACTED>"),
 )
 MAX_SUMMARY_LEN = 80
 
@@ -160,6 +197,88 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _split_shell_segments(cmd: str) -> list[str]:
+    """Split a shell command on unquoted pipes, semicolons, newlines, && and ||."""
+    segs: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                i += 1
+                buf.append(cmd[i])
+            elif ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+        elif ch in (";", "\n", "|") or (ch == "&" and i + 1 < n and cmd[i + 1] == "&"):
+            if buf:
+                segs.append("".join(buf).strip())
+                buf = []
+            if ch in ("|", "&") and i + 1 < n and cmd[i + 1] == ch:
+                i += 1
+        else:
+            buf.append(ch)
+        i += 1
+    if buf:
+        segs.append("".join(buf).strip())
+    return [s for s in segs if s]
+
+
+def _grep_reads_secret(seg: str) -> bool:
+    if SECRET_REDIR_RE.search(seg):
+        return True
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        tokens = seg.split()
+    has_pattern_flag = False
+    positionals: list[str] = []
+    idx = 1
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok == "--":
+            positionals.extend(tokens[idx + 1:])
+            break
+        if tok in ("-f", "--file") and idx + 1 < len(tokens):
+            if SECRET_FILE_RE.search(tokens[idx + 1]):
+                return True
+            idx += 2
+            continue
+        if tok in _GREP_VAL_FLAGS:
+            has_pattern_flag = has_pattern_flag or tok in ("-e", "--regexp")
+            idx += 2
+            continue
+        if tok.startswith("-"):
+            if tok.startswith("--regexp="):
+                has_pattern_flag = True
+            elif tok.startswith("--file=") and SECRET_FILE_RE.search(tok.split("=", 1)[1]):
+                return True
+            idx += 1
+            continue
+        positionals.append(tok)
+        idx += 1
+    targets = positionals if has_pattern_flag else positionals[1:]
+    return any(SECRET_FILE_RE.search(t) and not _DOC_PATH_RE.search(t) for t in targets)
+
+
+def _segment_reads_secret(seg: str) -> bool:
+    if SECRET_REDIR_RE.search(seg):
+        return True
+    if GIT_SEARCH_RE.search(seg):
+        return False
+    if GREP_CMD_RE.search(seg):
+        return _grep_reads_secret(seg)
+    if not SECRET_FILE_RE.search(seg):
+        return False
+    return bool(SECRET_READ_CMD_RE.search(seg) or INLINE_SCRIPT_CMD_RE.search(seg))
+
+
 def _scan_workflow_args(
     args: dict[str, Any], violations: Counter[str], research_activity: list[bool],
 ) -> None:
@@ -167,14 +286,26 @@ def _scan_workflow_args(
     cmd = _unwrap_str(args.get("CommandLine") or args.get("command") or args.get("cmd") or "")
     fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
     if cmd:
-        if AD_HOC_SQL_RE.search(cmd):
+        segs = _split_shell_segments(cmd)
+        if any(not GIT_SEARCH_RE.search(s) and not GREP_CMD_RE.search(s) and AD_HOC_SQL_RE.search(s) for s in segs):
             violations["ad_hoc_ledger_sql"] += 1
-        if SECRET_FILE_RE.search(cmd) and "cat " in cmd:
+        if any(_segment_reads_secret(s) for s in segs):
             violations["secret_file_access"] += 1
         if RESEARCH_CMD_RE.search(cmd):
             research_activity[0] = True
     if fpath and SECRET_FILE_RE.search(fpath):
         violations["secret_file_access"] += 1
+
+
+def _decode_tool_args(raw_args: Any, skills_loaded: set[str]) -> Any:
+    if not isinstance(raw_args, str):
+        return raw_args
+    for skill in SKILL_PATH_RE.findall(raw_args):
+        skills_loaded.add(skill)
+    try:
+        return json.loads(raw_args)
+    except json.JSONDecodeError:
+        return None
 
 
 def _record_skill_args(
@@ -205,8 +336,9 @@ def _record_step_tools(
     for tc in raw_tcs if isinstance(raw_tcs, list) else ():
         if isinstance(tc, dict):
             calls += 1
+            raw_args = tc.get("args") if tc.get("args") is not None else tc.get("arguments")
             _record_skill_args(
-                str(tc.get("name") or ""), tc.get("args") or tc.get("arguments"),
+                str(tc.get("name") or ""), _decode_tool_args(raw_args, skills_loaded),
                 skills_loaded, cmd_summaries, violations, research_activity,
             )
     msg = obj.get("message")
@@ -258,14 +390,7 @@ def _record_codex_payload(
     if ptype == "message" and str(payload.get("role") or "").lower() == "user":
         return 1, 0, 0
     if ptype in ("function_call", "custom_tool_call"):
-        raw_args = payload.get("arguments") or payload.get("input")
-        if isinstance(raw_args, str):
-            for skill in SKILL_PATH_RE.findall(raw_args):
-                skills_loaded.add(skill)
-            try:
-                raw_args = json.loads(raw_args)
-            except json.JSONDecodeError:
-                raw_args = None
+        raw_args = _decode_tool_args(payload.get("arguments") or payload.get("input"), skills_loaded)
         _record_skill_args(
             str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries, violations, research_activity,
         )
@@ -355,22 +480,44 @@ def analyze_transcripts(paths: list[Path]) -> dict[str, Any]:
     }
 
 
-def _inspect_prod_log(path: Path) -> tuple[dict[str, Any], list[str]]:
-    try:
-        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as error:
-        raise SystemExit(f"cannot read prod log {path}: {error}") from None
+def _prod_log_error_entry(path: Path, service: str, reason: str) -> tuple[dict[str, Any], list[str]]:
+    return {
+        "file": path.name, "service": service, "lines": 0,
+        "oom_signals": 0, "checkpoint_deferrals": 0,
+        "recovery_unavailable": 0, "reconnect_events": 0,
+        "error_lines": 0, "triggers": [], "skipped": True, "error": reason,
+    }, []
 
-    low_name = path.name.lower()
-    service = next((hint for hint in PROD_SERVICE_HINTS if hint in low_name), "unknown")
-    oom = sum(1 for ln in raw_lines if PROD_OOM_RE.search(ln))
-    ckpt_defer = sum(1 for ln in raw_lines if PROD_CHECKPOINT_DEFER_RE.search(ln))
-    rec_unavail = sum(1 for ln in raw_lines if PROD_RECOVERY_UNAVAIL_RE.search(ln))
-    reconnects = sum(1 for ln in raw_lines if PROD_RECONNECT_RE.search(ln))
-    errors = sum(1 for ln in raw_lines if PROD_ERROR_RE.search(ln))
+
+def _inspect_prod_log(path: Path) -> tuple[dict[str, Any], list[str]]:
+    tokens = set(re.split(r"[-_.\s]+", path.stem.lower()))
+    service = next((hint for hint in PROD_SERVICE_HINTS if hint in tokens), "unknown")
+    if not path.exists():
+        return _prod_log_error_entry(path, service, "file not found")
+    if not path.is_file():
+        return _prod_log_error_entry(path, service, "not a regular file")
+
+    line_count = oom = ckpt_defer = rec_unavail = reconnects = errors = 0
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                line_count += 1
+                if PROD_RECOVERY_UNAVAIL_MARKER in ln:
+                    rec_unavail += 1
+                if ("ERROR" in ln or "CRITICAL" in ln or "FATAL" in ln or "Traceback" in ln) and PROD_ERROR_RE.search(ln):
+                    errors += 1
+                low = ln.lower()
+                if ("oom" in low or "memory" in low or "137" in ln or "killed" in low) and PROD_OOM_RE.search(ln):
+                    oom += 1
+                if PROD_CHECKPOINT_DEFER_MARKER in low:
+                    ckpt_defer += 1
+                if ("reconnect" in low or "disconnect" in low or "websocket" in low or "connection reset" in low) and PROD_RECONNECT_RE.search(ln):
+                    reconnects += 1
+    except OSError as error:
+        return _prod_log_error_entry(path, service, error.strerror or str(error))
 
     log_triggers: list[str] = []
-    if not raw_lines:
+    if line_count == 0:
         log_triggers.append(f"prod_log_empty ({path.name}: 0 lines — possible logging defect)")
     if oom >= 1:
         log_triggers.append(f"prod_oom_kill ({path.name}: {oom} OOM signal(s))")
@@ -384,7 +531,7 @@ def _inspect_prod_log(path: Path) -> tuple[dict[str, Any], list[str]]:
         log_triggers.append(f"prod_error_burst ({path.name}: {errors} error/traceback lines)")
 
     return {
-        "file": path.name, "service": service, "lines": len(raw_lines),
+        "file": path.name, "service": service, "lines": line_count,
         "oom_signals": oom, "checkpoint_deferrals": ckpt_defer,
         "recovery_unavailable": rec_unavail, "reconnect_events": reconnects,
         "error_lines": errors, "triggers": log_triggers,
@@ -395,19 +542,25 @@ def analyze_prod_logs(paths: list[Path]) -> dict[str, Any]:
     """Summarize production service logs (Paper/Live/IDE/Dolt) into deterministic operational triggers."""
     logs: list[dict[str, Any]] = []
     triggers: list[str] = []
+    warnings: list[str] = []
     services: set[str] = set()
     for path in paths:
         entry, log_triggers = _inspect_prod_log(path)
         logs.append(entry)
+        if entry.get("error"):
+            warnings.append(f"{entry['file']}: {entry['error']}")
         triggers.extend(log_triggers)
         if log_triggers and entry["service"] != "unknown":
             services.add(entry["service"])
-    return {
+    out: dict[str, Any] = {
         "log_count": len(logs),
         "affected_services": sorted(services),
         "logs": logs,
         "triggers": triggers,
     }
+    if warnings:
+        out["warnings"] = warnings
+    return out
 
 
 def collect_friction(ci_runs: list[dict[str, Any]] | None = None,

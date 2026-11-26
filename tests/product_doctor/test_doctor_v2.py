@@ -1197,3 +1197,304 @@ export function load(cfg?: Config) {
             doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--auto", "--steady-exit-code", "2"])
         self.assertEqual(ctx.exception.code, 2)
         self.assertEqual(json.loads(out.getvalue())["recommended_theme"], "steady")
+
+    def test_v3_1_f1_prod_incidents_preempt_cooldown_and_steady(self):
+        """F1 [P0]: active prod incidents (OOM, recovery unavailable, checkpoint deferred, empty log)
+        must never be suppressed by 7d friction cooldown, last_two_themes, or steady gate."""
+        code_env = {"GIT_AUTHOR_DATE": "2026-11-23T00:00:00Z", "GIT_COMMITTER_DATE": "2026-11-23T00:00:00Z"}
+        (self.repo / "paper").mkdir(exist_ok=True)
+        (self.repo / "paper" / "serve.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "feat(paper): add serve", env_extra=code_env)
+
+        rec_find = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_fric = (
+            "# Themed audit: friction\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| operation | paper:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        rec_env = {"GIT_AUTHOR_DATE": "2026-11-26T00:00:00Z", "GIT_COMMITTER_DATE": "2026-11-26T00:00:00Z"}
+        for rel, body in (
+            ("docs/plans/doctor/2026-11-24-find.zh.md", rec_find),
+            ("docs/plans/doctor/2026-11-25-friction.zh.md", rec_fric),
+        ):
+            p = self.repo / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "docs(doctor): clean find and friction audits", env_extra=rec_env)
+
+        empty_issues = self.home / "empty_f1.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+
+        # Baseline without prod incidents converges to steady and exits 2.
+        out_base = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(out_base):
+            doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--auto", "--steady-exit-code", "2"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertEqual(json.loads(out_base.getvalue())["recommended_theme"], "steady")
+
+        # Each of the 4 prod incident types must preempt cooldown/steady and exit 0 (not 2!).
+        incident_logs = {
+            "oom": "2026-11-26T12:00:00Z ERROR container exited OOMKilled ExitCode: 137\n",
+            "recovery": "2026-11-26T12:05:00Z ERROR PAPER_RECOVERY_UNAVAILABLE: journal truncated\n",
+            "checkpoint": "2026-11-26T12:00:00Z Paper checkpoint deferred: busy\n" * 3,
+            "empty": "",
+        }
+        for label, content in incident_logs.items():
+            with self.subTest(incident=label):
+                log_path = self.home / f"paper-{label}.log"
+                log_path.write_text(content, encoding="utf-8")
+                plan = self.call_json(
+                    "advise", "--tree", "HEAD", "--issues-json", empty_issues,
+                    "--prod-logs", log_path, "--auto", "--steady-exit-code", "2",
+                )
+                self.assertEqual(plan["recommended_theme"], "friction")
+                self.assertTrue(plan["friction_summary"]["prod_incident_active"])
+                self.assertFalse(plan["friction_summary"]["in_cooldown"])
+                self.assertFalse(plan["stopping_checks"]["no_friction_triggers"])
+
+    def test_v3_1_f2_auto_mode_field_and_irreversible_redlines(self):
+        """F2 [P0/P1]: advise emits explicit `auto_mode`, blocks irreversible AGENTS.md redlines under
+        `--auto`, and unblocks ordinary bug fixes / missing refusal guard fixes with legacy `authority`."""
+        self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        redline_issues = self.home / "redlines.json"
+        redline_issues.write_text(json.dumps([
+            {
+                "number": 9001, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Allow real orders on primary live account during nightly check",
+                "body": "Modifies paper/serve.py to place live orders on primary funds.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9002, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Add stored drawdown column to ledger schema",
+                "body": "Adds a stored field to ledger.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9003, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Weaken refusal check for invalid stops in paper/serve.py",
+                "body": "Relaxes refusal guard on stops.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9004, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Replace PP Supply Mono font in IDE header",
+                "body": "Swap project font assets.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9005, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Reset active Dolt ledger history before migration",
+                "body": "Clears published records in active ledger.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9006, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Tag release v0.5.0 on main",
+                "body": "Create release tag v0.5.0.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+            {
+                "number": 9007, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "paper/serve.py silently drops fills on reconnect",
+                "body": "Explicitly labeled redline.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority:redline"}],
+            },
+        ]), encoding="utf-8")
+
+        p_gated = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues)
+        self.assertFalse(p_gated["auto_mode"])
+        self.assertEqual(p_gated["issues_summary"]["actionable_harm"], [])
+        self.assertEqual(p_gated["issues_summary"]["blocked_authority_count"], 7)
+
+        p_auto = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues, "--auto")
+        self.assertTrue(p_auto["auto_mode"])
+        self.assertEqual(p_auto["issues_summary"]["actionable_harm"], [])
+        self.assertEqual(p_auto["issues_summary"]["blocked_authority_count"], 7)
+
+        # Ordinary defect / tightening missing guard with legacy `authority` label DOES unblock under `--auto`.
+        normal_auth = self.home / "normal_auth.json"
+        normal_auth.write_text(json.dumps([
+            {
+                "number": 9100, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "paper/serve.py bypasses refusal check on empty order quantity",
+                "body": "Fix missing validation guard in paper/serve.py.",
+                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            },
+        ]), encoding="utf-8")
+        p_norm = self.call_json("advise", "--tree", "HEAD", "--issues-json", normal_auth, "--auto")
+        self.assertTrue(p_norm["auto_mode"])
+        self.assertEqual(p_norm["recommended_theme"], "harm")
+        self.assertEqual([i["number"] for i in p_norm["issues_summary"]["actionable_harm"]], [9100])
+
+    def test_v3_1_f8_transcript_secret_bypasses_doc_exclusions_json_args_and_redaction(self):
+        """F8 [P1]: catch non-cat secret reads, ignore benign git/doc greps, parse JSON-string tool
+        arguments, match global flags in RESEARCH_CMD_RE, and redact space-separated flags & 40-64 hex."""
+        # Benign git/doc searches must produce 0 violations.
+        tx_benign = self.home / "f8_benign.jsonl"
+        tx_benign.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": 'git grep -n "dolt sql" AGENTS.md docs/'}},
+                {"name": "run_command", "args": {"CommandLine": 'git log --grep="mysql" -n 5'}},
+                {"name": "run_command", "args": {"CommandLine": 'cat README.md | grep -F ".env"'}},
+                {"name": "run_command", "args": {"CommandLine": 'grep -n ".env" README.md'}},
+            ],
+        }) + "\n", encoding="utf-8")
+        res_benign = friction.analyze_transcripts([tx_benign])
+        self.assertEqual(res_benign["sessions"][0]["workflow_violations"], [])
+
+        # All 14 secret-file bypass commands must trigger `secret_file_access`.
+        bypass_cmds = [
+            "head -n 50 .env",
+            "tail .env",
+            "less .env",
+            "more .env",
+            "sed -n '1,5p' .env",
+            "awk '{print}' .env",
+            "source .env && echo $BINANCE_API_KEY",
+            ". .env",
+            'grep "" .env',
+            "jq . /data/dolt/service.json",
+            "python3 -c \"print(open('.env').read())\"",
+            "cat<.env",
+            "cat\t.env",
+            "base64 .env",
+            "wc -l < dolt/service.json",
+        ]
+        tx_bypass = self.home / "f8_bypass.jsonl"
+        tx_bypass.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": cmd}} for cmd in bypass_cmds
+            ],
+        }) + "\n", encoding="utf-8")
+        res_bypass = friction.analyze_transcripts([tx_bypass])
+        self.assertEqual(
+            res_bypass["sessions"][0]["workflow_violations"],
+            [{"kind": "secret_file_access", "count": len(bypass_cmds)}],
+        )
+
+        # JSON-string `arguments` in `tool_calls` must be decoded and checked.
+        tx_str = self.home / "f8_str_args.jsonl"
+        tx_str.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "arguments": json.dumps({"CommandLine": "dolt sql -q 'DELETE FROM trials'"})},
+                {"name": "read_file", "arguments": json.dumps({"Path": "/repo/.env"})},
+            ],
+        }) + "\n", encoding="utf-8")
+        res_str = friction.analyze_transcripts([tx_str])
+        self.assertEqual(
+            {v["kind"] for v in res_str["sessions"][0]["workflow_violations"]},
+            {"ad_hoc_ledger_sql", "secret_file_access"},
+        )
+
+        # RESEARCH_CMD_RE must match global flags before subcommand (`--ledger temp replay`).
+        tx_res = self.home / "f8_research_flag.jsonl"
+        tx_res.write_text(json.dumps({
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": "uv run python -m cli.main --ledger temp replay run --help"}}
+                for _ in range(5)
+            ],
+        }) + "\n", encoding="utf-8")
+        res_flag = friction.analyze_transcripts([tx_res])
+        self.assertEqual(
+            res_flag["sessions"][0]["workflow_violations"],
+            [{"kind": "missing_research_skill", "count": 1}],
+        )
+
+        # Space-separated secret flags and bare 40-64 hex strings must be redacted; benign text stays intact.
+        for sample, leak in (
+            ("Run curl --token my_super_secret_val_999", "my_super_secret_val_999"),
+            ("Run tool --api-key live_key_12345", "live_key_12345"),
+            ("Run tool --api-secret live_key_abcdef123456", "live_key_abcdef123456"),
+            ("Run tool --secret hidden_val", "hidden_val"),
+            ("Run tool --password db_secret_pass", "db_secret_pass"),
+            ("Call binance with a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "a1b2c3d4e5f6"),
+        ):
+            san = friction._sanitize_summary(sample)
+            self.assertNotIn(leak, san)
+            self.assertIn("<REDACTED>", san)
+        self.assertEqual(friction._sanitize_summary("Count token usage"), "Count token usage")
+
+    def test_v3_1_f9_prod_logs_no_fp_token_service_and_missing_dir(self):
+        """F9 [P1]: no false positives on OOMKilled:false / cleared ERROR prose, token-boundary service
+        matching, and graceful handling of missing paths / directories."""
+        benign = self.home / "paper-healthy.log"
+        benign.write_text("\n".join([
+            'INFO docker inspect: {"State": {"OOMKilled": false, "ExitCode": 0}}',
+            "INFO watchdog: not OOM, Out of memory check passed",
+            "INFO status: OOMKilled=false, exit_code=0, no errors",
+            "INFO metrics: cleared ERROR flag on startup",
+            "2026-11-26T00:00:00Z INFO metrics: cleared ERROR flag on retry",
+        ] * 2) + "\n", encoding="utf-8")
+        res_ok = friction.analyze_prod_logs([benign])
+        self.assertEqual(res_ok["triggers"], [])
+        self.assertEqual(res_ok["logs"][0]["oom_signals"], 0)
+        self.assertEqual(res_ok["logs"][0]["error_lines"], 0)
+        self.assertEqual(res_ok["logs"][0]["service"], "paper")
+
+        # Substring look-alikes must NOT map to live / ide / paper.
+        mis_paths = [self.home / name for name in ("delivery.log", "provider.log", "wallpaper.log")]
+        for p in mis_paths:
+            p.write_text("FATAL crash\n" * 6, encoding="utf-8")
+        res_mis = friction.analyze_prod_logs(mis_paths)
+        self.assertEqual([x["service"] for x in res_mis["logs"]], ["unknown", "unknown", "unknown"])
+        self.assertEqual(res_mis["affected_services"], [])
+
+        # Directories and missing files must emit structured error/warnings instead of crashing advise.
+        missing = self.home / "does-not-exist.log"
+        res_bad = friction.analyze_prod_logs([self.home, missing])
+        self.assertEqual(res_bad["triggers"], [])
+        self.assertEqual(len(res_bad.get("warnings", [])), 2)
+        self.assertTrue(all(x.get("skipped") and x.get("error") for x in res_bad["logs"]))
+        empty_issues = self.home / "empty_f9.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--prod-logs", self.home, missing)
+        self.assertIn("recommended_theme", plan)
+
+    def test_v3_1_f10_steady_exit_code_validation(self):
+        """F10 [P1]: `--steady-exit-code` allows only 0 (disabled) or 2..125; rejects 1, <0, >=126."""
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        rec_all = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-f10-a.zh.md": rec_all,
+            f"docs/plans/doctor/{today}-f10-b.zh.md": rec_all,
+        }, message="docs(doctor): two clean audits for f10")
+        empty_issues = self.home / "empty_f10.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+
+        for bad in ("1", "-1", "126", "256", "abc"):
+            with self.subTest(bad_code=bad):
+                err = io.StringIO()
+                from contextlib import redirect_stderr
+                with self.assertRaises(SystemExit) as ctx, redirect_stderr(err):
+                    doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--steady-exit-code", bad])
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn("steady-exit-code", err.getvalue())
+
+        # 0 disables non-zero exit even when steady.
+        plan_zero = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--steady-exit-code", "0")
+        self.assertEqual(plan_zero["recommended_theme"], "steady")
+
+        # 125 (upper valid bound) exits with 125 when steady.
+        out_125 = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(out_125):
+            doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--steady-exit-code", "125"])
+        self.assertEqual(ctx.exception.code, 125)
+        self.assertEqual(json.loads(out_125.getvalue())["recommended_theme"], "steady")
