@@ -149,6 +149,7 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
     market_day = source.resolve_day(at)
     first_day, latest = source.days(market_day)
     after_last = latest + timedelta(days=1)
+    members = source.universe_month(market_day)
     with db.connect(ledger, "reader") as conn:
         record = lines.open_line(conn, line)
         if date.fromisoformat(market_day) < date.fromisoformat(str(record["market_day"])):
@@ -156,7 +157,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
                                                      f"{record['market_day']}: its market can end inside the holdout",
                          expected=f"{record['market_day']} or later")
         candidates, without = report_history.candidates(conn, record["line_id"])
-        plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates)
+        plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates,
+                                  members=members, tracks=lambda table: source.track_months(market_day, table))
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}
     todo = [item for item in plan if item["window"] is not None
             and (item["done"] is None or item["status"] == "invalid")]

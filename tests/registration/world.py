@@ -54,8 +54,10 @@ class FakeMarket:
 
     name = "market"
 
-    def __init__(self, market_days: dict[str, list[tuple[str, str]]], timeframe: str = "1m"):
+    def __init__(self, market_days: dict[str, list[tuple[str, str]]], timeframe: str = "1m",
+                 tracks: dict[str, dict[str, list[tuple[str, str]]]] | None = None):
         self.market_days, self.timeframe, self.exports = market_days, timeframe, 0
+        self.tracks = tracks or {}
 
     def resolve_day(self, at):
         if at is None:  # the head: the newest day, as market.resolve_day resolves it
@@ -71,6 +73,11 @@ class FakeMarket:
         return date.fromisoformat(min(month for month, _ in self.market_days[market_day]) + "-01"), date(2026, 3, 31)
 
     def universe_month(self, market_day):
+        return list(self.market_days[market_day])
+
+    def track_months(self, market_day, table):
+        if table in self.tracks and market_day in self.tracks[table]:
+            return list(self.tracks[table][market_day])
         return list(self.market_days[market_day])
 
     def membership_path(self, market_day, window_end):

@@ -47,7 +47,7 @@ from datetime import date, datetime, time, timedelta
 import math
 import statistics
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 from ledger import db, execution, lines, metrics
 from ledger import targets as line_targets
@@ -62,12 +62,14 @@ CAPTURES_CHUNK = 20  # runs whose captured bytes a reading holds at once
 MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_win_rate")
 
 
-def market_days(market) -> tuple[date, date]:
-    """(the market's first day, the day after its latest complete day) at its newest day: the days
+def market_scope(market) -> dict:
+    """The market's bounds and coverage at its newest day (`days`, `members`, `tracks`): what
     ledger.lines.history_plan plans a closing history test on (`line close` requires its segments)."""
     source = registration_seams.current.market(market)
-    first_day, latest = source.days(source.resolve_day(None))
-    return first_day, latest + timedelta(days=1)
+    day = source.resolve_day(None)
+    first_day, latest = source.days(day)
+    return {"days": (first_day, latest + timedelta(days=1)), "members": source.universe_month(day),
+            "tracks": lambda table: source.track_months(day, table)}
 
 
 def _kind(row: dict, dev_start: datetime, dev_end: datetime, held: datetime) -> str:
@@ -87,8 +89,11 @@ def _veto_year(row: dict) -> str:
 
 
 def _whole_year(row: dict) -> bool:
-    """A veto segment that trades its whole year (not cut by the market's first day plus warm-up)."""
-    return row["trade_start"] == datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
+    """A veto segment whose whole year is covered (input starts at or before the veto year's start) and that
+    trades at least SHORT_DAYS: a reserved veto year shifted only by the participant's warm-up still counts."""
+    year_start = datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
+    start = row.get("input_start", row["trade_start"])
+    return start <= year_start and (row["trade_end"] - row["trade_start"]).days >= SHORT_DAYS
 
 
 def _latest(rows: list[dict], kind) -> list[dict]:
@@ -252,7 +257,7 @@ def _summary(cells: list[dict], targets: dict | None, control: bool, planned: It
 def _control_reproduces(prints: Mapping[int, str | None], control: dict | None, run_id: int) -> bool | None:
     """The control's whole fingerprint equals the research run's (both on the run's image), from their hashes; None
     without a control run."""
-    if control is None:
+    if control is None or control["status"] is None:
         return None
     mine = prints[control["trial_id"]]
     return mine is not None and mine == prints[run_id]
@@ -308,12 +313,14 @@ def qualified(conn: db.LedgerConnection, line_id: int) -> list[dict]:
 
 
 def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict] | None, checker: Mapping,
-                 records: list, days: tuple[date, date]) -> dict:
+                 records: list, days: tuple[date, date], *, members: list[tuple[str, str]] | None = None,
+                 tracks: Mapping[str, list[tuple[str, str]]] | Callable[[str], list[tuple[str, str]]] | None = None
+                 ) -> dict:
     """One line's closing history test: its candidates (candidates) with their history cells and summaries,
     ordered by development-period Sharpe, and the participants without economic evidence; the line's targets in
     force, its research trial count and the earlier searches of its holdout among `counted`
-    (status.counted_trials' counted trials; None: not read, `holdout_prior_trials` None). `days` (market_days) are
-    the market days the test is planned on."""
+    (status.counted_trials' counted trials; None: not read, `holdout_prior_trials` None). `days`, `members` and
+    `tracks` (market_scope) are the market bounds and coverage the test is planned on."""
     record = lines.read_line(conn, line)
     dev_start, dev_end = lines.dev_window(record)
     held = datetime.combine(lines.holdout_end(dev_end.date()), time())
@@ -323,7 +330,7 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     rows: list[dict] = []
     kept, without = candidates(conn, record["line_id"], checker, records)
     planned: dict[str, list[str]] = {}
-    for item in lines.history_plan(conn, record["line_id"], *days, kept):
+    for item in lines.history_plan(conn, record["line_id"], *days, kept, members=members, tracks=tracks):
         if item["kind"] == "veto" and item["window"] is not None:
             planned.setdefault(item["source_sha256"], []).append(item["label"])
 
@@ -340,7 +347,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     readings, returns, prints = _readings(conn, [*researched, *(row["trial_id"] for row in passed)],
                                           {row["trial_id"] for row in passed if kind(row) == "holdout"})
     prints.update(_fingerprints(conn, [control["trial_id"] for control in controls.values()
-                                       if control is not None and control["trial_id"] not in prints]))
+                                       if control is not None and control["status"] is not None
+                                       and control["trial_id"] not in prints]))
     for participant in kept:
         own, control = segments[participant["source_sha256"]], controls[participant["source_sha256"]]
         cells = [{**_cell(row, kind(row), readings, holdout_until), "superseded": row["superseded"]} for row in own]
@@ -397,21 +405,22 @@ def verdict(source_sha256: str, tested: list[dict]) -> dict:
 
 def require_unfalsified(conn: db.LedgerConnection, source_sha256: str, market) -> dict:
     """verdict() over every line with a history trial of this source, read on `conn` with the test planned on
-    `market`'s days (market_days, read only when such a line exists): a validation registration takes only a
+    `market`'s coverage (market_scope, read only when such a line exists): a validation registration takes only a
     candidate that its line's closing history test decided and did not falsify (20261120-05, user 2026-11-21)."""
     named = [line_id for (line_id,) in conn.rows(
         "SELECT DISTINCT line_id FROM trial WHERE purpose = 'history' AND source_sha256 = %s ORDER BY line_id",
         (source_sha256,))]
     tested = []
     if named:
-        checker, records, days = availability.check_identity(), precheck.review_records(conn), market_days(market)
-        tested = [line_history(conn, line_id, None, checker, records, days) for line_id in named]
+        checker, records, scope = availability.check_identity(), precheck.review_records(conn), market_scope(market)
+        tested = [line_history(conn, line_id, None, checker, records, scope["days"],
+                               members=scope["members"], tracks=scope["tracks"]) for line_id in named]
     return verdict(source_sha256, tested)
 
 
 def research_history(ledger, market, at: str | None = None, line: str | None = None) -> dict:
     """`research history`: the closing history test of `line`, or of every line with history trials, planned on
-    `market`'s days (market_days, read only when there is a line to read)."""
+    `market`'s coverage (market_scope, read only when there is a line to read)."""
     with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
         counted = status.counted_trials(conn)["counted"]
@@ -421,6 +430,7 @@ def research_history(ledger, market, at: str | None = None, line: str | None = N
             "WHERE t.purpose = 'history' ORDER BY l.name")]
         found = []
         if named:
-            days = market_days(market)
-            found = [line_history(conn, name, counted, checker, records, days) for name in named]
+            scope = market_scope(market)
+            found = [line_history(conn, name, counted, checker, records, scope["days"],
+                                  members=scope["members"], tracks=scope["tracks"]) for name in named]
     return {"ledger_commit": commit, "short_days": SHORT_DAYS, "lines": found}

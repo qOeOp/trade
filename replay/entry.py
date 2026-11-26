@@ -401,8 +401,15 @@ def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | 
     source = registration_seams.current.market(market)
     market_day = source.resolve_day(at)
     _, latest = source.days(market_day)
-    covered = None if line is not None else lines.covered_from(inputs["selection"].get("symbols"),
-                                                               source.universe_month(market_day))
+    covered = None
+    if line is None:
+        tables = tuple(table for table, needed in (
+            ("quote", inputs["execution"] == "quotes"),
+            ("agg_trade", inputs["trade_ticks"]),
+            ("metrics", inputs["metrics"]),
+        ) if needed)
+        tracks = {table: source.track_months(market_day, table) for table in tables}
+        covered = lines.covered_from(inputs["selection"].get("symbols"), source.universe_month(market_day), tracks)
     with db.connect(ledger, "reader") as conn:
         lines.check_replay_window(conn, line, inputs["window"]["trade_start"], inputs["window"]["end"], latest,
                                   covered)

@@ -100,6 +100,11 @@ class Market:
         found = universe.months_of(self._open(), market_day)
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
+    def track_months(self, market_day: str, table: str) -> list[tuple[str, str]]:
+        """(YYYY-MM, symbol) months of contract-layout `table` ('quote', 'agg_trade', 'metrics') held at `market_day`."""
+        from market import files
+        return files.track_months(self._open(), market_day, table)
+
     def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
         try:

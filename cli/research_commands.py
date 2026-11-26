@@ -248,7 +248,8 @@ def _market_facts(market: dict):
         market_day = source.resolve_day(market_at)
         return {"market_day": market_day, "universe_rule": source.universe_rule(market_day),
                 "latest_complete_day": source.days(market_day)[1],
-                "members": source.universe_month(market_day)}
+                "members": source.universe_month(market_day),
+                "tracks": lambda table: source.track_months(market_day, table)}
     return facts
 
 
@@ -288,7 +289,9 @@ def line_close(profile: db.LedgerProfile, line: str, summary: bytes, market: dic
     stands whatever the sync does: a refused sync is reported as backup_failed, and `ledger review` reports the
     backup as behind until a sync succeeds."""
     from report import history as report_history
-    closed = lines.close_line(profile, line, summary, report_history.market_days(market), report_history.qualified)
+    scope = report_history.market_scope(market)
+    closed = lines.close_line(profile, line, summary, scope["days"], report_history.qualified,
+                              members=scope["members"], tracks=scope["tracks"])
     if profile.backup_root is None:
         return {**closed, "backup": None}
     try:
