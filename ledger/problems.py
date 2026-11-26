@@ -279,12 +279,14 @@ def capture_fingerprint(capture: Mapping, verified: Mapping[str, bytes] | None =
 
 def sealed_rows(capture: Mapping) -> dict[str, int] | None:
     """{table: rows} of the fingerprint a complete capture sealed (captured, completed, native, audit and
-    fingerprint stages exited 0, no runtime failure); None for any other capture, or when the
+    fingerprint stages exited 0, audit passed, no runtime failure); None for any other capture, or when the
     fingerprint's bytes are not in it (only a precheck capture holds them)."""
     stages = given if isinstance(given := capture.get("stages"), Mapping) else {}
     outcome = given if isinstance(given := capture.get("outcome"), Mapping) else {}
+    audit = json_object(sealed(capture, AUDIT_RESULT))
     if (capture.get("status") != "captured" or outcome.get("kind") != "completed" or capture.get("runtime_failures")
-            or _exit(stages.get("native")) != 0 or _exit(stages.get("audit")) != 0):
+            or _exit(stages.get("native")) != 0 or _exit(stages.get("audit")) != 0
+            or audit is None or audit.get("passed") is not True):
         return None
     fingerprint, _ = capture_fingerprint(capture)
     if fingerprint is None:

@@ -134,11 +134,13 @@ def capture(conn, trial_id: int, source_bytes: bytes, purpose: str = "precheck",
     outcome, a trial_file row per file (the source and the coverage receipt hashed) and the captured bytes in
     trial-<id>-capture."""
     files = {"native.stdout.txt": b"native ran\n", "native.stderr.txt": b"",
-             "reports/runtime_failures.jsonl": runtime_errors, **(extra or {})}
+             "reports/runtime_failures.jsonl": runtime_errors}
     if audit_exit is not None:
         files.update({"audit.stdout.txt": b"audit ran\n", "audit/audit.json": b'{"passed": true}'})
     if fingerprint is not None:
         files["fingerprint/fingerprint.json"] = json.dumps(fingerprint, sort_keys=True, indent=2).encode() + b"\n"
+    if extra:
+        files.update(extra)
     rows, stored = [], {}
     for path, data in files.items():
         rows.append((trial_id, path, "captured" if data else "captured_empty", None, None))

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import re
+import unicodedata
 
 from ledger import db, lines, strategies
 from shared.errors import Refusal
@@ -103,7 +104,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on
                      expected="nonempty UTF-8 text")
     if kind == "search_exposure":
         declared_variants(body)
-    if not body.strip():
+    if not "".join(ch for ch in body if unicodedata.category(ch) != "Cf").strip():
         raise refuse("JUDGMENT_BODY_EMPTY", "the judgment body is empty", missing=("body",),
                      expected="nonempty UTF-8 text")
     check_decision_opening(kind, body)
