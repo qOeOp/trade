@@ -160,10 +160,12 @@ class JudgmentTests(unittest.TestCase):
 
     def test_empty_or_whitespace_only_bodies_are_refused(self):
         for kind in ("interpretation", "recommendation", "priority"):
-            for body in ("", " ", " \n\t "):
+            for body in ("", " ", " \n\t ", "\u00a0", "\u200b", "\u200c", "\u200d", "\ufeff", " \u200b\ufeff\n "):
                 with self.subTest(kind=kind, body=body):
                     self.assertEqual(self.code(kind=kind, body=body), "JUDGMENT_BODY_EMPTY")
-        self.assertEqual(self.code(kind="search_exposure", body=" \n"), "SEARCH_EXPOSURE_VARIANTS_MISSING")
+        for body in (" \n", "\u200b"):
+            with self.subTest(kind="search_exposure", body=body):
+                self.assertEqual(self.code(kind="search_exposure", body=body), "SEARCH_EXPOSURE_VARIANTS_MISSING")
 
     def test_a_recommendation_may_name_the_recommended_candidate_alone(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}]

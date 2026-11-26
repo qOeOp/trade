@@ -93,6 +93,17 @@ class ReviewActivityTests(unittest.TestCase):
         self.reviewed(data, 2, 1, verdict="passed")
         self.assertEqual(self.check(data)["status"], "failed")
 
+    def test_audit_failed_later_precheck_does_not_resolve_activity_failure(self):
+        data = self.world.publish("later-audit-failed")["source"]
+        self.reviewed(data, activity=FAILED)
+        trial_id = self.world.open_precheck(data)
+        fingerprint = {name: {"rows": rows, "sha256": "1" * 64}
+                       for name, rows in (("fills", 2), ("orders", 2), ("positions", 1))}
+        capture(self.world.conn, trial_id, data, fingerprint=fingerprint,
+                extra={"audit/audit.json": b'{"passed": false}'})
+        precheck.record_review(self.world.profile, self.world.review_body(trial_id, "passed"), "reviewer-b")
+        self.assertEqual(self.check(data)["status"], "failed")
+
     def test_activity_failed_can_be_resolved_as_well_as_unresolved(self):
         data = self.world.publish("activity-failed")["source"]
         self.reviewed(data, activity=FAILED)

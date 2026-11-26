@@ -224,9 +224,42 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(precheck.require_precheck(self.conn, current_pass, sha(other_img), self.identity()),
                          current_trial)
 
+    def test_activity_resolution_requires_matching_clean_precheck_with_fills(self):
+        other_cfg = {**config(), "execution_bar_minutes": 5}
+        cases = [
+            ("cross-config", {}, {"effective_config": other_cfg}, {}),
+            ("other-market-day", {"market_day": "2026-03-02"}, {}, {}),
+            ("other-lifecycle", {"lifecycle_bundle": LIFECYCLE}, {}, {}),
+            ("audit-json-failed", {}, {}, {"extra": {"audit/audit.json": b'{"passed": false}'}}),
+            ("audit-exit-nonzero", {}, {}, {"audit_exit": 1}),
+            ("runtime-failure", {}, {}, {"runtime_errors": b'{"stage": "replay", "exception_type": "KeyError"}\n'}),
+        ]
+        for label, trial_ident, open_opts, cap_opts in cases:
+            with self.subTest(label=label):
+                data = self.world.publish(f"resolve-{label}")["source"]
+                t1 = self.sealed(data, fingerprint=untraded(0, 0))
+                self.review(t1, "failed", activity={"status": "failed", "note": "no fills"})
+                t2 = self.sealed(data, fingerprint=untraded(0, 0))
+                rev2 = self.review(t2)
+                t3 = self.world.open_precheck(data, trial_ident or None, **open_opts)
+                capture(self.conn, t3, data, fingerprint=untraded(2, 1), **cap_opts)
+                self.review(t3)
+                self.assertEqual(refused(precheck.require_precheck, self.conn, rev2, sha(data), self.identity()).code,
+                                 "SOURCE_PRECHECK_FAILED")
+        # Control: a later clean precheck matching PRECHECK_COLUMNS with fills resolves the earlier activity failure.
+        ok = self.world.publish("resolve-matching-clean")["source"]
+        t1 = self.sealed(ok, fingerprint=untraded(0, 0))
+        self.review(t1, "failed", activity={"status": "failed", "note": "no fills"})
+        t2 = self.sealed(ok, fingerprint=untraded(2, 1))
+        rev2 = self.review(t2)
+        self.assertEqual(precheck.require_precheck(self.conn, rev2, sha(ok), self.identity()), t2)
+
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
-                 {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'}]
+                 {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'},
+                 {"extra": {"audit/audit.json": b'{"passed": false}'}},
+                 {"extra": {"audit/audit.json": b'{"passed": "true"}'}},
+                 {"extra": {"audit/audit.json": b"{not json"}}]
         for options in cases:
             with self.subTest(options=options):
                 review = self.review(self.sealed(**options))

@@ -243,3 +243,36 @@ class ContinuityTests(unittest.TestCase):
             self.assertEqual(refused(self.world.register, {**retry, "control_trial_id": unrelated_run}).code,
                              "RETRY_NOT_ALLOWED")
             self.register({**retry, "control_trial_id": new_run})
+
+    def test_two_hop_repair_after_runtime_transition_is_admitted_while_unrelated_candidate_stays_refused(self):
+        """R1 (image 1, passed) -> R2 (image 2, retry_of=R1, invalid) -> R3 (image 2, retry_of=R2, repaired)."""
+        child = self.world.publish("derived-v1", difference="fix stop")
+        r1_body = self.world.body([child["candidate"]], {child["candidate"]: self.review_on(child["source"], RUNTIME)},
+                                  control_trial_id=self.old_run, duties=["G3"])
+        r1 = self.register(r1_body)
+        r1_trial = self.world.research_trial(r1, child["source"])
+        self.world.seal_run(r1_trial, "passed")
+        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": r1_trial}])
+        baseline = self.migrated_body()
+        r2_review = self.review_on(child["source"], OTHER_RUNTIME)
+        repaired = self.world.publish("derived-v2", difference="fix stop")
+        repaired_review = self.review_on(repaired["source"], OTHER_RUNTIME)
+        other = self.world.publish("unrelated-root", parent=None)
+        other_review = self.review_on(other["source"], OTHER_RUNTIME)
+        with self.on_new_runtime():
+            new_base = self.register(baseline)
+            base_trial = self.world.research_trial(new_base, self.data, runtime=OTHER_RUNTIME)
+            new_control = self.world.seal_run(base_trial, "passed")
+            self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": base_trial}])
+            r2 = self.register({**r1_body, "retry_of": r1, "control_trial_id": new_control,
+                                "prechecks": {child["candidate"]: r2_review}})
+            r2_trial = self.world.research_trial(r2, child["source"], runtime=OTHER_RUNTIME)
+            self.world.seal_run(r2_trial, "invalid")
+            unrelated_body = self.world.body([other["candidate"]], {other["candidate"]: other_review}, comparison=None)
+            self.assertEqual(refused(self.world.register, {**unrelated_body, "retry_of": r2}).code,
+                             "INTERPRETATION_REQUIRED")
+            r3_body = self.world.body([repaired["candidate"]], {repaired["candidate"]: repaired_review},
+                                      control_trial_id=new_control, duties=["G3"], retry_of=r2)
+            r3 = self.register(r3_body)
+            self.assertEqual(refused(self.world.register, {**unrelated_body, "retry_of": r2}).code, "RETRY_NOT_ALLOWED")
+            self.world.research_trial(r3, repaired["source"], runtime=OTHER_RUNTIME)

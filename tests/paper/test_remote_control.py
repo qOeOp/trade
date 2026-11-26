@@ -43,10 +43,42 @@ class StartIdentityTests(unittest.TestCase):
                 self.assertEqual(caught.code, "OP_ID_CONFLICT")
 
     def test_http_retry_precedes_mutable_default_selection(self):
+        profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
+        created = datetime(2026, 3, 15, 12, 0)
+        prior_row = {**ROW, "source_sha256": "b" * 64, "created_at": created}
         daemon = serve.Daemon.__new__(serve.Daemon)
-        daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
+        daemon.profile, daemon.market, daemon.research_profile = profile, None, profile
+        daemon.start_result = mock.Mock(return_value={"run": {**prior_row, "candidate": "a@1", "state": "accepted"}})
         daemon.last_config = mock.Mock(side_effect=AssertionError("must not resolve new defaults"))
-        self.assertEqual(daemon.start({"candidate": "a@1", "op_id": OP})["paper_id"], 8)
+
+        def last_at(_conn, _sha, at=None):
+            return {"trial_id": 1, "symbols": ["BTCUSDT"]} if at == created else {"trial_id": 2, "symbols": ["ETHUSDT"]}
+
+        with mock.patch.object(db, "connect", connection), mock.patch.object(db, "read_as_of", connection), \
+                mock.patch.object(records, "paper_start_of", return_value=prior_row), \
+                mock.patch.object(records, "last_research_symbols", side_effect=last_at):
+            self.assertEqual(daemon.start({"candidate": "a@1", "op_id": OP})["paper_id"], 8)
+
+    def test_reusing_op_id_with_omitted_scope_conflicts_when_prior_did_not_match_default(self):
+        profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
+        created = datetime(2026, 3, 15, 12, 0)
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.profile, daemon.market, daemon.research_profile = profile, None, profile
+        cases = [
+            ("explicit-other-symbols", ["ETHUSDT"], {"trial_id": 1, "symbols": ["BTCUSDT"]}),
+            ("pool-vs-default", ["BTCUSDT", "ETHUSDT"], {"trial_id": 1, "symbols": ["BTCUSDT"]}),
+            ("no-prior-research-replay", ["ETHUSDT"], None),
+        ]
+        for label, prior_symbols, last in cases:
+            with self.subTest(label=label):
+                prior_row = {**ROW, "symbols": prior_symbols, "source_sha256": "b" * 64, "created_at": created}
+                daemon.start_result = mock.Mock(
+                    return_value={"run": {**prior_row, "candidate": "a@1", "state": "accepted"}})
+                with mock.patch.object(db, "connect", connection), mock.patch.object(db, "read_as_of", connection), \
+                        mock.patch.object(records, "paper_start_of", return_value=prior_row), \
+                        mock.patch.object(records, "last_research_symbols", return_value=last):
+                    caught = refused(daemon.start, {"candidate": "a@1", "op_id": OP}, error=serve.Failure)
+                    self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
 
     def test_reusing_symbols_op_id_with_universe_pool_conflicts_while_pool_retry_replays(self):
         profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
@@ -66,7 +98,7 @@ class StartIdentityTests(unittest.TestCase):
         # Over HTTP: universe='pool' with an op_id belonging to a --symbols run refuses OP_ID_CONFLICT,
         # while a pool retry replays without starting a new run.
         daemon = serve.Daemon.__new__(serve.Daemon)
-        daemon.profile, daemon.market = profile, None
+        daemon.profile, daemon.market, daemon.research_profile = profile, None, profile
         with mock.patch.object(db, "connect", connection), \
                 mock.patch.object(runs.profiles, "market", return_value={}), \
                 mock.patch.object(runs, "selection", return_value=("2026-03-01", {"universe_rule": "r"}, pool)):

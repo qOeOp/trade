@@ -821,3 +821,33 @@ class RetryTests(unittest.TestCase):
                                      duties=["G3"])
         self.assertFalse(self.world.register({**body_a_fix, "retry_of": reg_a})["replayed"])
         self.assertEqual(refused(self.world.register, {**body_b, "retry_of": reg_a}).code, "RETRY_NOT_ALLOWED")
+
+    def test_root_retry_cannot_pivot_through_unconsumed_grid_strategy(self):
+        """Regression (#3662 R2): a root retry_of must repair a strategy that actually had a retryable trial."""
+        from ledger import strategies
+        from tests.ledger.dolt import source as make_source
+
+        def pub_root(strategy_id: str, tag: str) -> dict:
+            data = make_source(tag)
+            pub = strategies.publish_candidate(self.world.profile, data, strategy_id, "Fixture", f"root {tag}",
+                                               parent=None, difference=None)
+            return {**pub, "source": data}
+
+        a1, a2 = pub_root("alpha", "pivot-a1"), pub_root("alpha", "pivot-a2")
+        b1, b2 = pub_root("beta", "pivot-b1"), pub_root("beta", "pivot-b2")
+        r1 = self.world.register(self.world.body(
+            [a1["candidate"]], {a1["candidate"]: self.world.prechecked(a1["source"])}, comparison=None, duties=[]
+        ))["registration_id"]
+        self.world.seal_run(self.world.research_trial(r1, a1["source"]), "invalid")
+        r2 = self.world.register(self.world.body(
+            [a2["candidate"], b1["candidate"]],
+            {a2["candidate"]: self.world.prechecked(a2["source"]), b1["candidate"]: self.world.prechecked(b1["source"])},
+            comparison=None, duties=[], retry_of=r1,
+        ))["registration_id"]
+        # Only alpha@2 ran and sealed invalid; beta@1 was never consumed.
+        self.world.seal_run(self.world.research_trial(r2, a2["source"]), "invalid")
+        body_r3 = self.world.body(
+            [b2["candidate"]], {b2["candidate"]: self.world.prechecked(b2["source"])},
+            comparison=None, duties=[], retry_of=r2,
+        )
+        self.assertEqual(refused(self.world.register, body_r3).code, "INTERPRETATION_REQUIRED")

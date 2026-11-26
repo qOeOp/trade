@@ -23,7 +23,7 @@ release needs before it starts a candidate (deploy/release_host.py), so starting
 from __future__ import annotations
 
 import ast
-from datetime import datetime
+from datetime import UTC, datetime
 import hashlib
 import json
 import os
@@ -314,11 +314,31 @@ def _prior_matches_pool(market: dict, prior: dict) -> bool:
         raise
 
 
-def matches_pool(profile: db.LedgerProfile, market_name: str | None, op_id: str) -> bool:
-    """Whether the stored start for `op_id` matches its recorded market day's pool (for HTTP pool retries)."""
+def _prior_matches_default(research: db.LedgerProfile, prior: dict) -> bool:
+    """Whether `prior`'s stored contracts equal its source's latest research replay at its start time."""
+    source_sha = prior.get("source_sha256")
+    if not source_sha:
+        return False
+    created = prior.get("created_at")
+    if isinstance(created, datetime) and created.tzinfo is not None:
+        created = created.astimezone(UTC).replace(tzinfo=None)
+    with db.read_as_of(research) as source:
+        last = records.last_research_symbols(source, source_sha, at=created)
+    return last is not None and last["symbols"] == prior["symbols"]
+
+
+def matches_scope(profile: db.LedgerProfile, market_name: str | None, research: db.LedgerProfile, op_id: str,
+                  prior_symbols: list[str], symbols: list[str] | None, universe: str | None) -> bool:
+    """Whether the stored start for `op_id` matches the requested contract scope (explicit, pool, or default)."""
+    if symbols is not None:
+        return prior_symbols == symbols
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id)
-    return prior is not None and _prior_matches_pool(profiles.market(market_name), prior)
+    if prior is None:
+        return False
+    if universe == "pool":
+        return _prior_matches_pool(profiles.market(market_name), prior)
+    return _prior_matches_default(research, prior)
 
 
 @serialized

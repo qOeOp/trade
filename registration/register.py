@@ -403,19 +403,23 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def _same_mechanism(points: list[dict], parent: dict | None, change: str | None, prior: Mapping) -> bool:
+def _same_mechanism(points: list[dict], parent: dict | str | None, change: str | None, prior: Mapping,
+                    retryable_sources: set[str] | None = None) -> bool:
     """Whether a registration's grid repairs the same mechanism as `prior`: same published parent and difference
-    for a derived registration, or a root of one of `prior`'s strategies."""
-    parent_name = strategies.name(parent) if parent is not None else None
+    for a derived registration, or a root repairing a strategy that actually had a retryable trial in `prior`."""
+    parent_name = strategies.name(parent) if isinstance(parent, dict) else parent
     if parent_name != prior["parent"]:
         return False
     if prior["parent"] is not None:
         return change == prior["change"]
+    allowed = prior["grid"] if retryable_sources is None else [
+        item for item in prior["grid"] if item["source_sha256"] in retryable_sources
+    ]
     return bool({point["candidate"].split("@", 1)[0] for point in points}
-                & {item["candidate"].split("@", 1)[0] for item in prior["grid"]})
+                & {item["candidate"].split("@", 1)[0] for item in allowed})
 
 
-def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict], parent: dict | None,
+def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict], parent: dict | str | None,
                    change: str | None) -> bool:
     """Whether `prior` has a consumed trial whose source is in `points`, or is a same-mechanism registration with
     at least one retryable consumed trial (a repaired-source retry)."""
@@ -424,17 +428,32 @@ def _retry_relates(conn: db.LedgerConnection, prior: Mapping, points: list[dict]
                      (prior["registration_id"],))
     if any(source in sources for _, source in rows):
         return True
-    return _same_mechanism(points, parent, change, prior) and any(retryable(conn, trial_id) for trial_id, _ in rows)
+    retryable_sources = {source for trial_id, source in rows if retryable(conn, trial_id)}
+    return bool(retryable_sources) and _same_mechanism(points, parent, change, prior, retryable_sources)
+
+
+def _unrelated_retry(conn: db.LedgerConnection, chain: list[dict], points: list[dict], parent: dict | None,
+                     change: str | None) -> int | None:
+    """The first registration_id in `chain` that its successor does not relate to, or None when every hop
+    (plan -> chain[0] -> chain[1] -> ...) relates."""
+    curr_points: list[dict] = points
+    curr_parent: dict | str | None = strategies.name(parent) if parent is not None else None
+    curr_change = change
+    for prior in chain:
+        if not _retry_relates(conn, prior, curr_points, curr_parent, curr_change):
+            return prior["registration_id"]
+        curr_points, curr_parent, curr_change = prior["grid"], prior["parent"], prior["change"]
+    return None
 
 
 def _valid_retry_of(conn: db.LedgerConnection, retry_of: int | None, points: list[dict], parent: dict | None,
                     change: str | None) -> int | None:
-    """`retry_of` when every registration in its chain relates to this plan; None otherwise (so an unrelated
-    retry_of cannot excuse an uninterpreted invalid trial)."""
+    """`retry_of` when every hop in its chain relates; None otherwise (so an unrelated retry_of cannot excuse an
+    uninterpreted invalid trial)."""
     if retry_of is None:
         return None
     chain = _retry_chain(conn, retry_of)
-    return retry_of if all(_retry_relates(conn, prior, points, parent, change) for prior in chain) else None
+    return retry_of if _unrelated_retry(conn, chain, points, parent, change) is None else None
 
 
 def _check_plan(conn: db.LedgerConnection, plan: Mapping
@@ -474,11 +493,10 @@ def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, bindi
         point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"], execution)
     transitions = _check_retry(conn, chain, {**plan, "points": points}, execution)
     _check_exposure(conn, execution, points, chain, exclude, transitions)
-    for prior in chain:
-        if not _retry_relates(conn, prior, points, parent, change):
-            raise refuse("RETRY_NOT_ALLOWED",
-                         f"registration {prior['registration_id']} consumed neither a grid source of this plan nor a "
-                         "retryable attempt of the same mechanism", missing=(str(prior["registration_id"]),))
+    if (unrelated := _unrelated_retry(conn, chain, points, parent, change)) is not None:
+        raise refuse("RETRY_NOT_ALLOWED",
+                     f"registration {unrelated} consumed neither a grid source of its successor nor a "
+                     "retryable attempt of the same mechanism", missing=(str(unrelated),))
     return points
 
 

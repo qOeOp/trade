@@ -17,6 +17,7 @@ database's writer removes its declaration, seal and files in one commit.
 
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import json
 
@@ -122,12 +123,13 @@ def paper_runs(conn: db.LedgerConnection) -> list[dict]:
     return [{**_row(row), "seal": None if row["seal"] is None else json.loads(bytes(row["seal"]))} for row in rows]
 
 
-def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict | None:
+def last_research_symbols(conn: db.LedgerConnection, source_sha256: str, at: datetime | None = None) -> dict | None:
     """The contracts of the source's latest research replay that ran ({trial_id, symbols}), read on the research
-    ledger, or None: what a paper run of the version's last configuration trades."""
+    ledger (at or before `at` when given), or None: what a paper run of the version's last configuration trades."""
+    extra, params = (" AND r.created_at <= %s", (source_sha256, at)) if at is not None else ("", (source_sha256,))
     found = conn.one("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
-                     "WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY t.trial_id DESC LIMIT 1",
-                     (source_sha256,))
+                     "WHERE t.source_sha256 = %s AND t.purpose = 'research'" + extra
+                     + " ORDER BY t.trial_id DESC LIMIT 1", params)
     if found is None:
         return None
     symbols = [symbol for (symbol,) in conn.rows("SELECT symbol FROM trial_instrument WHERE trial_id = %s "

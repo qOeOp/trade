@@ -138,6 +138,18 @@ def read_review(conn: db.LedgerConnection, review_id) -> dict:
     return found[0]
 
 
+def _clean_capture(capture: Mapping) -> bool:
+    """Whether a precheck capture completed cleanly with native and audit stages passing and no runtime failures."""
+    raw_stages, raw_outcome = capture.get("stages"), capture.get("outcome")
+    stages = raw_stages if isinstance(raw_stages, Mapping) else {}
+    outcome = raw_outcome if isinstance(raw_outcome, Mapping) else {}
+    audit = problems.json_object(problems.sealed(capture, problems.AUDIT_RESULT))
+    return (capture["status"] == "captured" and execution.stage_ok(stages.get("native"))
+            and execution.stage_ok(stages.get("audit")) and outcome.get("kind") == "completed"
+            and isinstance(audit, Mapping) and audit.get("passed") is True
+            and not capture["runtime_failures"])
+
+
 def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: str, identity: Mapping) -> int:
     """The precheck trial ID when the review and its native capture bind this source, the image, market
     commit, lifecycle and comparable configuration of `identity`, and both passed; any mismatch is a refusal:
@@ -149,12 +161,7 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
         raise refuse("SOURCE_PRECHECK_REQUIRED", f"source review {review_id} does not review a precheck of this "
                                                  f"source on {digest}", missing=(str(review_id),))
     capture = _capture(conn, trial["trial_id"])
-    stages, outcome = capture.get("stages"), capture.get("outcome")
-    stages = stages if isinstance(stages, Mapping) else {}
-    outcome = outcome if isinstance(outcome, Mapping) else {}
-    if (capture["status"] != "captured" or not execution.stage_ok(stages.get("native"))
-            or not execution.stage_ok(stages.get("audit")) or outcome.get("kind") != "completed"
-            or capture["runtime_failures"]):
+    if not _clean_capture(capture):
         raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} did not complete cleanly",
                      missing=(f"trial {trial['trial_id']}",))
     differs = [key for key in PRECHECK_COLUMNS if trial[key] != identity.get(key)]
@@ -166,8 +173,26 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
                      + ", ".join(item for item in ITEMS if record[item]["status"] != "passed"),
                      missing=(str(review_id),))
     reviewed = [item for item in review_records(conn, source_sha256) if item["image_digest"] == digest]
+    matched: dict[int, bool] = {trial["trial_id"]: True}
+
+    def same_precheck(other_id: int) -> bool:
+        if other_id not in matched:
+            other = trial_identity(conn, other_id)
+            try:
+                clean = _clean_capture(_capture(conn, other_id))
+            except Refusal as exc:
+                if exc.code != "SOURCE_PRECHECK_REQUIRED":
+                    raise
+                clean = False
+            matched[other_id] = (
+                clean and other["trial_id"] == other_id and other["purpose"] == "precheck"
+                and other["source_sha256"] == source_sha256 and other["image_digest"] == digest
+                and all(other[key] == identity.get(key) for key in PRECHECK_COLUMNS))
+        return matched[other_id]
+
     failed = [str(item["review_id"]) for item in reviewed if item["verdict"] == "failed"
-              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(conn, item, reviewed))]
+              and (item["trial_id"] == trial["trial_id"]
+                   or not review_activity.resolved(conn, item, reviewed, eligible_trial=same_precheck))]
     if failed:
         raise refuse("SOURCE_PRECHECK_FAILED", f"source has failed reviews on {digest}: "
                      + ", ".join(failed), missing=tuple(failed))
