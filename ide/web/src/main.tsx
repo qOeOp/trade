@@ -47,7 +47,7 @@ function show(next: View | null): void {
     else restoreStage("live");
   }
   root.render(<StrictMode><Crashed reset={view}><App view={view} /></Crashed></StrictMode>);
-  pickWanted(paperRuns.get()?.runs ?? null);
+  if (!phoneNow()) pickWanted(paperRuns.get()?.runs ?? null);
 }
 
 // Before a view: what the shell's editor says instead of the graph.

@@ -8,7 +8,8 @@
 // slot, so both show at once; without it they take turns in one slot.
 import { atom, persistedAtom, useAtom } from "./atom";
 import { bottomToolOnPage, DEFAULT_BOTTOM, type ToolPage } from "../model/toolScope";
-import { chooseStage } from "./stage";
+import { phoneNow } from "./phone";
+import { chooseStage, linkedPage } from "./stage";
 
 /** A slot: "split" is the right side's lower half, used while split mode is on. */
 export type Side = "left" | "right" | "split" | "bottom";
@@ -124,3 +125,9 @@ export const paletteOpen = atom<boolean>(false);
 
 /** Back to the default page, sides and sizes. */
 export const resetShell = () => shell.set(DEFAULTS);
+
+// A desktop deep-link overrides the persisted page so it is never hidden behind Market, History or Research.
+if (!phoneNow()) {
+  if (linkedPage === "runs" && shell.get().page !== "runs") showRunsPage();
+  else if (linkedPage === "research" && shell.get().page !== "research") update((s) => ({ ...s, page: "research" }));
+}

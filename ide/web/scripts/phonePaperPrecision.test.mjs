@@ -29,7 +29,7 @@ async function page(positions, lines) {
   const listing = { runs: [run(positions)], running: 1, memory: null, starting: [] };
   const stream = { paperId: 41, symbol: "BTCUSDT", lines, bars: [], closes: {}, state: null, readings: null, seal: null, failures: [], link: "open", loaded: true };
   const { namespace } = loader({ stubs: {
-    "state/paper": { usePaperRuns: () => listing },
+    "state/paper": { usePaperRuns: () => listing, usePaperService: () => "present" },
     "state/researchLines": { useResearchLines: () => ({ lines: [] }) },
     "state/timeZone": { useTimeZone: () => "UTC" },
     "state/paperStream": { follow() {}, useStream: () => stream },

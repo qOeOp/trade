@@ -68,7 +68,7 @@ async function refreshRuns(): Promise<void> {
     for (const run of listing.runs) if (run.op_id) confirmStart(run.op_id);
     missed = 0;
     paperRuns.set(shared(paperRuns.get(), listing));
-    pickWanted(listing.runs);
+    if (!phoneNow()) pickWanted(listing.runs);
   } catch (error) {
     if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
