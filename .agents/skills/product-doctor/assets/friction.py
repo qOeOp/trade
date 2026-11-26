@@ -22,6 +22,15 @@ NONZERO_EXIT_RE = re.compile(
     r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
     re.MULTILINE,
 )
+AD_HOC_SQL_RE = re.compile(r"\b(?:dolt\s+sql|mysql\b)", re.IGNORECASE)
+SECRET_FILE_RE = re.compile(r"(?:^|[\s/'\"])(?:\.env|dolt/service\.json)(?:$|[\s'\"])")
+RESEARCH_CMD_RE = re.compile(r"\bcli\.main\s+(?:research|line|trial|replay)\b")
+PROD_OOM_RE = re.compile(r"\b(?:oom-killer|OOMKilled|Out of memory|ExitCode:\s*137|Killed process)\b", re.IGNORECASE)
+PROD_CHECKPOINT_DEFER_RE = re.compile(r"Paper checkpoint deferred:", re.IGNORECASE)
+PROD_RECOVERY_UNAVAIL_RE = re.compile(r"PAPER_RECOVERY_UNAVAILABLE")
+PROD_RECONNECT_RE = re.compile(r"\b(?:reconnecting|WebSocket[^\n]*closed|connection reset|disconnected)\b", re.IGNORECASE)
+PROD_ERROR_RE = re.compile(r"(?:Traceback \(most recent call last\):|\b(?:CRITICAL|FATAL|ERROR)\b)")
+PROD_SERVICE_HINTS = ("paper", "live", "ide", "ledger", "market")
 NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
 _SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
@@ -151,7 +160,27 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _record_skill_args(tname: str, args: Any, skills_loaded: set[str], cmd_summaries: Counter[str]) -> None:
+def _scan_workflow_args(
+    args: dict[str, Any], violations: Counter[str], research_activity: list[bool],
+) -> None:
+    """Detect research-workflow adherence violations from tool arguments without retaining raw inputs."""
+    cmd = _unwrap_str(args.get("CommandLine") or args.get("command") or args.get("cmd") or "")
+    fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
+    if cmd:
+        if AD_HOC_SQL_RE.search(cmd):
+            violations["ad_hoc_ledger_sql"] += 1
+        if SECRET_FILE_RE.search(cmd) and "cat " in cmd:
+            violations["secret_file_access"] += 1
+        if RESEARCH_CMD_RE.search(cmd):
+            research_activity[0] = True
+    if fpath and SECRET_FILE_RE.search(fpath):
+        violations["secret_file_access"] += 1
+
+
+def _record_skill_args(
+    tname: str, args: Any, skills_loaded: set[str], cmd_summaries: Counter[str],
+    violations: Counter[str] | None = None, research_activity: list[bool] | None = None,
+) -> None:
     if not isinstance(args, dict):
         return
     fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
@@ -162,16 +191,24 @@ def _record_skill_args(tname: str, args: Any, skills_loaded: set[str], cmd_summa
     summary = _sanitize_summary(_unwrap_str(args.get("toolSummary") or ""))
     if summary:
         cmd_summaries[summary] += 1
+    if violations is not None and research_activity is not None:
+        _scan_workflow_args(args, violations, research_activity)
 
 
-def _record_step_tools(obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str]) -> tuple[int, int]:
+def _record_step_tools(
+    obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str],
+    violations: Counter[str], research_activity: list[bool],
+) -> tuple[int, int]:
     """Count (tool_calls, tool_errors) from Antigravity `tool_calls` and Claude Code `message.content`."""
     calls = errors = 0
     raw_tcs = obj.get("tool_calls")
     for tc in raw_tcs if isinstance(raw_tcs, list) else ():
         if isinstance(tc, dict):
             calls += 1
-            _record_skill_args(str(tc.get("name") or ""), tc.get("args") or tc.get("arguments"), skills_loaded, cmd_summaries)
+            _record_skill_args(
+                str(tc.get("name") or ""), tc.get("args") or tc.get("arguments"),
+                skills_loaded, cmd_summaries, violations, research_activity,
+            )
     msg = obj.get("message")
     blocks = msg.get("content") if isinstance(msg, dict) else None
     if not isinstance(blocks, list):
@@ -182,7 +219,10 @@ def _record_step_tools(obj: dict[str, Any], skills_loaded: set[str], cmd_summari
         btype = blk.get("type")
         if btype == "tool_use":
             calls += 1
-            _record_skill_args(str(blk.get("name") or ""), blk.get("input"), skills_loaded, cmd_summaries)
+            _record_skill_args(
+                str(blk.get("name") or ""), blk.get("input"),
+                skills_loaded, cmd_summaries, violations, research_activity,
+            )
         elif btype == "tool_result" and blk.get("is_error"):
             errors += 1
     return calls, errors
@@ -208,6 +248,7 @@ def _iter_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
 
 def _record_codex_payload(
     obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str],
+    violations: Counter[str], research_activity: list[bool],
 ) -> tuple[int, int, int]:
     """Extract (user_turns, tool_calls, tool_errors) from Codex rollout `{timestamp, type, payload}` rows."""
     payload = obj.get("payload")
@@ -225,7 +266,9 @@ def _record_codex_payload(
                 raw_args = json.loads(raw_args)
             except json.JSONDecodeError:
                 raw_args = None
-        _record_skill_args(str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries)
+        _record_skill_args(
+            str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries, violations, research_activity,
+        )
         return 0, 1, 0
     if ptype.endswith("_output") and NONZERO_EXIT_RE.search(str(payload.get("output") or "")):
         return 0, 0, 1
@@ -238,6 +281,8 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
     user_turns = tool_calls = tool_errors = 0
     skills_loaded: set[str] = set()
     cmd_summaries: Counter[str] = Counter()
+    violations: Counter[str] = Counter()
+    research_activity = [False]
     timestamps: list[datetime] = []
 
     for obj in rows:
@@ -252,11 +297,14 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
         status = str(obj.get("status") or "").upper()
         if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
             tool_errors += 1
-        c, e = _record_step_tools(obj, skills_loaded, cmd_summaries)
-        cu, cc, ce = _record_codex_payload(obj, skills_loaded, cmd_summaries)
+        c, e = _record_step_tools(obj, skills_loaded, cmd_summaries, violations, research_activity)
+        cu, cc, ce = _record_codex_payload(obj, skills_loaded, cmd_summaries, violations, research_activity)
         user_turns += cu
         tool_calls += c + cc
         tool_errors += e + ce
+
+    if research_activity[0] and tool_calls >= 5 and not (skills_loaded & {"research-round", "research-start", "product-doctor"}):
+        violations["missing_research_skill"] += 1
 
     span_min = (
         round((max(timestamps) - min(timestamps)).total_seconds() / 60.0, 1)
@@ -275,6 +323,7 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
         "duration_minutes": span_min,
         "skills_loaded": sorted(skills_loaded),
         "repeated_actions": [{"action": s, "count": c} for s, c in repeated],
+        "workflow_violations": [{"kind": k, "count": c} for k, c in sorted(violations.items())],
     }
 
 
@@ -294,6 +343,7 @@ def analyze_transcripts(paths: list[Path]) -> dict[str, Any]:
             triggers.append(f"agent_repeated_action ({s['file']}: '{top['action']}' x{top['count']})")
         if s["user_turns"] >= 12 and (s["duration_minutes"] or 0.0) >= 30.0:
             triggers.append(f"user_clarification_burden ({s['file']}: {s['user_turns']} user turns over {s['duration_minutes']}m)")
+        triggers.extend(f"workflow_{v['kind']} ({s['file']}: x{v['count']})" for v in s["workflow_violations"])
 
     return {
         "session_count": len(sessions),
@@ -305,20 +355,80 @@ def analyze_transcripts(paths: list[Path]) -> dict[str, Any]:
     }
 
 
+def _inspect_prod_log(path: Path) -> tuple[dict[str, Any], list[str]]:
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as error:
+        raise SystemExit(f"cannot read prod log {path}: {error}") from None
+
+    low_name = path.name.lower()
+    service = next((hint for hint in PROD_SERVICE_HINTS if hint in low_name), "unknown")
+    oom = sum(1 for ln in raw_lines if PROD_OOM_RE.search(ln))
+    ckpt_defer = sum(1 for ln in raw_lines if PROD_CHECKPOINT_DEFER_RE.search(ln))
+    rec_unavail = sum(1 for ln in raw_lines if PROD_RECOVERY_UNAVAIL_RE.search(ln))
+    reconnects = sum(1 for ln in raw_lines if PROD_RECONNECT_RE.search(ln))
+    errors = sum(1 for ln in raw_lines if PROD_ERROR_RE.search(ln))
+
+    log_triggers: list[str] = []
+    if not raw_lines:
+        log_triggers.append(f"prod_log_empty ({path.name}: 0 lines — possible logging defect)")
+    if oom >= 1:
+        log_triggers.append(f"prod_oom_kill ({path.name}: {oom} OOM signal(s))")
+    if ckpt_defer >= 3:
+        log_triggers.append(f"prod_checkpoint_deferred ({path.name}: {ckpt_defer} deferred checkpoints)")
+    if rec_unavail >= 1:
+        log_triggers.append(f"prod_recovery_unavailable ({path.name}: {rec_unavail} recovery failure(s))")
+    if reconnects >= 10:
+        log_triggers.append(f"prod_reconnect_storm ({path.name}: {reconnects} reconnect/drop events)")
+    if errors >= 5:
+        log_triggers.append(f"prod_error_burst ({path.name}: {errors} error/traceback lines)")
+
+    return {
+        "file": path.name, "service": service, "lines": len(raw_lines),
+        "oom_signals": oom, "checkpoint_deferrals": ckpt_defer,
+        "recovery_unavailable": rec_unavail, "reconnect_events": reconnects,
+        "error_lines": errors, "triggers": log_triggers,
+    }, log_triggers
+
+
+def analyze_prod_logs(paths: list[Path]) -> dict[str, Any]:
+    """Summarize production service logs (Paper/Live/IDE/Dolt) into deterministic operational triggers."""
+    logs: list[dict[str, Any]] = []
+    triggers: list[str] = []
+    services: set[str] = set()
+    for path in paths:
+        entry, log_triggers = _inspect_prod_log(path)
+        logs.append(entry)
+        triggers.extend(log_triggers)
+        if log_triggers and entry["service"] != "unknown":
+            services.add(entry["service"])
+    return {
+        "log_count": len(logs),
+        "affected_services": sorted(services),
+        "logs": logs,
+        "triggers": triggers,
+    }
+
+
 def collect_friction(ci_runs: list[dict[str, Any]] | None = None,
-                     transcript_paths: list[Path] | None = None) -> dict[str, Any]:
-    """Combine CI delivery and transcript agent/burden signals into a unified friction summary."""
+                     transcript_paths: list[Path] | None = None,
+                     prod_log_paths: list[Path] | None = None) -> dict[str, Any]:
+    """Combine CI delivery, agent/user transcript, and production log signals into a unified summary."""
     ci = analyze_ci_runs(ci_runs) if ci_runs is not None else None
     tx = analyze_transcripts(transcript_paths) if transcript_paths else None
+    pl = analyze_prod_logs(prod_log_paths) if prod_log_paths else None
     triggers = [
         *(ci["triggers"] if ci else []),
         *(tx["triggers"] if tx else []),
+        *(pl["triggers"] if pl else []),
     ]
     return {
         "ci_provided": ci is not None,
         "transcripts_provided": tx is not None,
+        "prod_logs_provided": pl is not None,
         "ci": ci,
         "transcripts": tx,
+        "prod_logs": pl,
         "triggers": triggers,
         "has_friction": bool(triggers),
     }

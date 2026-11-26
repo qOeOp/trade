@@ -195,7 +195,8 @@ def _issue_citations(title: str, body: str, tops: dict[str, dict[str, Any]], tra
 
 def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], tracked_lines: dict[str, int],
                         unique_basenames: dict[str, str], obj_names: list[str], object_kinds: dict[str, str],
-                        owner_fn, file_latest_ts: dict[str, int], now_ts: int) -> tuple[list[str], dict[str, Any]]:
+                        owner_fn, file_latest_ts: dict[str, int], now_ts: int,
+                        *, authority_gate: bool = True) -> tuple[list[str], dict[str, Any]]:
     labels = {lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in (issue.get("labels") or [])}
     title, body = str(issue.get("title") or ""), str(issue.get("body") or "")
     comments = _extract_comments(issue)
@@ -220,6 +221,7 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
     if docs_only and not SECURITY_RE.search(f"{title}\n{body}"[:600]):
         has_harm_text = False
     is_harm = not title.lower().startswith("minor:") and "enhancement" not in labels and has_harm_text
+    is_auth_blocked = authority_gate and "authority" in labels
 
     if "claimed" in labels:
         # Per record.md:24, claims under 2 days old are left alone; older ones are stale.
@@ -228,11 +230,11 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
             return ["claimed"], entry
         entry["reason"] = f"stale claim ({claim_age // 86400}d old, >= 2d expiry)"
         buckets = ["stale_claimed"]
-        if is_harm and "authority" not in labels and "needs-evidence" not in labels:
+        if is_harm and not is_auth_blocked and "needs-evidence" not in labels:
             buckets.append("actionable_harm")
         return buckets, entry
 
-    if "authority" in labels:
+    if is_auth_blocked:
         changed = [p for p in cited_files if file_latest_ts.get(p, 0) > touch_ts] if touch_ts else []
         if changed and is_harm:
             entry["changed_files"] = changed
@@ -250,9 +252,9 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
 def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]],
                     tracked_lines: dict[str, int], object_kinds: dict[str, str],
                     owner_fn, file_latest_ts: dict[str, int],
-                    now_dt: datetime) -> dict[str, list[dict[str, Any]]]:
+                    now_dt: datetime, *, authority_gate: bool = True) -> dict[str, list[dict[str, Any]]]:
     """Partition open `agent-finding` issues into actionable harm, authority-drifted, authority-blocked,
-    claimed, stale-claimed, and other."""
+    claimed, stale-claimed, and other. With `authority_gate=False` (full-auto mode), `authority` does not block."""
     if not isinstance(issues, list) or not all(isinstance(item, dict) for item in issues):
         raise SystemExit("--issues-json must contain a JSON array of issue objects")
 
@@ -271,7 +273,8 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
         if str(issue.get("state") or "OPEN").upper() == "CLOSED":
             continue
         keys, entry = _classify_one_issue(
-            issue, tops, tracked_lines, unique_basenames, obj_names, object_kinds, owner_fn, file_latest_ts, now_ts
+            issue, tops, tracked_lines, unique_basenames, obj_names, object_kinds,
+            owner_fn, file_latest_ts, now_ts, authority_gate=authority_gate,
         )
         for k in keys:
             buckets[k].append(entry)
@@ -451,19 +454,26 @@ def _friction_targets(
 ) -> tuple[list[str], list[str]]:
     ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
     tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
+    pl_data = friction_data.get("prod_logs") if friction_data else None
+    pl_fired = bool(pl_data and pl_data.get("triggers"))
     f_objs: list[str] = []
     f_items: list[str] = []
+    if pl_fired and pl_data:
+        for svc in pl_data.get("affected_services") or []:
+            if svc in tops and svc not in f_objs:
+                f_objs.append(svc)
+        f_items.append("operation")
     if ci_fired:
-        if ".github" in tops:
+        if ".github" in tops and ".github" not in f_objs:
             f_objs.append(".github")
         f_items.append("delivery")
     if tx_fired:
-        if ".agents" in tops:
+        if ".agents" in tops and ".agents" not in f_objs:
             f_objs.append(".agents")
         f_items.extend(["agents", "burden"])
     if not f_objs and ranked_objects:
         f_objs = [ranked_objects[0]["object"]]
-    return f_objs[:3], (f_items or ["delivery", "agents", "burden"])
+    return f_objs[:3], (list(dict.fromkeys(f_items)) or ["delivery", "agents", "burden"])
 
 
 def _friction_is_object_cooled(
@@ -615,7 +625,8 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
            telemetry_data: dict[str, Any], owner_fn, *,
            issues: list[dict[str, Any]] | None = None,
            friction_data: dict[str, Any] | None = None,
-           sla_days: int = 21) -> dict[str, Any]:
+           sla_days: int = 21,
+           authority_gate: bool = True) -> dict[str, Any]:
     """Compute the closed-loop audit recommendation, priority table, and stopping decision."""
     now_dt = _commit_date(rev)
     records = read_audit_history(rev, tracked_lines, tops, owner_fn)
@@ -633,7 +644,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     object_kinds = {name: obj["kind"] for name, obj in telemetry_data["objects"].items()}
     issue_buckets = classify_issues(
         issues if issues is not None else [], tops, tracked_lines, object_kinds,
-        owner_fn, telemetry_data.get("_file_latest_ts", {}), now_dt,
+        owner_fn, telemetry_data.get("_file_latest_ts", {}), now_dt, authority_gate=authority_gate,
     )
     slim_list, slim_cooled_objects, dynamic_bars = _slim_candidates(telemetry_data, last_slimmed=last_slimmed)
     ranked_objects, staleness_breaches = _rank_code_objects(

@@ -1115,3 +1115,83 @@ export function load(cfg?: Config) {
         cp.write_text("def setup(n): return lambda: None\n", encoding="utf-8")
         with self.assertRaises(SystemExit):
             doctor.main(["cost", str(self.home / "ev-bad-sizes"), "alpha:x", str(cp), "--sizes", "a,b,c", "--tree", "HEAD"])
+
+    def test_v3_0_prod_logs_workflow_adherence_auto_mode_and_steady_exit_code(self):
+        """v3.0 (owner 2026-11-27 direction): production log telemetry (#3782/#3783 patterns + empty log),
+        research workflow adherence signals, `--auto` non-authority-blocking mode, and `--steady-exit-code`."""
+        # 1) Production log telemetry catches #3782 (OOM) + #3783 (checkpoint deferral + PAPER_RECOVERY_UNAVAILABLE)
+        #    + empty log file as a logging defect.
+        paper_log = self.home / "paper-runner.log"
+        paper_log.write_text("\n".join([
+            "2026-11-25T05:38:27Z Paper checkpoint deferred: PAPER_RECOVERY_UNAVAILABLE",
+            "2026-11-25T05:43:27Z Paper checkpoint deferred: PAPER_RECOVERY_UNAVAILABLE",
+            "2026-11-25T05:48:27Z Paper checkpoint deferred: PAPER_RECOVERY_UNAVAILABLE",
+            "2026-11-25T21:38:40Z Memory cgroup out of memory: Killed process 3882310 (python)",
+        ]) + "\n", encoding="utf-8")
+        empty_log = self.home / "live-runner.log"
+        empty_log.write_text("", encoding="utf-8")
+
+        pl = friction.analyze_prod_logs([paper_log, empty_log])
+        self.assertEqual(pl["affected_services"], ["live", "paper"])
+        joined = "\n".join(pl["triggers"])
+        self.assertIn("prod_oom_kill", joined)
+        self.assertIn("prod_checkpoint_deferred", joined)
+        self.assertIn("prod_recovery_unavailable", joined)
+        self.assertIn("prod_log_empty", joined)
+
+        # 2) Research transcript workflow adherence detects ad-hoc dolt sql, .env read, and missing research skill.
+        bad_tx = self.home / "research_bad.jsonl"
+        tx_rows = [
+            json.dumps({"type": "PLANNER_RESPONSE", "created_at": "2026-11-26T10:00:00Z", "tool_calls": [
+                {"name": "run_command", "args": {"CommandLine": "dolt sql -q 'select * from runs'"}},
+                {"name": "read_file", "args": {"Path": "/repo/.env"}},
+                {"name": "run_command", "args": {"CommandLine": "python -m cli.main research state"}},
+                {"name": "run_command", "args": {"CommandLine": "python -m cli.main line select"}},
+                {"name": "run_command", "args": {"CommandLine": "python -m cli.main trial list"}},
+            ]}),
+        ]
+        bad_tx.write_text("\n".join(tx_rows) + "\n", encoding="utf-8")
+        tx_res = friction.analyze_transcripts([bad_tx])
+        viols = {v["kind"] for v in tx_res["sessions"][0]["workflow_violations"]}
+        self.assertEqual(viols, {"ad_hoc_ledger_sql", "secret_file_access", "missing_research_skill"})
+        self.assertTrue(any("workflow_ad_hoc_ledger_sql" in t for t in tx_res["triggers"]))
+
+        # 3) `--auto` mode treats `authority`-labeled harm issues as actionable (no authority deadlock).
+        self.commit({"paper/runs.py": "def run():\n    return 1\n"}, message="feat(paper): add paper module")
+        today = self.git("show", "-s", "--format=%cs", "HEAD")
+        auth_issue = self.home / "auth_issues.json"
+        auth_issue.write_text(json.dumps([{
+            "number": 800, "state": "OPEN", "title": "paper/runs.py silently drops fills",
+            "labels": [{"name": "agent-finding"}, {"name": "authority"}],
+            "updatedAt": f"{today}T00:00:00Z", "body": "See paper/runs.py:1",
+        }]), encoding="utf-8")
+        p_gated = self.call_json("advise", "--tree", "HEAD", "--issues-json", auth_issue)
+        self.assertEqual(p_gated["issues_summary"]["actionable_harm"], [])
+        p_auto = self.call_json("advise", "--tree", "HEAD", "--issues-json", auth_issue, "--auto")
+        self.assertEqual(p_auto["recommended_theme"], "harm")
+        self.assertEqual([i["number"] for i in p_auto["issues_summary"]["actionable_harm"]], [800])
+
+        # 4) `--prod-logs` routes `advise` to `friction` targeting `paper` + `operation`.
+        empty_issues = self.home / "no_issues.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+        p_prod = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--prod-logs", paper_log)
+        self.assertEqual(p_prod["recommended_theme"], "friction")
+        self.assertIn("paper", p_prod["recommended_scope"]["objects"])
+        self.assertIn("operation", p_prod["recommended_scope"]["items"])
+
+        # 5) `--steady-exit-code 2` exits with code 2 when `steady` (0-token cron gate).
+        rec_all = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-s1.zh.md": rec_all,
+            f"docs/plans/doctor/{today}-s2.zh.md": rec_all,
+        }, message="docs(doctor): two clean audits")
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(out):
+            doctor.main(["advise", "--tree", "HEAD", "--issues-json", str(empty_issues), "--auto", "--steady-exit-code", "2"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertEqual(json.loads(out.getvalue())["recommended_theme"], "steady")

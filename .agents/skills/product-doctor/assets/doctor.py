@@ -429,9 +429,10 @@ def delta_cmd(args: argparse.Namespace) -> None:
 def friction_cmd(args: argparse.Namespace) -> None:
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
-    if ci_runs is None and not tx_paths:
-        raise SystemExit("friction needs --ci-json and/or --transcripts")
-    print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None), indent=1))
+    prod_logs = list(getattr(args, "prod_logs", None) or [])
+    if ci_runs is None and not tx_paths and not prod_logs:
+        raise SystemExit("friction needs --ci-json, --transcripts, and/or --prod-logs")
+    print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None), indent=1))
 
 
 def advise_cmd(args: argparse.Namespace) -> None:
@@ -445,12 +446,20 @@ def advise_cmd(args: argparse.Namespace) -> None:
     issues = _load_json_file(args.issues_json, "--issues-json") if args.issues_json else None
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
-    fric = friction.collect_friction(ci_runs, tx_paths or None) if (ci_runs is not None or tx_paths) else None
+    prod_logs = list(getattr(args, "prod_logs", None) or [])
+    fric = (
+        friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None)
+        if (ci_runs is not None or tx_paths or prod_logs) else None
+    )
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
         issues=issues, friction_data=fric, sla_days=args.sla_days,
+        authority_gate=not bool(getattr(args, "auto", False)),
     )
     print(json.dumps(plan, indent=1))
+    steady_code = getattr(args, "steady_exit_code", None)
+    if steady_code is not None and plan["recommended_theme"] == "steady":
+        raise SystemExit(int(steady_code))
 
 
 def scope(args: argparse.Namespace) -> None:
@@ -949,9 +958,10 @@ def _build_parser() -> argparse.ArgumentParser:
     delta_p.add_argument("base", help="base revision (e.g. origin/main or HEAD~1)")
     delta_p.add_argument("head", nargs="?", default="HEAD", help="target revision (default: HEAD)")
     delta_p.set_defaults(function=delta_cmd)
-    fric_p = commands.add_parser("friction", help="deterministic CI delivery and agent/user transcript friction telemetry")
+    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, and production service log friction telemetry")
     fric_p.add_argument("--ci-json", type=Path, help="path to JSON output of `gh run list --json ...`")
     fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
+    fric_p.add_argument("--prod-logs", type=Path, nargs="+", help="one or more production service log files (Paper/Live/IDE/Dolt)")
     fric_p.set_defaults(function=friction_cmd)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
@@ -960,6 +970,9 @@ def _build_parser() -> argparse.ArgumentParser:
     adv_p.add_argument("--issues-json", type=Path, help="path to JSON output of open agent-finding issues from gh")
     adv_p.add_argument("--ci-json", type=Path, help="optional path to JSON output of `gh run list --json ...`")
     adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
+    adv_p.add_argument("--prod-logs", type=Path, nargs="+", help="optional production service log files")
+    adv_p.add_argument("--auto", action="store_true", help="full-auto scheduled mode: do not block harm issues on `authority` label")
+    adv_p.add_argument("--steady-exit-code", type=int, help="exit with this code when recommended_theme is `steady` (0-token cron gate)")
     adv_p.set_defaults(function=advise_cmd)
     declared = add("scope", scope, "declare a themed audit's items and objects, before any evidence", 0)
     declared.add_argument("theme", choices=THEMES)
