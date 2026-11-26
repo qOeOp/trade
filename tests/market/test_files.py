@@ -325,3 +325,9 @@ class Refusals(Directory):
         self.assertEqual(files.track_months(market, "2025-02-15", "quote"),
                          [("2025-01", "BTCUSDT"), ("2025-02", "BTCUSDT"), ("2025-02", "ETHUSDT")])
         self.assertEqual(files.track_months(market, "2025-02-15", "metrics"), [])
+        # An empty 0-row parquet file must stay excluded even after its month closes.
+        empty_path = self.root / "metrics" / "2025-01" / "BTCUSDT.parquet"
+        empty_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pylist([], schema=files.METRICS.schema), empty_path)
+        self.assertEqual(files.track_months(market, "2025-01-15", "metrics"), [])
+        self.assertEqual(files.track_months(market, "2025-02-15", "metrics"), [])

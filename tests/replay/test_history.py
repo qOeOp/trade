@@ -89,6 +89,9 @@ class SegmentTests(unittest.TestCase):
         self.assertFalse(report_history._whole_year({
             "input_start": dt("2020-01-01T00:00:00"), "trade_start": dt("2020-01-02T00:00:00"),
             "trade_end": dt("2020-10-01T00:00:00")}), "market-cut 9-month partial year stays partial")
+        self.assertTrue(report_history._whole_year({
+            "input_start": None, "trade_start": dt("2021-10-01T00:00:00"),
+            "trade_end": dt("2022-10-01T00:00:00")}), "explicit None input_start falls back to trade_start")
 
 
 class VerdictTests(unittest.TestCase):

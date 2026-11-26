@@ -145,8 +145,10 @@ class ResearchLineTests(unittest.TestCase):
                           (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
                          [date(2020, 2, 1), date(2020, 2, 1), date(2022, 7, 1), None])
         self.assertEqual([lines.selection(argv) for argv in ('["--symbols", "BTCUSDT", "ETHUSDT", "--start", "x"]',
-                                                              ["--universe", "pool", "--start", "x"])],
-                         [["BTCUSDT", "ETHUSDT"], None])
+                                                             ["--symbols=BTCUSDT", "--start", "x"],
+                                                             ["--symbols="],
+                                                             ["--universe", "pool", "--start", "x"])],
+                         [["BTCUSDT", "ETHUSDT"], ["BTCUSDT"], [], None])
         line = self.select()
         self.assertEqual(lines.read_line(self.conn, line["line_id"])["dev_start"], "2021-04-01")
 
@@ -165,6 +167,13 @@ class ResearchLineTests(unittest.TestCase):
         self.assertIsNone(lines.covered_from(["BTCUSDT", "ETHUSDT"], members, {"metrics": metrics_btc_only}))
         self.assertEqual(lines.covered_from(["BTCUSDT"], members, {"metrics": metrics_full, "quote": quotes_late}),
                          date(2023, 1, 1))
+        # Disjoint track months for explicit --symbols must intersect per month (matching the pool branch).
+        disjoint_quotes = [("2021-01", "BTCUSDT"), ("2021-01", "ETHUSDT"),
+                           *((mo, sym) for mo, sym in members if mo >= "2022-03")]
+        self.assertEqual(lines.covered_from(["BTCUSDT"], members, {"metrics": metrics_full, "quote": disjoint_quotes}),
+                         date(2022, 3, 1))
+        self.assertEqual(lines.covered_from(None, members, {"metrics": metrics_full, "quote": disjoint_quotes}),
+                         date(2022, 3, 1))
 
         # select_line with --metrics shifts dev_start to reserve a covered veto year (2023-01-01 vs 2021-10-01).
         def open_reviewed(tag: str, extra_argv: list[str], execution: str = "bars"):
@@ -204,6 +213,64 @@ class ResearchLineTests(unittest.TestCase):
                         market=market(latest_complete_day=date(2026, 11, 22), members=members, tracks={"metrics": []}),
                         reviews=metrics_rev, today=date(2026, 11, 22))
         self.assertEqual(short.code, "LINE_HISTORY_SHORT")
+
+    def test_history_plan_control_warmup_and_missing_track_refusal(self):
+        """#3759 hardening: control/holdout warm-up respects effective coverage when dev_start == covered, and
+        missing/empty track coverage refuses COVERAGE_INCOMPLETE rather than silently dropping all veto segments."""
+        members = [(f"{y}-{m:02d}", "BTCUSDT") for y in range(2020, 2026) for m in range(1, 13)]
+        track_rows = [(mo, sym) for mo, sym in members if mo >= "2022-01"]
+        data = source("warmctrl")
+        strategies.publish_candidate(self.profile, data, "warmctrl", "Fixture", "warmup control")
+        def ns(day: date) -> int:
+            return int(datetime.combine(day, time(), UTC).timestamp()) * 10**9
+
+        span = {"start": ns(date(2022, 1, 1)), "trade_start": ns(date(2022, 1, 31)), "end": ns(date(2023, 1, 1))}
+        receipt = coverage(effective_config={
+            "runtime_contract": RUNTIME["runtime_contract"], **span, "execution_bar_minutes": 1440,
+            "symbols": ["BTCUSDT"],
+            "account": {"starting_balance_usdt": "100000", "execution": "quotes",
+                        "oms_type": "NETTING", "fees": "assumed-v1"},
+        })
+        pre_ctx = {**context(data), "argv": ["--symbols", "BTCUSDT", "--execution", "quotes", "--metrics"]}
+        pre_id = trials.open_trial(self.conn, "precheck", sha(data), RUNTIME, receipt, span, pre_ctx)["trial_id"]
+        item = {"status": "passed", "note": "fixture"}
+        reviews = lambda conn, s=None: [{"review_id": pre_id, "trial_id": pre_id, "source_sha256": sha(data),
+                                         "verdict": "passed", "reviewer": "fixture", "created_at": None,
+                                         "image_digest": RUNTIME["image_digest"], "api": item, "causal": item,
+                                         "activity": item, "readiness": item}]
+        mkt = market(latest_complete_day=date(2024, 12, 31), members=members,
+                     tracks={"quote": track_rows, "metrics": track_rows})
+        line = lines.select_line(self.conn, MARKET_DAY, "warmctrl@1", slug="warm-ctrl-line", market=mkt,
+                                 reviews=reviews, today=date(2025, 1, 5))
+        rec = lines.read_line(self.conn, line["line_id"])
+        self.assertEqual((rec["dev_start"], rec["dev_end"]), ("2022-01-01", "2023-01-01"))
+        reg = grid_point(self.conn, line["line_id"], data, receipt)
+        tid = trials.open_trial(self.conn, "research", sha(data), RUNTIME, receipt, span, pre_ctx,
+                                binder(line["line_id"], reg))["trial_id"]
+        participants = [{"source_sha256": sha(data), "trial_id": tid}]
+        plan = lines.history_plan(self.conn, line["line_id"], date(2020, 1, 1), date(2025, 1, 1), participants,
+                                  members=members, tracks={"quote": track_rows, "metrics": track_rows})
+        ctrl = next(seg for seg in plan if seg["kind"] == "control")
+        self.assertEqual(ctrl["window"], {"input_start": datetime(2022, 1, 1),
+                                          "trade_start": datetime(2022, 1, 31),
+                                          "trade_end": datetime(2023, 1, 1)})
+        # Omitting tracks or supplying an empty required track must refuse instead of silently dropping vetos.
+        self.assertEqual(refused(lines.history_plan, self.conn, line["line_id"], date(2020, 1, 1), date(2025, 1, 1),
+                                 participants, members=members).code, "COVERAGE_INCOMPLETE")
+        self.assertEqual(refused(lines.history_plan, self.conn, line["line_id"], date(2020, 1, 1), date(2025, 1, 1),
+                                 participants, members=members,
+                                 tracks={"quote": track_rows, "metrics": []}).code, "COVERAGE_INCOMPLETE")
+        # Bars-only trials with members=... and tracks=None continue to plan normally.
+        bars_data = source("barsonly")
+        strategies.publish_candidate(self.profile, bars_data, "barsonly", "Fixture", "bars only")
+        bars_receipt = coverage(export_content_sha256=sha(b"barsonly"))
+        bars_reg = grid_point(self.conn, line["line_id"], bars_data, bars_receipt)
+        bars_tid = trials.open_trial(self.conn, "research", sha(bars_data), RUNTIME, bars_receipt, span,
+                                     {**context(bars_data), "argv": ["--symbols", "BTCUSDT"]},
+                                     binder(line["line_id"], bars_reg))["trial_id"]
+        bars_plan = lines.history_plan(self.conn, line["line_id"], date(2020, 1, 1), date(2025, 1, 1),
+                                       [{"source_sha256": sha(bars_data), "trial_id": bars_tid}], members=members)
+        self.assertTrue(any(seg["kind"] == "veto" for seg in bars_plan))
 
     def test_explore_and_precheck_trade_only_inside_a_development_period(self):
         """B5 (line-close-history-test 3.2, user 2026-11-11): a replay with a line trades inside that line's period;
