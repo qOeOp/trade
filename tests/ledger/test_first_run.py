@@ -319,6 +319,10 @@ class HandlerTests(unittest.TestCase):
             ("non-numeric", "Content-Length: abc\r\n", b"{}"),
             ("duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n", b"{}"),
             ("transfer-encoding", "Transfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+            ("te-empty-then-chunked", "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+            ("te-empty-only", "Transfer-Encoding:\r\n", b"{}"),
+            ("truncated-eof", "Content-Length: 50\r\n", b""),
+            ("truncated-partial", "Content-Length: 50\r\n", b"{}"),
         )
         for label, header, body in cases:
             with self.subTest(label=label), socket.create_connection(srv.server_address, timeout=5) as raw:

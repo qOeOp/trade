@@ -34,10 +34,20 @@ def trusted(handler: BaseHTTPRequestHandler, hosts: Collection[str], refused_sit
 def content_length(handler: BaseHTTPRequestHandler) -> int:
     """One non-negative ASCII-digit Content-Length header, or 0 when absent; raises ValueError otherwise."""
     lengths = handler.headers.get_all("Content-Length", [])
-    if handler.headers.get("Transfer-Encoding") or len(lengths) > 1:
+    if handler.headers.get_all("Transfer-Encoding", []) or len(lengths) > 1:
         raise ValueError("invalid Content-Length")
     if not lengths:
         return 0
     if not lengths[0].isascii() or not lengths[0].isdigit():
         raise ValueError("invalid Content-Length")
     return int(lengths[0])
+
+
+def read_body(handler: BaseHTTPRequestHandler, length: int) -> bytes:
+    """Read exactly `length` bytes from `handler.rfile`; raises ValueError if the stream ends early."""
+    if not length:
+        return b""
+    data = handler.rfile.read(length)
+    if len(data) != length:
+        raise ValueError("incomplete request body")
+    return data

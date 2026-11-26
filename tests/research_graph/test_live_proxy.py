@@ -128,4 +128,21 @@ class LiveProxyTests(unittest.TestCase):
                 "Content-Length": length, "Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: token})
             self.assertIn(result.status, (400, 413))
             result.read()
+        raw_cases = (
+            ("te-empty-then-chunked", "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n"),
+            ("te-empty-plus-cl", "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n", b"{}"),
+            ("truncated-body", "Content-Length: 50\r\n", b"{}"),
+        )
+        for label, header, body in raw_cases:
+            with self.subTest(label=label), socket.create_connection(self.server.server_address, timeout=5) as raw:
+                payload = (
+                    f"POST /api/live/credentials HTTP/1.1\r\nHost: here:1\r\nSec-Fetch-Site: same-origin\r\n"
+                    f"{serve.PAPER_TOKEN}: {token}\r\nConnection: close\r\n{header}\r\n"
+                ).encode() + body
+                raw.sendall(payload)
+                raw.shutdown(socket.SHUT_WR)
+                reply = b""
+                while chunk := raw.recv(4096):
+                    reply += chunk
+                self.assertTrue(reply.startswith(b"HTTP/1.1 400 "), f"{label}: {reply[:120]!r}")
         self.assertEqual(self.seen, [])

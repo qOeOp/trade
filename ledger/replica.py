@@ -22,7 +22,7 @@ import threading
 import pymysql
 
 from ledger import db, publish, server, service
-from shared.http import encode, send_json, trusted
+from shared.http import content_length, encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
 from shared.refusals import refuse
 
@@ -232,23 +232,31 @@ def keep_synced(sync: Sync, stop: threading.Event, every: float = SYNC_EVERY) ->
 
 def handler(sync: Sync, hosts: frozenset[str]):
     class Handler(BaseHTTPRequestHandler):
-        def reply(self, status: int, body: dict):
-            send_json(self, status, encode(body))
+        def reply(self, status: int, body: dict, *, close: bool = False):
+            send_json(self, status, encode(body), close=close)
 
         def handle_request(self):
             if not trusted(self, hosts, ("cross-site",)):
-                self.reply(403, {"code": "FORBIDDEN", "message": "requests come from the IDE"})
-            elif self.path != "/api/research/sync" or self.command not in ("GET", "POST"):
+                self.reply(403, {"code": "FORBIDDEN", "message": "requests come from the IDE"}, close=True)
+                return
+            if self.path != "/api/research/sync" or self.command not in ("GET", "POST"):
                 self.reply(404, {"code": "NOT_FOUND", "message": self.path})
-            elif self.command == "POST" and (self.headers.get("Sec-Fetch-Site") != "same-origin"
-                                            or self.headers.get("Content-Length", "0") != "0"):
-                self.reply(400, {"code": "USAGE_ERROR", "message": "sync takes no body or caller-selected target"})
-            else:
-                try:
-                    self.reply(202 if self.command == "POST" else 200,
-                               sync.request() if self.command == "POST" else sync.status())
-                except Refusal as exc:
-                    self.reply(503, {"code": exc.code, "message": str(exc)})
+                return
+            try:
+                length = content_length(self)
+            except ValueError:
+                self.reply(400, {"code": "USAGE_ERROR", "message": "sync takes no body or caller-selected target"},
+                           close=True)
+                return
+            if self.command == "POST" and (self.headers.get("Sec-Fetch-Site") != "same-origin" or length != 0):
+                self.reply(400, {"code": "USAGE_ERROR", "message": "sync takes no body or caller-selected target"},
+                           close=True)
+                return
+            try:
+                self.reply(202 if self.command == "POST" else 200,
+                           sync.request() if self.command == "POST" else sync.status())
+            except Refusal as exc:
+                self.reply(503, {"code": exc.code, "message": str(exc)})
 
         do_GET = do_POST = do_DELETE = do_PUT = do_PATCH = handle_request
 

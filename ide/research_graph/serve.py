@@ -906,13 +906,13 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             try:
                 length = live_proxy.content_length(self)
-            except ValueError:
-                self.refuse(400, _failure("BAD_REQUEST", "invalid Content-Length"))
+                if length > limit:
+                    self.refuse(413, _failure("TOO_LARGE", f"{length} bytes"))
+                    return
+                body = live_proxy.read_body(self, length)
+            except ValueError as exc:
+                self.refuse(400, _failure("BAD_REQUEST", str(exc)))
                 return
-            if length > limit:
-                self.refuse(413, _failure("TOO_LARGE", f"{length} bytes"))
-                return
-            body = self.rfile.read(length) if length else None
             headers = {name: value for name in AGENT_HEADERS if (value := self.headers.get(name))}
             headers["Host"] = target.netloc
             upstream = http.client.HTTPConnection(target.hostname or "127.0.0.1", target.port, timeout=900)

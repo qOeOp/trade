@@ -640,3 +640,18 @@ class RunTests(unittest.TestCase):
         # Moved deployment: profile still names the old path while the service starts at the new service_root.
         profiles.private_write(profile_path, {**stored, "service": str(self.root / "old-path" / "s")})
         self.assertEqual(refused(start_mirror).code, "SERVICE_CHECK_FAILED")
+
+
+class CheckServiceTests(unittest.TestCase):
+    def test_empty_or_missing_databases_config_is_refused(self):
+        with tempfile.TemporaryDirectory() as root:
+            service_root = Path(root)
+            for label, config in (
+                ("empty", {"databases": {}}),
+                ("missing", {}),
+                ("null", {"databases": None}),
+            ):
+                with self.subTest(label=label), patch.object(
+                    service.server, "connect_root", side_effect=AssertionError("should refuse before connecting")
+                ):
+                    self.assertEqual(refused(service._check_service, service_root, config).code, "SERVICE_CHECK_FAILED")
