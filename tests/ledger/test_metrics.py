@@ -332,6 +332,31 @@ class MarkEquityTests(unittest.TestCase):
                            {**reports.account[-1]}]
         self.assertTrue(report(reports)["activity"]["account_endpoints_match"]["passed"])
 
+    def test_drawdown_contribution_uses_label_cutoff_for_intraminute_close(self):
+        """#3652: a position open at T1 (trough) that closes at T1+30s is valued in exposures(T1)
+        and must not also be counted as closed at T1."""
+        minute = 60 * 10**9
+        t0, t1, t2 = (JAN + (i + 1) * minute - 1_000_000 for i in range(3))
+        closed_at = t1 + 30 * 10**9
+        fills = [fill("O-1", "BUY", "100", t0, "E-1"), fill("O-2", "SELL", "105", closed_at, "E-2")]
+        positions = [position(f"{IID}-P-1", fills, True, "4.80000000", "O-1", "O-2")]
+        account = [{"ts_event": iso(t0), "total": "99999.90000000", "locked": "0"},
+                   {"ts_event": iso(closed_at), "total": "100004.80000000", "locked": "0"}]
+        exposures = [{"ts_event_ns": t0, "position_id": f"{IID}-P-1", "notional_value": Decimal("100"),
+                      "unrealized_pnl": Decimal("0"), "realized_pnl": Decimal("-0.10000000")},
+                     {"ts_event_ns": t1, "position_id": f"{IID}-P-1", "notional_value": Decimal("90"),
+                      "unrealized_pnl": Decimal("-10"), "realized_pnl": Decimal("-0.10000000")}]
+        summary = {"starting_balance_usdt": "100000", "data_interval_minutes": 1,
+                   "period_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-01-01T00:03:00Z"}
+        path = metrics.equity_path(summary, account, exposures)
+        drawn = metrics.mark_drawdown(summary, path)
+        found = metrics.cycles(positions, fills)
+        section = metrics._drawdown_section(drawn, path, found, positions, metrics._typed_exposures(exposures),
+                                            Decimal("100000"))
+        self.assertIsNone(section["top_instrument"]["null_reason"])
+        self.assertEqual(section["top_instrument"]["value"], IID)
+        self.assertEqual(section["top_instrument_share_in_drawdown"]["value"], 1.0)
+
 
 class FeeAndPlanTests(unittest.TestCase):
     def test_fee_notional_includes_the_contract_multiplier(self):

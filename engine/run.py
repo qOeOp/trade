@@ -227,20 +227,16 @@ class CapitalObserverConfig:
 class CapitalObserver(DataActor):
     """Value the positions held between input bar timestamps, and count the lifecycle events delivered.
 
-    The sample labelled with bar timestamp T holds the positions open after every
-    event before the next bar timestamp: T's bars and fills, and any fill, expiry
-    or funding stamped between the bars. The first MARK of the next timestamp
-    shows that point reached; each open position is then valued with the native
-    ``Position.notional_value`` and ``Position.unrealized_pnl`` at T's MARK, the
-    latest MARK, and written to the exposure table at once. A contract without a
-    MARK at T (a hole in its one-minute data) is valued at its latest MARK while
-    that is at most MARK_CARRY_MAX_MINUTES old; each such hole is kept as one
-    interval in ``carried`` (a coverage fact of the summary). A position that
-    cannot be valued (an older MARK, none, or a position already changed at the
-    next timestamp) is one CAPITAL_VALUATION_GAP finding per contiguous interval.
-    The runner values the last timestamp with ``finish`` once every component
-    stopped. Every ``progress_seconds`` of wall time it prints one progress line
-    to standard error.
+    The sample labelled with bar timestamp T holds every position open as of T
+    (fills and funding adjustments with ``ts_event <= T``), matching ``account``
+    at ``<= T``. The first MARK of the next timestamp shows T's events complete;
+    a position changed or closed after T is rebuilt natively from its events up
+    to T (engine.report.position_at), valued with ``Position.notional_value``
+    and ``Position.unrealized_pnl`` at T's MARK (or carried at most
+    MARK_CARRY_MAX_MINUTES on a data hole, recorded in ``carried``) and written
+    at once. Unvalued positions (older/no MARK, or changed at/after the next bar
+    timestamp) emit one CAPITAL_VALUATION_GAP per contiguous interval; ``finish``
+    values the last timestamp after every component stopped.
     """
 
     findings: list[str]
@@ -258,6 +254,8 @@ class CapitalObserver(DataActor):
         self.timestamps, self.findings, self.marks_seen = 0, [], 0
         self.lifecycle = {str(value): {key: 0 for key in LIFECYCLE_COUNTS} for value in self.lifecycle_ids}
         self._ts, self._marks, self._latest = None, {}, {}
+        self._open_ids: set[object] = set()
+        self._closed_ids: set[object] = set()
         self.carried: list[dict] = []
         self._carrying: dict[str, dict] = {}  # instrument -> the open carry interval
         self._gaps: dict[str, dict] = {}  # instrument -> the open valuation-gap interval
@@ -328,27 +326,28 @@ class CapitalObserver(DataActor):
 
     def _value(self, ts: int, cache) -> None:
         self.timestamps += 1
-        unvalued: dict[str, str]
-        carried, unvalued = set(), {}
-        for position in cache.positions_open():
+        carried: set[tuple[str, int]] = set()
+        unvalued: dict[str, str] = {}
+        for position in report.candidates_at(cache, self._open_ids, self._closed_ids):
             instrument = str(position.instrument_id)
-            price = self._marks.get(position.instrument_id)
-            why = None
+            if position.ts_last >= ts + BAR_INTERVAL_NS:
+                unvalued.setdefault(instrument, "the position changed before the next timestamp")
+                continue
+            held = report.position_at(position, ts, cache)
+            if held is None:
+                continue
+            price = self._marks.get(held.instrument_id)
             if price is None:
-                latest = self._latest.get(position.instrument_id)
+                latest = self._latest.get(held.instrument_id)
                 if latest is not None and ts - latest[0] <= MARK_CARRY_MAX_NS:
                     price = latest[1]
                     carried.add((instrument, latest[0]))
                 else:
-                    why = f"no MARK within {MARK_CARRY_MAX_MINUTES} minutes"
-            if why is None and position.ts_last >= ts + BAR_INTERVAL_NS:
-                why = "the position changed before the next timestamp"
-            if why is not None:
-                unvalued.setdefault(instrument, why)
-                continue
+                    unvalued.setdefault(instrument, f"no MARK within {MARK_CARRY_MAX_MINUTES} minutes")
+                    continue
             try:
-                self._writer.write((ts, str(position.id), str(position.notional_value(price)),
-                                    str(position.unrealized_pnl(price)), str(position.realized_pnl)))
+                self._writer.write((ts, str(held.id), str(held.notional_value(price)),
+                                    str(held.unrealized_pnl(price)), str(held.realized_pnl)))
             except Exception as exc:
                 self.findings.append(f"EXPOSURE_WRITE_FAILED: {type(exc).__name__}: {exc}")
                 raise

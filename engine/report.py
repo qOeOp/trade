@@ -15,8 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from nautilus_trader.analysis import SharpeRatio
-from nautilus_trader.model import ClientOrderId
-from nautilus_trader.model import Venue
+from nautilus_trader.model import ClientOrderId, Position, Venue
 
 from engine.config import (EXECUTION_BAR_MINUTES, MARK_CARRY_MAX_MINUTES, MINUTE_NS, AccountContract, Refusal, Window,
                            utc_text)
@@ -264,6 +263,43 @@ def without_unfilled_liquidity(orders):
     unfilled = [Decimal(str(value or 0)) == 0 for value in result["filled_qty"]]
     result.loc[unfilled, "liquidity_side"] = "NO_LIQUIDITY_SIDE"
     return result
+
+def position_at(position, ts: int, cache):
+    """The native Position open as of `ts` (fills and adjustments with ts_event <= ts), or None when flat or not yet
+    opened. Uses `position` directly when it has no event after `ts`."""
+    if position.ts_opened > ts:
+        return None
+    if position.ts_last <= ts:
+        return position if position.is_open else None
+    fills = [event for event in position.events() if event.ts_event <= ts]
+    if not fills:
+        return None
+    instrument = cache.instrument(position.instrument_id)
+    if instrument is None:
+        return None
+    rebuilt = Position(instrument, fills[0])
+    for event in fills[1:]:
+        rebuilt.apply(event)
+    for adjustment in position.adjustments():
+        if adjustment.ts_event <= ts:
+            rebuilt.apply_adjustment(adjustment)
+    return rebuilt if rebuilt.is_open else None
+
+
+def candidates_at(cache, open_ids: set, closed_ids: set) -> list:
+    """Open positions plus those closed since the previous observation, updating `open_ids` and `closed_ids` in place."""
+    open_now = list(cache.positions_open())
+    current = {position.id for position in open_now}
+    closed = open_ids - current
+    closed_ids.update(closed)
+    if cache.positions_closed_count() > len(closed_ids):
+        extra = set(cache.position_closed_ids()) - closed_ids
+        closed_ids.update(extra)
+        closed |= extra
+    open_ids.clear()
+    open_ids.update(current)
+    return [*open_now, *(found for pid in sorted(closed, key=str) if (found := cache.position(pid)) is not None)]
+
 
 def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """engine.capital_findings: the capital observer (engine.run.CapitalObserver) valued every input timestamp and
