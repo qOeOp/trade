@@ -12,13 +12,14 @@ Stop and ask before any of these:
   IDE and research-chain site. Keep the existing font assets, family order, and glyph fallbacks.
   Do not replace, remove, or override them, even for a redesign, refactor, or licensing fix,
   without the user's explicit approval for that font change. Report any issue to the user first.
-- Real orders. Live trading on the real Binance account is a product feature the user operates:
-  the user saves the credential and starts each run from the Live page (`live serve` control,
-  `engine.live` runner). An Agent builds and changes Live code but never starts a Live run, places,
-  changes or cancels a real order, reads or saves an exchange credential, or changes account
-  settings; each real-account trial needs its own scope from the user, who starts it. Paper
-  (`engine.paper`: Binance public data, Nautilus Sandbox fills, no credential) needs no authority,
-  and research never uses a credential.
+- Real orders on the primary account. Live trading on the user's primary Binance account remains
+  strictly user-operated: an Agent never starts a run, places, changes or cancels an order, or
+  changes settings on the primary account. The dedicated 200 USDT futures test account is
+  pre-authorized for bounded end-to-end Live regression and fault trials (total equity <= 200 USDT,
+  minimum viable notional per order) after multi-contract soak checks pass offline (`tests/soak/`);
+  even for the test account, never read, print, echo, log or store exchange API keys or secrets.
+  Paper (`engine.paper`: Binance public data, Nautilus Sandbox fills, no credential) needs no
+  authority, and research never uses a credential.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
@@ -30,9 +31,11 @@ Stop and ask before any of these:
   as the active ledger; the workstation's new ledger rewrites DoltHub `main` (a force push) only after `main` is
   pushed to the old line's archive branch and that branch's head is verified (`docs/plans/data-generation-in-release-20261123.zh.md`,
   `docs/plans/main-is-the-ledger-in-use-20261123.zh.md`).
-- Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
-  skill, or either of the user's two research targets (maximum drawdown and minimum annual
+- Weakening (relaxing) an existing refusal or audit check in code, tests, configuration or a
+  skill, or changing either of the user's two research targets (maximum drawdown and minimum annual
   return), including to get past a failing check. Win rate is a report dimension, not a target.
+  (Fixing verified defects, adding missing validation/refusal guards, and scheduled full-auto
+  `product-doctor --auto` runs do not require per-issue authority.)
 - Starting, stopping or restarting Docker Desktop or a deployment's own services (the `trade-ide`
   compose services, the remote host's), terminating any host process, or changing host
   configuration: Docker or system settings, credential helpers, the network path, installing or
