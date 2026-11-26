@@ -127,6 +127,9 @@ from engine import membership as membership_months
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
 STOP_CANCEL_SECONDS = 10
+# Paper runs bar execution (no trades/quotes streamed), so capping Nautilus's per-instrument tick ring buffer at
+# 1,000 instead of its 10,000 default avoids multi-contract mark/tick memory bloat (#3782) while keeping 16+ min of 1s ticks.
+PAPER_TICK_CAPACITY = 1_000
 # The runner's exit status after its journal failed (ledger.run_journal.JOURNAL_FAILED_EXIT reads it: with a full disk the
 # summary is as likely missing as the journal's last lines, and the exit status is what the seal still has).
 JOURNAL_FAILED_EXIT = 3
@@ -955,7 +958,11 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, proxy_url: st
     builder = node_base("paper", account["trader_id"], Environment.SANDBOX, catalog,
                         [item.instrument_id for item in planned], proxy_url)
     balance = Money(Decimal(account["starting_balance_usdt"]), usdt)  # type: ignore[arg-type]
-    builder.with_cache_config(CacheConfig(use_instance_id=False, bar_capacity=history.bar_capacity(loaded.warmup)))
+    builder.with_cache_config(CacheConfig(
+        use_instance_id=False,
+        bar_capacity=history.bar_capacity(loaded.warmup),
+        tick_capacity=PAPER_TICK_CAPACITY,
+    ))
     if session:
         session.expected_starts = len(planned) + 1
         builder.with_cache_database_factory(session.backend.config).with_load_state(bool(session.saved))

@@ -44,11 +44,13 @@ from market.universe import selection
 from paper.recovery import bind, identity as recovery_identity, launched, serialized
 
 
-# A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to STEP, from the peaks
-# in docs/plans/paper-admission-by-memory.zh.md §4 (199 MiB at 1 contract and 324 at 21 over 6 hours, at
-# most 188 at 1 contract over 22-43 hours): 320 MiB at 1 contract, 640 at 21. The egress proxy holds about 20 MiB.
-RUNNER_BASE_MIB = 256
-RUNNER_PER_CONTRACT_MIB = 16
+# A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to STEP.
+# Calibrated against amd64 Linux production evidence (#3782: 2-contract idle run at 250 MiB after 48h;
+# 6-contract multi-timeframe + Metrics + active-order run OOM-killed at 384 MiB / ~401 MiB RSS after 16h,
+# superseding the earlier 6h arm64 macOS VM baseline in docs/plans/paper-admission-by-memory.zh.md §4):
+# 384 MiB at 1–2 contracts, 512 MiB at 6, 1024 MiB at 21. The egress proxy holds about 20 MiB.
+RUNNER_BASE_MIB = 320
+RUNNER_PER_CONTRACT_MIB = 32
 RUNNER_STEP_MIB = 64
 RUNNER_CPUS = "0.5"
 EGRESS_MEMORY = "64m"
