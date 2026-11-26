@@ -57,7 +57,18 @@ DEFAULT_SYMBOLS: dict[str, dict[str, str]] = {
 }
 
 PROD_ERROR_PATTERNS: dict[str, re.Pattern[str]] = {
-    "oom": re.compile(r"\b(?:OOMKilled|Out of memory|MemoryError|Killed)\b", re.IGNORECASE),
+    "oom": re.compile(
+        r"(?:"
+        r"\bOOMKilled(?![\"']?\s*[:=]\s*(?:false|0)\b)"
+        r"|\bOOM[- ]?killer\b"
+        r"|\bMemoryError\b"
+        r"|\bCannot allocate memory\b"
+        r"|\bOut of memory(?:\s*[:!(,]|\s+(?:kill(?:ed|ing)?|error|while|allocat\w*)|$)"
+        r"|\bKilled process\s+\d+\b"
+        r"|\b(?:exit(?:ed|\s+code|\s+status)?|ExitCode|status)[\"']?\s*[:=(]?\s*137\b"
+        r")",
+        re.IGNORECASE,
+    ),
     "checkpoint_deferred": re.compile(r"Paper checkpoint deferred:", re.IGNORECASE),
     "recovery_unavailable": re.compile(r"\bPAPER_RECOVERY_UNAVAILABLE\b"),
     "fatal_exception": re.compile(r"\b(?:Traceback \(most recent call last\)|FATAL|CRITICAL)\b"),
@@ -124,26 +135,28 @@ class MemoryEnvelope:
         mid = len(self.samples) // 2
         return self.samples[-1].current_kib - self.samples[mid].current_kib
 
-    def assert_within_budget(self, *, contracts: int) -> dict[str, float]:
+    def assert_within_budget(self, *, contracts: int, enforce_container_cap: bool = False) -> dict[str, float]:
         if not self.samples:
             raise AssertionError("MemoryEnvelope has no samples")
         growth = self.steady_growth_kib
         peak_rss = max(s.rss_mib for s in self.samples)
-        container_mib = paper_runs.mib(paper_runs.runner_memory(contracts))
+        container_mib = float(paper_runs.mib(paper_runs.runner_memory(contracts)))
         if growth > self.max_growth_kib:
             raise AssertionError(
                 f"unbounded soak heap growth: {growth:.1f} KiB > limit {self.max_growth_kib:.1f} KiB "
                 f"(contracts={contracts}, container_limit={container_mib} MiB)"
             )
-        if peak_rss > self.max_rss_mib:
+        rss_limit = min(self.max_rss_mib, container_mib) if enforce_container_cap else self.max_rss_mib
+        if peak_rss > rss_limit:
             raise AssertionError(
-                f"process RSS exceeded soak ceiling: {peak_rss:.1f} MiB > limit {self.max_rss_mib:.1f} MiB"
+                f"process RSS exceeded soak ceiling: {peak_rss:.1f} MiB > limit {rss_limit:.1f} MiB "
+                f"(max_rss_mib={self.max_rss_mib:.1f}, container_limit={container_mib:.1f} MiB)"
             )
         return {
             "steady_growth_kib": round(growth, 2),
             "peak_kib": round(max(s.peak_kib for s in self.samples), 2),
             "peak_rss_mib": round(peak_rss, 2),
-            "container_limit_mib": float(container_mib),
+            "container_limit_mib": container_mib,
         }
 
 
@@ -321,119 +334,122 @@ class PaperSoakHarness:
         metrics_delivered = {iid: 0 for iid in self.iids}
 
         journal = paper.Journal(self.output)
-        journal.write("started", symbols=list(self.symbols), contracts=len(self.symbols))
-        self.log_lines.append(f"INFO paper soak started contracts={len(self.symbols)} hours={hours}")
+        try:
+            journal.write("started", symbols=list(self.symbols), contracts=len(self.symbols))
+            self.log_lines.append(f"INFO paper soak started contracts={len(self.symbols)} hours={hours}")
 
-        snapshots: list[dict[str, Any]] = []
+            snapshots: list[dict[str, Any]] = []
 
-        def fake_snapshot(cache_obj, meta: dict[str, Any]) -> dict[str, Any]:
-            snapshots.append(meta)
-            checkpoint.publish(self.output, f"soak-{len(snapshots)}", self.rdb_path)
-            return meta
+            def fake_snapshot(cache_obj, meta: dict[str, Any]) -> dict[str, Any]:
+                snapshots.append(meta)
+                checkpoint.publish(self.output, f"soak-{len(snapshots)}", self.rdb_path)
+                return meta
 
-        backend = SimpleNamespace(output=self.output, root=self.recovery_root, snapshot=fake_snapshot)
-        loaded = SimpleNamespace(strategy_class=SoakStrategy, warmup=())
-        session = paper_session.Session(backend, journal, loaded, None, self.start_ns, self.start_ns, self.start_ns)
-        session.ready = True
-        session.warm_at = self.start_ns
+            backend = SimpleNamespace(output=self.output, root=self.recovery_root, snapshot=fake_snapshot)
+            loaded = SimpleNamespace(strategy_class=SoakStrategy, warmup=())
+            session = paper_session.Session(backend, journal, loaded, None, self.start_ns, self.start_ns, self.start_ns)
+            session.ready = True
+            session.warm_at = self.start_ns
 
-        timers = ["user-soak-timer"] if inject_user_timer else []
-        strategies = {
-            iid: self._make_strategy(iid, timers=timers, subscription_changed=inject_subscription_change)
-            for iid in self.iids
-        }
-        cache = SimpleNamespace(orders=lambda: list(open_orders or []), positions_open=list)
-
-        attempted_cuts = 0
-        published_cuts = 0
-        deferred_reasons: list[str] = []
-
-        with mock.patch.dict(strategy_runtime.STRATEGIES, strategies, clear=True), MemoryEnvelope(
-            max_growth_kib=self.memory_growth_limit_kib
-        ) as mem:
-            mem.sample(0)
-            for minute in range(1, total_minutes + 1):
-                now_ns = self.start_ns + minute * MINUTE_NS
-                # Mark dirty on every simulated tick batch as Session.callback does.
-                checkpoint.dirty(self.output)
-
-                for idx, (sym, spec) in enumerate(self.symbols.items()):
-                    iid = f"{sym}-PERP.BINANCE"
-                    inst_id = InstrumentId.from_str(iid)
-                    base_price = Decimal(spec["price"])
-                    # Deterministic bounded price oscillation across tracks.
-                    offset = Decimal((minute + idx) % 11 - 5) * Decimal(spec["tick"]) * 10
-                    px = base_price + offset
-                    if px <= 0:
-                        raise AssertionError(f"invalid synthetic price {px} for {sym}")
-                    bars_delivered[iid] += 1
-                    # Two quote ticks per minute (staggered sub-minute timestamps).
-                    quotes_delivered[iid] += 2
-
-                    # Cadence: emit 2 marks per minute; only the first passes replay cadence.
-                    cadence = strategies[iid]._paper_cadence[iid]
-                    for sub in (100_000_000, 500_000_000):
-                        mark_update = SimpleNamespace(instrument_id=inst_id, ts_event=now_ns + sub, value=px)
-                        if cadence.mark(mark_update):
-                            marks_accepted[iid] += 1
-
-                    # Funding settlement every 8 hours (next_funding_ns advances at each 8h boundary).
-                    next_funding = ((now_ns // FUNDING_INTERVAL_NS) + 1) * FUNDING_INTERVAL_NS
-                    funding_update = FundingRateUpdate(
-                        inst_id,
-                        Decimal("0.0001"),
-                        now_ns,
-                        now_ns,
-                        None,
-                        next_funding,
-                    )
-                    if cadence.funding(funding_update) is not None:
-                        funding_settlements[iid] += 1
-
-                    # Staggered 5-minute Metrics track (aligned to 5m boundaries, real Metrics dataclass).
-                    if minute % 5 == 0:
-                        ts_ev = now_ns - metrics.VISIBLE_NS
-                        row = metrics.Metrics(
-                            inst_id,
-                            Decimal("10000").quantize(metrics.EXACT),
-                            Decimal("1.1").quantize(metrics.EXACT),
-                            Decimal("1.2").quantize(metrics.EXACT),
-                            Decimal("1.0").quantize(metrics.EXACT),
-                            ts_ev,
-                            now_ns,
-                        )
-                        if row.ts_init == now_ns:
-                            metrics_delivered[iid] += 1
-
-                if inject_leak_kib_per_minute > 0:
-                    self.leaked_buffers.append(b"x" * (inject_leak_kib_per_minute * 1024))
-
-                if minute % self.cut_every_minutes == 0:
-                    attempted_cuts += 1
-                    for iid in self.iids:
-                        journal.write("bar", instrument_id=iid, ts_event=now_ns - 1_000_000, minute=minute)
-                    with mock.patch("engine.paper_session.time.time_ns", return_value=now_ns):
-                        try:
-                            session.cut(cache)
-                            published_cuts += 1
-                            journal.write("checkpoint", cut_ns=now_ns, published=published_cuts)
-                            self.log_lines.append(f"INFO paper checkpoint published cut_ns={now_ns}")
-                        except checkpoint.Refusal as exc:
-                            reason = str(exc)
-                            deferred_reasons.append(reason)
-                            self.log_lines.append(f"WARNING Paper checkpoint deferred: {reason}")
-                    mem.sample(minute)
-
-            journal.write("stopped", minutes=total_minutes, published_cuts=published_cuts)
-            self.log_lines.append(f"INFO paper soak stopped published_cuts={published_cuts}")
-            journal.close()
-            mem.sample(total_minutes + 1)
-            mem_stats = mem.assert_within_budget(contracts=len(self.symbols)) if assert_memory else {
-                "steady_growth_kib": round(mem.steady_growth_kib, 2),
-                "peak_kib": round(max(s.peak_kib for s in mem.samples), 2),
-                "peak_rss_mib": round(max(s.rss_mib for s in mem.samples), 2),
-                "container_limit_mib": float(paper_runs.mib(paper_runs.runner_memory(len(self.symbols)))),
+            timers = ["user-soak-timer"] if inject_user_timer else []
+            strategies = {
+                iid: self._make_strategy(iid, timers=timers, subscription_changed=inject_subscription_change)
+                for iid in self.iids
             }
+            cache = SimpleNamespace(orders=lambda: list(open_orders or []), positions_open=list)
+
+            attempted_cuts = 0
+            published_cuts = 0
+            deferred_reasons: list[str] = []
+
+            with mock.patch.dict(strategy_runtime.STRATEGIES, strategies, clear=True), MemoryEnvelope(
+                max_growth_kib=self.memory_growth_limit_kib
+            ) as mem:
+                mem.sample(0)
+                for minute in range(1, total_minutes + 1):
+                    now_ns = self.start_ns + minute * MINUTE_NS
+                    # Mark dirty on every simulated tick batch as Session.callback does.
+                    checkpoint.dirty(self.output)
+
+                    for idx, (sym, spec) in enumerate(self.symbols.items()):
+                        iid = f"{sym}-PERP.BINANCE"
+                        inst_id = InstrumentId.from_str(iid)
+                        base_price = Decimal(spec["price"])
+                        # Deterministic bounded price oscillation across tracks.
+                        offset = Decimal((minute + idx) % 11 - 5) * Decimal(spec["tick"]) * 10
+                        px = base_price + offset
+                        if px <= 0:
+                            raise AssertionError(f"invalid synthetic price {px} for {sym}")
+                        bars_delivered[iid] += 1
+                        # Two quote ticks per minute (staggered sub-minute timestamps).
+                        quotes_delivered[iid] += 2
+
+                        # Cadence: emit 2 marks per minute; only the first passes replay cadence.
+                        cadence = strategies[iid]._paper_cadence[iid]
+                        for sub in (100_000_000, 500_000_000):
+                            mark_update = SimpleNamespace(instrument_id=inst_id, ts_event=now_ns + sub, value=px)
+                            if cadence.mark(mark_update):
+                                marks_accepted[iid] += 1
+
+                        # Funding settlement every 8 hours (next_funding_ns advances at each 8h boundary).
+                        next_funding = ((now_ns // FUNDING_INTERVAL_NS) + 1) * FUNDING_INTERVAL_NS
+                        funding_update = FundingRateUpdate(
+                            inst_id,
+                            Decimal("0.0001"),
+                            now_ns,
+                            now_ns,
+                            None,
+                            next_funding,
+                        )
+                        if cadence.funding(funding_update) is not None:
+                            funding_settlements[iid] += 1
+
+                        # Staggered 5-minute Metrics track (aligned to 5m boundaries, real Metrics dataclass).
+                        if minute % 5 == 0:
+                            ts_ev = now_ns - metrics.VISIBLE_NS
+                            row = metrics.Metrics(
+                                inst_id,
+                                Decimal("10000").quantize(metrics.EXACT),
+                                Decimal("1.1").quantize(metrics.EXACT),
+                                Decimal("1.2").quantize(metrics.EXACT),
+                                Decimal("1.0").quantize(metrics.EXACT),
+                                ts_ev,
+                                now_ns,
+                            )
+                            if row.ts_init == now_ns:
+                                metrics_delivered[iid] += 1
+
+                    if inject_leak_kib_per_minute > 0:
+                        self.leaked_buffers.append(b"x" * (inject_leak_kib_per_minute * 1024))
+
+                    if minute % self.cut_every_minutes == 0:
+                        attempted_cuts += 1
+                        for iid in self.iids:
+                            journal.write("bar", instrument_id=iid, ts_event=now_ns - 1_000_000, minute=minute)
+                        with mock.patch("engine.paper_session.time.time_ns", return_value=now_ns):
+                            try:
+                                session.cut(cache)
+                                published_cuts += 1
+                                journal.write("checkpoint", cut_ns=now_ns, published=published_cuts)
+                                self.log_lines.append(f"INFO paper checkpoint published cut_ns={now_ns}")
+                            except checkpoint.Refusal as exc:
+                                reason = str(exc)
+                                deferred_reasons.append(reason)
+                                self.log_lines.append(f"WARNING Paper checkpoint deferred: {reason}")
+                        mem.sample(minute)
+
+                journal.write("stopped", minutes=total_minutes, published_cuts=published_cuts)
+                self.log_lines.append(f"INFO paper soak stopped published_cuts={published_cuts}")
+                journal.close()
+                mem.sample(total_minutes + 1)
+                mem_stats = mem.assert_within_budget(contracts=len(self.symbols)) if assert_memory else {
+                    "steady_growth_kib": round(mem.steady_growth_kib, 2),
+                    "peak_kib": round(max(s.peak_kib for s in mem.samples), 2),
+                    "peak_rss_mib": round(max(s.rss_mib for s in mem.samples), 2),
+                    "container_limit_mib": float(paper_runs.mib(paper_runs.runner_memory(len(self.symbols)))),
+                }
+        finally:
+            journal.close()
 
         if assert_checkpoints_advance:
             min_expected = max(1, total_minutes // self.cut_every_minutes)
