@@ -152,7 +152,12 @@ export function paperIssues(run: PaperRun): { text: string; tone: "misses" | "fa
 
 /** A paper run's equity now and its outline as [seconds, equity], from the listing. */
 export function paperEquity(run: PaperRun): { starting: number; equity: number | null; ret: number | null; points: [number, number][] } {
-  const l = run.readings, starting = amount(l?.starting_balance_usdt) ?? START;
+  const l = run.readings, starting = amount(l?.starting_balance_usdt ?? run.seal?.starting_balance_usdt) ?? START;
   const points = (l?.outline ?? []).map(([ns, v]) => [Math.floor(ns / 1e9), v] as [number, number]);
-  return { starting, equity: amount(l?.final_equity_usdt ?? run.seal?.final_equity_usdt), ret: l?.total_return ?? run.total_return ?? null, points };
+  return {
+    starting,
+    equity: amount(run.seal?.final_equity_usdt ?? l?.final_equity_usdt),
+    ret: l?.total_return ?? run.seal?.total_return ?? run.total_return ?? null,
+    points,
+  };
 }

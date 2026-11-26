@@ -4,15 +4,33 @@ import { createContext } from "node:vm";
 import { loader } from "./load.mjs";
 
 const paper = { paper_id: 7, candidate: "paper@1", symbols: ["BTCUSDT"] };
-async function navigation({ backtest = false, address } = {}) {
+async function navigation({ backtest = false, address, phone = false, persistedPage } = {}) {
   const location = new URL(address ?? `https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
-  const saved = new Map(), handlers = {}, window = { location, addEventListener: (name, handler) => { handlers[name] = handler; }, localStorage: { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) } };
+  const saved = new Map(), handlers = {};
+  if (persistedPage) {
+    saved.set("rg-shell@5", JSON.stringify({
+      page: persistedPage, split: false,
+      open: { left: null, right: "inspector", split: null, bottom: persistedPage === "market" ? "coins" : persistedPage === "history" ? null : "progress" },
+      last: { left: "versions", right: "inspector", split: "agent", bottom: persistedPage === "market" ? "coins" : "progress" },
+      size: { left: 400, right: 420, split: 360, bottom: 260 },
+    }));
+  }
+  const window = {
+    location,
+    matchMedia: () => ({ matches: phone, addEventListener() {} }),
+    addEventListener: (name, handler) => { handlers[name] = handler; },
+    localStorage: { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) },
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  };
   const context = createContext({ URL, URLSearchParams, window,
     history: { replaceState: (_state, _title, path) => { const { assign } = window.location; window.location = new URL(path, window.location.href); window.location.assign = assign; } },
     fetch: () => { throw new Error("Navigation cannot submit or read a service"); },
   });
   const graph = loader({ context, packages: [], stubs: {
-    react: { useSyncExternalStore: () => { throw new Error("State navigation uses no hooks"); } },
+    react: {
+      useSyncExternalStore: () => { throw new Error("State navigation uses no hooks"); },
+      useLayoutEffect: () => { throw new Error("State navigation uses no hooks"); },
+    },
   } });
   const navigate = await graph.namespace("state/navigate.ts");
   const shell = graph.loaded("state/shell.ts");
@@ -152,4 +170,38 @@ test("an address that names no version, or one the line holds, has nothing missi
     h.arriveResearch();
     assert.deepEqual([h.selected.selection.get(), h.selected.missing.get()], [shown, null]);
   }
+});
+
+test("on a phone, desktop pickWanted leaves ?run= in the address and triggers no cross-line reload", async () => {
+  const h = await navigation({ address: "https://fixture.invalid/?run=7", phone: true, persistedPage: "market" });
+  h.arriveResearch();
+  const otherLineRun = { paper_id: 7, candidate: "other@1", symbols: ["BTCUSDT"] };
+  h.stage.pickWanted([otherLineRun]);
+  assert.equal(h.url().searchParams.get("run"), "7", "phone retains ?run= for hard reload");
+  assert.deepEqual(h.assigned, [], "phone never triggers desktop cross-line window.location.assign");
+  assert.equal(h.shell.shell.get().page, "market", "phone does not overwrite desktop persisted page");
+});
+
+test("desktop deep-links override persisted shell page: ?run= and ?trial= open Runs; ?line= and ?at= open Research", async () => {
+  for (const persistedPage of ["research", "market", "history"]) {
+    const byRun = await navigation({ address: "https://fixture.invalid/?run=7", persistedPage });
+    assert.equal(byRun.shell.shell.get().page, "runs", `?run= overrides persisted ${persistedPage}`);
+    assert.equal(byRun.shell.shell.get().open.bottom, "trades");
+
+    const byTrial = await navigation({ address: "https://fixture.invalid/?line=line-b&at=snapshot&trial=40#other@3", persistedPage });
+    assert.equal(byTrial.shell.shell.get().page, "runs", `?trial= overrides persisted ${persistedPage}`);
+    assert.equal(byTrial.url().searchParams.has("trial"), false);
+  }
+  for (const persistedPage of ["market", "history", "runs"]) {
+    const byLine = await navigation({ address: "https://fixture.invalid/?line=unknown-line", persistedPage });
+    assert.equal(byLine.shell.shell.get().page, "research", `?line= overrides persisted ${persistedPage}`);
+
+    const byAt = await navigation({ address: "https://fixture.invalid/?at=deadbeef", persistedPage });
+    assert.equal(byAt.shell.shell.get().page, "research", `?at= overrides persisted ${persistedPage}`);
+  }
+  const pairedLive = await navigation({ address: "https://fixture.invalid/?line=line-a&live=web-1", persistedPage: "market" });
+  assert.equal(pairedLive.shell.shell.get().page, "market", "?line= paired with ?live= does not force Research");
+
+  const plainHome = await navigation({ address: "https://fixture.invalid/", persistedPage: "market" });
+  assert.equal(plainHome.shell.shell.get().page, "market", "plain home keeps persisted page");
 });

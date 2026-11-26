@@ -25,7 +25,7 @@ function shownLive(runs: readonly LiveRun[]): LiveRun[] {
 /** What needs a look before anything else: a Live run left unresolved (what it left open and where to deal with it),
  *  Telegram failing, a service not answering. */
 function Notices() {
-  const { view } = useLiveTrading(), paper = usePaperService(), zone = useTimeZone();
+  const { view } = useLiveTrading(), listing = usePaperRuns(), paper = usePaperService(), zone = useTimeZone();
   const unresolved = view.runs.filter((r) => liveStatus(r).word === "Unresolved");
   const failed = view.notify?.lastError, at = nsMilliseconds(failed?.atNs);
   return (
@@ -33,7 +33,11 @@ function Notices() {
       {unresolved.map((r) => <UnresolvedNotice key={r.id} run={r} />)}
       {failed && <PhoneNotice tone="misses">Telegram failed{at !== null ? ` at ${clock(at, zone)}` : ""} ({failed.code}). Alerts are not reaching you.</PhoneNotice>}
       {view.availability === "unavailable" && view.runs.length > 0 && <PhoneNotice tone="misses">Live is not answering. These are its last facts.</PhoneNotice>}
-      {paper === "offline" && <PhoneNotice tone="misses">Paper is not answering. These are its last facts.</PhoneNotice>}
+      {paper === "offline" && (
+        <PhoneNotice tone="misses">
+          {listing ? "Paper is not answering. These are its last facts." : "Paper is not answering."}
+        </PhoneNotice>
+      )}
     </div>
   );
 }
@@ -44,20 +48,33 @@ function Home() {
   const live = shownLive(view.runs), runs = listing?.runs ?? [];
   const going = runs.filter((r) => ACTIVE.has(r.state)), sealed = runs.length - going.length;
   const running = view.runs.filter((r) => r.running).length;
+  const liveOffline = view.availability === "unavailable" && !view.runs.length;
+  const paperOffline = service === "offline" && listing === null;
+  const paperAside = service === "absent" ? "Not served"
+    : paperOffline ? "Not connected"
+    : listing === null ? "Checking…"
+    : `${count(going.length, "running")} · ${count(sealed, "sealed")}`;
   return (
     <>
       <PhoneTop title="Runs" />
       <PhonePage>
         <Notices />
-        <PhoneHeading title="Live" aside={view.availability === "unavailable" && !view.runs.length ? "Not connected" : count(running, "running")} />
+        <PhoneHeading title="Live" aside={liveOffline ? "Not connected" : count(running, "running")} />
         <div className="space-y-2 px-3">
           {live.map((r) => <LiveCard key={r.id} run={r} now={now} />)}
-          {!live.length && <p className="text-dense text-fg-faint">No Live run. A run starts from the desktop.</p>}
+          {!live.length && (
+            <p className="text-dense text-fg-faint">
+              {liveOffline ? "Live is not answering." : "No Live run. A run starts from the desktop."}
+            </p>
+          )}
         </div>
-        <PhoneHeading title="Paper" aside={service === "absent" ? "Not served" : `${count(going.length, "running")} · ${count(sealed, "sealed")}`} />
+        <PhoneHeading title="Paper" aside={paperAside} />
         <div className="space-y-2 px-3 pb-4">
           {going.map((r) => <PaperCard key={r.paper_id} run={r} now={now} />)}
-          {!going.length && service !== "absent" && <p className="text-dense text-fg-faint">No paper run. A run starts from the desktop.</p>}
+          {paperOffline && <p className="text-dense text-fg-faint">Paper is not answering.</p>}
+          {!going.length && service !== "absent" && listing !== null && (
+            <p className="text-dense text-fg-faint">No paper run. A run starts from the desktop.</p>
+          )}
         </div>
       </PhonePage>
     </>

@@ -71,6 +71,11 @@ test("a paper run's card reads the listing: its held positions, its issues and i
   assert.deepEqual(paperIssues(paper).map((i) => i.text), ["58 missing bars", "1 exception"]);
   assert.deepEqual(paperEquity(paper), { starting: 100000, equity: 100390.18, ret: 0.0039, points: [[1_700_000_000, 100000], [1_700_000_060, 100390.18]] });
   assert.deepEqual(paperHeld({ ...paper, readings: { ...paper.readings, held: null } }), [], "before the runner's first state");
+  const sealed = {
+    paper_id: 9, symbols: ["BTCUSDT"], state: "sealed", total_return: 0.05, max_drawdown: 0.04,
+    seal: { status: "complete", reasons: [], starting_balance_usdt: "25000", final_equity_usdt: "26250", total_return: 0.05, max_drawdown: 0.04, fills: 4, started_ns: 1, stopped_ns: 2, stop_reason: "user", daily_returns: [], positions_closed: 2, bars: 120 },
+  };
+  assert.deepEqual(paperEquity(sealed), { starting: 25000, equity: 26250, ret: 0.05, points: [] }, "sealed run uses seal starting_balance_usdt instead of default 100000");
 });
 
 test("a Live position is marked at the overview's price, its stop found on the other side and its distance from the mark", () => {

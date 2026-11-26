@@ -7,8 +7,8 @@ import { tabStorage } from "../lib/storage";
 import { atom, useAtom } from "./atom";
 
 const media = (query: string) => {
-  const list = window.matchMedia(query), a = atom(list.matches);
-  list.addEventListener("change", () => a.set(list.matches));
+  const list = window.matchMedia?.(query), a = atom(list?.matches ?? false);
+  list?.addEventListener("change", () => a.set(list.matches));
   return a;
 };
 const narrow = media("(max-width: 767px), (pointer: coarse) and (max-height: 500px)");
@@ -64,7 +64,7 @@ export function choosePhoneTab(tab: PhoneTab): void {
   if (tab === "runs" && phoneTab.get() === "runs" && phoneRun.get() !== null) closeRun();
   else phoneTab.set(tab);
 }
-window.addEventListener("popstate", () => { pushed = false; phoneRun.set(null); });
+window.addEventListener?.("popstate", () => { pushed = false; phoneRun.set(null); });
 
 /** The address of what a phone shows, for the desktop: the run, else the line, else the page. */
 export function desktopHref(href: string, run: PhoneRun | null, line: string | null): string {

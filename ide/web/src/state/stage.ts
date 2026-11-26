@@ -6,6 +6,7 @@ import { lineOf, runHref, trialHref } from "../lib/lines";
 import type { PaperRun } from "../lib/paperApi";
 import type { Stage } from "../model/stage";
 import { atom } from "./atom";
+import { phoneNow } from "./phone";
 import { researchLines } from "./researchLines";
 import { deselect, hasView, isKnown, select, selection } from "./selection";
 
@@ -83,13 +84,20 @@ let wanted = Number(address.get("run")) || null;
 /** The replay the address names (`trial=`, left by openTrial opening its line) of the version it names (`#version`):
  *  chosen for that version now, kept per version until the view shows it, and dropped from the address. */
 const linked = Number(address.get("trial")) || null;
-if (linked !== null) {
+if (linked !== null && !phoneNow()) {
   const version = decodeURIComponent(window.location.hash.slice(1));
   if (version) choose(version, { stage: "backtest", trial: linked });
   const url = new URL(window.location.href);
   url.searchParams.delete("trial");
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
+
+/** The desktop page the initial address asks for: Runs for a run or replay link, Research for a line or snapshot
+ *  link (when not paired with a run, replay or Live link), or null to keep the persisted page. */
+export const linkedPage: "runs" | "research" | null =
+  wanted !== null || linked !== null ? "runs"
+    : !address.get("live") && (address.has("line") || address.has("at")) ? "research"
+    : null;
 
 /** Consumes only the pending link identity, preserving the line, snapshot and version in the address. */
 function forgetWanted(): void {
@@ -102,9 +110,11 @@ function forgetWanted(): void {
 }
 
 /** Once the view is shown and the runs are listed (`runs`, null until they are): picks the run the address
- *  names, if no newer user selection has superseded it, and drops it from the address. */
+ *  names, if no newer user selection has superseded it, and drops it from the address. A phone owns `?run=`
+ *  in state/phone.ts, so desktop restoration leaves it untouched while on a phone. */
 export function pickWanted(runs: readonly PaperRun[] | null): void {
-  if (wanted === null || runs === null || !hasView()) return;
+  if (phoneNow() || wanted === null || runs === null || !hasView()) return;
+  if ((Number(new URLSearchParams(window.location.search).get("run")) || null) !== wanted) { wanted = null; return; }
   const run = runs.find((r) => r.paper_id === wanted);
   forgetWanted();
   if (!run) return;
