@@ -25,6 +25,7 @@ from typing import Any
 _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
+import prod_invariants  # noqa: E402
 import telemetry  # noqa: E402
 
 HARM_RE = re.compile(
@@ -58,6 +59,8 @@ PROD_INCIDENT_PREFIXES = (
     "prod_recovery_unavailable",
     "prod_checkpoint_deferred",
     "prod_log_empty",
+    "prod_invariant:",
+    "prod_state:",
 )
 REDLINE_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Real orders / live real-account trials.
@@ -585,25 +588,23 @@ def _rank_code_objects(
 def _friction_targets(
     friction_data: dict[str, Any] | None, tops: dict[str, dict[str, Any]], ranked_objects: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
-    ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
-    tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
-    pl_data = friction_data.get("prod_logs") if friction_data else None
-    pl_fired = bool(pl_data and pl_data.get("triggers"))
+    data = friction_data or {}
     f_objs: list[str] = []
     f_items: list[str] = []
-    if pl_fired and pl_data:
-        for svc in pl_data.get("affected_services") or []:
-            if svc in tops and svc not in f_objs:
-                f_objs.append(svc)
-        f_items.append("operation")
-    if ci_fired:
-        if ".github" in tops and ".github" not in f_objs:
-            f_objs.append(".github")
-        f_items.append("delivery")
-    if tx_fired:
-        if ".agents" in tops and ".agents" not in f_objs:
-            f_objs.append(".agents")
-        f_items.extend(["agents", "burden"])
+    sources = (
+        ("prod_state_summary", "affected_objects", ["operation"]),
+        ("prod_logs", "affected_services", ["operation"]),
+        ("ci", None, ["delivery"]),
+        ("transcripts", None, ["agents", "burden"]),
+    )
+    static_map = {"ci": [".github"], "transcripts": [".agents"]}
+    for key, obj_key, items in sources:
+        sec = data.get(key)
+        if not (isinstance(sec, dict) and sec.get("triggers")):
+            continue
+        names = (sec.get(obj_key) or []) if obj_key else static_map[key]
+        f_objs.extend(n for n in names if n in tops and n not in f_objs)
+        f_items.extend(items)
     if not f_objs and ranked_objects:
         f_objs = [ranked_objects[0]["object"]]
     return f_objs[:3], (list(dict.fromkeys(f_items)) or ["delivery", "agents", "burden"])
@@ -842,6 +843,7 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             "provided": friction_data is not None,
             "in_cooldown": friction_obj_cooled and not has_prod_incident,
             "prod_incident_active": has_prod_incident,
+            "prod_state_summary": prod_invariants.compact_summary(friction_data),
             "triggers": friction_triggers[:8],
         },
         "staleness_breach_count": len(staleness_breaches), "ranked_code_objects": ranked_objects[:12],
