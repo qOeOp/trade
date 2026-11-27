@@ -460,7 +460,7 @@ class Release:
         self.live.prepare(None, target)  # creates the custody root and the control's snapshot
         self.host.definition(target["service"], sha)  # install-release.sh starts the routers from these files
         paper.persist_route(controller)  # the controller reads its own route to know it is the active one
-        paper.create(controller, target["service"], target["runtime"])
+        paper.create_controller(controller, target["service"], target["runtime"])
         self.live.create(web, target["service"])
         self.host.create(web, image, live_socket=self.live.socket(web))
         self.host.create(agent, image, agent=True)
@@ -480,7 +480,7 @@ class Release:
         if paper.live_route() != controller or self.host.live_route() != web:
             raise RuntimeError("disk and loaded router state disagree")
         protected = self.host.protected()
-        paper.warm(controller, protected)
+        paper.warm_controller(controller, protected)
         self.host.observe(web, self.host.warm(web, protected), protected)
         print(f"Verified {web} and {controller}; automatic main releases can start", flush=True)
 

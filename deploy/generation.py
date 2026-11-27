@@ -330,7 +330,8 @@ class Generation:
     def finish(self, routed: str) -> None:
         """Every tick, once a version that reads the new generation is routed: its own or a later one. Rollbacks then
         check the previous version again."""
-        if self.done() and self.release.github.ancestor(self.read()["revision"], routed):
+        value = self.read() if self.done() else None
+        if value is not None and self.release.github.ancestor(value["revision"], routed):
             self.journal.unlink()
             sync_directory(self.host.state)
 

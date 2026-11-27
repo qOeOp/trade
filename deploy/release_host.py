@@ -438,7 +438,7 @@ class DockerHost:
         if found["image"] != image or not found["running"] or found["restarts"]:
             raise RuntimeError(f"compose service did not start on its image: {service}")
         # Compose's `--wait` can time out and still exit 0 on a health check that never passed.
-        health = self.condition(name)["health"] if healthy else None
+        health = (self.condition(name) or {"health": "gone"})["health"] if healthy else None
         if health not in (None, "healthy"):
             raise RuntimeError(f"compose service is {health} after its wait: {service}")
 

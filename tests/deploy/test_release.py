@@ -715,7 +715,7 @@ class InstallTests(unittest.TestCase):
     def test_a_new_host_gets_the_admitted_builds_controller_live_control_web_and_agent_with_routes(self):
         order = []
         self.paper.persist_route.side_effect = lambda name: order.append(("paper route", name))
-        self.paper.create.side_effect = lambda name, *args: order.append(("paper create", name))
+        self.paper.create_controller.side_effect = lambda name, *args: order.append(("paper create", name))
         self.paper.start.side_effect = lambda name: order.append(("paper start", name))
         for step in ("prepare", "create", "start", "warm"):
             getattr(self.live, step).side_effect = lambda *args, step=step: order.append((f"live {step}", *args))
@@ -736,7 +736,7 @@ class InstallTests(unittest.TestCase):
                                  ("live start", WEB + B), ("live warm", WEB + B),
                                  ("start", WEB + B), ("start", AGENT + B)],
                          "the controller reads its own route to know it is active; the Web reaches a ready control")
-        self.paper.create.assert_called_once_with(PAPER + B, TARGET["service"], TARGET["runtime"])
+        self.paper.create_controller.assert_called_once_with(PAPER + B, TARGET["service"], TARGET["runtime"])
         self.github.require_runtime.assert_called_once_with(B, B)
         self.assertEqual(self.host.containers, {WEB + B: True, AGENT + B: True})
         self.assertEqual(self.host.disk, WEB + B)
@@ -756,7 +756,7 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not admitted"):
             self.release.install()
         self.assertEqual(self.host.calls, [])
-        self.paper.create.assert_not_called()
+        self.paper.create_controller.assert_not_called()
         self.live.prepare.assert_not_called()
 
 
@@ -1577,7 +1577,7 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(self.host.readers, [(WEB + A, True, False)])
 
     def test_unreadable_readers_after_the_move_put_the_services_back(self):
-        self.controller.health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))
+        self.controller.controller_health = Mock(side_effect=RuntimeError("Paper controller cannot read its database"))
         with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()):
             with self.assertRaises(RuntimeError):
                 self.release.follow(WEB + A)
@@ -1761,13 +1761,13 @@ class ReaderDiagnosisTests(unittest.TestCase):
         answers = {"/api/paper/runs": {"status": None, "error": "URLError"}}
         controller.docker = Mock(side_effect=lambda *args, **kwargs: json.dumps(answers[args[-1]]))
         with self.assertRaises(RuntimeError) as raised:
-            controller.health(PAPER + A)
+            controller.controller_health(PAPER + A)
         self.assertEqual(failure_summary(raised.exception), "Paper controller unhealthy at /api/paper/runs: URLError")
         answers["/api/paper/runs"] = {"status": 200, "runs": True}
         answers["/api/paper/health"] = {"status": 200, "runtime": "another", "active": True}
         controller.runtime = Mock(return_value=TARGET["runtime"])
         with self.assertRaises(RuntimeError) as raised:
-            controller.health(PAPER + A)
+            controller.controller_health(PAPER + A)
         self.assertEqual(failure_summary(raised.exception),
                          "Paper controller unhealthy at /api/paper/health: another runtime")
 
@@ -1787,7 +1787,7 @@ class ReaderDiagnosisTests(unittest.TestCase):
         test = FollowTests()
         test.setUp()
         self.addCleanup(test.doCleanups)
-        test.controller.health = Mock(side_effect=ReaderFailure("Paper controller", "/api/paper/runs", "HTTP 500"))
+        test.controller.controller_health = Mock(side_effect=ReaderFailure("Paper controller", "/api/paper/runs", "HTTP 500"))
         output = io.StringIO()
         with patch("deploy.services.until_ready", side_effect=lambda check, *args, **kwargs: check()), \
                 redirect_stderr(output), self.assertRaises(RuntimeError) as raised:

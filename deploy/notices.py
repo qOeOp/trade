@@ -122,10 +122,10 @@ class Notices:
                         and stop not in ASKED and "START_FAILED" not in reasons):
                     stop = stop if isinstance(stop, str) and NOTICE_TEXT.fullmatch(stop) else \
                         "no_summary" if stop is None else "other"
-                    said = [reason for reason in reasons if isinstance(reason, str) and NOTICE_TEXT.fullmatch(reason)]
+                    shown = [reason for reason in reasons if isinstance(reason, str) and NOTICE_TEXT.fullmatch(reason)]
                     paper[f"paper:{paper_id}:ended:{stop}"] = (
                         f"Paper run {paper_id}{named} ended by itself: {stop}. It is sealed with its journal and "
-                        f"runner log ({', '.join(said[:8]) or 'no reasons'}); see the Paper page.")
+                        f"runner log ({', '.join(shown[:8]) or 'no reasons'}); see the Paper page.")
                 for position in run.get("unprotected") or ():
                     # Held after an interruption with no working stop: kept held, named at once (user 2026-11-17).
                     position = position if isinstance(position, str) and NOTICE_TEXT.fullmatch(position) else "other"

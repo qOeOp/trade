@@ -77,7 +77,7 @@ class Host:
         if self.live != route_config(name, live_freeze) or self.disk != route_config(name, disk_freeze):
             raise RuntimeError("independent change during handoff")
 
-    def create(self, name, *args):
+    def create_controller(self, name, *args):
         self.running[name] = False
 
     def start(self, name):
@@ -90,7 +90,7 @@ class Host:
         self.calls.append(("stop", name))
         self.running[name] = False
 
-    def warm(self, name, protected):
+    def warm_controller(self, name, protected):
         if self.failure == "warm" and name == PAPER + B:
             raise RuntimeError("candidate never became ready")
 
@@ -107,7 +107,7 @@ class Host:
         self.known({self.disk_route()})
         self.live = self.disk = route_config(self.disk_route())
 
-    def health(self, name):
+    def controller_health(self, name):
         assert self.running[name]
 
     @contextmanager
@@ -293,7 +293,7 @@ class PaperReleaseTests(unittest.TestCase):
                 host = PaperHost(Config(state=Path(root), paper_memory=memory))
                 host.docker = Mock(return_value="1000:1000")
                 host.exists = Mock(return_value=False)
-                host.create(PAPER + B, TARGET["service"], TARGET["runtime"])
+                host.create_controller(PAPER + B, TARGET["service"], TARGET["runtime"])
                 create = next(call.args for call in host.docker.call_args_list if call.args[0] == "create")
                 env = [create[i + 1] for i, arg in enumerate(create) if arg == "--env"]
                 self.assertEqual([value for value in env if value.startswith("TRADE_PAPER_MEMORY=")], expected)
