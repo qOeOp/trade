@@ -1,0 +1,1 @@
+- The Live daily summary no longer skips a day on which a run only recorded minute results: minute times from the run view (strings) now count as activity (#3788).
