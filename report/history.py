@@ -251,8 +251,8 @@ def _summary(cells: list[dict], targets: dict | None, control: bool, planned: It
 
 def _control_reproduces(prints: Mapping[int, str | None], control: dict | None, run_id: int) -> bool | None:
     """The control's whole fingerprint equals the research run's (both on the run's image), from their hashes; None
-    without a control run."""
-    if control is None:
+    without a control run (no control trial, or one an interrupted test left without a run: #3761)."""
+    if control is None or control["status"] is None:
         return None
     mine = prints[control["trial_id"]]
     return mine is not None and mine == prints[run_id]
@@ -340,7 +340,8 @@ def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict]
     readings, returns, prints = _readings(conn, [*researched, *(row["trial_id"] for row in passed)],
                                           {row["trial_id"] for row in passed if kind(row) == "holdout"})
     prints.update(_fingerprints(conn, [control["trial_id"] for control in controls.values()
-                                       if control is not None and control["trial_id"] not in prints]))
+                                       if control is not None and control["status"] is not None
+                                       and control["trial_id"] not in prints]))
     for participant in kept:
         own, control = segments[participant["source_sha256"]], controls[participant["source_sha256"]]
         cells = [{**_cell(row, kind(row), readings, holdout_until), "superseded": row["superseded"]} for row in own]
