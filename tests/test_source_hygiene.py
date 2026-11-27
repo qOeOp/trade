@@ -17,17 +17,17 @@ from tests.test_package_layers import ISOLATED, RANK, ROOT, module_name, product
 
 
 MAX_LINES = 800
-# Product modules over MAX_LINES, each with the most lines it may have (measured 2026-11-21). Lower a cap when its
+# Product modules over MAX_LINES, each with the most lines it may have (measured 2026-11-28). Lower a cap when its
 # module shrinks and remove the entry once the module is under MAX_LINES; never raise one or add one: split instead.
 OVERSIZED = {
-    "cli/research_commands.py": 973,
+    "cli/research_commands.py": 934,
     "engine/audit.py": 1099,
     "engine/paper.py": 1244,
     "engine/run.py": 945,
-    "ide/research_graph/serve.py": 1150,
+    "ide/research_graph/serve.py": 1134,
     "ledger/metrics.py": 995,
-    "paper/serve.py": 883,
-    "report/status.py": 888,
+    "paper/serve.py": 882,
+    "report/status.py": 886,
 }
 # Runtime dependencies no product module imports by name: nautilus_trader.analysis imports plotly when loaded, and
 # Nautilus 2.0.0rc7 declares no dependencies of its own.
