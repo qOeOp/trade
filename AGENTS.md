@@ -12,15 +12,15 @@ Stop and ask before any of these:
   IDE and research-chain site. Keep the existing font assets, family order, and glyph fallbacks.
   Do not replace, remove, or override them, even for a redesign, refactor, or licensing fix,
   without the user's explicit approval for that font change. Report any issue to the user first.
-- Real orders on the primary account. Live trading on the user's primary Binance account remains
-  strictly user-operated: the user saves the credential and starts each run from the Live page
-  (`live serve` control, `engine.live` runner); an Agent never starts a run, places, changes or
-  cancels an order, or changes settings on the primary account. The dedicated 200 USDT futures test
-  account is pre-authorized for bounded end-to-end Live regression and fault trials (minimum viable
-  notional per order) after offline multi-contract soak checks pass: the user saves
-  the credential, and before any order the Agent verifies it is targeting the user-configured test
-  account/profile whose observed total equity is <= 200 USDT (never the primary account); even for
-  the test account, never read, print, echo, log or store exchange API keys or secrets. Paper
+- Real orders. Live trading on the real Binance account is a product feature the user operates:
+  the user saves the credential and starts each run from the Live page (`live serve` control,
+  `engine.live` runner). An Agent builds and changes Live code but never starts a `live` run, places,
+  changes or cancels a real order, reads or saves an exchange credential, or changes account
+  settings; each real-account trial needs its own scope from the user, who starts it. An Agent may
+  run Live trials on Binance Demo Trading (the `demo` environment, `live/README.md` "Demo"): the
+  user saves the demo key and the Agent never reads, prints or stores it; a demo comparison is never
+  evidence that Live and the replay agree. Faults and long runs are tested offline against the
+  loopback venue (`tests/live_loopback/`), not on an account. Paper
   (`engine.paper`: Binance public data, Nautilus Sandbox fills, no credential) needs no authority,
   and research never uses a credential.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
