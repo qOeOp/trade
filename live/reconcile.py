@@ -101,7 +101,9 @@ def compare_one(root: Path, paper_ledger: Path, market_root: Path, paper_id: int
     from ledger import paper as records, run_journal
     root = Path(root).expanduser().absolute()
     profile = _paper(paper_ledger)
-    with state.reading(root) as root, _exclusive(root):
+    with state.reading(root) as root:
+        pass
+    with _exclusive(root):
         scratch = root / TMP
         if scratch.is_symlink():
             raise state.fail("LIVE_DIRECTORY", "the Paper comparison's working directory is a symbolic link")

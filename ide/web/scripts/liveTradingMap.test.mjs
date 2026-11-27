@@ -17,8 +17,8 @@ const run = () => ({
 test("the launch page's candidate keeps Live's read, or why there is none, and its evidence exactly", () => {
   const read = { candidate: "retest@1", research_at: "head", source_sha256: "actual", entry_class: "Actual", last_symbols: ["BTCUSDT"] };
   const evidence = liveEvidencePresentation({ state: "found", tolerance: "0.1", research_at: "head",
-    replays: [{ trial_id: 7, starting_balance_usdt: "95.000000000000000001" }] });
-  assert.deepEqual(evidence, { state: "found", tolerance: "0.1", replays: [{ trialId: 7, balance: "95.000000000000000001" }] });
+    replays: [{ trial_id: 7, starting_balance_usdt: "95.000000000000000001", leverage: "3" }] });
+  assert.deepEqual(evidence, { state: "found", tolerance: "0.1", replays: [{ trialId: 7, balance: "95.000000000000000001", leverage: "3" }] });
   assert.deepEqual(liveSourcePresentation("retest@1", read, evidence),
     { candidate: "retest@1", read: "found", sourceHash: "actual", entryClass: "Actual", lastSymbols: ["BTCUSDT"], evidence });
   for (const state of ["reading", "absent", "unknown"]) assert.deepEqual(liveSourcePresentation("retest@1", state, evidence),
@@ -95,6 +95,9 @@ test("an account check is derived only from the preflight process exit, never an
     native.host = { ...native.host, mode, state, exit_code };
     assert.equal(liveRunPresentation(native).accountCheck?.state ?? null, expected);
   }
+  native.host = { ...native.host, mode: "preflight", state: "preflight_failed", exit_code: 2 };
+  native.preflight_refusal = { code: "LIVE_MARGIN_MODE", message: "Cross margin required." };
+  assert.deepEqual(liveRunPresentation(native).accountCheck?.refusal, { code: "LIVE_MARGIN_MODE", message: "Cross margin required." });
 });
 
 test("a run is ended only in the host's ended states; an unresolved or unreported run can still be stopped", () => {

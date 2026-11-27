@@ -66,17 +66,18 @@ export function useLiveSource(version: string | null): LiveSource | null {
   return liveSourcePresentation(version, !candidate ? "absent" : read?.candidate === candidate ? read.found : "reading", null);
 }
 
-/** The candidate's replay evidence on `symbols` at the research head, asked of the serving Live control and asked
- *  again while it is checking (or did not answer); null until a found candidate and valid contracts are given. */
-export function useLiveEvidence(source: LiveSource | null, symbols: readonly string[] | null): LiveEvidenceRead | null {
+/** The candidate's replay evidence on `symbols` at the research head, asked of the serving Live control: every few
+ *  seconds while checking, every 30s on error, and every minute otherwise (so replays added later at the new research
+ *  head are picked up); incrementing `refresh` triggers an immediate re-read. Null until a candidate and contracts are given. */
+export function useLiveEvidence(source: LiveSource | null, symbols: readonly string[] | null, refresh = 0): LiveEvidenceRead | null {
   const candidate = source?.read === "found" ? source.candidate : null, key = candidate && symbols ? `${candidate}/${symbols.join(",")}` : null;
   const [found, setFound] = useState<{ key: string; evidence: LiveEvidenceRead } | null>(null);
   useEffect(() => {
     if (!key || !candidate || !symbols) return;
     const ask = () => liveApi<LiveEvidenceReadDto>(`${candidatePath(candidate)}/evidence/${symbols.join(",")}`).catch(() => null);
-    return polled(ask, (read) => read?.state === "checking" ? CHECKING_MS : !read || read.state === "unknown" ? UNKNOWN_MS : null,
+    return polled(ask, (read) => read?.state === "checking" ? CHECKING_MS : !read || read.state === "unknown" ? UNKNOWN_MS : UNRECONCILED_MS,
       (read) => setFound({ key, evidence: read ? liveEvidencePresentation(read) : { state: "unknown", replays: [], tolerance: "0" } })).stop;
-  }, [key]);
+  }, [key, refresh]);
   return key && found?.key === key ? found.evidence : key ? { state: "checking", replays: [], tolerance: "0" } : null;
 }
 

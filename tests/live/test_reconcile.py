@@ -13,7 +13,8 @@ import unittest.mock
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
-from live import configuration, control, reconcile, serve
+from engine.live_venue import MANIFEST_FORMAT
+from live import configuration, control, reconcile, runs, serve, state
 from shared.refusals import refuse
 from tests.helpers import refused
 
@@ -200,6 +201,49 @@ class CompareOneTests(unittest.TestCase):
         self.held.return_value = 1
         self.assertEqual(self.run_one(), {"paper_id": 7, "market_day": None, "retry": False,
                                           "reason": "the run was held after an interruption"})
+
+    def test_compare_one_releases_account_lock_before_comparison_so_live_stop_is_never_blocked(self):
+        import hashlib
+        run_id = "stop-me"
+        directory = state.private_directory(self.root / "runs" / run_id)
+        inputs = state.private_directory(directory / "inputs")
+        state.private_directory(directory / "out")
+        strategy, universe = b"class S: pass\n", b"{}\n"
+        state.write_new(inputs / "strategy.py", strategy)
+        state.write_new(inputs / "universe.json", universe)
+        manifest = {"format": MANIFEST_FORMAT, "run_id": run_id, "research_at": "a" * 32,
+                    "source": {"source_sha256": hashlib.sha256(strategy).hexdigest()},
+                    "universe_sha256": hashlib.sha256(universe).hexdigest()}
+        state.write_new(inputs / "manifest.json", state.encode(manifest))
+
+        entered, release = threading.Event(), threading.Event()
+        compare_result: dict = {}
+
+        def slow_compare(profile, market, at, paper_id, output):
+            entered.set()
+            release.wait(10)
+            return self.compare(profile, market, at, paper_id, output)
+
+        def run_compare():
+            compare_result["value"] = reconcile.compare_one(
+                self.root, Path("/profiles/paper.json"), Path("/market"), 7,
+                compare=slow_compare, held_since=self.held)
+
+        worker = threading.Thread(target=run_compare)
+        worker.start()
+        self.assertTrue(entered.wait(5), "compare_one reached compare()")
+        stop_result: dict = {}
+        stopper = threading.Thread(target=lambda: stop_result.update(runs.stop(self.root, run_id)))
+        stopper.start()
+        stopper.join(2)
+        stopped_while_comparing = not stopper.is_alive()
+        release.set()
+        worker.join(5)
+        stopper.join(5)
+        self.assertTrue(stopped_while_comparing, "live stop must not block on compare_one's paper comparison")
+        self.assertEqual(stop_result.get("state"), "stop_requested")
+        self.assertTrue((directory / "out" / "STOP").is_file())
+        self.assertEqual(compare_result["value"]["reason"], None)
 
 
 class RequireTests(unittest.TestCase):

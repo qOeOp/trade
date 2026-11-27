@@ -17,6 +17,7 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
     state: run.host.state === "preflight_complete" && run.host.exit_code === 0 ? "passed"
       : run.host.state === "preflight_failed" ? "failed" : run.host.state === "running" ? "running" : "unknown",
     readAt: Number.isFinite(date.getTime()) ? date.toISOString() : null,
+    ...run.preflight_refusal ? { refusal: run.preflight_refusal } : {},
   };
 }
 
@@ -163,4 +164,4 @@ export function liveSourcePresentation(candidate: string, read: LiveCandidateDto
 }
 
 export const liveEvidencePresentation = (found: LiveEvidenceReadDto): LiveEvidenceRead => ({ state: found.state, tolerance: found.tolerance,
-  replays: found.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt })) });
+  replays: found.replays.map((row) => ({ trialId: row.trial_id, balance: row.starting_balance_usdt, ...row.leverage != null ? { leverage: row.leverage } : {} })) });

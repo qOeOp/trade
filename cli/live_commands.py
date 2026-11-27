@@ -109,11 +109,11 @@ COMMANDS = [
         "LIVE_CONFIG; LIVE_REQUEST_ID; LIVE_REQUEST_CONFLICT; LIVE_RELEASE_UNAVAILABLE; incumbent account, source "
         "and credential refusals"), CONFIGURATION, *RELEASE,
          option("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile", "maintain",
-                                                    "credential_save", "credential_remove", "resolve", "notify_save",
+                                                    "credential_save", "credential_remove", "notify_save",
                                                     "notify_test", "notify_remove"),
                 help="the operator command to execute"),
          option("--target", help="the run ID the action applies to; the credential reference for "
-                                 "credential_remove; the request ID for resolve")),
+                                 "credential_remove")),
     command(live_release_inspect, "live", "release-inspect", "inspect custody while the paired release host holds the account lock",
          (
         "fixed deployment configuration, retained runs and verified container identities; the release host "

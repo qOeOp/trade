@@ -15,7 +15,7 @@ export type LiveEvidence = { source: string; cursor: string | null; observedNs: 
 /** Whether a sealed Paper run of the source on the contracts matches its replay, as the serving Live control last
  *  compared (live/reconcile.py): checking until it knows, unknown while it does not answer. */
 export type LivePaperRead = { state: "checking" | "reconciled" | "unreconciled" | "unknown"; paperId: number | null; reasons: readonly string[] };
-export type LiveEvidenceRead = { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string }[]; tolerance: string };
+export type LiveEvidenceRead = { state: "checking" | "found" | "missing" | "unknown"; replays: readonly { trialId: number; balance: string; leverage?: string | null }[]; tolerance: string };
 /** The version selected in the research graph as Live reads it at the research head, for the launch page; preparation
  *  reads it again. `read`: reading (no answer yet), found, absent (no candidate Live can run) or unknown (no answer). */
 export type LiveSource = {
@@ -33,7 +33,7 @@ export type LiveCredential = {
 /** Telegram notifications: whether a bot token and its chat are saved, the last delivery and the last failure. */
 export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastError: { code: string; atNs: string | null } | null; dropped: number };
 type LivePlanField = { id: string; label: string; value: string };
-export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
+export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null; refusal?: { code: string; message: string } | null };
 export type LiveRun = {
   /** The Binance environment it trades (null: its manifest does not say); a demo run is never the real account. */
   environment: LiveEnvironment | null;

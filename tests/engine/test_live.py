@@ -624,6 +624,9 @@ class LiveTests(unittest.TestCase):
                 build.assert_not_called()
             self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
             self.assertFalse((self.output / "armed.json").exists())
+            if mode == "preflight":
+                rows = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
+                self.assertEqual((rows[-1]["event"], rows[-1]["code"]), ("preflight_refused", "LIVE_EVIDENCE_MISSING"))
 
     def held_snapshot(self):
         return {**self.flat_snapshot(), "observed_ns": 124, "positions": [{"symbol": "ETHUSDT", "positionAmt": "-0.01"}]}

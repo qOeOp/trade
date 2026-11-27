@@ -178,6 +178,13 @@ class ResearchLineTests(unittest.TestCase):
         check(None, date(2024, 8, 1), date(2024, 9, 1))  # a closed line's holdout was replayed at its close
         self.assertEqual(code(None, date(2024, 9, 1), date(2024, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
         self.assertEqual(code("ema-trend", date(2022, 8, 1), date(2022, 9, 1)), "LINE_ENDED")
+        lines.check_replay_window(self.conn, "ema-trend", ns(date(2022, 8, 1)), ns(date(2022, 9, 1)),
+                                  date(2026, 11, 10), allow_closed=True)
+        self.assertEqual(refused(lines.check_replay_window, self.conn, "ema-trend", ns(date(2024, 6, 1)),
+                                 ns(date(2024, 7, 2)), date(2026, 11, 10), allow_closed=True).code,
+                         "WINDOW_OUTSIDE_DEVELOPMENT")
+        self.assertEqual(refused(lines.check_replay_window, self.conn, "none", ns(date(2022, 8, 1)),
+                                 ns(date(2022, 9, 1)), date(2026, 11, 10), allow_closed=True).code, "LINE_UNKNOWN")
         self.assertEqual(code("none", date(2022, 8, 1), date(2022, 9, 1)), "LINE_UNKNOWN")
 
     def test_selection_refusals(self):

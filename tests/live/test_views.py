@@ -535,3 +535,33 @@ class LiveViewTests(LiveViewFixture):
         evidence = {row["source"]: row for row in result["evidence"]}
         self.assertEqual(evidence["native"]["state"], "changed")
         self.assertEqual(evidence["host"]["state"], "unknown")
+
+    def test_preflight_refusal_is_surfaced_from_journal_or_archived_log_safely(self):
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="preflight",
+                     container="preflight-1", credentials_path=str(self.credentials))
+        state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id,
+                     state="preflight_failed", exit_code=2)
+        self.native("preflight_refused", code="LIVE_MARGIN_MODE")
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("archived resources inspected")):
+            result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["preflight_refusal"],
+                         {"code": "LIVE_MARGIN_MODE", "message": views.PREFLIGHT_MESSAGES["LIVE_MARGIN_MODE"]})
+
+        # Fallback to archived container log when events.jsonl has no preflight_refused event; never leaks raw text.
+        (self.directory / "out" / "events.jsonl").write_bytes(b"")
+        views._READS.clear()
+        containers = state.private_directory(self.directory / "containers")
+        (containers / "preflight-1.log").write_text("LIVE_ACCOUNT_NOT_FLAT: SECRET_DETAILS\n", encoding="utf-8")
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("archived resources inspected")):
+            fallback = views.run_view(self.root, self.run_id)
+        self.assertEqual(fallback["preflight_refusal"],
+                         {"code": "LIVE_ACCOUNT_NOT_FLAT", "message": views.PREFLIGHT_MESSAGES["LIVE_ACCOUNT_NOT_FLAT"]})
+        self.assertNotIn("SECRET", json.dumps(fallback))
+
+        # Symlinked log is never read.
+        (containers / "preflight-1.log").unlink()
+        (containers / "preflight-1.log").symlink_to(self.credentials)
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("archived resources inspected")):
+            symlinked = views.run_view(self.root, self.run_id)
+        self.assertIsNone(symlinked["preflight_refusal"])
+        self.assertNotIn("example-secret", json.dumps(symlinked))
