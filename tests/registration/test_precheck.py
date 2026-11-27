@@ -192,12 +192,32 @@ class PrecheckTests(unittest.TestCase):
                                          self.identity(effective)).code, "SOURCE_PRECHECK_REQUIRED")
 
     def test_any_failed_review_of_the_precheck_fails_admission(self):
-        trial_id = self.sealed()
+        data = self.world.publish("failed-later")["source"]  # a failed review fails its source for the class
+        trial_id = self.sealed(data)
         passed = self.review(trial_id)
-        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), self.identity()), trial_id)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(data), self.identity()), trial_id)
         self.review(trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
-        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(self.data), self.identity()).code,
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(data), self.identity()).code,
                          "SOURCE_PRECHECK_FAILED")
+
+    def test_a_failed_source_review_of_an_earlier_precheck_fails_admission_on_its_image(self):
+        def precheck_of(data: bytes, fills: int, verdict="passed", runtime=None, **items) -> tuple[int, int]:
+            trial_id = self.sealed(data, runtime=runtime, fingerprint=untraded(fills, fills))
+            return trial_id, self.review(trial_id, verdict, **items)
+
+        failed = self.world.publish("failed-earlier")["source"]
+        precheck_of(failed, 3, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
+        _, passed = precheck_of(failed, 3)
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(failed), self.identity()).code,
+                         "SOURCE_PRECHECK_FAILED")
+        elsewhere = self.world.publish("failed-on-another-image")["source"]
+        precheck_of(elsewhere, 3, "failed", runtime=OTHER_RUNTIME, causal={"status": "failed", "note": "lookahead"})
+        trial_id, passed = precheck_of(elsewhere, 3)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(elsewhere), self.identity()), trial_id)
+        quiet = self.world.publish("quiet-earlier")["source"]
+        precheck_of(quiet, 0, "failed", activity={"status": "unresolved", "note": "no order filled"})
+        trial_id, passed = precheck_of(quiet, 3)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(quiet), self.identity()), trial_id)
 
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
@@ -209,8 +229,9 @@ class PrecheckTests(unittest.TestCase):
                                          self.identity()).code, "SOURCE_PRECHECK_FAILED")
         for status in ("failed", "unresolved"):
             with self.subTest(status=status):
-                review = self.review(self.sealed(), "failed", readiness={"status": status, "note": "indicator cold"})
-                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(self.data),
+                data = self.world.publish(f"readiness-{status}")["source"]
+                review = self.review(self.sealed(data), "failed", readiness={"status": status, "note": "indicator cold"})
+                self.assertEqual(refused(precheck.require_precheck, self.conn, review, sha(data),
                                          self.identity()).code, "SOURCE_PRECHECK_FAILED")
 
     # Exposure exemption
