@@ -98,6 +98,8 @@ def _is_ancestor(conn: db.LedgerConnection, ancestor: str, descendant: str) -> b
 def add_judgment(profile: db.LedgerProfile, kind: str, line: str | int, based_on_commit: str, body: str,
                  subjects: list[dict] | None = None, supersedes: int | None = None, op_id: str | None = None) -> dict:
     """Append one judgment and its subjects in one write; the same payload again is a replay."""
+    if not body.strip():
+        raise refuse("JUDGMENT_BODY_EMPTY", "the judgment body is empty or only blank space", missing=("body",))
     if kind == "search_exposure":
         declared_variants(body)
     check_decision_opening(kind, body)

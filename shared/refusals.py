@@ -367,6 +367,7 @@ CATALOGUE: dict[str, tuple[str, ...]] = {
     "SERVICE_CHECK_FAILED": ("Report it to the user with the named item; nothing was changed.",),
     "SERVICE_MANAGED": ("Stop or restart it with `docker compose stop ledger` or `docker compose restart ledger`.",),
     "JUDGMENT_BODY_UNREADABLE": ("Write the judgment text to a UTF-8 file and pass it with --body.",),
+    "JUDGMENT_BODY_EMPTY": ("Write the judgment text to the --body file; it holds only blank space now.",),
     # The market directory (market/)
     "MARKET_UNREACHABLE": ("Pass the market profile with --market; create a market directory with `market init`.",),
     "MARKET_DAY_UNRESOLVED": ("Pass head or a market day (YYYY-MM-DD) of the market; `market coverage` without "

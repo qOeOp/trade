@@ -128,6 +128,12 @@ class JudgmentTests(unittest.TestCase):
         self.assertEqual(current, {second["judgment_id"]})
         self.assertEqual(refused(self.add, "verdict", body="not a judgment kind").code, "DOLT_SQL_ERROR")
 
+    def test_a_blank_body_is_refused(self):
+        for kind in ("interpretation", "recommendation", "priority", "search_exposure"):
+            for body in ("", " \n", "\t\r\n "):
+                with self.subTest(kind=kind, body=body):
+                    self.assertEqual(self.code(kind=kind, body=body), "JUDGMENT_BODY_EMPTY")
+
     def test_a_search_exposure_declares_its_variants_on_the_first_line(self):
         for body in ("x", "Evaluated variants: 01", "evaluated variants: 3", " Evaluated variants: 3",
                      "Evaluated variants: -1", "Evaluated variants: 3 views", "Notes\nEvaluated variants: 3"):
