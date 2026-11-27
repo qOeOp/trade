@@ -986,6 +986,83 @@ class LiveTests(unittest.TestCase):
                 self.assertEqual(ending, ["venue_flat"])  # no unresolved beside it
                 (self.output / "events.jsonl").write_text(events)
 
+    def test_a_stop_venue_flat_takes_a_final_read_and_refuses_when_binance_is_not_flat(self):
+        """#3727: a STOP ending with phantoms must take a post-close final read and require_flat, never keep stop_read."""
+        from nautilus_trader.model import PositionSide, Quantity
+        args = self.armed_run()
+        events_before = (self.output / "events.jsonl").read_text()
+
+        def run_stop_case(final_snapshot, *, failed: bool = False):
+            (self.output / "events.jsonl").write_text(events_before)
+            for path in self.output.glob("final-account-*.json"):
+                path.unlink()
+            seen = []
+
+            def build(session, *_, **__):
+                seen.append(session)
+                owner = mock.Mock()
+                position = SimpleNamespace(id="P-1", strategy_id=self.instance, side=PositionSide.LONG,
+                                           instrument_id=live.contract("BTCUSDT"),
+                                           quantity=Quantity.from_str("0.003"))
+                node = session.node = mock.Mock()
+                node.cache.positions_open.side_effect = lambda **_: [position]
+                node.cache.orders.side_effect = lambda **_: []
+                node.cache.orders_open.side_effect = lambda **_: []
+                node.cache.orders_inflight.side_effect = lambda **_: []
+                node.cache.orders_active_local.side_effect = lambda **_: []
+
+                def run():
+                    session.account_verified = True
+                    session.sources = {"BTCUSDT": owner}
+                    session.failed = failed
+                    session.begin_stop("requested")
+                    # Pre-close stop_read sees 0.001 open at Binance (0.002 exchange stop fill not in cache yet).
+                    stop_read = {**self.flat_snapshot(), "observed_ns": 100,
+                                 "positions": [{"symbol": "BTCUSDT", "positionSide": "LONG", "positionAmt": "0.001"}]}
+                    session.account_observation = SimpleNamespace(
+                        purpose="stop", deadline=live.time.monotonic() + 30,
+                        result=SimpleNamespace(done=lambda: True, result=lambda: stop_read, cancel=lambda: None))
+                    observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=node.cache)
+                    live_lifecycle.Observer.observe(observer)  # submits close of 0.001, phantoms["P-1"] = 0.002
+                    # Close expires (not in pending) while late stop fill drops native to 0.001 <= phantoms (0.002).
+                    position.quantity = Quantity.from_str("0.001")
+                    live_lifecycle.Observer.observe(observer)
+                node.run.side_effect = run
+                return node
+
+            with mock.patch.object(live.BinanceReadOnly, "snapshot",
+                                   side_effect=[self.flat_snapshot(), final_snapshot]), \
+                    mock.patch.object(live, "LiveCache"), mock.patch.object(live, "KlineEvents"), \
+                    mock.patch.object(live, "source_outcome"), mock.patch.object(live, "build_node", side_effect=build):
+                return live.execute(args), seen[0]
+
+        # Binance still holds 0.001 (or a resting algo order): must refuse LIVE_ACCOUNT_NOT_FLAT, never venue_flat.
+        still_open = {**self.flat_snapshot(), "observed_ns": 200,
+                      "positions": [{"symbol": "BTCUSDT", "positionSide": "LONG", "positionAmt": "0.001"}]}
+        still_ordered = {**self.flat_snapshot(), "observed_ns": 201,
+                         "algo_orders": [{"symbol": "BTCUSDT", "algoId": 9}]}
+        for label, non_flat in (("open_position", still_open), ("resting_algo_order", still_ordered)):
+            with self.subTest(non_flat=label):
+                exc = refused(run_stop_case, non_flat, error=LiveRefusal)
+                self.assertEqual(exc.code, "LIVE_ACCOUNT_NOT_FLAT")
+                rows = self.events()
+                self.assertNotIn("venue_flat", [row["event"] for row in rows])
+                self.assertEqual((rows[-1]["event"], rows[-1]["code"]), ("unresolved", "LIVE_ACCOUNT_NOT_FLAT"))
+                finals = list(self.output.glob("final-account-*.json"))
+                self.assertEqual(len(finals), 1)
+                self.assertEqual(json.loads(finals[0].read_text())["observed_ns"], non_flat["observed_ns"])
+
+        # Binance IS flat at the final read: ends venue_flat with the fresh flat final-account snapshot (not stop_read).
+        for failed, expected in ((False, 0), (True, 1)):
+            with self.subTest(flat_failed=failed):
+                fresh_flat = {**self.flat_snapshot(), "observed_ns": 300}
+                status, session = run_stop_case(fresh_flat, failed=failed)
+                self.assertEqual((status, session.venue_flat), (expected, True))
+                rows = self.events()
+                self.assertEqual(rows[-1]["event"], "venue_flat")
+                kept = json.loads((self.output / rows[-1]["observation"]).read_text())
+                self.assertEqual((kept["observed_ns"], kept["positions"]), (300, []))
+
     def test_a_source_failure_names_its_contract(self):
         """A Live instance's failure record names its contract, as replay's and Paper's do."""
         session = live.Session(self.manifest, self.output, "run")

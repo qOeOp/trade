@@ -744,23 +744,25 @@ class GateTests(unittest.TestCase):
                     live_lifecycle.Observer.observe(observer)
                 owner.submit_order.assert_called_once()
                 owner.cancel_order.assert_not_called()
-                self.assertFalse(session.venue_flat)
+                self.assertFalse(session.venue_flat or session.stop_venue_flat)
                 session.node.handle.return_value.stop.assert_not_called()
                 whole, position.quantity = position.quantity, Quantity.from_str("0.001")
                 live_lifecycle.Observer.observe(observer)  # a stop's late fill of what was already gone: still in flight
-                self.assertFalse(session.venue_flat)
+                self.assertFalse(session.venue_flat or session.stop_venue_flat)
                 owner.cancel_order.assert_not_called()
                 position.quantity = whole
                 orders.remove(close)
                 live_lifecycle.Observer.observe(observer)  # rejected: not flat, left to the timeout
-                self.assertFalse(session.venue_flat)
+                self.assertFalse(session.venue_flat or session.stop_venue_flat)
                 owner.cancel_order.assert_not_called()
                 position.quantity = Quantity.from_str("0.001")  # filled: only what Binance never held is left
                 live_lifecycle.Observer.observe(observer)
                 self.assertEqual(owner.cancel_order.call_count, 1 if resting else 0)
                 orders.clear()
                 live_lifecycle.Observer.observe(observer)
-                self.assertTrue(session.venue_flat)
+                self.assertTrue(session.stop_venue_flat)
+                self.assertFalse(session.venue_flat)  # engine.live.start takes the final read and require_flat (#3727)
+                session.node.handle.return_value.stop.assert_called()
                 self.assertFalse(session.failed)
 
     def test_a_stop_reads_what_binance_holds_only_once_its_entries_are_canceled(self):
