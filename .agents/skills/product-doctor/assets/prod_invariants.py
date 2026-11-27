@@ -1,12 +1,18 @@
-"""Silent production invariants evaluator and strictly read-only ops snapshot collector (product-doctor v3.1).
+"""Silent production invariants evaluator and strictly read-only ops snapshot collector (product-doctor v3.2).
 
-Catches production Paper / Live / Market / Ledger failures that emit zero ERROR/Traceback/OOM log lines:
+Catches production Paper / Live / Market / Ledger / Deploy failures that emit zero ERROR/Traceback/OOM log lines:
   1. market_head_staleness       - active USDT perpetuals head lagging UTC date past SLA while not halted
   2. paper_checkpoint_stall      - active Paper run alive > 2h without checkpoint advance, or stuck in WARMING
   3. orphan_unsealed_age         - unsealed orphan run directory older than 600s not yet sealed by daemon
   4. compare_unexplained_drift   - read-only paper/live compare reporting unexplained items or order/position drift
   5. notify_heartbeat_missing    - active Live/Paper monitor missing daily summary heartbeat (> 26h, even on 0-trade days)
   6. ledger_backup_or_mirror_drift - dolt_backup or public DoltHub mirror lagging/diverged past publish SLA
+  7. market_archive_integrity    - 0-byte/0-row/corrupt Parquet, duplicate/non-monotonic months, >20% symbol drop,
+                                   delisted residue, or exchange schema drift (ops_invariants.py)
+  8. ledger_public_hygiene       - private Paper/Live tables/markers/secrets in public ledger exports, stale/failed
+                                   restore drill, or backup divergence/checksum mismatch (ops_invariants.py)
+  9. ops_disk_and_deploy_health  - disk utilization, retained image/GHCR drift, container restart loop, or
+                                   non-stdlib imports in deploy/*.py (ops_invariants.py)
 
 Pure Python standard library; strictly read-only collection; refuses secret files and redacts all summaries.
 """
@@ -15,10 +21,15 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 import json
-import math
 from pathlib import Path
 import re
+import sys
 from typing import Any
+
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import ops_invariants  # noqa: E402
 
 DEFAULT_MARKET_HEAD_MAX_LAG_DAYS = 2
 DEFAULT_CHECKPOINT_MAX_AGE_S = 7200.0
@@ -28,136 +39,33 @@ DEFAULT_NOTIFY_HEARTBEAT_MAX_AGE_H = 26.0
 DEFAULT_BACKUP_MAX_LAG_S = 3600.0
 DEFAULT_MIRROR_MAX_LAG_S = 3600.0
 
-MAX_JSON_BYTES = 2 * 1024 * 1024
+MAX_JSON_BYTES = ops_invariants.MAX_JSON_BYTES
 MAX_LOG_LINE_CHARS = 4096
-MAX_SCAN_ENTRIES = 5000
-MAX_SUMMARY_LEN = 160
+MAX_SCAN_ENTRIES = ops_invariants.MAX_SCAN_ENTRIES
+MAX_SUMMARY_LEN = ops_invariants.MAX_SUMMARY_LEN
 
 _INACTIVE_RUN_STATES = frozenset({"STOPPED", "SEALED", "ENDED", "DONE", "IDLE", "FAILED"})
-_SECRET_BASENAME_TOKENS = ("secret", "credential", "token", "key", "passwd", "password")
-_SECRET_EXTENSIONS = frozenset({".pem", ".p12", ".pfx", ".key"})
 _DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 _ISO_TS_RE = re.compile(
     r"\b(20\d{2}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\b"
 )
 _DAILY_SUMMARY_RE = re.compile(r"(?:daily[\s_-]+summary|daily_summary|heartbeat)", re.IGNORECASE)
 
-_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
-    (re.compile(r"(?i)\b(Authorization\s*:\s*(?:Bearer|Basic|Token)\s+)\S+"), r"\1<REDACTED>"),
-    (re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 <REDACTED>"),
-    (re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{20,}\b"), "<REDACTED>"),
-    (
-        re.compile(
-            r"(?i)(--(?:[a-z0-9_-]*-)?(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token|"
-            r"refresh[_-]?token|token|secret|password|passwd|pwd|cookie))(\s+)(?!-)(\S+)"
-        ),
-        r"\1\2<REDACTED>",
-    ),
-    (
-        re.compile(
-            r"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|"
-            r"token|secret|password|passwd|pwd|cookie))(\s*[=:]\s*)\S+"
-        ),
-        r"\1\2<REDACTED>",
-    ),
-    (
-        re.compile(
-            r"\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|"
-            r"AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{16,}|xox[baprs]-[A-Za-z0-9-]{8,})\b"
-        ),
-        "<REDACTED>",
-    ),
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9._-]{6,}"), "<REDACTED>"),
-    (re.compile(r"\b[0-9a-fA-F]{40,64}\b"), "<REDACTED>"),
-)
-
-
-def sanitize_text(text: str, max_len: int = MAX_SUMMARY_LEN) -> str:
-    """Scrub credentials, tokens, and long hex keys from text and cap length."""
-    cleaned = " ".join(str(text).split())
-    for pat, repl in _REDACT_PATTERNS:
-        cleaned = pat.sub(repl, cleaned)
-    if len(cleaned) > max_len:
-        return cleaned[: max_len - 3] + "..."
-    return cleaned
-
-
-def _path_is_secret_candidate(candidate: Path) -> bool:
-    name = candidate.name.lower()
-    if name == ".env" or name.startswith(".env.") or name == "telegram.json":
-        return True
-    if candidate.suffix.lower() in _SECRET_EXTENSIONS:
-        return True
-    if any(tok in name for tok in _SECRET_BASENAME_TOKENS):
-        return True
-    parts = [p.lower() for p in candidate.parts]
-    for idx in range(len(parts) - 1):
-        if parts[idx] == "dolt" and parts[idx + 1] == "service.json":
-            return True
-    return ".env" in parts
-
-
-def is_secret_path(path: Path) -> bool:
-    """Return True if `path` (or its resolved symlink target) names a forbidden secret/credential file."""
-    if _path_is_secret_candidate(path):
-        return True
-    try:
-        resolved = path.resolve()
-    except OSError:
-        return False
-    return resolved != path and _path_is_secret_candidate(resolved)
-
-
-def _as_float(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    fval = float(value)
-    return fval if math.isfinite(fval) else None
-
-
-def _as_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
-    return None
-
-
-def _parse_iso(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-        text = f"{text}T00:00:00+00:00"
-    try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    except ValueError:
-        return None
+sanitize_text = ops_invariants.sanitize_text
+is_secret_path = ops_invariants.is_secret_path
+_as_float = ops_invariants._as_float
+_as_int = ops_invariants._as_int
+_parse_iso = ops_invariants._parse_iso
+_threshold_float = ops_invariants._threshold_float
+_threshold_int = ops_invariants._threshold_int
+_read_json_bounded = ops_invariants._read_json_bounded
+_record_violation = ops_invariants._record_violation
+_safe_dir_entries = ops_invariants._safe_dir_entries
 
 
 def _parse_date(value: Any) -> date | None:
     dt = _parse_iso(value)
     return dt.date() if dt is not None else None
-
-
-def _threshold_float(override: Any, global_val: Any, default: float) -> float:
-    for candidate in (override, global_val):
-        num = _as_float(candidate)
-        if num is not None and num >= 0.0:
-            return num
-    return default
-
-
-def _threshold_int(override: Any, global_val: Any, default: int) -> int:
-    for candidate in (override, global_val):
-        num = _as_int(candidate)
-        if num is not None and num >= 0:
-            return num
-    return default
 
 
 def _normalize_service(raw: Any, default: str, allowed: tuple[str, ...] = ("paper", "live")) -> str:
@@ -191,51 +99,6 @@ def _resolve_age_s(
                 return None
             return max(0.0, (as_of - dt).total_seconds())
     return None
-
-
-def _read_json_bounded(path: Path) -> tuple[Any, str | None]:
-    if is_secret_path(path):
-        return None, "secret file refused"
-    if not path.exists():
-        return None, "file not found"
-    if not path.is_file():
-        return None, "not a regular file"
-    try:
-        with path.open("rb") as fh:
-            raw = fh.read(MAX_JSON_BYTES + 1)
-    except OSError as error:
-        return None, sanitize_text(error.strerror or str(error), 80)
-    if len(raw) > MAX_JSON_BYTES:
-        return None, f"file exceeds {MAX_JSON_BYTES} byte limit"
-    try:
-        return json.loads(raw.decode("utf-8", errors="replace")), None
-    except json.JSONDecodeError as error:
-        return None, sanitize_text(f"malformed JSON ({error.msg})", 80)
-
-
-def _record_violation(
-    violations: list[dict[str, Any]],
-    triggers: list[str],
-    affected: set[str],
-    *,
-    file_name: str,
-    invariant: str,
-    obj: str | None,
-    detail: str,
-    prefix: str = "prod_invariant",
-) -> None:
-    clean_detail = sanitize_text(detail, 140)
-    trigger = f"{prefix}:{invariant} ({file_name}: {clean_detail})"
-    violations.append({
-        "file": file_name,
-        "invariant": invariant,
-        "object": obj,
-        "detail": clean_detail,
-        "trigger": trigger,
-    })
-    triggers.append(trigger)
-    if obj:
-        affected.add(obj)
 
 
 def _check_market_head_staleness(
@@ -532,6 +395,7 @@ def _inspect_prod_state_file(path: Path) -> tuple[dict[str, Any], list[dict[str,
     _check_compare_unexplained_drift(raw, file_name, violations, triggers, affected, bad_fields)
     _check_notify_heartbeat_missing(raw, effective_as_of, thresholds, file_name, violations, triggers, affected, bad_fields)
     _check_ledger_backup_or_mirror_drift(raw, effective_as_of, thresholds, file_name, violations, triggers, affected, bad_fields)
+    ops_invariants.evaluate_ops_invariants(raw, effective_as_of, thresholds, file_name, violations, triggers, affected, bad_fields)
 
     if bad_fields:
         _record_violation(
@@ -549,7 +413,7 @@ def _inspect_prod_state_file(path: Path) -> tuple[dict[str, Any], list[dict[str,
 
 
 def analyze_prod_states(paths: list[Path]) -> dict[str, Any]:
-    """Evaluate one or more production state snapshots against all 6 silent invariants."""
+    """Evaluate one or more production state snapshots against all 9 silent invariants."""
     snapshots: list[dict[str, Any]] = []
     all_violations: list[dict[str, Any]] = []
     all_triggers: list[str] = []
@@ -578,18 +442,6 @@ def analyze_prod_states(paths: list[Path]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Strictly read-only ops snapshot collector (`doctor.py prod-snapshot`)
 # ---------------------------------------------------------------------------
-
-def _safe_dir_entries(directory: Path, limit: int = MAX_SCAN_ENTRIES) -> list[Path]:
-    out: list[Path] = []
-    try:
-        for idx, child in enumerate(sorted(directory.iterdir())):
-            if idx >= limit:
-                break
-            out.append(child)
-    except OSError:
-        return []
-    return out
-
 
 def _read_market_meta(market_dir: Path) -> dict[str, Any] | None:
     for name in ("head.json", "status.json", "coverage.json", "state.json", "manifest.json"):
@@ -624,23 +476,26 @@ def _collect_market(market_dir: Path, notes: list[str]) -> dict[str, Any] | None
     if not market_dir.is_dir():
         notes.append("market_dir missing or not a directory")
         return None
-    meta = _read_market_meta(market_dir)
-    if meta is not None:
-        return meta
-    latest_found: date | None = None
-    seen = 0
-    stack = [market_dir]
-    while stack and seen < MAX_SCAN_ENTRIES:
-        cur = stack.pop()
-        for child in _safe_dir_entries(cur, MAX_SCAN_ENTRIES - seen):
-            seen += 1
-            if is_secret_path(child):
-                notes.append("skipped secret file under market_dir")
-                continue
-            latest_found = _max_date_in_name(child.name, latest_found)
-            if child.is_dir() and len(child.relative_to(market_dir).parts) < 3:
-                stack.append(child)
-    return {"latest_day": latest_found.isoformat(), "halted": False} if latest_found else None
+    base = _read_market_meta(market_dir) or {}
+    if not base:
+        latest_found: date | None = None
+        seen = 0
+        stack = [market_dir]
+        while stack and seen < MAX_SCAN_ENTRIES:
+            cur = stack.pop()
+            for child in _safe_dir_entries(cur, MAX_SCAN_ENTRIES - seen):
+                seen += 1
+                if is_secret_path(child):
+                    notes.append("skipped secret file under market_dir")
+                    continue
+                latest_found = _max_date_in_name(child.name, latest_found)
+                if child.is_dir() and len(child.relative_to(market_dir).parts) < 3:
+                    stack.append(child)
+        if latest_found:
+            base = {"latest_day": latest_found.isoformat(), "halted": False}
+    integrity = ops_invariants.collect_market_integrity(market_dir, notes)
+    merged = {**base, **integrity}
+    return merged or None
 
 
 def _find_checkpoint_mtime(run_dir: Path) -> datetime | None:
@@ -843,7 +698,29 @@ def _collect_ledger(ledger_path: Path, as_of: datetime, notes: list[str]) -> dic
                 out[key] = round(max(0.0, (as_of - dt).total_seconds()), 1)
     if "mirror_diverged" in raw:
         out["mirror_diverged"] = bool(raw.get("mirror_diverged"))
+    for key in ops_invariants.LEDGER_HYGIENE_META_KEYS:
+        if key in raw and key not in out:
+            out[key] = raw[key]
+    if "last_restore_drill_age_days" not in out and raw.get("last_restore_drill_at") is not None:
+        dt = _parse_iso(raw.get("last_restore_drill_at"))
+        if dt is not None:
+            out["last_restore_drill_age_days"] = round(max(0.0, (as_of - dt).total_seconds()) / 86400.0, 2)
     return out
+
+
+def _merge_ledger_sections(base: dict[str, Any] | None, export_info: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not base and not export_info:
+        return None
+    merged = {**(base or {}), **(export_info or {})}
+    if base and export_info:
+        for list_key in ("public_export_private_tables", "public_export_private_markers"):
+            combined = list(dict.fromkeys([*(base.get(list_key) or []), *(export_info.get(list_key) or [])]))
+            if combined:
+                merged[list_key] = combined
+        cred = max(_as_int(base.get("credential_leaks")) or 0, _as_int(export_info.get("credential_leaks")) or 0)
+        if cred > 0:
+            merged["credential_leaks"] = cred
+    return merged
 
 
 def _collect_service_root(
@@ -882,6 +759,9 @@ def collect_prod_snapshot(
     compare_jsons: list[Path] | None = None,
     notify_logs: list[Path] | None = None,
     ledger_status_json: Path | None = None,
+    ledger_export_dir: Path | None = None,
+    ops_status_json: Path | None = None,
+    repo_root: Path | None = None,
     as_of: str | None = None,
 ) -> dict[str, Any]:
     """Assemble a redacted, credential-free production state snapshot from read-only paths."""
@@ -907,10 +787,16 @@ def collect_prod_snapshot(
         snapshot["compare"] = compares
     if notify_entries := _collect_notify_entries(notify_logs, live_root, ref_dt, notes):
         snapshot["notify"] = notify_entries
-    if ledger_status_json is not None and (ledger_info := _collect_ledger(ledger_status_json, ref_dt, notes)) is not None:
+    ledger_status = _collect_ledger(ledger_status_json, ref_dt, notes) if ledger_status_json is not None else None
+    ledger_export = ops_invariants.collect_ledger_export_hygiene(ledger_export_dir, notes) if ledger_export_dir is not None else None
+    if (ledger_info := _merge_ledger_sections(ledger_status, ledger_export)) is not None:
         snapshot["ledger"] = ledger_info
+    if (ops_status_json is not None or repo_root is not None) and (
+        ops_info := ops_invariants.collect_ops_health(ops_status_json, repo_root, ref_dt, notes)
+    ) is not None:
+        snapshot["ops"] = ops_info
     if notes:
-        snapshot["collector_notes"] = [sanitize_text(n, 120) for n in notes[:20]]
+        snapshot["collector_notes"] = [sanitize_text(n, 120) for n in list(dict.fromkeys(notes))[:20]]
     return snapshot
 
 
@@ -937,6 +823,9 @@ def run_prod_snapshot_cmd(args: Any) -> None:
         compare_jsons=list(args.compare_json or []) or None,
         notify_logs=list(args.notify_log or []) or None,
         ledger_status_json=args.ledger_status_json,
+        ledger_export_dir=getattr(args, "ledger_export_dir", None),
+        ops_status_json=getattr(args, "ops_status_json", None),
+        repo_root=getattr(args, "repo_root", None),
         as_of=args.as_of,
     )
     rendered = json.dumps(snapshot, indent=1)
@@ -951,12 +840,15 @@ def run_prod_snapshot_cmd(args: Any) -> None:
 def register_prod_snapshot_parser(commands: Any) -> None:
     """Attach the `prod-snapshot` subcommand to `doctor.py`'s argparse subparsers."""
     snap_p = commands.add_parser("prod-snapshot", help="strictly read-only collector that builds a redacted state.json for --prod-state")
-    snap_p.add_argument("--market-dir", type=Path, help="read-only market directory to inspect for head staleness")
+    snap_p.add_argument("--market-dir", type=Path, help="read-only market directory to inspect for head staleness and Parquet/partition integrity")
     snap_p.add_argument("--paper-root", type=Path, help="read-only paper root directory to inspect for checkpoint stalls and unsealed orphans")
     snap_p.add_argument("--live-root", type=Path, help="read-only live root directory to inspect for unsealed orphans and notify state (secrets refused)")
     snap_p.add_argument("--compare-json", type=Path, nargs="+", help="one or more read-only paper/live compare JSON files")
     snap_p.add_argument("--notify-log", type=Path, nargs="+", help="one or more read-only notification log/state files for daily summary heartbeat")
-    snap_p.add_argument("--ledger-status-json", type=Path, help="read-only ledger backup/mirror status JSON (never dolt/service.json)")
+    snap_p.add_argument("--ledger-status-json", type=Path, help="read-only ledger backup/mirror/restore status JSON (never dolt/service.json)")
+    snap_p.add_argument("--ledger-export-dir", type=Path, help="read-only public ledger export directory to scan for private tables/markers/secrets")
+    snap_p.add_argument("--ops-status-json", type=Path, help="read-only ops host/container/disk/GHCR status JSON")
+    snap_p.add_argument("--repo-root", type=Path, help="read-only repository root for AST stdlib-purity check over deploy/*.py")
     snap_p.add_argument("--as-of", help="reference UTC ISO-8601 timestamp (default: current UTC time)")
     snap_p.add_argument("--out", type=Path, help="optional output path to write the redacted snapshot JSON")
     snap_p.set_defaults(function=run_prod_snapshot_cmd)

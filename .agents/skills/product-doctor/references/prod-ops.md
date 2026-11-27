@@ -6,10 +6,11 @@ Silent production failures emit zero error lines while stalling market ingestion
 checkpoints, leaving unsealed orphan directories, drifting replay vs execution, dropping daily
 monitoring summaries, or letting backups and mirrors fall behind.
 
-## Six silent production invariants (`--prod-state`)
+## Nine silent production invariants (`--prod-state`)
 
 `doctor.py friction --prod-state <state.json...>` and `doctor.py advise --prod-state <state.json...>`
-evaluate six deterministic invariants (implemented in pure stdlib in `assets/prod_invariants.py`):
+evaluate nine deterministic invariants (implemented in pure stdlib in `assets/prod_invariants.py` and
+`assets/ops_invariants.py`):
 
 | Invariant | Trigger condition | Owning object | Why `--prod-logs` alone misses it |
 |---|---|---|---|
@@ -19,12 +20,15 @@ evaluate six deterministic invariants (implemented in pure stdlib in `assets/pro
 | `compare_unexplained_drift` | Read-only `paper compare` / `live compare` reports `unexplained_count > 0` (or non-empty `unexplained`) or `orders_differ` / `positions_differ` | `paper` / `live` / `engine` | Silent order drops, liquidation accounting mismatch, or funding/price distortion emit no error |
 | `notify_heartbeat_missing` | Active Live or Paper monitor has `last_daily_summary_age_h > 26.0` (including 0-trade quiet days) or missing summary | `live` / `paper` | Type mismatch or swallowed exception silences daily Telegram summaries without crashing |
 | `ledger_backup_or_mirror_drift` | `dolt_backup` behind (`backup_behind_commits > 0` and `backup_lag_s > 3600`), or `mirror_diverged == true`, or `mirror_lag_s > 3600` | `ledger` | Failed cron pushes or diverged mirror refs leave research backups silently stale |
+| `market_archive_integrity` | 0-byte, 0-row, or corrupt Parquet files (pure-stdlib `PAR1` + Thrift footer check), non-monotonic/duplicate month partitions, `active_symbols_drop_pct > 20%`, `delisted_blocking_head > 0`, or `schema_drift_count > 0` | `market` | Truncated archive downloads, empty Parquet writes, or upstream schema drift leave corrupted data on disk with zero crash trace |
+| `ledger_public_hygiene` | Private Paper/Live/execution tables (`paper_runs`, `live_runs`), `private_root` markers, or credential/token patterns in a public ledger export; `last_restore_drill_age_days > 30` or `last_restore_ok == false`; or backup divergence/checksum mismatch | `ledger` | Unverified backups decay silently and private execution data or credentials can leak into public exports without runtime errors |
+| `ops_disk_and_deploy_health` | Disk utilization `disk_used_pct >= 85.0` or `free_gib < 10.0`, `unpruned_images_count > max_retained` or `ghcr_cleanup_overdue_days > 35`, container `restart_count_24h >= 5`, or `deploy_non_stdlib_imports > 0` (AST over `deploy/*.py`) | `deploy` | Filling disks, unpruned images, flapping containers, or non-stdlib host imports accumulate quietly until an outage hits |
 
 Any violated invariant (`prod_invariant:*`) or unreadable/corrupt snapshot (`prod_state:prod_state_unreadable`)
 is treated as an **un-coolable production incident** (`PROD_INCIDENT_PREFIXES` in `assets/scheduler.py`):
 it preempts `slim`, `find`, 7-day `friction` cooldown, and the `steady` gate (including in `--auto` mode),
 routing directly to `friction` / `operation` on the real owning code object (`market`, `paper`, `live`,
-`ledger`, `engine`).
+`ledger`, `engine`, `deploy`).
 
 ## Strictly read-only collector (`doctor.py prod-snapshot`) and unattended cron pipeline
 
@@ -45,6 +49,9 @@ uv run --frozen python .agents/skills/product-doctor/assets/doctor.py prod-snaps
   --compare-json "${OUT}/paper-compare.json" "${OUT}/live-compare.json" \
   --notify-log "${OUT}/live-notify.log" \
   --ledger-status-json "${OUT}/ledger-status.json" \
+  --ledger-export-dir "${OUT}/ledger-export" \
+  --ops-status-json "${OUT}/ops-status.json" \
+  --repo-root "${REPO_ROOT}" \
   --out "${OUT}/state.json"
 
 # 2. Gate with 0-token steady exit code (2 = steady, 0 = actionable incident/audit)
