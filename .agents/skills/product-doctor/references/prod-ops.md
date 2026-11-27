@@ -39,11 +39,11 @@ code paths directly on isolated copies (`doctor.py probe`) against these failure
 
 | Failure class | Silent failure mode | Owning object | Why `--prod-logs` alone misses it |
 |---|---|---|---|
-| Market head stall | Delisted or wedged contract freezes global head progression or leaves `lagging` unreachable (`SETTLE_DAYS == LAG_DAYS`) | `market` | Clean `INFO` logs continue while market coverage silently stalls |
+| Market head stall | Lifecycle edge case (delisting/halt) stalls global freshness watermarks or threshold/suppression interaction renders an alert state unreachable | `market` | Clean `INFO` logs continue while market coverage silently stalls |
 | Checkpoint / warmup stall | Active Paper run stalls without checkpoint advance or stays stuck in warmup | `paper` | Subscription or timer starvation stalls checkpoints with no exception |
-| Unsealed orphan runs | Ended run directories remain unsealed after restart or daemon dispatch failure | `paper` / `live` | Daemon skips sealing cleanly with zero crash trace |
-| Replay vs execution drift | `paper compare` / `live compare` leaves unexplained order/fill/position drift | `paper` / `live` / `engine` | Silent order drops, funding boundary off-by-one, or fill distortion emit no error |
-| Missing daily notify heartbeat | Active monitor drops daily summaries (especially on 0-trade quiet days or type mismatch) | `live` / `paper` | Swallowed exception or wrong timestamp type silences alerts without crashing |
+| Unsealed orphan runs | Ended or aborted run directories remain unsealed after restart or daemon dispatch failure | `paper` / `live` | Daemon skips sealing cleanly with zero crash trace |
+| Replay vs execution drift | `paper compare` / `live compare` leaves unexplained order/fill/position drift | `paper` / `live` / `engine` | Silent order drops, settlement boundary off-by-one, or fill distortion emit no error |
+| Missing periodic notify heartbeat | Active monitor silently drops periodic summaries or alerts due to schema/wire-type mismatch or suppressed state | `live` / `paper` | Swallowed exceptions or consumer/producer type drift silence alerts without crashing |
 | Backup, mirror & archive decay | `dolt_backup` or DoltHub mirror falls behind, Parquet writes are 0-row/corrupt, or private tables leak | `ledger` / `market` | Silent drift or truncated files accumulate until recovery fails |
 | Disk, image & deploy drift | Disk fills, retained images go unpruned, containers flap, or host scripts import non-stdlib modules | `deploy` | Quiet resource exhaustion or broken upgrade path until an outage hits |
 

@@ -1084,9 +1084,11 @@ def _print_coverage_table(table: dict[tuple[str, str], list[tuple[dict, str]]]) 
             print(f"| {item} | {cell(subject)} | {said} | {_format_evidence_row(row)}{more} |")
 
 
-def _print_probe_table(found: list[dict]) -> None:
-    latest = {row["id"]: row for row in found if row["kind"] == "probe"}
+def _print_probe_table(found: list[dict], *, focused: bool = False) -> None:
+    probes = [row for row in found if row["kind"] == "probe"]
+    latest = {row["id"]: row for row in probes}
     reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}
+    superseded = len(probes) - len(latest)
     print("\n| Finding | Verdict | Observed | Expected | Control | At the last audit | Refuter's probe |\n"
           "|---|---|---|---|---|---|---|")
     for name, row in latest.items():
@@ -1097,6 +1099,10 @@ def _print_probe_table(found: list[dict]) -> None:
     old = [r["before"] for r in latest.values() if r["verdict"] == "shown" and r["before"] not in (None, "unknown")]
     shown_n = sum(r["verdict"] == "shown" for r in latest.values())
     refuted_shown = sum(r["verdict"] == "shown" and n in reruns and reruns[n]["verdict"] == "shown" for n, r in latest.items())
+    if focused and not old and not reruns:
+        extra = f" Superseded probe attempts: {superseded}." if superseded else ""
+        print(f"\nShown: {shown_n} of {len(latest)} probed.{extra}")
+        return
     print(f"\nShown: {shown_n} of {len(latest)} probed. "
           f"Of {len(old)} datable ones, the last audit already had {old.count('present')}. "
           f"Shown by a refuter's own probe too: {refuted_shown}. Refuters ran on {len(reruns)}.")
@@ -1113,7 +1119,7 @@ def report(args: argparse.Namespace) -> None:
         print(f"Evidence: {spent(found)}.\n")
         if table:
             _print_coverage_table(table)
-        _print_probe_table(found)
+        _print_probe_table(found, focused=True)
         return
     declared = next((row for row in found if row["kind"] == "scope"), None)
     whole = not missing and not late
