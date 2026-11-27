@@ -409,6 +409,23 @@ class MeasureTests(unittest.TestCase):
         for name in ("annual_return", "sharpe_365", "mean_notional", "months_won_share"):
             self.assertIsNone(found[name])
 
+    def test_a_liquidation_return_at_or_below_minus_one_empties_log_slices_without_error(self):
+        days = [(date(2025, 12, 1) + timedelta(days=k)).isoformat() for k in range(40)]
+        market = {"days": days, "basket": [0.02 if k % 2 == 0 else -0.01 for k in range(40)],
+                  "btc": [0.01] * 40}
+        for bad_return in (-1.0, -1.2):
+            for passed in (False, True):
+                with self.subTest(bad_return=bad_return, passed=passed):
+                    broken = sealed()
+                    broken["activity"]["returns_compound_to_equity"] = {"passed": passed}
+                    facts = {**self.facts, "sealed": broken,
+                             "returns": [(JAN, 0.01, Decimal("100")), (JAN + DAY, bad_return, Decimal("100"))]}
+                    derived = measures.derive_measures(facts, market=market)
+                    for name in ("months_won_share", "residual_after_top5_days", "high_vol_days", "high_vol_mean_log",
+                                 "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"):
+                        self.assertIsNone(derived[name]["value"], name)
+                        self.assertTrue(derived[name]["null_reason"].startswith("RETURN_SERIES_UNUSABLE"), name)
+
     def test_the_comparison_helpers(self):
         self.assertEqual(measures.breakeven_multiple(Decimal(1000), Decimal(500)), (3.0, None))
         self.assertIsNone(measures.breakeven_multiple(Decimal(1000), Decimal(-500))[0], "it never reaches zero")
@@ -618,7 +635,9 @@ class DeflatedSharpeTests(unittest.TestCase):
         self.assertIsNone(measures.deflated_sharpe([0.01, 0.02, 0.0], None, 0.01))
         self.assertIsNone(measures.deflated_sharpe([0.01, 0.02, 0.0], 10, None))
         self.assertIsNone(measures.deflated_sharpe([0.01, 0.02], 10, 0.01), "two days")
-        self.assertIsNone(measures.deflated_sharpe([0.01] * 5, 10, 0.01), "a constant series")
+        for series in ([0.01] * 5, [0.01] * 10, [0.1] * 3, [-0.02] * 7, [0.0] * 10):
+            with self.subTest(series=series):
+                self.assertIsNone(measures.deflated_sharpe(series, 10, 0.01), "a constant series")
 
 
 class RegimeTests(unittest.TestCase):
@@ -716,3 +735,86 @@ class PairTradeTests(unittest.TestCase):
                                         1000 * m)
         self.assertEqual([(item["control"], item["candidate"]) for item in found["pairs"]], [(1, 1)])
         self.assertEqual(found["classes"]["only_candidate"]["count"], 1)
+
+
+class PredictionSignTests(unittest.TestCase):
+    """Registered predictions check signed differences or parity-centred shares, never value < 0 on
+    nonnegative magnitudes or comparison-only counts."""
+
+    @staticmethod
+    def _run(returns: list[float], cycles: list[dict], final: str) -> dict:
+        return {
+            "sealed": {
+                "activity": {"returns_compound_to_equity": {"passed": True}, "cycles_cover_fills": {"passed": True}},
+                "drawdown": {"mark_max_drawdown": {"value": 0.1}},
+                "populations": {"bars": len(returns)},
+                "order_funnel": {"FILLED": len(cycles)},
+                "fees_by_liquidity_side": {"TAKER": {"commissions": "10", "notional": "10000", "fills": 10}},
+            },
+            "returns": [(JAN + k * DAY, r, Decimal("1000")) for k, r in enumerate(returns)],
+            "cycles": cycles,
+            "starting_balance": Decimal("10000"),
+            "final_equity": Decimal(final),
+            "trade_start_ns": JAN,
+            "trade_end_ns": JAN + len(returns) * DAY,
+        }
+
+    def test_nonnegative_pairwise_concentrations_check_signed_difference_and_months_centres_at_half(self):
+        insts = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA"]
+        ctrl_cycles = [cycle(1, "BTC", "long", JAN, JAN + DAY, "1000", exit_type="LIMIT")] + [
+            cycle(i + 2, insts[i], "long", JAN, JAN + DAY, "10", exit_type="STOP") for i in range(1, 6)]
+        cand_cycles = [cycle(i + 1, insts[i], "long", JAN, JAN + DAY, "100",
+                             exit_type="LIMIT" if i < 3 else "STOP") for i in range(6)]
+        ctrl = self._run([0.002] * 360, ctrl_cycles, "11050")
+        cand = self._run([0.003] * 30 + [0.001] * 330, cand_cycles, "10600")
+        body = {"prediction": {"mechanism": [
+            {"slice": "by_instrument", "measure": "top5_abs_share", "direction": "down", "duty": "A1", "reason": "spread"},
+            {"slice": "by_instrument", "measure": "top5_abs_share", "direction": "up", "duty": "A1", "reason": "concentrate"},
+            {"slice": "trade_structure", "measure": "top_exit_share", "direction": "down", "duty": "F3", "reason": "spread"},
+            {"slice": "by_period", "measure": "months_won_share", "direction": "up", "duty": "B3", "reason": "win most"},
+            {"slice": "by_period", "measure": "months_won_share", "direction": "down", "duty": "B3", "reason": "lose most"},
+        ]}}
+        preds = attribution.attribute(ctrl, cand, body, market=None)["predictions"]
+        self.assertEqual([p["same_sign"] for p in preds], [True, False, True, False, True])
+        self.assertEqual([p["observed_as"] for p in preds],
+                         ["difference", "difference", "difference", "pairwise", "pairwise"])
+        # Exact tie on months_won_share (0.5 across Jan + Feb = 59 days) holds neither up nor down.
+        tied = attribution.attribute(
+            self._run([0.002] * 59, ctrl_cycles, "11050"),
+            self._run([0.003] * 31 + [0.001] * 28, cand_cycles, "10600"),
+            {"prediction": {"mechanism": [
+                {"slice": "by_period", "measure": "months_won_share", "direction": "up", "duty": "B3", "reason": "tie"},
+                {"slice": "by_period", "measure": "months_won_share", "direction": "down", "duty": "B3", "reason": "tie"},
+            ]}}, market=None)["predictions"]
+        self.assertEqual([(p["observed"], p["same_sign"]) for p in tied], [(0.5, False), (0.5, False)])
+
+    def test_breakeven_fee_multiple_uses_signed_difference_and_unsigned_comparison_only_is_uncheckable(self):
+        # Control: account +100, fees 200 -> k = 1.5.
+        # Candidate A (wins + pays less fees): account +150, fees 50 -> k = 4.0 (diff = +2.5, pairwise = None/NEVER_ZERO).
+        # Candidate B (loses + pays slightly less fees): account +20, fees 100 -> k = 1.2 (diff = -0.3, pairwise = 1.8).
+        ctrl = self._run([0.001] * 10, [cycle(1, "BTC", "long", JAN, JAN + DAY, "100", commissions="200")], "10100")
+        cand_a = self._run([0.002] * 10, [cycle(1, "BTC", "long", JAN, JAN + DAY, "150", commissions="50")], "10150")
+        cand_b = self._run([0.0005] * 10, [cycle(1, "BTC", "long", JAN, JAN + DAY, "20", commissions="100"),
+                                           cycle(2, "ETH", "long", JAN, JAN + DAY, "0", commissions="0")], "10020")
+        body = {"prediction": {"mechanism": [
+            {"slice": "fee_stress", "measure": "breakeven_fee_multiple", "direction": "up", "duty": "G1", "reason": "margin"},
+            {"slice": "fee_stress", "measure": "breakeven_fee_multiple", "direction": "down", "duty": "G1", "reason": "margin"},
+        ]}}
+        preds_a = attribution.attribute(ctrl, cand_a, body, market=None)["predictions"]
+        self.assertEqual([(p["same_sign"], p["observed_as"]) for p in preds_a],
+                         [(True, "difference"), (False, "difference")])
+        preds_b = attribution.attribute(ctrl, cand_b, body, market=None)["predictions"]
+        self.assertEqual([(p["same_sign"], p["observed_as"]) for p in preds_b],
+                         [(False, "difference"), (True, "difference")])
+        # Comparison-only nonnegative counts/shares have no signed direction and stay uncheckable.
+        unsigned_body = {"prediction": {"mechanism": [
+            {"slice": "by_instrument", "measure": "one_side_instruments", "direction": "down", "duty": "A1", "reason": "r"},
+            {"slice": "trade_pairs", "measure": "matched_share", "direction": "down", "duty": "A3", "reason": "r"},
+            {"slice": "trade_pairs", "measure": "matched_net_share", "direction": "up", "duty": "A3", "reason": "r"},
+            {"slice": "trade_pairs", "measure": "win_to_loss", "direction": "down", "duty": "A3", "reason": "r"},
+            {"slice": "trade_pairs", "measure": "loss_to_win", "direction": "up", "duty": "A3", "reason": "r"},
+        ]}}
+        unsigned = attribution.attribute(ctrl, cand_b, unsigned_body, market=None)["predictions"]
+        for item in unsigned:
+            self.assertIsNone(item["same_sign"], item["measure"])
+            self.assertTrue((item["reason"] or "").startswith("UNCHECKABLE"), item["measure"])

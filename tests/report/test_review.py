@@ -315,3 +315,25 @@ class SealedTamperTests(unittest.TestCase):
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: captured bytes')", params=(bundle,))
         found = [item["record_id"] for item in self.review()["findings"] if item["code"] == "CAPTURE_UNREADABLE"]
         self.assertIn(str(self.late["trial_id"]), found)
+
+    def test_8_missing_run_returns_and_forged_cycles_fail_review(self):
+        world = ReplayWorld("sealed-empty-returns")
+        self.addCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        registration, (ref,) = registered_grid(world, ["good"])
+        run = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+        trial_id = run["trial_id"]
+        conn = world.service.admin(world.profile)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM run_return WHERE trial_id = %s", (trial_id,))
+                cursor.execute("UPDATE run_cycle SET realized_pnl = realized_pnl + 9999 WHERE trial_id = %s", (trial_id,))
+                cursor.execute("CALL DOLT_COMMIT('-a', '--amend', '-m', 'tampered seal', '--skip-verification')")
+        finally:
+            conn.close()
+        with db.connect(world.profile, "reader") as reader:
+            found = review.review_all(reader)
+        self.assertFalse(found["ok"], found["findings"])
+        tables = {(item["code"], item["table"], item["record_id"]) for item in found["findings"]}
+        self.assertIn(("READING_MISMATCH", "run_return", str(trial_id)), tables)
+        self.assertIn(("READING_MISMATCH", "run_cycle", str(trial_id)), tables)

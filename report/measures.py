@@ -264,11 +264,14 @@ def deflated_sharpe(returns: Sequence[float], trials: float | None, variance: fl
     if trials is None or variance is None or len(returns) < 3:
         return None
     values = np.asarray(returns, dtype=float)
+    if float(np.ptp(values)) == 0:
+        return None
+    deviation = statistics.stdev(values.tolist())
     centred = values - values.mean()
     spread = float(np.sqrt((centred @ centred) / len(values)))
-    if spread == 0:
+    if spread == 0 or deviation == 0:
         return None
-    return deflated_sharpe_of(float(values.mean()) / statistics.stdev(values.tolist()),
+    return deflated_sharpe_of(float(values.mean()) / deviation,
                               float((centred ** 3).mean()) / spread ** 3, float((centred ** 4).mean()) / spread ** 4,
                               len(values), trials, variance)
 
@@ -649,29 +652,33 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
             put(alpha_name, None, "account_days", days, reason)
 
     # by_period
+    log_reason = series_reason or ("RETURN_SERIES_UNUSABLE: a daily return is at or below -1"
+                                   if any(value <= -1.0 for _, value, _ in returns) else None)
     if needs("months_won_share", "residual_after_top5_days"):
-        months = month_logs(returns)
-        put("months_won_share", sum(1 for value in months.values() if value > 0) / len(months) if months and
-            series_reason is None else None, "months", len(months), series_reason or "NO_MONTH: no daily return")
-        logs = [math.log1p(value) for _, value, _ in returns]
-        put("residual_after_top5_days", residual_after_top(logs) if series_reason is None else None, "account_days", days,
-            series_reason or "NO_DAY: no daily return")
+        months = month_logs(returns) if log_reason is None else {}
+        month_count = len(months) if log_reason is None else len({metrics.utc_day(ts)[:7] for ts, _, _ in returns})
+        put("months_won_share", sum(1 for value in months.values() if value > 0) / len(months) if months else None,
+            "months", month_count, log_reason or "NO_MONTH: no daily return")
+        logs = [math.log1p(value) for _, value, _ in returns] if log_reason is None else []
+        put("residual_after_top5_days", residual_after_top(logs) if log_reason is None else None, "account_days", days,
+            log_reason or "NO_DAY: no daily return")
 
     # by_regime
     if needs(*slices["by_regime"]):
         labels, reason = regime_labels(market, [metrics.utc_day(ts) for ts, _, _ in returns])
-        reason = series_reason or reason
+        reason = log_reason or reason
         unlabelled = None if labels is None else sum(1 for value in labels.values() if value is None)
         for regime in ("high", "low"):
-            logs_in = [math.log1p(value) for ts, value, _ in returns if labels and labels.get(metrics.utc_day(ts)) == regime]
+            in_regime = [value for ts, value, _ in returns if labels and labels.get(metrics.utc_day(ts)) == regime]
+            logs_in = [math.log1p(value) for value in in_regime] if reason is None else []
             empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
                                f"({unlabelled} days unlabelled)")
             put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)
             found[f"{regime}_vol_days"].update(unlabelled_days=unlabelled)
             put(f"{regime}_vol_mean_log", sum(logs_in) / len(logs_in) if logs_in and reason is None else None,
-                "regime_days", len(logs_in), empty)
+                "regime_days", len(in_regime), empty)
             put(f"{regime}_vol_log_sum", sum(logs_in) if logs_in and reason is None else None, "regime_days",
-                len(logs_in), empty)
+                len(in_regime), empty)
 
     # trade_structure
     if needs(*slices["trade_structure"]):

@@ -109,14 +109,17 @@ def _sealed_rows_findings(conn: db.LedgerConnection, trial_id: int, commit: str,
     starting = trial["starting_balance"]
     final = measures.final_equity(starting, returns)
     activity = report.get("activity") or {}
-    if (activity.get("returns_compound_to_equity") or {}).get("passed") and final is not None:
+    if (activity.get("returns_compound_to_equity") or {}).get("passed"):
         limitations: list[str] = []
         summary = {"period_start_utc": str(clock.moment_ns(trial["trade_start"])),
                    "period_end_utc": str(clock.moment_ns(trial["trade_end"]))}
         if metrics.daily_returns(returns, summary, limitations) is None:
             mismatch("run_return", "the monthly figures have no whole daily series: " + "; ".join(limitations))
-    if final is not None:
-        bridge = profit.account_bridge(cycles, starting, final, native_economics)
+    bridge_final = final
+    if bridge_final is None and isinstance(native_economics, Mapping):
+        bridge_final = profit.amount(native_economics.get("final_balance_usdt"))
+    if final is not None or cycles or (activity.get("cycles_cover_fills") or {}).get("passed"):
+        bridge = profit.account_bridge(cycles, starting, bridge_final, native_economics)
         if bridge["reason"] and any(code in bridge["reason"] for code in ("MISMATCH", "BRIDGE_UNRECONCILED")):
             mismatch("run_cycle", bridge["reason"])
     if measures.plans_hold(report) is None:
