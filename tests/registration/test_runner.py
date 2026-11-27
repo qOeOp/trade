@@ -36,6 +36,16 @@ class RunnerTests(unittest.TestCase):
         caught = refused(runner.runner_inputs, ["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
         self.assertEqual(caught.code, "USAGE_ERROR")
 
+    def test_universe_takes_only_pool_and_excludes_symbols(self):
+        window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z"]
+        for valid in ([*window, "--universe", "pool"], [*window, "--universe=pool"]):
+            with self.subTest(valid=valid):
+                self.assertEqual(runner.runner_inputs(valid)["selection"], {"universe": True})
+        for bad in ([*window, "--universe", "bogus"], [*window, "--universe"],
+                    [*window, "--symbols", "AAAUSDT", "--universe", "pool"]):
+            with self.subTest(bad=bad):
+                self.assertEqual(refused(runner.runner_inputs, bad).code, "USAGE_ERROR")
+
     def test_trade_ticks_are_the_entry_s_and_need_the_quote_environment(self):
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]
         quotes = ["--execution", "quotes", "--initial-margin", "0.05", "--maintenance-margin", "0.025"]
