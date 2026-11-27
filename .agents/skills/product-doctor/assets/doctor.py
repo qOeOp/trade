@@ -45,6 +45,7 @@ import friction  # noqa: E402
 import prod_invariants  # noqa: E402
 import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
+import surface_skill_audit  # noqa: E402
 import telemetry  # noqa: E402
 
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
@@ -1081,6 +1082,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fric_p.set_defaults(function=friction_cmd)
     prod_invariants.register_prod_snapshot_parser(commands)
     runtime_posture.register_posture_parser(commands)
+    surface_skill_audit.register_surface_skill_parsers(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1147,7 +1149,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit("run needs `-- COMMAND`")
     if args.function in (
         scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd,
-        prod_invariants.run_prod_snapshot_cmd, runtime_posture.run_posture_cmd,
+        prod_invariants.run_prod_snapshot_cmd,
+        runtime_posture.run_posture_cmd,
+        surface_skill_audit.run_surface_cmd,
+        surface_skill_audit.run_skills_audit_cmd,
     ):
         return args.function(args)
     args.directory = args.directory.resolve()
