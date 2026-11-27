@@ -764,3 +764,150 @@ def collect_friction(
         "triggers": triggers,
         "has_friction": bool(triggers),
     }
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _audit_research_state(state: dict[str, Any], triggers: list[str]) -> dict[str, Any]:
+    raw_line = state.get("line")
+    line_obj: dict[str, Any] | None = raw_line if isinstance(raw_line, dict) else None
+    line_name = str(line_obj.get("name") or "none") if line_obj is not None else "none"
+    is_open = line_obj is not None and not line_obj.get("closed_at")
+    raw_cadence = state.get("review_every")
+    review_every = (
+        int(raw_cadence)
+        if isinstance(raw_cadence, int) and not isinstance(raw_cadence, bool) and raw_cadence > 0
+        else 5
+    )
+
+    unreviewed = _as_list(state.get("unreviewed_trials"))
+    raw_undist = state.get("undistinguished_runs")
+    undist: dict[str, Any] | None = raw_undist if isinstance(raw_undist, dict) else None
+    undist_trials = _as_list(undist.get("trials")) if undist is not None else []
+    uncompared = _as_list(undist.get("uncompared")) if undist is not None else []
+    distinguished = undist.get("distinguished") if undist is not None else None
+    behind = _as_list(state.get("runs_behind_image"))
+    gate_codes = [str(g.get("code") or "UNKNOWN") for g in _as_list(state.get("gates")) if isinstance(g, dict)]
+
+    if len(unreviewed) >= review_every:
+        triggers.append(
+            f"research_unreviewed_backlog ({line_name}: {len(unreviewed)} unreviewed trials >= review_every={review_every})"
+        )
+    if len(uncompared) >= review_every:
+        triggers.append(
+            f"research_uncompared_backlog ({line_name}: {len(uncompared)} uncompared runs >= review_every={review_every})"
+        )
+    if undist is not None and distinguished in (None, False) and len(undist_trials) >= review_every:
+        triggers.append(
+            f"research_undistinguished_streak ({line_name}: {len(undist_trials)} undistinguished runs >= review_every={review_every})"
+        )
+    if behind:
+        triggers.append(
+            f"research_stale_runtime_runs ({line_name}: {len(behind)} passed run(s) behind current image)"
+        )
+    if is_open and gate_codes:
+        triggers.append(f"research_blocking_gates ({line_name}: {', '.join(gate_codes)})")
+
+    interps = _as_list(state.get("interpretations"))
+    exposures = _as_list(state.get("search_exposures"))
+    return {
+        "ledger_commit": state.get("ledger_commit"),
+        "line": line_name if line_obj else None,
+        "is_open": is_open,
+        "review_every": review_every,
+        "trials_on_line": state.get("trials_on_line"),
+        "unreviewed_count": len(unreviewed),
+        "uncompared_count": len(uncompared),
+        "undistinguished_count": len(undist_trials),
+        "distinguished_trial": distinguished,
+        "runs_behind_image_count": len(behind),
+        "has_recommendation": state.get("recommendation") is not None,
+        "interpretations_count": len(interps),
+        "search_exposures_count": len(exposures),
+        "gates": gate_codes,
+    }
+
+
+def _audit_multiple_testing(status: dict[str, Any], triggers: list[str]) -> dict[str, Any]:
+    mt = status.get("multiple_testing") if isinstance(status.get("multiple_testing"), dict) else None
+    summary: dict[str, Any] = {
+        "ledger_commit": status.get("ledger_commit"),
+        "trials": status.get("trials"),
+        "multiple_testing": None,
+    }
+    if mt is None:
+        return summary
+    mt_line = str(mt.get("line") or "unknown")
+    rwr = mt.get("runs_with_returns")
+    res_trials = mt.get("research_trials")
+    mean_corr = mt.get("mean_correlation")
+    eff = mt.get("effective_trials")
+    rwr_int = int(rwr) if _is_finite_number(rwr) else 0
+    res_int = int(res_trials) if _is_finite_number(res_trials) else 0
+    denom = max(rwr_int, res_int) if rwr_int > 0 else res_int
+    eff_ratio = round(float(eff) / denom, 4) if (denom > 0 and _is_finite_number(eff)) else None
+
+    high_corr = rwr_int >= 6 and _is_finite_number(mean_corr) and float(mean_corr) >= 0.85
+    low_eff = rwr_int >= 6 and eff_ratio is not None and eff_ratio <= 0.35
+    if high_corr or low_eff:
+        corr_s = f"{float(mean_corr):.3f}" if _is_finite_number(mean_corr) else "null"
+        eff_s = f"{float(eff):.2f}" if _is_finite_number(eff) else "null"
+        ratio_s = f"{eff_ratio:.2f}" if eff_ratio is not None else "null"
+        triggers.append(
+            f"research_correlated_sweep ({mt_line}: runs_with_returns={rwr_int}, "
+            f"mean_correlation={corr_s}, effective_trials={eff_s}, ratio={ratio_s})"
+        )
+
+    summary["multiple_testing"] = {
+        "line": mt.get("line"),
+        "research_trials": mt.get("research_trials"),
+        "all_purpose_trials": mt.get("all_purpose_trials"),
+        "sweep_variants": mt.get("sweep_variants"),
+        "trials_with_sweeps": mt.get("trials_with_sweeps"),
+        "runs_with_returns": mt.get("runs_with_returns"),
+        "mean_correlation": round(float(mean_corr), 4) if _is_finite_number(mean_corr) else None,
+        "effective_trials": round(float(eff), 4) if _is_finite_number(eff) else None,
+        "effective_trial_ratio": eff_ratio,
+    }
+    return summary
+
+
+def analyze_research_ledger(
+    state_data: dict[str, Any] | None = None,
+    status_data: dict[str, Any] | None = None,
+    transcript_paths: list[Path] | None = None,
+) -> dict[str, Any]:
+    """Audit a research line from real `research state` / `research status` JSON and optional transcripts."""
+    if state_data is not None and not isinstance(state_data, dict):
+        raise SystemExit("--state-json must contain a JSON object from `cli.main research state`")
+    if status_data is not None and not isinstance(status_data, dict):
+        raise SystemExit("--status-json must contain a JSON object from `cli.main research status`")
+    effective_status = status_data
+    if effective_status is None and isinstance(state_data, dict):
+        facts = state_data.get("facts")
+        if isinstance(facts, dict) and isinstance(facts.get("counts"), dict):
+            effective_status = facts["counts"]
+
+    triggers: list[str] = []
+    state_summary = _audit_research_state(state_data, triggers) if state_data is not None else None
+    status_summary = _audit_multiple_testing(effective_status, triggers) if effective_status is not None else None
+    tx_summary = analyze_transcripts(transcript_paths) if transcript_paths else None
+    if tx_summary is not None:
+        triggers.extend(tx_summary["triggers"])
+
+    return {
+        "ok": not triggers,
+        "state_provided": state_data is not None,
+        "status_provided": effective_status is not None,
+        "transcripts_provided": tx_summary is not None,
+        "state": state_summary,
+        "status": status_summary,
+        "transcripts": tx_summary,
+        "triggers": triggers,
+    }

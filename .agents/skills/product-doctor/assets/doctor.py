@@ -489,6 +489,18 @@ def friction_cmd(args: argparse.Namespace) -> None:
     ))
 
 
+def research_audit_cmd(args: argparse.Namespace) -> None:
+    state_data = _load_json_file(args.state_json, "--state-json") if args.state_json else None
+    status_data = _load_json_file(args.status_json, "--status-json") if args.status_json else None
+    tx_paths = list(args.transcripts or [])
+    if state_data is None and status_data is None and not tx_paths:
+        raise SystemExit("research-audit needs --state-json, --status-json, and/or --transcripts")
+    print(json.dumps(
+        friction.analyze_research_ledger(state_data, status_data, tx_paths or None),
+        indent=1,
+    ))
+
+
 def _steady_exit_code(text: str) -> int:
     try:
         code = int(text)
@@ -637,6 +649,7 @@ def probe(args: argparse.Namespace) -> None:
         raise SystemExit("this is the claim's own probe; a refutation is written without it")
     main_rev = resolve_tree_arg(args.tree)
     with tree(main_rev) as root:
+        _link_node_modules(root, _PROBE_JS_PACKAGES)
         main = ask(root, args.probe, "probe", args.timeout)
         control = None if args.control_tree else ask(root, args.probe, "control", args.timeout)
         if control and control["state"] == "none":
@@ -644,10 +657,12 @@ def probe(args: argparse.Namespace) -> None:
     control_rev = commit(args.control_tree) if args.control_tree else None
     if control_rev:
         with tree(control_rev) as root:
+            _link_node_modules(root, _PROBE_JS_PACKAGES)
             control = ask(root, args.probe, "probe", args.timeout)
     before = None
     if args.before:
         with tree(commit(args.before)) as root:
+            _link_node_modules(root, _PROBE_JS_PACKAGES)
             before = ask(root, args.probe, "probe", args.timeout)["state"]
     args.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     name = f"{args.id}{'.refutes' if args.refutes else ''}.py"
@@ -774,18 +789,59 @@ def judge(fixed: dict[str, str], reverted: dict[str, str], now: dict[str, str]) 
     return ("confirmed", held) if held else ("undecided", telling)
 
 
+_PROBE_JS_PACKAGES = ("ide/web/package.json", "ide/overview/package.json", "docs-site/package.json")
+_FALLBACK_JS_DIRS = (Path("ide/web"), Path("docs-site"), Path("ide/overview"))
+
+
 def _repo_roots() -> list[Path]:
-    """Candidate host checkout roots (current checkout, plus main worktree root if in a worktree) for read-only
-    `node_modules` resolution during cross-language JS/TS `recheck`."""
+    """Candidate host checkout roots (current checkout, main worktree root, shared-clone alternates, cwd)
+    for read-only `node_modules` resolution during JS/TS `probe` and `recheck`."""
     roots: list[Path] = []
+
+    def add_root(cand: Path) -> None:
+        if cand.is_dir() and cand not in roots:
+            roots.append(cand)
+
     for args in (["git", "rev-parse", "--show-toplevel"], ["git", "rev-parse", "--git-common-dir"]):
         done = subprocess.run(args, capture_output=True, text=True, check=False)
         if done.returncode == 0 and done.stdout.strip():
             raw = Path(done.stdout.strip()).resolve()
-            cand = raw.parent if raw.name == ".git" else raw
-            if cand.is_dir() and cand not in roots:
-                roots.append(cand)
+            add_root(raw.parent if raw.name == ".git" else raw)
+            alt_file = raw / "objects/info/alternates"
+            if alt_file.is_file():
+                for ln in alt_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                    text = ln.strip()
+                    if text and not text.startswith("#"):
+                        alt = Path(text).resolve()
+                        if alt.name == "objects" and alt.parent.name == ".git":
+                            add_root(alt.parent.parent)
+    add_root(Path.cwd().resolve())
     return roots
+
+
+def _fallback_node_modules(pkg_json: Path, host_roots: Sequence[Path]) -> Path | None:
+    """When a package's own host `node_modules` is empty/missing, reuse a sibling package's non-empty
+    `node_modules` that satisfies the package's declared dependencies (e.g. `typescript`, `react`)."""
+    try:
+        meta = json.loads(pkg_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    deps = set(meta.get("dependencies") or ()) | set(meta.get("devDependencies") or ())
+    if not deps:
+        return None
+    needs_ts = "typescript" in deps
+    best_score, best_path = 0, None
+    for hroot in host_roots:
+        for sib in _FALLBACK_JS_DIRS:
+            cand = hroot / sib / "node_modules"
+            if not cand.is_dir():
+                continue
+            if needs_ts and not (cand / "typescript").is_dir():
+                continue
+            score = sum(1 for dep in deps if (cand / dep).exists())
+            if score > best_score:
+                best_score, best_path = score, cand
+    return best_path
 
 
 def _link_node_modules(root: Path, js_files: Sequence[str]) -> None:
@@ -805,11 +861,17 @@ def _link_node_modules(root: Path, js_files: Sequence[str]) -> None:
         dest = root / pkg_rel / "node_modules"
         if dest.exists() or dest.is_symlink():
             continue
+        linked = False
         for hroot in host_roots:
             src = hroot / pkg_rel / "node_modules"
             if src.is_dir() and any(src.iterdir()):
                 dest.symlink_to(src)
+                linked = True
                 break
+        if not linked:
+            fallback = _fallback_node_modules(root / pkg_rel / "package.json", host_roots)
+            if fallback is not None:
+                dest.symlink_to(fallback)
 
 
 def run_js_tests(root: Path, js_files: Sequence[str], timeout: float) -> tuple[dict[str, str] | None, str]:
@@ -1105,6 +1167,14 @@ def _build_parser() -> argparse.ArgumentParser:
     fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
     fric_p.add_argument("--prod-logs", type=Path, nargs="+", help="one or more production service log files (Paper/Live/IDE/Dolt)")
     fric_p.set_defaults(function=friction_cmd)
+    ra_p = commands.add_parser(
+        "research-audit",
+        help="ground-truth research line audit from real `research state` / `research status` JSON and optional transcripts",
+    )
+    ra_p.add_argument("--state-json", type=Path, help="path to JSON output of `python -m cli.main research state [--line LINE]`")
+    ra_p.add_argument("--status-json", type=Path, help="path to JSON output of `python -m cli.main research status` or `research multiple-testing`")
+    ra_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
+    ra_p.set_defaults(function=research_audit_cmd)
     runtime_posture.register_posture_parser(commands)
     surface_skill_audit.register_surface_skill_parsers(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
@@ -1186,7 +1256,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
         args.function(args)
         return
-    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd):
+    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, research_audit_cmd, advise_cmd):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
