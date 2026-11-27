@@ -301,16 +301,18 @@ def development_period(today: date, latest_complete_day: date, covered: date | N
 
 
 def check_replay_window(conn: db.LedgerConnection, line: str | None, trade_start_ns: int, end_ns: int,
-                        latest_complete_day: date, covered: date | None = None, today: date | None = None) -> None:
+                        latest_complete_day: date, covered: date | None = None, today: date | None = None,
+                        *, allow_closed: bool = False) -> None:
     """Where an explore or precheck replay may trade (line-close-history-test-20261110.zh.md 3.2, B5): with `line`,
-    inside that open line's development period; without one (only a start candidate's precheck), inside the period
+    inside that line's development period (open only unless `allow_closed` is true, as for unregistered `replay
+    explore` wallet-evidence replays); without one (only a start candidate's precheck), inside the period
     a line opened today on its instruments would get (`covered`: covered_from of the replay's selection) and before
     the holdout of every open line, which begins at its period's end. The holdout, the history before the period
     and the forward segment are replayed only when a line closes. WINDOW_OUTSIDE_DEVELOPMENT otherwise;
-    LINE_HISTORY_SHORT when no line could open on the instruments; LINE_UNKNOWN or LINE_ENDED for a named line
-    that is no open line."""
+    LINE_HISTORY_SHORT when no line could open on the instruments; LINE_UNKNOWN or (unless `allow_closed`)
+    LINE_ENDED for a named line."""
     if line is not None:
-        record = open_line(conn, line)
+        record = read_line(conn, line) if allow_closed else open_line(conn, line)
         first, end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
         allowed = f"line {record['name']}'s development period"
     else:

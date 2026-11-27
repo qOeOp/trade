@@ -204,6 +204,8 @@ def execute(args) -> int:
             if args.mode == "run" and os.path.lexists(args.output / "armed.json") and not session.ended:
                 session.event("unresolved", failure_type=type(exc).__name__, strict=False,
                               code=exc.code if isinstance(exc, Refusal) else None)
+            elif args.mode == "preflight" and isinstance(exc, Refusal):
+                session.event("preflight_refused", code=exc.code, strict=False)
             raise
 
 

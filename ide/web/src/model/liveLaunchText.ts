@@ -1,6 +1,6 @@
 // The launch page's plain words for why Live takes no run, or refused a step: what happened and who can change it,
 // never a refusal code.
-import type { LiveTradingView } from "./liveTrading";
+import type { LiveAccountCheck, LiveEvidenceRead, LiveTradingView } from "./liveTrading";
 
 /** Why Live cannot take a run at all, said plainly with who can change it; null when it can. */
 export function unavailableReason(view: LiveTradingView): string | null {
@@ -17,7 +17,7 @@ export function unavailableReason(view: LiveTradingView): string | null {
 /** A refused launch step's code in plain words, with who can change it. */
 export function refusalText(code: string | undefined): string {
   return (code && {
-    LIVE_EVIDENCE_MISSING: "No replay backs this candidate yet. The Agent runs a replay of it at your wallet's balance on Live's contracts.",
+    LIVE_EVIDENCE_MISSING: "No replay backs this candidate at this leverage yet. The Agent runs a replay of it at your wallet's balance and leverage on Live's contracts.",
     LIVE_EVIDENCE_BALANCE: "No replay started near your wallet's balance. The Agent replays the candidate at the wallet.",
     LIVE_CANDIDATE_FALSIFIED: "The line's closing history test found this candidate short of its targets. Select a candidate it passed.",
     LIVE_HISTORY_UNDECIDED: "The line's closing history test has not decided this candidate. Close its line first, or select a candidate the test passed.",
@@ -28,18 +28,27 @@ export function refusalText(code: string | undefined): string {
     LIVE_ACCOUNT_OWNED: "Another Live run still holds the account. Stop or reconcile it first.",
     LIVE_ACCOUNT_NOT_FLAT: "The account holds positions or orders. Close them at Binance first.",
     LIVE_ACCOUNT_MODE: "The account's modes do not match what Live needs. Change them at Binance.",
+    LIVE_MARGIN_MODE: "Each contract at Binance must use cross margin, match this leverage, and have automatic margin addition off. Change that at Binance.",
     LIVE_FUNDS: "The futures wallet does not cover the cash floor (85% of the wallet at the start). Add USDT at Binance.",
     LIVE_KEY_WITHDRAWAL: "This API key allows withdrawals. Turn that off at Binance, or save a key without it.",
     LIVE_KEY_UNVERIFIED: "Binance did not confirm the key's permissions. Try the account check again.",
     LIVE_KEY_IP_UNRESTRICTED: "A Live run needs an API key restricted to this server's IP. Set one at Binance.",
-    LIVE_BUDGET: "An entry would take the strategy's exposure on its contract above 3 times the account's USDT equity.",
+    LIVE_CLOCK: "The server clock differs too far from Binance's. Wait for clock sync or check the server, then try again.",
+    LIVE_BUDGET: "The futures wallet has no positive USDT balance for the cash floor (85% of the wallet), or an entry would exceed 3 times USDT equity. Add USDT at Binance.",
+    LIVE_MINIMUM_SIZE: "A contract's Binance minimum order size exceeds 3 times the account's USDT equity. Add USDT at Binance or choose another contract.",
+    LIVE_INSTRUMENT: "A selected contract is not an active Binance USDT perpetual. Choose another contract.",
+    LIVE_INSTRUMENT_UNKNOWN: "Binance did not report one of the selected contracts. Check the contract names.",
+    TERMS_CHANGED: "Binance's contract rules changed since the market directory was last updated. Update the market directory, then try again.",
+    LIVE_ACCOUNT_UNAVAILABLE: "Binance did not answer the account check. Try again in a moment.",
+    LIVE_ACCOUNT_RESPONSE: "Binance returned an incomplete account observation. Try the account check again.",
+    LIVE_OBSERVATION_STALE: "The account observation expired before checks finished. Try the account check again.",
     LIVE_RELEASE_UNAVAILABLE: "Live is switching to a new release. Wait, then try again.",
     LIVE_CONFIG: "Live did not take these settings. The brake must be above 0 and at most 15 %; the duration whole seconds or empty; the leverage a whole number from 1 to 125.",
     LIVE_SOURCE_MISSING: "This version is no candidate Live can run: the research ledger does not hold it, or its source does not load. Select another version.",
     LIVE_SYMBOLS: "Live did not take these contracts. Name Binance USDT perpetuals such as BTCUSDT, each once.",
     LIVE_UNIVERSE: "The market directory gives these contracts no membership this month. Choose others, or wait for the market to update.",
     LIVE_IDENTITY_CHANGED: "The candidate, its runtime or the confirmation no longer matches what was prepared. Check the account again.",
-  }[code]) || "Live refused this step. Requests shows what it recorded.";
+  }[code]) || "Live refused this step.";
 }
 
 /** A contract as the market holds it, Paper and Live take it: letters and digits of any script, a non-ASCII coin
@@ -68,4 +77,31 @@ export function spanText(seconds: string): string | null {
   let rest = Number(seconds);
   const parts = SPAN_UNITS.map((unit) => { const n = Math.floor(rest / unit.seconds); rest -= n * unit.seconds; return n ? `${n} ${unit.label}` : ""; });
   return [...parts, restText(rest)].filter(Boolean).join(" ");
+}
+
+/** Replays matching the selected leverage (replays without a leverage field match any). */
+export function matchingReplays(evidence: LiveEvidenceRead | null | undefined, leverage: string | null): readonly LiveEvidenceRead["replays"][number][] {
+  if (!evidence || evidence.state !== "found") return [];
+  return evidence.replays.filter((row) => row.leverage == null || leverage === null || row.leverage === leverage);
+}
+
+/** Plain explanation for the Strategy column's Replay evidence row. */
+export function evidenceReason(evidence: LiveEvidenceRead, matchedCount: number, leverage: string | null): string {
+  if (evidence.state === "found" && matchedCount) return "Passed replays of this source on these contracts at this leverage, on the execution image's replay code.";
+  if (evidence.state === "checking") return "The Live service is reading the ledger and the execution image.";
+  if (evidence.state === "unknown") return "The Live service could not read it just now and tries again within a few minutes.";
+  const others = evidence.state === "found" ? [...new Set(evidence.replays.map((row) => row.leverage).filter((item): item is string => Boolean(item)))] : [];
+  const otherNote = others.length ? ` (replays exist at ${others.map((item) => `${item}×`).join(", ")})` : "";
+  return `No passed replay of this candidate on these contracts at ${leverage ? `${leverage}×` : "this"} leverage runs the execution image's replay code${otherNote}. The Agent runs one at your wallet's balance and leverage (replay explore); Live then reads it from the research ledger.`;
+}
+
+const UNBACKED_CHECK = "Live read the account, then stopped: no replay backs the candidate yet (Strategy). The wallet below is what a replay must start near; check again once one does.";
+
+/** Plain explanation for the Account column's Account check row. */
+export function checkReason(check: LiveAccountCheck | null, unbacked: boolean): string {
+  if (check?.state === "passed") return "Live checks the account again when it starts.";
+  if (check?.state === "failed" && check.refusal) return check.refusal.code === "LIVE_EVIDENCE_MISSING" ? UNBACKED_CHECK : refusalText(check.refusal.code);
+  if (check?.state === "failed" && unbacked) return UNBACKED_CHECK;
+  if (check?.state === "failed") return "Live refused the account: a mode, the margin type or leverage, the key's permissions or the funds. The rows here show what it observed.";
+  return check?.state === "running" ? "Reading the account at Binance. This page refreshes on its own." : "Not checked yet. It reads the account; it places no order.";
 }

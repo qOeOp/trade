@@ -153,6 +153,57 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM run WHERE trial_id = %s",
                                                 (explored["trial_id"],))[0][0], 0)
 
+    def test_explore_on_a_closed_line_works_inside_its_development_period_while_research_stays_refused(self):
+        """A candidate on a closed line can still run unregistered `replay explore` (e.g. for Live wallet-balance
+        replay evidence) inside its development period; outside it is WINDOW_OUTSIDE_DEVELOPMENT, and precheck /
+        registration still refuse the closed line with LINE_ENDED."""
+        from datetime import date
+        from ledger import lines
+        from live import runs as live_runs
+        world = ReplayWorld("explore-closed-line")
+        self.addCleanup(world.close)
+        published = world.publish("wallet-candidate", parent=None)
+        data = source("wallet-candidate")
+        ref = published["candidate"]
+        review = world.prechecked(data)
+        registered = world.register(world.body([ref], {ref: review}, comparison=None))
+        world.research_trial(registered["registration_id"], data)
+        line_name = world.line["line"]
+        # Close the line (passing candidates=[] so no history segments block closing in this unit test).
+        lines.close_line(world.profile, line_name, b"closing line for live candidate",
+                         (date(2021, 1, 1), date(2026, 11, 10)), candidates=lambda *_: [])
+        self.assertEqual(refused(world.register, world.body([ref], {ref: review}, comparison=None),
+                                 line=line_name).code, "LINE_ENDED")
+        self.assertEqual(refused(entry.precheck, world.profile, world.market, MARKET_DAY, ref, None,
+                                 WEEK, world.output("precheck-closed"), line=line_name).code, "LINE_ENDED")
+        outside = [*ONE[:ONE.index("--end") + 1], "2026-06-01T00:00:00Z", *ONE[ONE.index("--end") + 2:]]
+        self.assertEqual(refused(entry.explore, world.profile, world.market, MARKET_DAY,
+                                 world.strategy_file(data, "cand.py"), "Fixture", world.output("outside"),
+                                 None, outside, line_name).code, "WINDOW_OUTSIDE_DEVELOPMENT")
+        wallet_argv = [*ONE, "--starting-balance", "250"]
+
+        def inspect_balance(identity, runner_argv, inputs):
+            probed = inspect(identity, runner_argv, inputs)
+            if "--starting-balance" in runner_argv:
+                bal = runner_argv[runner_argv.index("--starting-balance") + 1]
+                probed["effective_config"] = {**probed["effective_config"],
+                                              "account": {**probed["effective_config"]["account"],
+                                                          "starting_balance_usdt": bal}}
+            return probed
+
+        with registration_seams.use(inspect_runtime=inspect_balance):
+            explored = entry.explore(world.profile, world.market, MARKET_DAY,
+                                     world.strategy_file(data, "cand.py"), "Fixture", world.output("wallet"),
+                                     None, wallet_argv, line_name)
+        self.assertEqual((explored["purpose"], explored["status"]), ("explore", "passed"))
+        import hashlib
+        code = {"source_files_sha256": {}, "audit_source_sha256": "2" * 64, "dependency_lock_sha256": "3" * 64}
+        with patch.object(live_runs.admission, "replay_code", return_value=code):
+            found = live_runs._evidence(world.profile, db.head_commit(world.conn),
+                                        hashlib.sha256(data).hexdigest(), ["AAAUSDT"], code, [], "3")
+        self.assertIn((explored["trial_id"], "250"),
+                      [(item["trial_id"], item["starting_balance_usdt"]) for item in found])
+
     def test_an_exploration_is_refused_before_any_trial_or_process(self):
         trials_before, commands = self.count("trial"), len(self.world.commands)
         existing = self.world.output("exists")

@@ -17,7 +17,7 @@ export type LivePaperReadDto = { state: "checking" | "reconciled" | "unreconcile
  *  preparation (live/control.py Evidence, GET /candidates/<id>/<rev>/evidence/<SYM,SYM>). Preparation checks it again. */
 export type LiveEvidenceReadDto = {
   state: "checking" | "found" | "missing" | "unknown";
-  replays: { trial_id: number; starting_balance_usdt: string }[]; tolerance: string; research_at: string;
+  replays: { trial_id: number; starting_balance_usdt: string; leverage?: string | null }[]; tolerance: string; research_at: string;
 };
 /** The candidate at the research head as a run of it would be prepared now (live/control.py candidate,
  *  GET /candidates/<id>/<rev>), and the contracts of its last research replay, which the page offers. */
@@ -50,6 +50,7 @@ export type LiveRunDto = {
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };
   stop_requested: boolean | null;
   terminal: { event: "clean_stop" | "reconciled_flat" | "venue_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
+  preflight_refusal?: { code: string; message: string } | null;
   custody: { released: boolean | null; release_reason: "never_armed" | "native_and_venue_flat" | "venue_flat" | null; archived: boolean | null };
   account: {
     observation_ref: { source: string; cursor: string }; observed_ns: string | null; can_trade: boolean | null;

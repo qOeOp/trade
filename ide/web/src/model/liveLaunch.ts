@@ -2,9 +2,9 @@
 // comes from, whether the user may change it here (editable), and whether it passes, with a plain reason when it does
 // not. Start opens only when every required row has a value and passes; the server still checks everything again.
 import { selectedCredential, type LiveCredential, type LiveEnvironment, type LiveRun, type LiveSource, type LiveTradingView } from "./liveTrading";
-import { contractsOf, unavailableReason } from "./liveLaunchText";
+import { checkReason, contractsOf, evidenceReason, matchingReplays, unavailableReason } from "./liveLaunchText";
 import { paperBlocker, paperRow } from "./livePaper";
-export { refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
+export { matchingReplays, refusalText, restText, SPAN_UNITS, spanText, unavailableReason } from "./liveLaunchText";
 /** pass / fail: a condition and its answer; wait: a condition not answered yet; shown: a value with no condition. */
 export type Mark = "pass" | "fail" | "wait" | "shown";
 export type LaunchRow = {
@@ -45,14 +45,20 @@ export const launchSymbols = (source: LiveSource | null, edits: LaunchInput["edi
 export const holding = (runs: readonly LiveRun[], self: string | null): LiveRun[] =>
   runs.filter((run) => run.id !== self && (run.running || run.hostState === "unresolved" || run.accountOwned === true));
 
+const LEVERAGE = /^(?:[1-9]|[1-9][0-9]|1[01][0-9]|12[0-5])$/;
+const validLeverage = (view: LiveTradingView, edits: LaunchInput["edits"]) => {
+  const lev = value(view, edits, "leverage");
+  return lev !== null && LEVERAGE.test(lev) ? lev : null;
+};
+
 function strategy({ view, source, edits, reading, targets }: LaunchInput, closed: string | null): LaunchRow[] {
   const found = source?.read === "found" ? source : null, symbols = launchSymbols(source, edits), contracts = contractsText(source, edits);
   const missing = closed ?? (!source ? NO_VERSION : source.read === "absent"
     ? "This version is no candidate Live can run: the research ledger does not hold it, or its source does not load."
     : source.read === "reading" ? "Reading the candidate from the research ledger." : "Live did not answer. It is asked again in a moment.");
+  const leverage = value(view, edits, "leverage"), lev = validLeverage(view, edits);
   const evidence = found && symbols ? source?.evidence ?? null : null;
-  const replays = evidence?.replays.map((row) => row.balance).join(" · ");
-  const leverage = value(view, edits, "leverage"), leverageOk = leverage !== null && /^(?:[1-9]|[1-9][0-9]|1[01][0-9]|12[0-5])$/.test(leverage);
+  const matched = matchingReplays(evidence, lev), replays = matched.map((row) => row.balance).join(" · ");
   const ret = reading?.annual_return ?? null, dd = reading?.max_drawdown ?? null;
   const target = (label: string, got: number | null, want: number | null | undefined, higher: boolean): LaunchRow => ({
     id: label, label, value: got === null ? null : percent(got), source: "Research reading of this candidate", editable: false, required: false,
@@ -73,26 +79,23 @@ function strategy({ view, source, edits, reading, targets }: LaunchInput, closed
         : !symbols ? "Binance USDT perpetuals such as BTCUSDT, separated by commas, each once."
         : symbols.length > 1 ? "One strategy instance on each contract." : null) },
     { id: "leverage", label: "Leverage", value: leverage, unit: "×", source: `Default ${view.planFields.find((field) => field.id === "leverage")?.value ?? "3"}×`, editable: true,
-      required: true, mark: leverageOk ? "pass" : "fail",
-      reason: leverage === null ? closed ?? missing : !leverageOk ? "A whole number from 1 to 125."
+      required: true, mark: lev ? "pass" : "fail",
+      reason: leverage === null ? closed ?? missing : !lev ? "A whole number from 1 to 125."
         : `Must equal ${symbols && symbols.length > 1 ? "each contract's" : "the contract's"} leverage at Binance, with cross margin; the account check compares them.` },
     !evidence ? { id: "evidence", label: "Replay evidence", value: null, source: "Research ledger", editable: false, required: true,
       mark: found && !symbols && !closed ? "fail" : waiting ? "wait" : "fail", reason: found && !symbols && !closed ? "Waits for valid contracts." : missing }
       : { id: "evidence", label: "Replay evidence", source: "Research ledger, read by the Live service", editable: false, required: true,
-        value: evidence.state === "found" ? `${evidence.replays.length} replay${evidence.replays.length === 1 ? "" : "s"}` : evidence.state === "missing" ? "None" : null,
-        unit: evidence.state === "found" ? `at ${replays} USDT` : null,
-        mark: evidence.state === "found" ? "pass" : evidence.state === "missing" ? "fail" : "wait",
-        reason: evidence.state === "found" ? "Passed replays of this source on these contracts, on the execution image's replay code."
-          : evidence.state === "missing" ? "No passed replay of this candidate on these contracts runs the execution image's replay code. The Agent runs one at your wallet's balance (replay explore); Live then reads it from the research ledger."
-          : evidence.state === "checking" ? "The Live service is reading the ledger and the execution image."
-          : "The Live service could not read it just now and tries again within a few minutes." },
+        value: evidence.state === "found" ? matched.length ? `${matched.length} replay${matched.length === 1 ? "" : "s"}` : "None" : evidence.state === "missing" ? "None" : null,
+        unit: evidence.state === "found" && matched.length ? `at ${replays} USDT` : null,
+        mark: evidence.state === "found" && matched.length ? "pass" : evidence.state === "missing" || evidence.state === "found" ? "fail" : "wait",
+        reason: evidenceReason(evidence, matched.length, lev) },
     paperRow(evidence ? source?.paper ?? null : null, waiting, found && !symbols && !closed ? "Waits for valid contracts." : missing),
     target("Max drawdown", dd, targets?.max_drawdown, false),
     target("Annual return", ret, targets?.annual_return, true),
   ];
 }
 
-function account({ source, edits, checked, environment }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
+function account({ view, source, edits, checked, environment }: LaunchInput, closed: string | null, credential: LiveCredential | undefined): LaunchRow[] {
   const demo = environment === "demo";
   const check = checked?.accountCheck ?? null, venue = checked?.venue ?? null, passed = check?.state === "passed";
   const notYet = !checked ? "Shown after the account check." : check?.state === "running" ? "The account check is running." : null;
@@ -105,10 +108,11 @@ function account({ source, edits, checked, environment }: LaunchInput, closed: s
   const wallet = venue?.wallet ?? null, available = venue?.available ?? null, budget = wallet === null ? null : cashFloor(wallet);
   const funds = wallet !== null && available !== null ? Math.min(Number(wallet), Number(available)) : null;
   const evidence = source?.read === "found" && launchSymbols(source, edits) ? source.evidence : null;
-  const unbacked = evidence?.state === "missing";
-  const found = evidence?.state === "found" ? evidence : null, tolerance = found ? Number(found.tolerance) : 0;
-  const nearest = wallet !== null && found?.replays.length
-    ? found.replays.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
+  const matched = matchingReplays(evidence, validLeverage(view, edits));
+  const unbacked = evidence?.state === "missing" || (evidence?.state === "found" && !matched.length);
+  const found = matched.length ? evidence : null, tolerance = found ? Number(found.tolerance) : 0;
+  const nearest = wallet !== null && matched.length
+    ? matched.reduce((best, row) => Math.abs(Number(row.balance) - Number(wallet)) < Math.abs(Number(best.balance) - Number(wallet)) ? row : best) : null;
   const near = nearest !== null && wallet !== null && Math.abs(Number(nearest.balance) - Number(wallet)) <= tolerance * Number(wallet);
   return [
     { id: "key", label: "API key", value: credential ? `${demo ? "Binance Demo" : "Binance Futures"} · ${credential.ref.slice(0, 8)}` : null,
@@ -120,11 +124,7 @@ function account({ source, edits, checked, environment }: LaunchInput, closed: s
     { id: "check", label: "Account check", source: "Read-only, by the Live service", editable: false, required: true,
       value: check ? { passed: "Passed", failed: "Failed", running: "Running", unknown: "Unknown" }[check.state] : null,
       mark: passed ? "pass" : check?.state === "failed" ? "fail" : "wait",
-      reason: passed ? "Live checks the account again when it starts." : check?.state === "failed" && unbacked
-        ? "Live read the account, then stopped: no replay backs the candidate yet (Strategy). The wallet below is what a replay must start near; check again once one does."
-        : check?.state === "failed"
-        ? "Live refused the account: a mode, the margin type or leverage, the key's permissions or the funds. The rows here show what it observed; Requests has the rest."
-        : check?.state === "running" ? "Reading the account at Binance. This page refreshes on its own." : "Not checked yet. It reads the account; it places no order." },
+      reason: checkReason(check, unbacked) },
     flag("trading", "Trading enabled", venue?.canTrade, true, "Binance reports trading disabled for this account."),
     flag("hedge", "Hedge mode", venue?.hedgeMode, true, "Live needs hedge mode. Turn it on in Binance Futures preferences."),
     flag("multi", "Multi-assets mode", venue?.multiAssets, true, "Live needs multi-assets margin mode. Turn it on in Binance Futures preferences."),
@@ -206,6 +206,10 @@ export function checkBlocker(input: LaunchInput, canPrepare: boolean): string | 
   return paperBlocker(source.paper ?? null);
 }
 
-/** Why Start stays shut beyond the columns' rows: no replay of the candidate on these contracts yet. */
-export const startBlocker = ({ source, edits }: LaunchInput): string | null =>
-  source?.read === "found" && launchSymbols(source, edits) && source.evidence?.state === "missing" ? "Needs replay evidence first (Strategy)." : null;
+/** Why Start stays shut beyond the columns' rows: no replay of the candidate on these contracts at this leverage yet. */
+export function startBlocker({ view, source, edits }: LaunchInput): string | null {
+  const evidence = source?.read === "found" && launchSymbols(source, edits) ? source.evidence : null;
+  if (!evidence) return null;
+  return evidence.state === "missing" || (evidence.state === "found" && !matchingReplays(evidence, validLeverage(view, edits)).length)
+    ? "Needs replay evidence first (Strategy)." : null;
+}

@@ -136,6 +136,25 @@ test("missing replay evidence fails its row and holds back Start, not the accoun
   assert.equal(row(failed, "wallet").value, "100");
   assert.match(row(failed, "check").reason, /no replay backs the candidate yet/);
   assert.match(row(columns(view(), checked({ accountCheck: { state: "failed", readAt: null } })), "check").reason, /Live refused the account/);
+  assert.doesNotMatch(row(columns(view(), checked({ accountCheck: { state: "failed", readAt: null } })), "check").reason, /Requests/);
+  // Preflight refusal reason is surfaced plainly on the Account check row instead of pointing to empty Requests.
+  const marginFailed = columns(view(), checked({ hostState: "preflight_failed",
+    accountCheck: { state: "failed", readAt: null, refusal: { code: "LIVE_MARGIN_MODE", message: "cross margin required" } } }));
+  assert.match(row(marginFailed, "check").reason, /cross margin/);
+  assert.doesNotMatch(row(marginFailed, "check").reason, /LIVE_|Requests/);
+  // Replays are matched by leverage: selecting 5x with only a 3x replay fails evidence, near, startBlocker and ready.
+  const lev3 = source({ state: "found", replays: [{ trialId: 12, balance: "100", leverage: "3" }], tolerance: "0.1" });
+  const at3 = columns(view(), checked(), { source: lev3, edits: { leverage: "3" } });
+  assert.equal(row(at3, "evidence").mark, "pass");
+  assert.equal(row(at3, "near").mark, "pass");
+  assert.equal(model.ready(at3), true);
+  const at5 = columns(view(), checked(), { source: lev3, edits: { leverage: "5" } });
+  assert.equal(row(at5, "evidence").mark, "fail");
+  assert.match(row(at5, "evidence").reason, /5× leverage.*3×/);
+  assert.equal(row(at5, "near").value, null);
+  assert.equal(model.ready(at5), false);
+  assert.equal(model.startBlocker({ view: view(), source: lev3, edits: { leverage: "5" }, checked: null, reading: null, targets: null, environment: "live" }), "Needs replay evidence first (Strategy).");
+  assert.match(model.refusalText("LIVE_BUDGET"), /positive USDT balance/);
   for (const state of ["checking", "unknown"]) assert.equal(row(columns(view(), null, { source: source({ state, replays: [], tolerance: "0.1" }) }), "evidence").mark, "wait");
 });
 
@@ -275,6 +294,16 @@ test("check account prepares the selected version on its contracts and asks for 
   await settle();
   assert.deepEqual(calls, ["prepare rsi@4 BTCUSDT demo", "preflight web-check"]);
   assert.equal(named(render(demoProps), "LiveLaunchStart").props.demo, true);
+
+  // A preflight_failed run is never reused on Check again: prepare fresh against the current research head.
+  state.environment = "live";
+  state.draft = { version: "rsi@4", edits: {}, preparedId: "web-failed", backed: true };
+  const failedProps = { ...props, view: view({ runs: [checked({ id: "web-failed", hostState: "preflight_failed", accountCheck: { state: "failed", readAt: null } })] }) };
+  calls.length = 0;
+  button(render(failedProps)).props.onClick();
+  await settle();
+  assert.deepEqual(calls, ["prepare rsi@4 BTCUSDT live", "preflight web-check"]);
+  assert.equal(state.draft.preparedId, "web-check");
 });
 
 test("typed contracts take a non-ASCII coin as the market names it (market/sources.py SYMBOL)", async () => {

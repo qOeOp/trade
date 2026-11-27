@@ -51,8 +51,8 @@ KEY_EVENTS = frozenset({"key_check_failed", "key_check_passed"})  # live.control
 RESTARTS_PER_HOUR = 3  # automatic starts of an interrupted run; beyond them the user is told and decides (design §3.4)
 HOUR_NS = 3600 * 10**9
 EVIDENCE_MISSING = ("no passed run, or audited explore inside a research window, of this source on these instruments in "
-                    "bars runs the replay code of this execution image; replay it at the wallet's balance on a matching "
-                    "replay image (engine/README.md) and prepare a new run")
+                    "bars at this leverage runs the replay code of this execution image; replay it at the wallet's "
+                    "balance and leverage on a matching replay image (engine/README.md) and prepare a new run")
 
 
 def inspect_runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
@@ -407,7 +407,7 @@ def _evidence(research: db.LedgerProfile, research_at: str, source_sha256: str, 
         if matching is not None and leverage in (None, traded):
             balance = Decimal(row["starting_balance"]).normalize()
             result.append({"trial_id": row["trial_id"], "starting_balance_usdt": format(balance, "f"),
-                           "image_ref": matching})
+                           "image_ref": matching, **({"leverage": str(traded)} if leverage is None else {})})
     return result
 
 

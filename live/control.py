@@ -33,16 +33,11 @@ MESSAGES = {
     "LIVE_CREDENTIAL_UNAVAILABLE": "The required local credential version is unavailable.",
     "LIVE_CREDENTIAL_UNMANAGED": "This run has no managed credential version and cannot launch.",
     "LIVE_ACCOUNT_OWNED": "Another Live execution is active or cannot yet be verified as resolved.",
-    "LIVE_ACCOUNT_NOT_FLAT": "The account has existing positions or orders.",
-    "LIVE_ACCOUNT_MODE": "The observed account settings do not match this Live configuration.",
-    "LIVE_FUNDS": "Observed eligible USDT funds do not cover the run's cash floor (85% of the wallet at its first start).",
     "LIVE_KEY_WITHDRAWAL": "This API key permits withdrawals and cannot start this Live run.",
     "LIVE_KEY_IP_UNRESTRICTED": "A Live run needs an API key restricted to this host's IP at Binance.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
-    "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
-    "LIVE_EVIDENCE_MISSING": "No passed replay of this candidate on these instruments runs this image's replay code.",
-    "LIVE_EVIDENCE_BALANCE": "No replay of this candidate started near the account's USDT wallet.",
+    "LIVE_EVIDENCE_MISSING": "No passed replay of this candidate on these instruments at this leverage runs this image's replay code.",
     "LIVE_CANDIDATE_FALSIFIED": "The line's closing history test found this candidate short of its targets.",
     "LIVE_HISTORY_UNDECIDED": "The line's closing history test has not decided this candidate yet.",
     "LIVE_PAPER_UNRECONCILED": "No sealed Paper run of this candidate on these contracts matches its replay yet.",
@@ -157,7 +152,8 @@ class Evidence:
                     rows = runs.replay_evidence(_profile(config), research_at, source_sha256, list(symbols),
                                                 config.runtime)
                     found = {"state": "found" if rows else "missing", "replays": [
-                        {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"]}
+                        {"trial_id": row["trial_id"], "starting_balance_usdt": row["starting_balance_usdt"],
+                         **({"leverage": row["leverage"]} if row.get("leverage") is not None else {})}
                         for row in rows]}
                 except Exception:
                     found = {"state": "unknown", "replays": []}

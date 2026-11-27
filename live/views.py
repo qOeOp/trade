@@ -405,6 +405,74 @@ def _key_checks(lifecycle):
             and type(row.get("observed_ns")) is int][-MAX_ROWS:]
 
 
+PREFLIGHT_MESSAGES = {
+    "LIVE_ACCOUNT_NOT_FLAT": "The account has existing positions or open orders.",
+    "LIVE_ACCOUNT_MODE": "The account's trading, hedge or multi-assets mode does not match what Live requires.",
+    "LIVE_MARGIN_MODE": "Each contract at Binance must use cross margin, match this leverage and have automatic margin addition off.",
+    "LIVE_BUDGET": "The futures wallet has no positive USDT balance for the cash floor (85% of the wallet).",
+    "LIVE_FUNDS": "Observed eligible USDT funds do not cover the run's cash floor (85% of the wallet).",
+    "LIVE_CLOCK": "The server clock differs too far from Binance's.",
+    "LIVE_EVIDENCE_MISSING": "No passed replay of this candidate on these contracts at this leverage runs this image's replay code.",
+    "LIVE_EVIDENCE_BALANCE": "No replay of this candidate started within 10% of the account's USDT wallet.",
+    "LIVE_INSTRUMENT": "A selected contract is not an active Binance USDT perpetual.",
+    "LIVE_INSTRUMENT_UNKNOWN": "Binance did not report one of the selected contracts.",
+    "TERMS_CHANGED": "Binance's contract terms differ from the market directory's.",
+    "LIVE_MINIMUM_SIZE": "A contract's Binance minimum order size exceeds 3 times the account's USDT equity.",
+    "LIVE_ACCOUNT_UNAVAILABLE": "Binance did not answer the account check.",
+    "LIVE_ACCOUNT_RESPONSE": "Binance returned an incomplete account observation.",
+    "LIVE_OBSERVATION_STALE": "The account observation expired before checks finished.",
+    "LIVE_SOURCE_MISSING": "The prepared strategy source could not be loaded.",
+    "LIVE_IDENTITY_CHANGED": "The retained run inputs do not match.",
+    "LIVE_ACCOUNT_BINDING": "The credential does not match the prepared run's binding.",
+    "LIVE_CREDENTIAL_FILE": "The mounted credential file is unavailable.",
+    "LIVE_RUNTIME_VERSION": "The execution image does not run the required Nautilus version.",
+    "LIVE_MANIFEST_INVALID": "The retained run manifest is invalid.",
+}
+REFUSAL_LINE = re.compile(r"^([A-Z][A-Z0-9_]{1,63}):")
+
+
+def _log_refusal_code(directory: Path, container: str | None) -> str | None:
+    """The last known Live refusal code printed to an archived preflight container log, if regular and bounded."""
+    name = _text(container)
+    if name is None:
+        return None
+    path = directory / "containers" / f"{name}.log"
+    try:
+        if any(parent.is_symlink() for parent in (path.parent, path.parent.parent)):
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return None
+            raw = stream.read(131072 + 1)
+    except OSError:
+        return None
+    if len(raw) > 131072:
+        raw = raw[-131072:]
+    for line in reversed(raw.decode("utf-8", errors="replace").splitlines()):
+        match = REFUSAL_LINE.match(line.strip())
+        if match and match[1] in REFUSALS:
+            return match[1]
+    return None
+
+
+def _preflight_refusal(directory: Path, native, latest_launch, latest_launch_ns, host_view: dict) -> dict | None:
+    """Why the latest preflight failed: allowlisted code and safe message from the journal or archived log."""
+    if host_view.get("mode") != "preflight" or host_view.get("state") != "preflight_failed":
+        return None
+    code = None
+    if native is not None and latest_launch_ns is not None:
+        code = next((row.get("code") for row in reversed(native)
+                     if row.get("event") == "preflight_refused"
+                     and type(row.get("observed_ns")) is int and row["observed_ns"] >= latest_launch_ns
+                     and row.get("code") in REFUSALS), None)
+    if code is None and latest_launch is not None:
+        code = _log_refusal_code(directory, latest_launch.get("container"))
+    if code is None:
+        return None
+    return {"code": code, "message": PREFLIGHT_MESSAGES.get(code, "The account check refused this run.")}
+
+
 def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     if sample is None or sample.status != "complete" or not isinstance(sample.data, dict):
         return None
@@ -526,6 +594,7 @@ def run_view(root: Path, run_id: str) -> dict:
         result = {"run_id": run_id, **_identity(manifest), "host": host_view,
                   "stop_requested": stop_requested,
                   "terminal": terminal,
+                  "preflight_refusal": _preflight_refusal(directory, native, latest_launch, latest_launch_ns, host_view),
                   "custody": {"released": released, "release_reason": reason,
                               "archived": archived},
                   "account": _account(observation, reference, native, latest_launch_ns)

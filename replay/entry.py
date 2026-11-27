@@ -395,7 +395,8 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
 
 # Explorations and prechecks
 
-def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | None, runner_argv: list[str]) -> None:
+def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | None, runner_argv: list[str],
+                  *, allow_closed: bool = False) -> None:
     """ledger.lines.check_replay_window for an explore or precheck replay, before anything is exported or written."""
     inputs = registration_runner.runner_inputs(list(runner_argv))
     source = registration_seams.current.market(market)
@@ -412,18 +413,18 @@ def _check_window(ledger: db.LedgerProfile, market, at: str | None, line: str | 
         covered = lines.covered_from(inputs["selection"].get("symbols"), source.universe_month(market_day), tracks)
     with db.connect(ledger, "reader") as conn:
         lines.check_replay_window(conn, line, inputs["window"]["trade_start"], inputs["window"]["end"], latest,
-                                  covered)
+                                  covered, allow_closed=allow_closed)
 
 
 def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Path, strategy_class: str, output: Path,
             runtime: str | None, runner_argv: list[str], line: str) -> dict:
-    """Replay an unpublished strategy file into a new temporary directory, trading inside the open `line`'s
-    development period; the ledger keeps the trial, its start receipt and its execution capture."""
+    """Replay an unpublished strategy file into a new temporary directory, trading inside `line`'s
+    development period (open or closed); the ledger keeps the trial, its start receipt and its execution capture."""
     output = paths.temporary_path(output)
     if not isinstance(strategy_class, str) or not strategy_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{strategy_class!r} is not one Python class name")
     registration_runner.require_unreserved(list(runner_argv))
-    _check_window(ledger, market, at, line, runner_argv)
+    _check_window(ledger, market, at, line, runner_argv, allow_closed=True)
     strategy_path = Path(strategy_file)
     try:
         source = strategy_path.read_bytes()

@@ -106,7 +106,7 @@ class ReplayEvidenceTests(LiveFixture):
         manifest = self.prepare("backed")
         found = {"trial_id": backing, "starting_balance_usdt": "100000", "image_ref": RUNTIME["image_ref"]}
         self.assertEqual(manifest["evidence"], [found])
-        self.assertEqual(self.read_ahead(), [found], "the page shows what preparation records")
+        self.assertEqual(self.read_ahead(), [{**found, "leverage": "3"}], "the page shows what preparation records with leverage")
         self.assertEqual(manifest["research_at"], db.head_commit(self.world.conn))
         review = runs.review(self.world.profile, manifest)
         self.assertEqual(review["evidence"], [found])
@@ -240,14 +240,14 @@ class EvidenceReadAheadTests(unittest.TestCase):
                                                                   self.config.runtime)])
         self.assertEqual(evidence.view(self.KEY)["state"], "unknown")
         self.assertEqual(evidence.view(self.OTHER)["state"], "checking", "other contracts are another key")
-        found = [{"trial_id": 7, "starting_balance_usdt": "1000", "image_ref": "ignored"}]
+        found = [{"trial_id": 7, "starting_balance_usdt": "1000", "leverage": "3", "image_ref": "ignored"}]
         with patch.object(control, "_profile"), patch.object(control.Evidence, "RETRY_NS", 0), \
                 patch.object(runs, "replay_evidence", return_value=found) as read:
             evidence.check(self.config)
             evidence.check(self.config)  # found stays: the research commit and image are fixed
         self.assertEqual([call.args[3] for call in read.call_args_list], [["BTCUSDT"], ["BTCUSDT", "ETHUSDT"]])
         self.assertEqual(evidence.view(self.KEY), {"state": "found", "tolerance": str(EVIDENCE_TOLERANCE),
-                                                   "replays": [{"trial_id": 7, "starting_balance_usdt": "1000"}]})
+                                                   "replays": [{"trial_id": 7, "starting_balance_usdt": "1000", "leverage": "3"}]})
 
     def test_the_most_recently_asked_keys_are_kept(self):
         evidence = control.Evidence()

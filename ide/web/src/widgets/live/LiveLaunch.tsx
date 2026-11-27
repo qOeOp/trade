@@ -5,14 +5,15 @@ import { LiveLaunchColumn } from "./LiveLaunchColumn";
 import { LiveLaunchStart } from "./LiveLaunchStart";
 import { LiveNoReply } from "./LiveNoReply";
 import { TextButton } from "../../ui/TextButton";
-import { checkBlocker, startBlocker, launchColumns, launchSymbols, launchValues, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
+import { checkBlocker, startBlocker, launchColumns, launchSymbols, launchValues, matchingReplays, ready, refusalText, unavailableReason } from "../../model/liveLaunch";
 import { preparedWith, type LiveRequest, type LiveTradingActions, type LiveTradingView } from "../../model/liveTrading";
 import { useLaunchReading, useLiveEvidence, useLivePaper, useLiveSource } from "../../state/liveRun";
 import { FRESH_DRAFT, liveDraft, openLiveCredentials, showLiveRun, useLiveDraft, useLiveEnvironment, type LiveDraft } from "../../state/liveWorkspace";
 import { LiveEnvironmentSwitch } from "./LiveEnvironment";
 
-// A prepared run that has not traded may still start (live/runs.py REPEATABLE).
-const STARTABLE = new Set(["prepared", "preflight_complete", "preflight_failed"]);
+// A prepared run that passed or has not yet failed preflight may be reused; a preflight_failed run must prepare anew
+// against the current research head so newly added balance/leverage replays and market terms are picked up.
+const STARTABLE = new Set(["prepared", "preflight_complete"]);
 // The rows of Limits & start that Reset limits puts back.
 const LIMITS = ["drawdown_brake", "duration_seconds"];
 
@@ -29,7 +30,8 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
     liveDraft.set({ ...base, ...change(base) });
   };
   const read = useLiveSource(version), symbols = launchSymbols(read, edits);
-  const evidence = useLiveEvidence(read, symbols), paper = useLivePaper(read, symbols), source = read && { ...read, evidence, paper };
+  const [evidenceRefresh, setEvidenceRefresh] = useState(0);
+  const evidence = useLiveEvidence(read, symbols, evidenceRefresh), paper = useLivePaper(read, symbols), source = read && { ...read, evidence, paper };
   const checked = view.runs.find((run) => run.id === preparedId) ?? null;
   const { reading, targets } = useLaunchReading(source?.candidate ?? null);
   const environment = useLiveEnvironment();
@@ -58,15 +60,15 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   /** Send again from the card: a preparation Live then answers becomes the run this page checks. */
   const sendAgain = async (id: string) => {
     const receipt = await actions.resend?.(id), run = receipt?.outcome === "effect_recorded" && receipt.action === "prepare" ? receipt.target.run_id : null;
-    if (run) update(() => ({ preparedId: run, backed: source?.evidence?.state === "found" })); else answer(receipt, receipt?.action === "start" ? "start" : "check");
+    if (run) update(() => ({ preparedId: run, backed: matchingReplays(source?.evidence, values.leverage ?? null).length > 0 })); else answer(receipt, receipt?.action === "start" ? "start" : "check");
   };
   /** The run to check or start: the one this page prepared, while it has not traded and holds this candidate, these
    *  contracts and settings, or a new one prepared now (local only: it freezes the candidate at the research head, the
    *  contracts, key and settings, and connects to nothing). */
   const prepared = async (at: "check" | "start"): Promise<string | null> => {
     if (!source || source.read !== "found" || !symbols || !actions.prepare) return null;
-    // A run prepared before replay evidence existed records none and never starts: once evidence is found, prepare anew.
-    const evidence = source.evidence?.state === "found";
+    // A run prepared before replay evidence at this leverage existed records none and never starts: once evidence is found, prepare anew.
+    const evidence = matchingReplays(source.evidence, values.leverage ?? null).length > 0;
     if (checked && STARTABLE.has(checked.hostState ?? "") && preparedWith(checked, source.candidate, symbols, environment, values) && (backed || !evidence)) return checked.id;
     const receipt = await actions.prepare({ candidate: source.candidate, symbols, environment, values });
     const id = receipt.outcome === "effect_recorded" ? receipt.target.run_id ?? null : null;
@@ -76,6 +78,7 @@ export function LiveLaunch({ version, view, actions }: { version: string | null;
   const begin = () => { say(null); setUnanswered(null); };
   const check = () => void checking.submit(async () => {
     begin();
+    setEvidenceRefresh((n) => n + 1);
     const id = await prepared("check");
     if (id && actions.preflight) { const receipt = await actions.preflight(id); if (receipt && receipt.outcome !== "effect_recorded") answer(receipt, "check"); }
   });

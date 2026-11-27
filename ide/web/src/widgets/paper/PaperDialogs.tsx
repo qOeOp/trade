@@ -111,9 +111,9 @@ export function PaperDialogs() {
           <AlertDialog.Content className={PANEL}>
             <AlertDialog.Title className="text-ui font-semibold">Delete run?</AlertDialog.Title>
             <AlertDialog.Description className="text-fg-muted">
-              <span className="font-mono text-fg">{doomed?.candidate}</span> · run {doomed?.paper_id}. Its declaration and
-              sealed results are removed from the ledger and this panel; you can't undo this here. Earlier ledger
-              versions, the backup and the public DoltHub copy keep them.
+              <span className="font-mono text-fg">{doomed?.candidate}</span> · run {doomed?.paper_id}. Its declaration,
+              sealed results and run directory are removed from the Paper database and this panel; you can't undo this
+              here. Earlier commits of the Paper database still keep the record.
             </AlertDialog.Description>
             <div className="flex justify-end gap-2 pt-1">
               <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>

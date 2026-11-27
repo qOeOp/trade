@@ -109,15 +109,15 @@ COMMANDS = [
         "purpose, status (passed or invalid), problems, path, trial_id, image_ref, market, metrics (unverified), "
         "metrics_note, next_actions; exit 0 even when invalid",
         "ENTRY_CLASS_INVALID; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); RUNTIME_UNAVAILABLE; UNIVERSE_EMPTY; "
-        "WINDOW_OUTSIDE_DEVELOPMENT (the trading window leaves --line's development period); LINE_UNKNOWN, "
-        "LINE_ENDED; OUT_OF_SAMPLE_RESERVED (the window overlaps an unbound validation registration of this source); "
+        "WINDOW_OUTSIDE_DEVELOPMENT (the trading window leaves --line's development period); LINE_UNKNOWN; "
+        "OUT_OF_SAMPLE_RESERVED (the window overlaps an unbound validation registration of this source); "
         "RUNNER_OPTION_RESERVED; RUNTIME_NOT_CI_BUILT (the image is no CI build of this repository; any branch's "
         "passes)"),
          LEDGER, MARKET, MARKET_DAY,
          option("--strategy-file", required=True, help="the draft strategy source file"),
          option("--strategy-class", required=True, help="its entry class name"),
-         option("--line", required=True, help="the open research line whose development period the trading window "
-                                               "lies in"),
+         option("--line", required=True, help="the research line (open or closed) whose development period the "
+                                               "trading window lies in"),
          OUTPUT, RUNTIME, runner=True,
          epilog="Records an explore trial in the ledger; the replay counts as prior exposure of that source and is "
                 "never economic evidence."),
