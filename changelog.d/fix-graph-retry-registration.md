@@ -1,0 +1,1 @@
+- `research unchanged` (and the Research page's redraw check) now answers changed when a registration of the line names another in `retry_of`, which can lift the line's `INTERPRETATION_REQUIRED` gate (#3790).

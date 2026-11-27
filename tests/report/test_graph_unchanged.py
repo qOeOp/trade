@@ -234,3 +234,32 @@ class UnchangedTests(unittest.TestCase):
         with patch.dict(db.SCHEMAS, {"research": (db.SCHEMA, db.SCHEMA_VERSION + 1)}):
             caught = refused(graph.unchanged_since, self.world.profile, self.line, since)
         self.assertEqual(caught.code, "SCHEMA_MISMATCH")
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class RetryRegistrationTests(unittest.TestCase):
+    def test_a_retry_registration_changes_its_line_s_gates_only(self):
+        """An invalid run needs no interpretation once a registration of the line names its registration in
+        retry_of (register.require_line_records), so that registration alone changes the line's gates."""
+        world = ReplayWorld("unchanged-retry")
+        self.addCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        root, (ref,) = registered_grid(world, ["failing"])
+        world.scenario = {"audit_passed": False}
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=root)
+        world.scenario = {}
+        with pinned(date(2026, 2, 1), date(2026, 3, 1)):
+            other = lines.select_line(world.conn, MARKET_DAY, ref, slug="other-retry",
+                                      market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                      reviews=precheck.review_records)
+        with db.read_as_of(world.profile) as conn:
+            since = db.head_commit(conn)
+            (review,), = conn.rows("SELECT source_review_id FROM registration_grid_point WHERE registration_id = %s",
+                                   (root,))
+        line = world.line["line"]
+        world.register(world.body([ref], {ref: review}, retry_of=root), line=line)
+        found = graph.unchanged_since(world.profile, line, since)
+        self.assertFalse(found["unchanged"])
+        self.assertNotEqual(graph.research_graph(world.profile, line, since, workers=1)["line"]["gates"],
+                            graph.research_graph(world.profile, line, found["ledger_commit"], workers=1)["line"]["gates"])
+        self.assertTrue(graph.unchanged_since(world.profile, other["line"], since)["unchanged"])

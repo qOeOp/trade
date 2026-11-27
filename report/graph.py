@@ -302,9 +302,10 @@ def research_graph(profile, line: str | None = None, at: str | None = None, *, s
 # Tables by how a row added between two commits can reach one line's graph (unchanged_since). A table not named here
 # means the graph changed: a new table, or one a change of this module started reading, can only cost a draw.
 _UNREAD = frozenset({"ledger_head", "validation_registration", "witness"})
-# A registration, its grid points and its comparison design are read only through a trial that names them, and the
-# trial is added after them: added rows of these reach nothing by themselves.
-_BY_REGISTRATION = ("research_registration", "registration_grid_point", "comparison_design")
+# A registration's grid points and comparison design are read only through a trial that names it, and the trial is
+# added after them: added rows of these reach nothing by themselves. A registration itself is also read by its line's
+# gates (register.require_line_records reads retry_of), so _changed looks at it.
+_BY_REGISTRATION = ("registration_grid_point", "comparison_design")
 _BY_TRIAL = ("run", "run_cycle", "run_return", "run_reading", "trial_capture", "trial_file", "trial_instrument")
 
 
@@ -329,9 +330,10 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
     - a research trial of the line itself;
     - what hangs off such a trial: its run, stored records, capture and evidence bundles;
     - a source review of one of those sources;
+    - a registration of this line naming another in retry_of (it can lift the line's INTERPRETATION_REQUIRED gate);
     - a judgment of this line, a line declaration or closing, the targets, the schema, or any file added to an
       existing bundle.
-    A review of another source, another line's judgment or an unattached registration is read by nothing here."""
+    A review of another source, another line's judgment or any other registration is read by nothing here."""
     pair = (since, commit)
     # dolt_diff_summary's schema_change also marks a table whose AUTO_INCREMENT moved, so it cannot tell.
     for row in conn.dicts("SELECT from_table_name, to_table_name FROM dolt_schema_diff(%s, %s)", pair):
@@ -340,7 +342,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
                                                          "WHERE data_change", pair)}
     tables -= _UNREAD
     known = {"candidate", "trial", "evidence", "evidence_bundle", "evidence_content", "judgment", "judgment_subject",
-             "source_review", *_BY_TRIAL, *_BY_REGISTRATION}
+             "research_registration", "source_review", *_BY_TRIAL, *_BY_REGISTRATION}
     if tables - known:
         return f"{sorted(tables - known)[0]} changed"
     for row in conn.dicts("SELECT table_name, rows_deleted, rows_modified FROM dolt_diff_stat(%s, %s)", pair):
@@ -380,6 +382,11 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
             for (trial_id,) in added(table, "trial_id"):
                 if reaches(trial_id):
                     return f"{table} of trial {trial_id} reaches the line"
+    if "research_registration" in tables:
+        for registration_id, line_id, retry_of in added("research_registration", "registration_id", "line_id",
+                                                        "retry_of"):
+            if line_id == record["line_id"] and retry_of is not None:
+                return f"registration {registration_id} of the line retries registration {retry_of}"
     if "source_review" in tables:
         for review_id, reviewed in added("source_review", "review_id", "source_sha256"):
             if reviewed in sources:
