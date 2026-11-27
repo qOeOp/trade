@@ -436,8 +436,9 @@ ACCOUNT_RATIOS = ("count_toptrader_long_short_ratio", "count_long_short_ratio")
 def shown_ratio(name: str, ratio: Decimal | None) -> Decimal | None:
     """The long/short ratio `name` as Binance's REST shows the archive's `ratio` (None stays None): half-up to 4
     decimals, an account ratio as round(long) / round(short) with long = ratio / (1 + ratio) and short = 1 / (1 +
-    ratio). The archive's position ratio has 6 decimals, so one at exactly half a unit of the 4th (about 1 in 90 rows)
-    is a tie REST may have resolved either way."""
+    ratio) (falling back to the rounded ratio when round(short) underflows to 0). The archive's position ratio has 6
+    decimals, so one at exactly half a unit of the 4th (about 1 in 90 rows) is a tie REST may have resolved either
+    way."""
     if ratio is None:
         return None
     if name not in ACCOUNT_RATIOS:
@@ -446,7 +447,7 @@ def shown_ratio(name: str, ratio: Decimal | None) -> Decimal | None:
         context.prec = 60
         long = (ratio / (1 + ratio)).quantize(RATIO_PLACES, ROUND_HALF_UP)
         short = (1 / (1 + ratio)).quantize(RATIO_PLACES, ROUND_HALF_UP)
-        return (long / short).quantize(RATIO_PLACES, ROUND_HALF_UP)
+        return (long / short if short else ratio).quantize(RATIO_PLACES, ROUND_HALF_UP)
 
 
 def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,

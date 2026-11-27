@@ -713,6 +713,29 @@ class LaterImportTests(unittest.TestCase):
                 self.assertNotIn("CCCUSDT", done["per_symbol"])
                 self.assertEqual(done["universe_members"], ["BBBUSDT", "BTCUSDT"])
 
+    def test_a_symbol_reused_as_an_equity_on_month_start_is_excluded_from_that_months_universe(self):
+        profile = directory(self.addCleanup)
+        self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, self.cache, True)
+        found = exchange()
+        # CCCUSDT trades through the eve of March (2025-02-28) as a coin, qualifying on trading days alone.
+        found.klines("monthly", "LAST", "CCCUSDT", "2025-02", minutes(day_ms(FEB), day_ms(MAR)))
+        found.klines("monthly", "MARK", "CCCUSDT", "2025-02", minutes(day_ms(FEB), day_ms(MAR), mark=True))
+        found.funding_month("CCCUSDT", "2025-02", [(at + 3, "0.0001") for at in range(day_ms(FEB), day_ms(MAR), EIGHT_HOURS)])
+        found.rest[("LAST1d", "CCCUSDT")] = minutes(day_ms(JAN), day_ms(MAR))
+        with serving(found):
+            for month in (JAN, FEB):
+                store.import_month(profile, month, self.cache, 1, ["BBBUSDT", "BTCUSDT", "CCCUSDT"],
+                                   log=lambda line: None)
+        # Reused as an equity on 2025-03-01: excluded from March bars AND from universe_month/2025-03.parquet.
+        done = self.reused(profile, found, listed=MAR, contract_type="TRADIFI_PERPETUAL", underlying="EQUITY")
+        self.assertEqual(done["excluded"], {"CCCUSDT": "contract_type:TRADIFI_PERPETUAL"})
+        self.assertNotIn("CCCUSDT", done["per_symbol"])
+        self.assertEqual(done["universe_members"], ["BBBUSDT", "BTCUSDT"])
+        march_members = [symbol for month, symbol in universe.months_of(files.open_market(profile, "reader"), None)
+                         if month == MAR]
+        self.assertEqual(march_members, ["BBBUSDT", "BTCUSDT"])
+
     def test_the_months_of_a_coin_before_an_equity_took_its_symbol_are_imported_on_its_own_terms(self):
         scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT", "DDDUSDT"]
         profile = directory(self.addCleanup)

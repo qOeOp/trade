@@ -619,6 +619,39 @@ class RoundTests(unittest.TestCase):
         self.assertEqual((later["contracts"]["BTCUSDT"]["state"], later["contracts"]["ETHUSDT"]["state"],
                           later["contracts"]["ETHUSDT"]["unpublished"]), ("waiting", "waiting", ["2025-01-31"]))
 
+    def test_missing_archives_on_an_active_metrics_feed_report_lagging_and_fail_check(self):
+        import numpy as np
+        profile = self.market(("BTCUSDT",))
+        # Bars are current through 2025-02-14, and trades/quotes start in Feb (not yet closed): only metrics lag.
+        feb_times = np.array([day_ms(date(2025, 2, d)) for d in range(1, 15)], dtype=np.int64)
+        price = np.full(len(feb_times), 100 * 10**8, dtype=np.int64)
+        cols = {"ts_open": feb_times, **{k: price for k in ("open", "high", "low", "close")},
+                "volume": np.full(len(feb_times), 10000, dtype=np.int64)}
+        seed(profile, month="2025-02", through="2025-02-15", terms=[], bars={("BTCUSDT", "LAST"): cols})
+        scoped = follow.Scope(["BTCUSDT"], JAN, JAN, FEB, FEB)
+        memory = follow.Memory()
+        now = at(date(2025, 2, 15))  # 15 closed days (2025-01-31..2025-02-14) return 404
+        with tempfile.TemporaryDirectory() as temp:
+            status_path = Path(temp) / "status.json"
+            for _ in range(2):  # round 2 sees 2025-01-31..2025-02-11 already in memory.unpublished
+                with serving(Exchange(START)), patch.object(follow, "_bars"), patch.object(follow, "_monthly"), \
+                        patch.object(follow, "_holes"):
+                    status = follow.run_round(profile, scoped, self.cache, memory, now, lambda _: None)
+                btc = status["kinds"]["metrics"]["BTCUSDT"]
+                self.assertEqual((btc["state"], btc["missing_from"], btc["missing_days"]),
+                                 ("lagging", "2025-01-31", 15))
+                follow.write_status(status_path, status)
+                said: list[str] = []
+                self.assertEqual(follow.check(status_path, now, said.append), 1)
+                self.assertEqual(said, ["metrics/BTCUSDT lagging"])
+            # Once current days publish and land, head advances and the check recovers.
+            with serving(self.exchange({"BTCUSDT": [date(2025, 2, 12), date(2025, 2, 13), date(2025, 2, 14)]})), \
+                    patch.object(follow, "_bars"), patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
+                recovered = follow.run_round(profile, scoped, self.cache, memory, now, lambda _: None)
+            self.assertEqual(recovered["kinds"]["metrics"]["BTCUSDT"]["state"], "caught_up")
+            follow.write_status(status_path, recovered)
+            self.assertEqual(follow.check(status_path, now, list().append), 0)
+
     def test_a_held_lock_retries_and_a_content_refusal_stops_only_its_contract_until_restart(self):
         profile = self.market()
         days = {"BTCUSDT": [date(2025, 1, 31)], "ETHUSDT": [date(2025, 1, 31)]}
