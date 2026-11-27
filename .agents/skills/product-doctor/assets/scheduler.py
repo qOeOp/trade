@@ -25,6 +25,7 @@ from typing import Any
 _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
+import research_quality  # noqa: E402
 import telemetry  # noqa: E402
 
 HARM_RE = re.compile(
@@ -513,6 +514,9 @@ def _slim_candidates(telemetry_data: dict[str, Any],
 
 
 FRICTION_COOLDOWN_DAYS = 7
+RESEARCH_QUALITY_PREFIX = research_quality.RESEARCH_QUALITY_PREFIX
+RESEARCH_QUALITY_TARGETS = research_quality.RESEARCH_QUALITY_TARGETS
+LENS_SLA_OVERRIDES = research_quality.LENS_SLA_OVERRIDES
 
 
 def _compute_yield_streaks(
@@ -585,37 +589,20 @@ def _rank_code_objects(
 def _friction_targets(
     friction_data: dict[str, Any] | None, tops: dict[str, dict[str, Any]], ranked_objects: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
-    ci_fired = bool(friction_data and friction_data.get("ci") and friction_data["ci"].get("triggers"))
-    tx_fired = bool(friction_data and friction_data.get("transcripts") and friction_data["transcripts"].get("triggers"))
-    pl_data = friction_data.get("prod_logs") if friction_data else None
-    pl_fired = bool(pl_data and pl_data.get("triggers"))
-    f_objs: list[str] = []
-    f_items: list[str] = []
-    if pl_fired and pl_data:
-        for svc in pl_data.get("affected_services") or []:
-            if svc in tops and svc not in f_objs:
-                f_objs.append(svc)
-        f_items.append("operation")
-    if ci_fired:
-        if ".github" in tops and ".github" not in f_objs:
-            f_objs.append(".github")
-        f_items.append("delivery")
-    if tx_fired:
-        if ".agents" in tops and ".agents" not in f_objs:
-            f_objs.append(".agents")
-        f_items.extend(["agents", "burden"])
-    if not f_objs and ranked_objects:
-        f_objs = [ranked_objects[0]["object"]]
-    return f_objs[:3], (list(dict.fromkeys(f_items)) or ["delivery", "agents", "burden"])
+    return research_quality.resolve_friction_targets(friction_data, tops, ranked_objects)
 
 
 def _friction_is_object_cooled(
     target_objs: list[str], last_friction_zero: dict[str, str], now_dt: datetime,
+    tops: dict[str, dict[str, Any]] | None = None, owner_fn=None,
 ) -> bool:
     if not target_objs:
         return False
     for obj in target_objs:
         dt_str = last_friction_zero.get(obj)
+        if not dt_str and tops is not None and owner_fn is not None:
+            mapped = owner_fn(obj, tops)
+            dt_str = last_friction_zero.get(mapped) if mapped else None
         if not dt_str:
             return False
         dt = _parse_iso(f"{dt_str}T00:00:00Z")
@@ -648,9 +635,9 @@ def _select_theme_and_scope(
     issue_buckets: dict[str, list[dict[str, Any]]], slim_list: list[dict[str, Any]],
     friction_triggers: list[str], friction_objs: list[str], friction_items: list[str],
     slim_cooled_down: bool, friction_cooled_down: bool, can_steady: bool,
-    ranked_objects: list[dict[str, Any]], stalest_items: list[tuple[str, str]],
+    ranked_objects: list[dict[str, Any]], stalest_items: list[dict[str, Any]],
     staleness_breaches: list[str], sla_days: int, tops: dict[str, dict[str, Any]] | None = None,
-    has_prod_incident: bool = False,
+    has_prod_incident: bool = False, overdue_override_lenses: list[str] | None = None,
 ) -> tuple[str, list[str], list[str], str]:
     if issue_buckets["actionable_harm"]:
         objs = sorted({o for iss in issue_buckets["actionable_harm"] for o in iss["objects"]})[:3]
@@ -693,12 +680,20 @@ def _select_theme_and_scope(
             )
         return "steady", [], [], rat
     objs = _pick_find_objects(ranked_objects, tops)
-    chosen_items = [item for item, _ in stalest_items[:3]]
+    chosen_items = list(dict.fromkeys([
+        *(overdue_override_lenses or []),
+        *(entry["item"] for entry in stalest_items),
+    ]))[:3]
     cooldown_note = " (`slim` in cooldown while SLA breaches remain)" if slim_list and slim_cooled_down else ""
     if staleness_breaches:
         sla_note = (
             f"{len(staleness_breaches)} code object(s) exceed {sla_days}d coverage SLA. "
             "Pairing top fresh risk/churn object with coldest unexamined object."
+        )
+    elif overdue_override_lenses:
+        sla_note = (
+            f"{len(overdue_override_lenses)} low-frequency lens(es) exceeded per-lens SLA "
+            f"({', '.join(overdue_override_lenses)})."
         )
     else:
         sla_note = (
@@ -732,6 +727,7 @@ def _compute_gates(
     staleness_breaches: list[str], ranked_objects: list[dict[str, Any]],
     substantive_audits: list[dict[str, Any]], last_two_themes: list[str],
     telemetry_data: dict[str, Any], *, has_prod_incident: bool = False,
+    overdue_override_lenses: list[str] | None = None,
 ) -> tuple[dict[str, bool], bool, bool, bool]:
     last_two_sub = substantive_audits[-2:]
     recent_confirmed = sum(r["confirmed"] for r in last_two_sub) if len(last_two_sub) >= 2 else None
@@ -743,6 +739,7 @@ def _compute_gates(
         "no_slim_triggers": len(slim_list) == 0,
         "no_friction_triggers": len(friction_triggers) == 0,
         "no_staleness_breaches": len(staleness_breaches) == 0,
+        "no_overdue_lens_sla": not overdue_override_lenses,
         "marginal_yield_saturated": (
             (recent_confirmed == 0)
             or (code_commits_short < 5 and len(staleness_breaches) == 0 and not any_recent_bugs and len(last_two_sub) >= 1)
@@ -776,7 +773,8 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
            issues: list[dict[str, Any]] | None = None,
            friction_data: dict[str, Any] | None = None,
            sla_days: int = 21,
-           authority_gate: bool = True) -> dict[str, Any]:
+           authority_gate: bool = True,
+           lens_sla_overrides: dict[str, int] | None = None) -> dict[str, Any]:
     """Compute the closed-loop audit recommendation, priority table, and stopping decision."""
     now_dt = _commit_date(rev)
     records = read_audit_history(rev, tracked_lines, tops, owner_fn)
@@ -800,34 +798,36 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     ranked_objects, staleness_breaches = _rank_code_objects(
         telemetry_data, scan_objects, zero_yield_streak, now_dt, sla_days
     )
-    stalest_items = sorted(
-        [(item, dt or "0000-00-00") for item, dt in scan_items.items() if item not in ("fixed", "self")],
-        key=lambda pair: (pair[1], pair[0]),
+    stalest_items, lens_sla_breaches, overdue_override_lenses, effective_lens_slas = research_quality.evaluate_lens_slas(
+        scan_items, now_dt, sla_days, lens_sla_overrides=lens_sla_overrides
     )
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
     has_prod_incident = _has_prod_incident(friction_triggers)
+    rq_fired = research_quality.has_research_quality_triggers(friction_data)
     friction_objs, friction_items = _friction_targets(friction_data, tops, ranked_objects)
-    friction_obj_cooled = _friction_is_object_cooled(friction_objs, last_friction_zero, now_dt)
+    friction_obj_cooled = _friction_is_object_cooled(
+        friction_objs, last_friction_zero, now_dt, tops=tops, owner_fn=owner_fn
+    )
 
     stopping_checks, slim_cooled_down, friction_cooled_down, can_steady = _compute_gates(
         issues is not None, issue_buckets, slim_list, friction_triggers, friction_obj_cooled,
         staleness_breaches, ranked_objects, substantive_audits, last_two_themes, telemetry_data,
-        has_prod_incident=has_prod_incident,
+        has_prod_incident=has_prod_incident, overdue_override_lenses=overdue_override_lenses,
     )
     theme, chosen_objs, chosen_items, rationale = _select_theme_and_scope(
         issue_buckets, slim_list, friction_triggers, friction_objs, friction_items,
         slim_cooled_down, friction_cooled_down, can_steady,
         ranked_objects, stalest_items, staleness_breaches, sla_days, tops=tops,
-        has_prod_incident=has_prod_incident,
+        has_prod_incident=has_prod_incident, overdue_override_lenses=overdue_override_lenses,
     )
-    coupled_contracts = [
-        c for c in telemetry_data["couplings"]
-        if any(obj in c["pair"].split("+") for obj in chosen_objs)
-    ][:3]
+    coupled_contracts = [c for c in telemetry_data["couplings"] if any(obj in c["pair"].split("+") for obj in chosen_objs)][:3]
+    friction_summary = research_quality.build_friction_summary(
+        friction_data, friction_obj_cooled, has_prod_incident, friction_triggers, rq_fired,
+    )
 
     return {
         "tree": rev, "as_of": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), "sla_days": sla_days,
-        "auto_mode": not authority_gate,
+        "lens_sla_overrides": effective_lens_slas, "auto_mode": not authority_gate,
         "recommended_theme": theme, "rationale": rationale,
         "recommended_scope": {"theme": theme, "objects": chosen_objs, "items": chosen_items, "coupled_contracts": coupled_contracts},
         "stopping_checks": stopping_checks, "last_two_themes": last_two_themes, "dynamic_bars": dynamic_bars,
@@ -838,14 +838,9 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
             "claimed_count": len(issue_buckets["claimed"]), "other_open_count": len(issue_buckets["other_open"]),
         },
         "slim_total_count": len(slim_list), "slim_cooled_objects": slim_cooled_objects, "slim_candidates": slim_list[:6],
-        "friction_summary": {
-            "provided": friction_data is not None,
-            "in_cooldown": friction_obj_cooled and not has_prod_incident,
-            "prod_incident_active": has_prod_incident,
-            "triggers": friction_triggers[:8],
-        },
+        "friction_summary": friction_summary,
         "staleness_breach_count": len(staleness_breaches), "ranked_code_objects": ranked_objects[:12],
-        "stalest_items": [{"item": i, "examined": None if d == "0000-00-00" else d} for i, d in stalest_items[:8]],
+        "lens_sla_breaches": lens_sla_breaches, "stalest_items": stalest_items[:8],
         "low_yield_lenses": [
             {"item": item, "zero_yield_streak": streak, "recent_runs": lens_runs.get(item, 0)}
             for item, streak in sorted(lens_zero_streak.items(), key=lambda p: (-p[1], p[0])) if streak >= 2

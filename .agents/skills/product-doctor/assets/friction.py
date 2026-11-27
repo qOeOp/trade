@@ -15,7 +15,13 @@ from pathlib import Path
 import re
 import shlex
 import statistics
+import sys
 from typing import Any
+
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import research_quality  # noqa: E402
 
 SKILL_PATH_MARKER = ".agents/skills/"
 SKILL_PATH_RE = re.compile(r"\.agents/skills/([A-Za-z0-9_.-]+)/SKILL\.md")
@@ -722,23 +728,31 @@ def analyze_prod_logs(paths: list[Path]) -> dict[str, Any]:
 
 def collect_friction(ci_runs: list[dict[str, Any]] | None = None,
                      transcript_paths: list[Path] | None = None,
-                     prod_log_paths: list[Path] | None = None) -> dict[str, Any]:
-    """Combine CI delivery, agent/user transcript, and production log signals into a unified summary."""
+                     prod_log_paths: list[Path] | None = None,
+                     ledger_summary_paths: list[Path] | None = None) -> dict[str, Any]:
+    """Combine CI delivery, transcript, research-quality, and production log signals into a unified summary."""
     ci = analyze_ci_runs(ci_runs) if ci_runs is not None else None
     tx = analyze_transcripts(transcript_paths) if transcript_paths else None
     pl = analyze_prod_logs(prod_log_paths) if prod_log_paths else None
+    rq = (
+        research_quality.analyze_research_quality(transcript_paths or None, ledger_summary_paths or None)
+        if (transcript_paths or ledger_summary_paths) else None
+    )
     triggers = [
         *(ci["triggers"] if ci else []),
         *(tx["triggers"] if tx else []),
         *(pl["triggers"] if pl else []),
+        *(rq["triggers"] if rq else []),
     ]
     return {
         "ci_provided": ci is not None,
         "transcripts_provided": tx is not None,
         "prod_logs_provided": pl is not None,
+        "ledger_summaries_provided": bool(ledger_summary_paths),
         "ci": ci,
         "transcripts": tx,
         "prod_logs": pl,
+        "research_quality": rq,
         "triggers": triggers,
         "has_friction": bool(triggers),
     }
