@@ -64,5 +64,17 @@ class ChangelogReleaseTests(unittest.TestCase):
         self.assertEqual(changelog.notes("0.4.4"), "- Old.\n")
 
 
+class RepositoryFragmentTests(unittest.TestCase):
+    def test_every_fragment_reads_as_the_release_reads_it(self):
+        """A fragment the release cannot read stops release.yml after it merged; here its pull request fails."""
+        for path in sorted((ROOT / "changelog.d").glob("*.md")):
+            with self.subTest(path.name):
+                try:
+                    found = changelog.entries(path.read_text())
+                except SystemExit as exc:
+                    self.fail(f"changelog.d/{path.name}: {exc}")
+                self.assertTrue(found, f"changelog.d/{path.name} holds no list entry")
+
+
 if __name__ == "__main__":
     unittest.main()
