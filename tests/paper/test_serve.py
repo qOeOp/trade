@@ -15,6 +15,7 @@ import json
 import io
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
 import threading
@@ -80,6 +81,16 @@ class GateTests(unittest.TestCase):
         status, found = request(self.port, "POST", "/api/paper/runs", b'{"candidate": "a@1"}',
                                 **{"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual((status, found), (200, {"paper_id": 1}))
+
+    def test_a_length_that_is_not_plain_digits_is_refused_before_the_daemon(self):
+        oversized = b'{"x": "' + b"a" * serve.BODY_LIMIT + b'"}'  # -1 would read it all, past BODY_LIMIT
+        for length, body in (("-1", oversized), ("abc", b"{}"), ("+2", b"{}"), ("9" * 5000, b"{}")):
+            with self.subTest(length), socket.create_connection(("127.0.0.1", self.port), timeout=5) as raw:
+                raw.sendall(f"POST /api/paper/runs HTTP/1.1\r\nHost: {HOST}\r\nContent-Type: application/json\r\n"
+                            f"Connection: close\r\nContent-Length: {length}\r\n\r\n".encode() + body)
+                raw.shutdown(socket.SHUT_WR)
+                self.assertTrue(raw.makefile("rb").read().startswith(b"HTTP/1.1 400 "))
+        self.daemon.start.assert_not_called()
 
     def test_a_refused_start_answers_by_kind_and_logs_its_code(self):
         json_body = {"Content-Type": "application/json"}

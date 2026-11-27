@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ledger import db, first_run, publish, server, service
 from shared import paths, profiles, version
@@ -295,3 +295,20 @@ class FirstStartTests(unittest.TestCase):
                 patch.object(service, "start", return_value=(subprocess.Popen(["true"]), config)):
             self.assertEqual(service.run(self.service_root, self.data, self.backups, self.credentials, None, self.port,
                                          setup=self.address)[0]["action"], "run")
+
+
+class BodyLengthTests(unittest.TestCase):
+    def test_a_length_that_is_not_plain_digits_answers_400_before_the_page_is_asked(self):
+        page = Mock()
+        http = first_run._Server(("127.0.0.1", 0), first_run._handler(page, "setup:8770"))
+        threading.Thread(target=http.serve_forever, args=(0.01,), daemon=True).start()
+        self.addCleanup(http.server_close)
+        self.addCleanup(http.shutdown)
+        oversized = b'{"repository": "' + b"a" * first_run.BODY + b'"}'  # -1 would read it all, past BODY
+        for length, body in (("-1", oversized), ("abc", b"{}"), ("+2", b"{}"), ("9" * 5000, b"{}")):
+            with self.subTest(length), socket.create_connection(http.server_address, timeout=5) as raw:
+                raw.sendall(f"POST {first_run.PATH} HTTP/1.0\r\nHost: setup:8770\r\nContent-Length: {length}\r\n\r\n"
+                            .encode() + body)
+                raw.shutdown(socket.SHUT_WR)
+                self.assertTrue(raw.makefile("rb").read().startswith(b"HTTP/1.0 400 "))
+        page.ask.assert_not_called()

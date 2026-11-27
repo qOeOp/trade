@@ -904,7 +904,11 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.refuse(403, _failure("FORBIDDEN", "actions come from the page itself"),
                             renew=self.headers.get("Sec-Fetch-Site") == "same-origin")
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            declared = (self.headers.get("Content-Length") or "").strip() or "0"  # int() takes "-1": read to the end
+            if not declared.isascii() or not declared.isdigit() or len(declared) > 18:
+                self.refuse(400, _failure("BAD_REQUEST", f"content length {declared!r}"))
+                return
+            length = int(declared)
             if length > limit:
                 self.refuse(413, _failure("TOO_LARGE", f"{length} bytes"))
                 return

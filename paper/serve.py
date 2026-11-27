@@ -40,7 +40,7 @@ from engine.config import ACCOUNT_CONTRACT, instrument_id
 from engine.kline_events import LATE_NS
 from ledger import db, paper as records, run_journal, server, strategies
 from market.sources import SYMBOL  # a contract named as the market holds it, as replay takes it
-from shared.http import encode, send_json, trusted
+from shared.http import body_length, encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
 from shared.failures import FAILURES, failure_records
 from shared.refusals import refuse
@@ -704,7 +704,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             try:
                 if not daemon.active():
                     raise Failure(503, "PAPER_UPGRADING", "the controller is a read-only release candidate")
-                length = int(self.headers.get("Content-Length") or 0)
+                length = body_length(self)
                 if not (self.headers.get("Content-Type") or "").startswith("application/json") or length > BODY_LIMIT:
                     raise Failure(415, "USAGE_ERROR", "a POST carries a JSON body of at most 64 KiB")
                 body = json.loads(self.rfile.read(length) or b"{}")
@@ -724,7 +724,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 else:
                     raise Failure(404, "NOT_FOUND", self.path)
             except ValueError:
-                self.refuse(Failure(400, "USAGE_ERROR", "the body is not JSON"))
+                self.refuse(Failure(400, "USAGE_ERROR", "the content length or the JSON body is malformed"))
             except Failure as exc:
                 self.refuse(exc)
             except Refusal as exc:

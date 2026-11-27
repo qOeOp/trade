@@ -27,7 +27,7 @@ import tempfile
 import threading
 
 from ledger import publish, server
-from shared.http import encode, send_json, trusted
+from shared.http import body_length, encode, send_json, trusted
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -187,7 +187,11 @@ def _handler(page: _Page, host: str) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:
             if not self.admitted():
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = body_length(self)
+            except ValueError as exc:
+                self.reply(400, {"code": "BAD_REQUEST", "message": str(exc)})
+                return
             if length > BODY:
                 self.reply(413, {"code": "TOO_LARGE", "message": f"{length} bytes"})
                 return
