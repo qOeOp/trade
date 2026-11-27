@@ -44,6 +44,7 @@ if _ASSETS_DIR not in sys.path:
 import friction  # noqa: E402
 import prod_invariants  # noqa: E402
 import scheduler  # noqa: E402
+import surface_skill_audit  # noqa: E402
 import telemetry  # noqa: E402
 
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
@@ -1067,6 +1068,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fric_p.add_argument("--ledger-summary", type=Path, nargs="+", help="one or more read-only ledger trial summary JSON files")
     fric_p.set_defaults(function=friction_cmd)
     prod_invariants.register_prod_snapshot_parser(commands)
+    surface_skill_audit.register_surface_skill_parsers(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1129,7 +1131,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd, prod_invariants.run_prod_snapshot_cmd):
+    if args.function in (
+        scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd,
+        prod_invariants.run_prod_snapshot_cmd,
+        surface_skill_audit.run_surface_cmd,
+        surface_skill_audit.run_skills_audit_cmd,
+    ):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
