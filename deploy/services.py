@@ -342,7 +342,7 @@ class Follow:
                 # Not /api/live: this move holds the Live account lock that its listing waits on (doctor 20261117-02).
                 # The services moved here are not on the Web to Live control path it would check.
                 self.host.health(web, [], routed=True, live=False)
-                paper.health(controller)  # its listing reads Docker through docker-api
+                paper.controller_health(controller)  # its listing reads Docker through docker-api
                 self.host.auth_denied()  # the public boundary: edge and OAuth2 Proxy
 
             until_ready(readers, 180, 5, errors=(RuntimeError, ValueError, KeyError, subprocess.SubprocessError))

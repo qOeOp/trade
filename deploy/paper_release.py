@@ -73,13 +73,13 @@ class PaperRelease:
                 held()
                 self.host.start(previous)
                 if not self.lenient:
-                    self.host.warm(previous, self.host.protected())
+                    self.host.warm_controller(previous, self.host.protected())
                 held()
                 self.host.pending(candidate, previous)
                 self.host.persist_route(previous, "starts")
                 self.host.switch(previous, "starts")
             if not self.lenient:
-                self.host.health(previous)
+                self.host.controller_health(previous)
         self.host.pending(candidate, previous)
         if self.host.live_route() != previous or self.host.disk_route() != previous:
             raise RuntimeError("Paper rollback route changed during final checks")
@@ -112,9 +112,9 @@ class PaperRelease:
         protected = self.host.protected()
         durable_json(self.transaction, {"candidate": candidate, "previous": previous})
         print(f"Preparing Paper controller {target['revision']}; new starts will use {target['runtime']}", flush=True)
-        self.host.create(candidate, target["service"], target["runtime"])
+        self.host.create_controller(candidate, target["service"], target["runtime"])
         self.host.start(candidate)
-        self.host.warm(candidate, protected)
+        self.host.warm_controller(candidate, protected)
         self.source.ensure(target)
         self.host.known({candidate, previous})
         self.host.switch(previous, "all")
