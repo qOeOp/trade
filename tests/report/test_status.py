@@ -285,6 +285,16 @@ class MultipleTestingTests(unittest.TestCase):
         self.assertIsNone(status.mean_correlation([x, w]), "no pair with two common days")
         self.assertIsNone(status.mean_correlation([x, {1: 0.0, 2: 0.0, 3: 0.0}]), "a constant side has no correlation")
 
+    def test_mean_correlation_omits_pairs_constant_nonzero_on_common_days(self):
+        a = {**{day: 0.01 for day in range(1, 11)}, 11: 0.06}
+        b = {**{day: 0.01 for day in range(1, 11)}, 12: -0.04}
+        c = {day: float(day) * 0.001 for day in range(1, 11)}
+        d = {day: float(day) * 0.002 for day in range(1, 11)}
+        self.assertIsNone(status.mean_correlation([a, b]), "both sides constant nonzero on common days")
+        self.assertIsNone(status.mean_correlation([a, c]), "one side constant nonzero on common days")
+        self.assertAlmostEqual(status.mean_correlation([a, b, c, d]), 1.0,
+                               msg="only the varying pair (c, d) enters the mean")
+
     def test_effective_trials_stay_between_one_and_the_trial_count(self):
         self.assertEqual(status.effective_trials(1.0, 30), 1.0, "perfectly correlated trials are one")
         self.assertEqual(status.effective_trials(0.0, 30), 30.0)

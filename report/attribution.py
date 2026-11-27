@@ -6,8 +6,9 @@ measure is given for both sides with their difference (candidate minus control),
 comparison has its own definition (the pair's breakeven fee multiple, the concentration of
 per-instrument and per-day differences, months won, the regression of the daily difference on the
 market, the expectancy split, trade pairing) that pairwise value is given beside it. Registered
-predictions are checked for sign only, against the pairwise value where the comparison defines one.
-Nothing is tested again and nothing is written.
+predictions are checked for sign only, against the comparison's signed pairwise value (or
+parity-centred share) where defined, else the difference of the two single-run values. Nothing is
+tested again and nothing is written.
 """
 
 from __future__ import annotations
@@ -234,12 +235,17 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
     traded_o = {cycle["instrument_id"] for cycle in control["cycles"]}
     put("one_side_instruments", len(traded_c ^ traded_o))
     returns_c, returns_o = candidate["returns"], control["returns"]
-    logs = [math.log1p(c) - math.log1p(o) for (_, c, _), (_, o, _) in zip(returns_c, returns_o, strict=True)]
-    put("residual_after_top5_days", measures.residual_after_top(logs), "NO_DAY: no aligned day")
-    months_c, months_o = measures.month_logs(returns_c), measures.month_logs(returns_o)
-    months = sorted(set(months_c) & set(months_o))
-    put("months_won_share", sum(1 for month in months if months_c[month] > months_o[month]) / len(months)
-        if months else None, "NO_MONTH: no aligned month")
+    if all(c > -1.0 for _, c, _ in returns_c) and all(o > -1.0 for _, o, _ in returns_o):
+        logs = [math.log1p(c) - math.log1p(o) for (_, c, _), (_, o, _) in zip(returns_c, returns_o, strict=True)]
+        put("residual_after_top5_days", measures.residual_after_top(logs), "NO_DAY: no aligned day")
+        months_c, months_o = measures.month_logs(returns_c), measures.month_logs(returns_o)
+        months = sorted(set(months_c) & set(months_o))
+        put("months_won_share", sum(1 for month in months if months_c[month] > months_o[month]) / len(months)
+            if months else None, "NO_MONTH: no aligned month")
+    else:
+        log_reason = "RETURN_SERIES_UNUSABLE: a daily return is at or below -1"
+        put("residual_after_top5_days", None, log_reason)
+        put("months_won_share", None, log_reason)
     return_difference = [c - o for (_, c, _), (_, o, _) in zip(returns_c, returns_o, strict=True)]
     for series, beta, alpha in (("basket", "beta_basket", "alpha_basket"), ("btc", "beta_btc", "alpha_btc")):
         values, reason = measures.aligned_market(returns_c, market, series)
@@ -319,10 +325,21 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
             "trade_pairs": pairs}
 
 
+# Pairwise values that are nonnegative magnitudes rather than signed changes (candidate minus control):
+# predictions on these check the signed single-run difference instead.
+_DIFFERENCE_PREDICTIONS = frozenset({"breakeven_fee_multiple", "top5_abs_share", "top_exit_share"})
+# Pairwise measures whose parity point between candidate and control is nonzero.
+_PAIRWISE_NEUTRAL = {"months_won_share": 0.5}
+# Comparison-only nonnegative counts and shares with no signed single-run difference or parity point.
+_UNSIGNED_COMPARISON_ONLY = frozenset({"one_side_instruments", "matched_share", "matched_net_share",
+                                       "win_to_loss", "loss_to_win"})
+
+
 def predictions(body: Mapping, slices: Mapping) -> list[dict]:
-    """Each registered prediction beside the observed value, marked only for its sign: the comparison's
-    own value where it defines one (the pairwise value, or a comparison-only measure), else the
-    difference of the two single-run values."""
+    """Each registered prediction beside the observed value, marked only for its sign: the signed
+    comparison value where the comparison defines one (or a pairwise proportion against its neutral
+    point), else the difference of the two single-run values. Nonnegative comparison-only counts and
+    shares have no direction of change and are marked uncheckable."""
     found = []
     for item in (body.get("prediction") or {}).get("mechanism") or ():
         entry = {key: item.get(key) for key in ("slice", "measure", "direction", "duty")}
@@ -331,16 +348,24 @@ def predictions(body: Mapping, slices: Mapping) -> list[dict]:
             found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
                           "reason": "NO_SLICE: the registration names no slice measuring this duty"})
             continue
-        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(item.get("measure"))
-        pairwise = (measured or {}).get("pairwise")
+        name = item.get("measure")
+        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(name)
+        pairwise = None if name in _DIFFERENCE_PREDICTIONS else (measured or {}).get("pairwise")
         source = pairwise if pairwise is not None else measured
         observed = None if source is None else source["value" if pairwise is not None else "difference"]
+        observed_as = "pairwise" if pairwise is not None else "difference"
         if observed is None:
             found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
                           "reason": "UNCHECKABLE: " + ((source or {}).get("null_reason") or "the measure is empty")})
             continue
+        if name in _UNSIGNED_COMPARISON_ONLY:
+            found.append({**entry, "observed": observed, "same_sign": None, "observed_as": observed_as,
+                          "reason": "UNCHECKABLE: comparison-only nonnegative measure has no signed direction"})
+            continue
+        neutral = _PAIRWISE_NEUTRAL.get(name, 0.0) if pairwise is not None else 0.0
         value = float(observed)
-        found.append({**entry, "observed": observed, "same_sign": value > 0 if item["direction"] == "up" else value < 0,
-                      "observed_as": "pairwise" if pairwise is not None else "difference", "reason": None})
+        found.append({**entry, "observed": observed,
+                      "same_sign": value > neutral if item["direction"] == "up" else value < neutral,
+                      "observed_as": observed_as, "reason": None})
     return found
 

@@ -234,3 +234,32 @@ class UnchangedTests(unittest.TestCase):
         with patch.dict(db.SCHEMAS, {"research": (db.SCHEMA, db.SCHEMA_VERSION + 1)}):
             caught = refused(graph.unchanged_since, self.world.profile, self.line, since)
         self.assertEqual(caught.code, "SCHEMA_MISMATCH")
+
+    def test_zz_a_retry_registration_invalidates_unchanged_for_its_line_only(self):
+        world = ReplayWorld("unchanged-retry")
+        self.addCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        root, (ref,) = registered_grid(world, ["bad_root"])
+        world.scenario = {"audit_passed": False}
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=root)
+        world.scenario = {}
+        with db.read_as_of(world.profile) as conn:
+            before = db.head_commit(conn)
+            rev_id = conn.one("SELECT source_review_id FROM registration_grid_point WHERE registration_id = %s",
+                              (root,))["source_review_id"]
+        with pinned(date(2026, 2, 1), date(2026, 3, 1)):
+            other = lines.select_line(world.conn, MARKET_DAY, ref, slug="other-retry",
+                                      market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                      reviews=precheck.review_records)
+        with db.read_as_of(world.profile) as conn:
+            before = db.head_commit(conn)
+        g_before = graph.research_graph(world.profile, world.line["line"], before, workers=1)
+        world.register(world.body([ref], {ref: rev_id}, retry_of=root), line=world.line["line"])
+        with db.read_as_of(world.profile) as conn:
+            after = db.head_commit(conn)
+        g_after = graph.research_graph(world.profile, world.line["line"], after, workers=1)
+        self.assertNotEqual(g_before["line"]["gates"], g_after["line"]["gates"])
+        own = graph.unchanged_since(world.profile, world.line["line"], before, after)
+        self.assertFalse(own["unchanged"], own["reason"])
+        unrelated = graph.unchanged_since(world.profile, other["line"], before, after)
+        self.assertTrue(unrelated["unchanged"], unrelated["reason"])

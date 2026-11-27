@@ -312,10 +312,12 @@ def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
         sxx, syy = xx - x * x / count, yy - y * y / count
         for at in np.flatnonzero((sxx <= CANCELLATION * xx) | (syy <= CANCELLATION * yy)):
             common = (held[start + first[at]] * held[second[at]]).astype(bool)
-            a = np.where(common, values[start + first[at]], 0.0)
-            b = np.where(common, values[second[at]], 0.0)
-            a, b = np.where(common, a - a.sum() / count[at], 0.0), np.where(common, b - b.sum() / count[at], 0.0)
-            sxy[at], sxx[at], syy[at] = (a * b).sum(), (a * a).sum(), (b * b).sum()
+            a, b = values[start + first[at], common], values[second[at], common]
+            if float(np.ptp(a)) == 0 or float(np.ptp(b)) == 0:
+                sxy[at] = sxx[at] = syy[at] = 0.0
+            else:
+                a, b = a - a.mean(), b - b.mean()
+                sxy[at], sxx[at], syy[at] = float(a @ b), float(a @ a), float(b @ b)
         kept = (sxx > 0) & (syy > 0)
         correlations.append(sxy[kept] / np.sqrt(sxx[kept] * syy[kept]))
     pairs = np.concatenate(correlations).tolist() if correlations else []
