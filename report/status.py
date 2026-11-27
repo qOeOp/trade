@@ -313,11 +313,8 @@ def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
         for at in np.flatnonzero((sxx <= CANCELLATION * xx) | (syy <= CANCELLATION * yy)):
             common = (held[start + first[at]] * held[second[at]]).astype(bool)
             a, b = values[start + first[at], common], values[second[at], common]
-            if float(np.ptp(a)) == 0 or float(np.ptp(b)) == 0:
-                sxy[at] = sxx[at] = syy[at] = 0.0
-            else:
-                a, b = a - a.mean(), b - b.mean()
-                sxy[at], sxx[at], syy[at] = float(a @ b), float(a @ a), float(b @ b)
+            a, b = (a - a.mean(), b - b.mean()) if float(np.ptp(a)) and float(np.ptp(b)) else (a * 0.0, b * 0.0)
+            sxy[at], sxx[at], syy[at] = float(a @ b), float(a @ a), float(b @ b)
         kept = (sxx > 0) & (syy > 0)
         correlations.append(sxy[kept] / np.sqrt(sxx[kept] * syy[kept]))
     pairs = np.concatenate(correlations).tolist() if correlations else []
