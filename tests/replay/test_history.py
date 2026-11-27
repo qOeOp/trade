@@ -517,6 +517,33 @@ class HistoryRunTests(unittest.TestCase):
         self.assertIs(row["control_reproduces"], False)
         self.assertIsNone(row["summary"])
 
+    def test_an_interrupted_control_is_missing_not_a_reproduction_failure(self):
+        """#3761: a control trial without a run (an interrupted `line history`) read as a control that does not
+        reproduce the research run, voiding the row's summary instead of naming the control missing."""
+        world = self.world
+        line = world.line["line"]
+        self.enterContext(patch.object(replay_world, "inspect_stand_in", windowed))
+        registration, (ref,) = registered_grid(world, ["kept"])
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV, registration=registration)
+
+        def interrupt(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        with patch.object(lines, "history_segments", lambda *args, segments=lines.history_segments: [
+                item for item in segments(*args) if item["kind"] == "control"]):
+            with replay_seams.use(run=interrupt), self.assertRaises(KeyboardInterrupt):
+                history.run_history(world.profile, world.market, MARKET_DAY, line)
+        (control,) = lines.history_trials(world.conn, world.line["line_id"])
+        self.assertIsNone(control["status"], "a control trial without a run")
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+        self.assertIsNone(row["control_reproduces"])
+        self.assertIn("control", row["summary"]["missing"])
+        self.assertIsNone(row["summary"]["meets_targets"])
+        history.run_history(world.profile, world.market, MARKET_DAY, line)
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+        self.assertIs(row["control_reproduces"], True, "resuming replays the control")
+        self.assertNotIn("control", row["summary"]["missing"])
+
     def test_an_invalid_whole_veto_year_or_a_missing_control_leaves_the_verdict_undecided(self):
         """20261114-12: before, the invalid year left the veto's denominator and a row without a control run was
         judged all the same, so this row read `meets_targets` true twice."""
