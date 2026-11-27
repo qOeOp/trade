@@ -1225,6 +1225,18 @@ class PaperForwardTests(unittest.TestCase):
         self.assertEqual(self.seen, [{"method": "POST", "path": "/api/paper/runs", "body": b'{"candidate": "a@1"}', "token": None},
                                      {"method": "GET", "path": "/api/paper/runs", "body": b"", "token": None}])
 
+    def test_a_length_that_is_not_plain_digits_is_refused_without_forwarding(self):
+        token = self.token()
+        oversized = b'{"x": "' + b"a" * serve.PAPER_BODY + b'"}'  # -1 would read it all, past the limit
+        for length, body in (("-1", oversized), ("abc", b"{}"), ("+2", b"{}"), ("9" * 5000, b"{}")):
+            with self.subTest(length), socket.create_connection(self.server.server_address, timeout=5) as raw:
+                raw.sendall(f"POST /api/paper/runs HTTP/1.1\r\nHost: here:1\r\nContent-Type: application/json\r\n"
+                            f"Sec-Fetch-Site: same-origin\r\n{serve.PAPER_TOKEN}: {token}\r\nConnection: close\r\n"
+                            f"Content-Length: {length}\r\n\r\n".encode() + body)
+                raw.shutdown(socket.SHUT_WR)
+                self.assertTrue(raw.makefile("rb").read().startswith(b"HTTP/1.1 400 "))
+        self.assertEqual(self.seen, [])
+
     def test_a_stale_page_can_renew_only_a_same_origin_pre_forward_nonce_refusal(self):
         token = self.token()
         stale = self.call("POST", "/api/paper/runs", b'{"op_id":"original"}',

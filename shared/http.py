@@ -26,6 +26,15 @@ def send_json(handler: BaseHTTPRequestHandler, status: int, body: bytes, *, clos
     handler.wfile.write(body)
 
 
+def body_length(handler: BaseHTTPRequestHandler) -> int:
+    """The request's Content-Length, 0 when it has none; ValueError unless it is at most 18 plain ASCII digits (int()
+    alone takes "-1", "+1" and "1_0", and a negative length reads to the end of the connection)."""
+    declared = (handler.headers.get("Content-Length") or "").strip() or "0"
+    if not declared.isascii() or not declared.isdigit() or len(declared) > 18:
+        raise ValueError(f"content length {declared!r} is not a whole number of bytes")
+    return int(declared)
+
+
 def trusted(handler: BaseHTTPRequestHandler, hosts: Collection[str], refused_sites: Collection[str] = ()) -> bool:
     """Whether the request names one of `hosts` and its browser did not send it from a refused site."""
     return handler.headers.get("Host") in hosts and handler.headers.get("Sec-Fetch-Site") not in refused_sites
