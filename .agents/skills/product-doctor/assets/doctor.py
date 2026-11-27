@@ -42,7 +42,10 @@ _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 import friction  # noqa: E402
+import prod_invariants  # noqa: E402
+import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
+import surface_skill_audit  # noqa: E402
 import telemetry  # noqa: E402
 
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
@@ -450,9 +453,18 @@ def friction_cmd(args: argparse.Namespace) -> None:
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
-    if ci_runs is None and not tx_paths and not prod_logs:
-        raise SystemExit("friction needs --ci-json, --transcripts, and/or --prod-logs")
-    print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None), indent=1))
+    prod_states = list(getattr(args, "prod_state", None) or [])
+    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
+    if ci_runs is None and not tx_paths and not prod_logs and not prod_states and not ledger_summaries:
+        raise SystemExit("friction needs --ci-json, --transcripts, --prod-logs, --prod-state, and/or --ledger-summary")
+    print(json.dumps(
+        friction.collect_friction(
+            ci_runs, tx_paths or None, prod_logs or None,
+            prod_state_paths=prod_states or None,
+            ledger_summary_paths=ledger_summaries or None,
+        ),
+        indent=1,
+    ))
 
 
 def _steady_exit_code(text: str) -> int:
@@ -487,9 +499,15 @@ def advise_cmd(args: argparse.Namespace) -> None:
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
+    prod_states = list(getattr(args, "prod_state", None) or [])
+    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
     fric = (
-        friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None)
-        if (ci_runs is not None or tx_paths or prod_logs) else None
+        friction.collect_friction(
+            ci_runs, tx_paths or None, prod_logs or None,
+            prod_state_paths=prod_states or None,
+            ledger_summary_paths=ledger_summaries or None,
+        )
+        if (ci_runs is not None or tx_paths or prod_logs or prod_states or ledger_summaries) else None
     )
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
@@ -701,14 +719,29 @@ def cost(args: argparse.Namespace) -> None:
                 rss_readings[size] = result["peak_rss_mib"]
             if result.get("peak_heap_kib"):
                 heap_readings[size] = result["peak_heap_kib"]
-    keep(args.directory, {
+    row: dict[str, Any] = {
         "kind": "cost", "item": "cost", "subject": args.subject, "tree": rev, "probe": str(args.probe),
         **read_cost(
             readings,
             rss_readings=rss_readings if len(rss_readings) == len(sizes) else None,
             heap_readings=heap_readings if len(heap_readings) == len(sizes) else None,
         ),
-    })
+    }
+    baseline_path = getattr(args, "baseline", None)
+    if baseline_path is not None:
+        baseline_obj = _load_json_file(baseline_path, "--baseline")
+        if not isinstance(baseline_obj, dict):
+            raise SystemExit(f"invalid --baseline {baseline_path}: expected a JSON object")
+        comparison = runtime_posture.compare_cost_baseline(row, baseline_obj)
+        row["baseline"] = str(baseline_path)
+        row["baseline_comparison"] = comparison
+        row["regression"] = comparison["regression"]
+        row["violations"] = comparison["violations"]
+    write_baseline_path = getattr(args, "write_baseline", None)
+    if write_baseline_path is not None:
+        runtime_posture.write_cost_baseline(write_baseline_path, row)
+        row["baseline_written"] = str(write_baseline_path)
+    keep(args.directory, row)
 
 
 def judge(fixed: dict[str, str], reverted: dict[str, str], now: dict[str, str]) -> tuple[str, list[str]]:
@@ -1043,11 +1076,16 @@ def _build_parser() -> argparse.ArgumentParser:
     delta_p.add_argument("base", help="base revision (e.g. origin/main or HEAD~1)")
     delta_p.add_argument("head", nargs="?", default="HEAD", help="target revision (default: HEAD)")
     delta_p.set_defaults(function=delta_cmd)
-    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, and production service log friction telemetry")
+    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, research-quality, prod-log, and silent prod-state friction telemetry")
     fric_p.add_argument("--ci-json", type=Path, help="path to JSON output of `gh run list --json ...`")
     fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
     fric_p.add_argument("--prod-logs", type=Path, nargs="+", help="one or more production service log files (Paper/Live/IDE/Dolt)")
+    fric_p.add_argument("--prod-state", type=Path, nargs="+", help="one or more redacted production state JSON snapshots for silent invariant checks")
+    fric_p.add_argument("--ledger-summary", type=Path, nargs="+", help="one or more read-only ledger trial summary JSON files")
     fric_p.set_defaults(function=friction_cmd)
+    prod_invariants.register_prod_snapshot_parser(commands)
+    runtime_posture.register_posture_parser(commands)
+    surface_skill_audit.register_surface_skill_parsers(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1056,6 +1094,8 @@ def _build_parser() -> argparse.ArgumentParser:
     adv_p.add_argument("--ci-json", type=Path, help="optional path to JSON output of `gh run list --json ...`")
     adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     adv_p.add_argument("--prod-logs", type=Path, nargs="+", help="optional production service log files")
+    adv_p.add_argument("--prod-state", type=Path, nargs="+", help="optional redacted production state JSON snapshots for silent invariant checks")
+    adv_p.add_argument("--ledger-summary", type=Path, nargs="+", help="optional read-only ledger trial summary JSON files")
     adv_p.add_argument(
         "--auto", action="store_true",
         help="full-auto scheduled mode: unblock non-redline `authority` harm issues while keeping irreversible AGENTS.md redlines blocked",
@@ -1085,6 +1125,8 @@ def _build_parser() -> argparse.ArgumentParser:
     cost_p.add_argument("subject")
     cost_p.add_argument("probe", type=Path)
     cost_p.add_argument("--sizes", required=True, help="comma-separated")
+    cost_p.add_argument("--baseline", type=Path, help="optional saved baseline JSON to check for cost regressions")
+    cost_p.add_argument("--write-baseline", type=Path, help="optional path to write measured cost metrics as a baseline JSON")
     rec_p = add("recheck", recheck, "whether a repair's own tests fail without it and pass now", 1800)
     rec_p.add_argument("commit")
     for parsed in (probe_p, cost_p, rec_p):
@@ -1108,7 +1150,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd):
+    if args.function in (
+        scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd,
+        prod_invariants.run_prod_snapshot_cmd,
+        runtime_posture.run_posture_cmd,
+        surface_skill_audit.run_surface_cmd,
+        surface_skill_audit.run_skills_audit_cmd,
+    ):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}

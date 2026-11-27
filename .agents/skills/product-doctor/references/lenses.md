@@ -24,7 +24,8 @@ running, cut short and at a limit.
 - **faults** [live docker]: fault fixtures (live loopback, fake Docker).
 - **interrupt** [any]: a many-step operation stopped after each step and resumed, on fakes that,
   like the real thing, do not give back what the stopped step had consumed.
-- **operation** [any]: what an operator learns, and when, as a service degrades or a disk fills.
+- **operation** [any]: what an operator learns, and when, as a service degrades, stalls silently (`--prod-state`
+  invariants in [prod-ops.md](prod-ops.md)) or a disk fills.
 - **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting across
   month rollover (`market/follow + market/files + market/universe`), on copies.
 
@@ -81,3 +82,10 @@ running, cut short and at a limit.
   `docs/plans/doctor/index.zh.md`.
 - **self** [any]: what the user found first, rerun claims overturned, lenses that ran and found
   nothing for several audits (say so).
+- **methodology** [any]: on a 60-90d cadence (60d per-lens scheduler SLA) or before a new version
+  line, benchmark `research-start`, `research-round`, `nautilus-report-analysis` and `report/`
+  against external literature and mature open-source quant-agent frameworks (such as RD-Agent
+  evolutionary hypothesis trees, multiple-testing control / Deflated Sharpe, walk-forward leakage
+  guards and failure attribution) via `research-sources`; every proposal must cite a concrete
+  in-repo gap (transcript or ledger failure), survive Step 6 refutation against the `burden`
+  counterweight, introduce no parallel workflow engine, and add no stored ledger field.
