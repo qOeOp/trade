@@ -1375,6 +1375,21 @@ class MalformedAnswerTests(unittest.TestCase):
         self.assertEqual(self.answered(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n"
                                        b"4\r\nhalf\r\n"), (200, b"half"))
 
+    def test_a_malformed_request_line_returns_400_without_handler_error(self):
+        server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
+        threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with mock.patch.object(server, "handle_error") as failed:
+            for payload in (b"BADREQUEST\r\n\r\n", b"GET / BADPROTO\r\n\r\n"):
+                with self.subTest(payload=payload), socket.create_connection(server.server_address, timeout=5) as sock:
+                    sock.sendall(payload)
+                    raw = b""
+                    while chunk := sock.recv(4096):
+                        raw += chunk
+                    self.assertIn(b"Error code: 400", raw)
+            self.assertEqual(failed.call_count, 0)
+
 
 class OverviewForwardTests(unittest.TestCase):
     """A stand-in overview records what reaches it."""
