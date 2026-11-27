@@ -424,7 +424,12 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
         raise refuse("ENTRY_CLASS_INVALID", f"{strategy_class!r} is not one Python class name")
     registration_runner.require_unreserved(list(runner_argv))
     _check_window(ledger, market, at, line, runner_argv)
-    source = Path(strategy_file).read_bytes()
+    strategy_path = Path(strategy_file)
+    try:
+        source = strategy_path.read_bytes()
+    except OSError as exc:
+        raise refuse("SOURCE_UNREADABLE", f"{strategy_path} is not a readable file: {exc}",
+                     missing=(str(strategy_path),)) from exc
     revision = {"source": source, "entry_class": strategy_class, "source_sha256": hashlib.sha256(source).hexdigest()}
     identity = registration_seams.current.resolve_runtime(runtime)
     exported = None

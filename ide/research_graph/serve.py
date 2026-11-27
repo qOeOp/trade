@@ -1108,7 +1108,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.close_connection = True
 
         def log_request(self, code="-", size="-") -> None:
-            if live_proxy.matches(self.path):
+            if live_proxy.matches(getattr(self, "path", "")):
                 return  # Live paths may contain malformed input; never put them in access logs.
             if int(code) >= 400:  # the page polls; only a failed request is news
                 super().log_request(code, size)

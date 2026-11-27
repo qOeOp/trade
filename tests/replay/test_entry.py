@@ -107,6 +107,14 @@ class ExecutionBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "EXECUTION_BINDING_MISMATCH: .* in end"):
             engine_run.execution_metadata(other)
 
+    def test_explore_refuses_a_missing_strategy_file_as_source_unreadable(self):
+        workdir = tempdir(self.addCleanup)
+        missing = workdir / "does-not-exist.py"
+        with patch.object(entry, "_check_window"):
+            caught = refused(entry.explore, db.LedgerProfile("temp", "temp", workdir, "temporary"),
+                             {}, None, missing, "Fixture", workdir / "out", None, ONE, "line-a")
+        self.assertEqual((caught.code, caught.missing), ("SOURCE_UNREADABLE", (str(missing),)))
+
 
 @unittest.skipUnless(BINARY, SKIP)
 class ExploreAndPrecheckTests(unittest.TestCase):
@@ -153,7 +161,8 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                  ({"runner_argv": ONE + ["--market-root=/x"]}, "RUNNER_OPTION_RESERVED"),
                  ({"output": Path.home() / "not-a-temporary-output"}, "NOT_TEMPORARY_PATH"),
                  ({"output": existing}, "PATH_EXISTS"),
-                 ({"strategy_class": "Not A Class"}, "ENTRY_CLASS_INVALID")]
+                 ({"strategy_class": "Not A Class"}, "ENTRY_CLASS_INVALID"),
+                 ({"strategy_file": self.world.output("missing-strategy.py")}, "SOURCE_UNREADABLE")]
         for overrides, code in cases:
             with self.subTest(code=code):
                 caught = refused(lambda: self.explore("refused", **overrides))
