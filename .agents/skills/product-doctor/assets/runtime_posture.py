@@ -147,23 +147,25 @@ def _pick_largest_pair(
     cur_scalar: float | None,
     base_map: dict[int, float],
     base_scalar: float | None,
-) -> tuple[int | None, float | None, float | None]:
+) -> tuple[int | None, float | None, float | None, bool]:
     common = set(cur_map) & set(base_map)
     if common:
         size = max(common)
-        return size, cur_map[size], base_map[size]
+        return size, cur_map[size], base_map[size], False
     if cur_map and base_map:
-        cur_sz, base_sz = max(cur_map), max(base_map)
-        return cur_sz, cur_map[cur_sz], base_map[base_sz]
+        return None, None, None, True
     if cur_scalar is not None and base_scalar is not None:
-        return None, cur_scalar, base_scalar
-    return None, None, None
+        return None, cur_scalar, base_scalar, False
+    return None, None, None, False
 
 
 def compare_cost_baseline(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
     """Compare measured cost telemetry against a saved baseline JSON and flag regressions deterministically."""
+    if not isinstance(current, dict) or not isinstance(baseline, dict):
+        raise ValueError("cost comparison inputs must be JSON objects")
     violations: list[dict[str, Any]] = []
     metrics: dict[str, Any] = {}
+    size_mismatch = False
 
     cur_exp, base_exp = _as_finite_float(current.get("exponent")), _as_finite_float(baseline.get("exponent"))
     if cur_exp is not None and base_exp is not None:
@@ -198,7 +200,8 @@ def compare_cost_baseline(current: dict[str, Any], baseline: dict[str, Any]) -> 
                 "detail": f"heap exponent rose {base_hexp:.2f} -> {cur_hexp:.2f} (delta +{delta:.2f} > 0.25, after > 0.35)",
             })
 
-    rss_sz, cur_rss, base_rss = _pick_largest_pair(*_extract_rss_series(current), *_extract_rss_series(baseline))
+    rss_sz, cur_rss, base_rss, rss_mismatch = _pick_largest_pair(*_extract_rss_series(current), *_extract_rss_series(baseline))
+    size_mismatch = size_mismatch or rss_mismatch
     if cur_rss is not None and base_rss is not None and base_rss > 0:
         delta_mib = cur_rss - base_rss
         ratio = cur_rss / base_rss
@@ -220,7 +223,8 @@ def compare_cost_baseline(current: dict[str, Any], baseline: dict[str, Any]) -> 
                 "detail": f"peak RSS grew {base_rss:.1f} -> {cur_rss:.1f} MiB ({ratio:.2f}x, +{delta_mib:.1f} MiB)",
             })
 
-    wall_sz, cur_wall, base_wall = _pick_largest_pair(*_extract_wall_series(current), *_extract_wall_series(baseline))
+    wall_sz, cur_wall, base_wall, wall_mismatch = _pick_largest_pair(*_extract_wall_series(current), *_extract_wall_series(baseline))
+    size_mismatch = size_mismatch or wall_mismatch
     if cur_wall is not None and base_wall is not None and base_wall > 0:
         delta_s = cur_wall - base_wall
         ratio = cur_wall / base_wall
@@ -244,6 +248,7 @@ def compare_cost_baseline(current: dict[str, Any], baseline: dict[str, Any]) -> 
 
     return {
         "regression": bool(violations),
+        "size_mismatch": size_mismatch,
         "violations": violations,
         "metrics": metrics,
     }
@@ -471,7 +476,7 @@ def _check_replay_dockerfile_copies(root: Path, rel: str, violations: list[dict[
             words = shlex.split(line)
         except ValueError:
             continue
-        if len(words) < 3 or words[1].startswith("--from="):
+        if len(words) < 3 or any(w.startswith("--from=") for w in words[1:]):
             continue
         for src in words[1:-1]:
             if src.startswith("--") or "*" in src:
@@ -645,7 +650,11 @@ def _collect_import_aliases(tree: ast.AST) -> tuple[dict[str, str], dict[str, st
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                module_aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+                if alias.asname:
+                    module_aliases[alias.asname] = alias.name
+                else:
+                    root = alias.name.split(".")[0]
+                    module_aliases.setdefault(root, root)
         elif isinstance(node, ast.ImportFrom) and node.module:
             for alias in node.names:
                 symbol_aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
@@ -659,8 +668,6 @@ def _resolve_call_name(call: ast.Call, module_aliases: dict[str, str], symbol_al
     if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
         base = module_aliases.get(fn.value.id, fn.value.id)
         return f"{base}.{fn.attr}"
-    if isinstance(fn, ast.Attribute):
-        return fn.attr
     return ""
 
 
@@ -697,16 +704,16 @@ def _inspect_ast_call(
             "pattern": "pickle_deserialize",
             "detail": f"{name}() deserialization",
         })
-    elif name == "yaml.load" and not _yaml_loader_is_safe(call):
+    elif name == "yaml.unsafe_load" or (name in ("yaml.load", "yaml.load_all") and not _yaml_loader_is_safe(call)):
         hits.append({
             "location": loc,
             "file": rel,
             "line": call.lineno,
             "pattern": "unsafe_yaml_load",
-            "detail": "yaml.load() without SafeLoader",
+            "detail": f"{name}() without SafeLoader",
         })
     for kw in call.keywords:
-        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and bool(kw.value.value) is True:
             tail = name.rsplit(".", 1)[-1]
             if name.startswith("subprocess.") or tail in _SUBPROCESS_CALLS:
                 hits.append({
@@ -716,7 +723,7 @@ def _inspect_ast_call(
                     "pattern": "subprocess_shell_true",
                     "detail": f"{name}(..., shell=True)",
                 })
-        elif kw.arg == "verify" and isinstance(kw.value, ast.Constant) and kw.value.value is False:
+        elif kw.arg == "verify" and isinstance(kw.value, ast.Constant) and kw.value.value is not None and bool(kw.value.value) is False:
             hits.append({
                 "location": loc,
                 "file": rel,
@@ -841,21 +848,25 @@ def _scan_doc_file(root: Path, rel: str) -> tuple[int, int, list[dict[str, Any]]
     broken: list[dict[str, Any]] = []
     links_checked = 0
     paths_checked = 0
-    in_fence = False
+    fence_char = ""
 
     for lineno, line in enumerate(doc_path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-        if line.strip().startswith("```"):
-            in_fence = not in_fence
+        stripped = line.strip()
+        if not fence_char and stripped.startswith(("```", "~~~")):
+            fence_char = stripped[0]
             continue
-        if in_fence:
+        if fence_char:
+            if stripped.startswith(fence_char * 3):
+                fence_char = ""
             continue
-        for match in _MD_LINK_RE.finditer(line):
+        prose = _BACKTICK_RE.sub("", line)
+        for match in _MD_LINK_RE.finditer(prose):
             raw_target = match.group(1)
             target = raw_target.split("#", 1)[0].split("?", 1)[0]
             if not target or "://" in target or target.startswith(("mailto:", "#")):
                 continue
             links_checked += 1
-            resolved = (doc_path.parent / target).resolve()
+            resolved = ((root_resolved / target.lstrip("/")) if target.startswith("/") else (doc_path.parent / target)).resolve()
             if not resolved.is_relative_to(root_resolved) or not resolved.exists():
                 broken.append({"file": rel, "line": lineno, "kind": "markdown_link", "target": raw_target})
         for match in _BACKTICK_RE.finditer(line):
@@ -865,8 +876,8 @@ def _scan_doc_file(root: Path, rel: str) -> tuple[int, int, list[dict[str, Any]]
             if any(ch in tok for ch in " *<>{}$|;():") or "..." in tok:
                 continue
             paths_checked += 1
-            clean = tok.rstrip("/")
-            if not (root / clean).exists():
+            clean = tok.split("#", 1)[0].rstrip("/")
+            if clean and not (root / clean).exists():
                 broken.append({"file": rel, "line": lineno, "kind": "backtick_path", "target": tok})
     return links_checked, paths_checked, broken
 

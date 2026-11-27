@@ -729,7 +729,10 @@ def cost(args: argparse.Namespace) -> None:
     }
     baseline_path = getattr(args, "baseline", None)
     if baseline_path is not None:
-        comparison = runtime_posture.compare_cost_baseline(row, _load_json_file(baseline_path, "--baseline"))
+        baseline_obj = _load_json_file(baseline_path, "--baseline")
+        if not isinstance(baseline_obj, dict):
+            raise SystemExit(f"invalid --baseline {baseline_path}: expected a JSON object")
+        comparison = runtime_posture.compare_cost_baseline(row, baseline_obj)
         row["baseline"] = str(baseline_path)
         row["baseline_comparison"] = comparison
         row["regression"] = comparison["regression"]

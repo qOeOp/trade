@@ -36,13 +36,21 @@ DEFAULT_MAX_RESTART_COUNT_24H = 5
 
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_EXPORT_SCAN_BYTES = 256 * 1024
+MAX_EXPORT_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_PARQUET_FOOTER_BYTES = 16 * 1024 * 1024
 MAX_SCAN_ENTRIES = 5000
 MAX_SUMMARY_LEN = 160
 MAX_THRIFT_ITEMS = 1_000_000
 MAX_THRIFT_DEPTH = 32
 
-_SECRET_BASENAME_TOKENS = ("secret", "credential", "token", "key", "passwd", "password")
+_SECRET_BASENAME_TOKENS = ("secret", "credential", "passwd", "password")
+_SECRET_STEMS = frozenset({"token", "tokens", "key", "keys", "apikey", "cookie", "cookies"})
+_SECRET_COMPOUND_RE = re.compile(
+    r"(?:api[_-]?key|private[_-]?key|priv[_-]?key|auth[_-]?token|access[_-]?token|"
+    r"refresh[_-]?token|paper[_-]?token|bot[_-]?token|api[_-]?token|session[_-]?token|"
+    r"bearer[_-]?token|id_rsa|id_ed25519)",
+    re.IGNORECASE,
+)
 _SECRET_EXTENSIONS = frozenset({".pem", ".p12", ".pfx", ".key"})
 _SKIP_DIRS = frozenset({"__pycache__", ".venv", "node_modules", ".git"})
 _EXPORT_TEXT_EXTENSIONS = frozenset({
@@ -164,7 +172,9 @@ def _path_is_secret_candidate(candidate: Path) -> bool:
         return True
     if candidate.suffix.lower() in _SECRET_EXTENSIONS:
         return True
-    if any(tok in name for tok in _SECRET_BASENAME_TOKENS):
+    if any(tok in name for tok in _SECRET_BASENAME_TOKENS) or _SECRET_COMPOUND_RE.search(name):
+        return True
+    if candidate.stem.lower() in _SECRET_STEMS and candidate.suffix.lower() not in (".parquet", ".csv", ".sql"):
         return True
     parts = [p.lower() for p in candidate.parts]
     return ".env" in parts or any(
@@ -366,7 +376,7 @@ def _skip_thrift_container(buf: bytes, pos: int, ttype: int, depth: int) -> int:
         if size > MAX_THRIFT_ITEMS:
             raise ValueError("thrift list too large")
         for _ in range(size):
-            pos = _skip_thrift_value(buf, pos, elem_type, depth + 1)
+            pos = _skip_thrift_value(buf, pos, elem_type, depth + 1, in_container=True)
         return pos
     size, pos = _decode_varint(buf, pos)
     if size > MAX_THRIFT_ITEMS:
@@ -379,8 +389,8 @@ def _skip_thrift_container(buf: bytes, pos: int, ttype: int, depth: int) -> int:
     pos += 1
     kt, vt = (kv >> 4) & 0x0F, kv & 0x0F
     for _ in range(size):
-        pos = _skip_thrift_value(buf, pos, kt, depth + 1)
-        pos = _skip_thrift_value(buf, pos, vt, depth + 1)
+        pos = _skip_thrift_value(buf, pos, kt, depth + 1, in_container=True)
+        pos = _skip_thrift_value(buf, pos, vt, depth + 1, in_container=True)
     return pos
 
 
@@ -399,10 +409,14 @@ def _skip_thrift_struct(buf: bytes, pos: int, depth: int) -> int:
     raise ValueError("unterminated thrift struct")
 
 
-def _skip_thrift_value(buf: bytes, pos: int, ttype: int, depth: int = 0) -> int:
+def _skip_thrift_value(buf: bytes, pos: int, ttype: int, depth: int = 0, *, in_container: bool = False) -> int:
     if depth > MAX_THRIFT_DEPTH:
         raise ValueError("thrift nesting exceeded")
     if ttype in (1, 2):
+        if in_container:
+            if pos + 1 > len(buf):
+                raise ValueError("truncated container bool")
+            return pos + 1
         return pos
     if ttype == 3:
         if pos + 1 > len(buf):
@@ -770,20 +784,30 @@ def _check_ledger_public_hygiene(
 def _scan_export_text_file(path: Path, tables: set[str], markers: set[str]) -> int:
     if path.suffix.lower() not in _EXPORT_TEXT_EXTENSIONS:
         return 0
+    cred_matched: set[int] = set()
+    overlap = ""
+    total_read = 0
     try:
         with path.open("rb") as fh:
-            raw = fh.read(MAX_EXPORT_SCAN_BYTES)
+            while total_read < MAX_EXPORT_TOTAL_BYTES:
+                raw = fh.read(MAX_EXPORT_SCAN_BYTES)
+                if not raw:
+                    break
+                total_read += len(raw)
+                chunk = overlap + raw.decode("utf-8", errors="replace")
+                for m in _PRIVATE_TABLE_RE.finditer(chunk):
+                    tables.add(m.group(1).lower())
+                for m in _PRIVATE_MARKER_RE.finditer(chunk):
+                    markers.add(m.group(1).lower())
+                for idx, pat in enumerate(_CREDENTIAL_LEAK_PATTERNS):
+                    if idx not in cred_matched and pat.search(chunk):
+                        cred_matched.add(idx)
+                overlap = chunk[-256:] if len(chunk) > 256 else chunk
     except OSError:
         return 0
-    text = raw.decode("utf-8", errors="replace")
-    for m in _PRIVATE_TABLE_RE.finditer(text):
-        tables.add(m.group(1).lower())
-    for m in _PRIVATE_MARKER_RE.finditer(text):
-        markers.add(m.group(1).lower())
-    cred_hits = sum(1 for pat in _CREDENTIAL_LEAK_PATTERNS if pat.search(text))
-    if cred_hits > 0:
+    if cred_matched:
         markers.add("credential_pattern")
-    return cred_hits
+    return len(cred_matched)
 
 
 def collect_ledger_export_hygiene(export_dir: Path, notes: list[str]) -> dict[str, Any] | None:

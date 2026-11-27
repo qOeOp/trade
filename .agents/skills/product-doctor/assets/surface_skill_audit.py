@@ -23,8 +23,15 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import sys
 from typing import Any
 from urllib.parse import urlsplit
+
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import ops_invariants  # noqa: E402
+import prod_invariants  # noqa: E402
 
 # Dimension 7 constants
 REQUIRED_FONT_ASSETS = (
@@ -94,8 +101,46 @@ def _resolve_repo_root(root: Path | None) -> Path:
     return Path.cwd().resolve()
 
 
+_REGEX_PREV_CHARS = frozenset("(,=[!&|?:;{}\n+*-/%^~<>")
+_REGEX_PREV_WORDS = frozenset({"return", "case", "throw", "typeof", "in", "of", "yield", "await", "delete", "void", "new"})
+
+
+def _can_start_regex(out: list[str]) -> bool:
+    idx = len(out) - 1
+    while idx >= 0 and out[idx] in (" ", "\t", "\r"):
+        idx -= 1
+    if idx < 0 or out[idx] in _REGEX_PREV_CHARS:
+        return True
+    end = idx + 1
+    while idx >= 0 and (out[idx].isalnum() or out[idx] in ("_", "$")):
+        idx -= 1
+    return "".join(out[idx + 1:end]) in _REGEX_PREV_WORDS
+
+
+def _consume_regex_literal(source: str, i: int, out: list[str]) -> int:
+    n = len(source)
+    out.append(source[i])
+    i += 1
+    in_class = False
+    while i < n and source[i] != "\n":
+        ch = source[i]
+        out.append(ch)
+        if ch == "\\" and i + 1 < n and source[i + 1] != "\n":
+            out.append(source[i + 1])
+            i += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        elif ch == "/" and not in_class:
+            return i + 1
+        i += 1
+    return i
+
+
 def _strip_js_comments(source: str) -> str:
-    """Remove JS/TS `//` and `/* */` comments outside string literals while preserving line numbers."""
+    """Remove JS/TS `//` and `/* */` comments outside string and regex literals while preserving line numbers."""
     out: list[str] = []
     i = 0
     n = len(source)
@@ -131,6 +176,8 @@ def _strip_js_comments(source: str) -> str:
             if i + 1 < n:
                 out.extend((" ", " "))
                 i += 2
+        elif ch == "/" and _can_start_regex(out):
+            i = _consume_regex_literal(source, i, out)
         else:
             out.append(ch)
             i += 1
@@ -289,6 +336,35 @@ def _scan_file_security_patterns(
             })
 
 
+def _try_block_ranges(stripped: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    n = len(stripped)
+    for m in re.finditer(r"\btry\s*\{", stripped):
+        start = m.end() - 1
+        depth = 0
+        quote: str | None = None
+        i = start
+        while i < n:
+            ch = stripped[i]
+            if quote is not None:
+                if ch == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"', "`"):
+                quote = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    ranges.append((start, i))
+                    break
+            i += 1
+    return ranges
+
+
 def _check_overview_app_security(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     app_path = root / "ide/overview/src/app.ts"
     if not app_path.is_file():
@@ -296,13 +372,18 @@ def _check_overview_app_security(root: Path) -> tuple[dict[str, Any], list[dict[
 
     stripped = _strip_js_comments(app_path.read_text(encoding="utf-8", errors="replace"))
     host_match = re.search(r"\bhosts\.has\s*\(", stripped)
-    url_match = re.search(r"\bnew\s+URL\s*\(", stripped)
-    try_url_match = re.search(r"\btry\s*\{[^}]*\bnew\s+URL\s*\(", stripped, re.DOTALL)
+    url_matches = list(re.finditer(r"\bnew\s+URL\s*\(", stripped))
+    try_ranges = _try_block_ranges(stripped)
 
     host_line = _line_number(stripped, host_match.start()) if host_match else None
-    url_line = _line_number(stripped, url_match.start()) if url_match else None
-    host_before_url = bool(host_match and (url_match is None or host_match.start() < url_match.start()))
-    url_parse_guarded = bool(url_match is None or try_url_match is not None)
+    first_url = url_matches[0] if url_matches else None
+    url_line = _line_number(stripped, first_url.start()) if first_url else None
+    host_before_url = bool(host_match and all(host_match.start() < m.start() for m in url_matches))
+    unguarded_lines = [
+        _line_number(stripped, m.start()) for m in url_matches
+        if not any(lo < m.start() < hi for lo, hi in try_ranges)
+    ]
+    url_parse_guarded = not unguarded_lines
 
     issues: list[dict[str, Any]] = []
     if host_match is None:
@@ -313,19 +394,19 @@ def _check_overview_app_security(root: Path) -> tuple[dict[str, Any], list[dict[
             "detail": "no hosts.has(...) allowlist guard found",
         })
     elif not host_before_url:
+        bad_line = next(_line_number(stripped, m.start()) for m in url_matches if m.start() < host_match.start())
         issues.append({
             "kind": "host_check_after_url_parse",
             "file": "ide/overview/src/app.ts",
-            "line": url_line or 1,
-            "detail": f"new URL() at line {url_line} runs before hosts.has() at line {host_line}",
+            "line": bad_line,
+            "detail": f"new URL() at line {bad_line} runs before hosts.has() at line {host_line}",
         })
-    if not url_parse_guarded:
-        issues.append({
-            "kind": "unguarded_url_parse",
-            "file": "ide/overview/src/app.ts",
-            "line": url_line or 1,
-            "detail": f"new URL() at line {url_line} is not guarded by try/catch",
-        })
+    issues.extend({
+        "kind": "unguarded_url_parse",
+        "file": "ide/overview/src/app.ts",
+        "line": bad_line,
+        "detail": f"new URL() at line {bad_line} is not guarded by try/catch",
+    } for bad_line in unguarded_lines)
 
     info = {
         "present": True,
@@ -516,8 +597,8 @@ def _http_probe_cases(trusted_host: str, health_path: str) -> list[tuple[str, by
         ),
         (
             "trusted_host_backslash_url",
-            f"GET /\\evil/health HTTP/1.1\r\nHost: {trusted_host}\r\nConnection: close\r\n\r\n".encode("ascii"),
-            (400,),
+            f"GET /\\evil{health_path} HTTP/1.1\r\nHost: {trusted_host}\r\nConnection: close\r\n\r\n".encode("ascii"),
+            (400, 404),
         ),
         (
             "non_get_method",
@@ -859,24 +940,26 @@ def _extract_transcript_step(
 
 
 def _inspect_transcript_skills(path: Path) -> dict[str, Any]:
-    try:
-        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as err:
-        raise ValueError(f"cannot read transcript {path}: {err}") from None
+    if ops_invariants.is_secret_path(path):
+        raise ValueError(f"refused secret file {path.name}")
     skills_loaded: set[str] = set()
     related_skills: set[str] = set()
     calls = errors = 0
-    for line in raw_lines:
-        if not line.strip():
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict):
-            c, e = _extract_transcript_step(obj, skills_loaded, related_skills)
-            calls += c
-            errors += e
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in prod_invariants._read_bounded_lines(fh, 2_000_000):
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    c, e = _extract_transcript_step(obj, skills_loaded, related_skills)
+                    calls += c
+                    errors += e
+    except OSError as err:
+        raise ValueError(f"cannot read transcript {path}: {err}") from None
     return {
         "file": path.name,
         "tool_calls": calls,
@@ -1040,10 +1123,9 @@ def _extract_eval_records(payload: Any) -> list[tuple[str, int, int]]:
 def _load_eval_counts(paths: list[Path]) -> dict[str, tuple[int, int]]:
     totals: dict[str, list[int]] = {}
     for path in paths:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as err:
-            raise ValueError(f"invalid eval JSON {path}: {err}") from None
+        payload, err = ops_invariants._read_json_bounded(path)
+        if err is not None:
+            raise ValueError(f"invalid eval JSON {path}: {err}")
         for case_name, p_cnt, t_cnt in _extract_eval_records(payload):
             bucket = totals.setdefault(case_name, [0, 0])
             bucket[0] += p_cnt
