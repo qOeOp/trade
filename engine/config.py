@@ -297,6 +297,19 @@ def venue_terms(row: dict) -> dict:
             "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")}
 
 
+VENUE_CONTRACT = {"status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT"}
+
+
+def venue_inactive(row: dict) -> str | None:
+    """Why the contract of a Binance fapi/v1/exchangeInfo symbol row takes no entry in Paper or Live, or None: it is
+    not an active USDT-margined perpetual (VENUE_CONTRACT). A row without one of those fields raises KeyError."""
+    found = {name: row[name] for name in VENUE_CONTRACT}
+    if found == VENUE_CONTRACT:
+        return None
+    fields = ", ".join(f"{name} {value}" for name, value in found.items())
+    return f"not an active USDT-margined perpetual ({fields})"
+
+
 class Refusal(ValueError):
     """A catalogued runner refusal; its text starts with the code."""
 

@@ -18,7 +18,6 @@ from decimal import Decimal
 from nautilus_trader.model import Bar, Price, Quantity
 
 from engine import warmup
-from engine.config import venue_terms
 
 REST_BASE = "https://fapi.binance.com"
 LIMIT = 1500  # Binance's most klines per request
@@ -100,9 +99,9 @@ def symbol(instrument_id) -> str:
     return str(instrument_id).split("-PERP.")[0]
 
 
-def terms(instrument_id, proxy_url: str | None) -> dict:
-    """Binance's terms of the contract now (engine.config.venue_terms of its public fapi/v1/exchangeInfo row), which
-    Paper compares with the market's for each entry, as Live does (TERMS_CHANGED)."""
+def contract(instrument_id, proxy_url: str | None) -> dict:
+    """Binance's public fapi/v1/exchangeInfo row of the contract now, which Paper reads for each entry, as Live does
+    (engine.paper_terms.entry)."""
     for attempt in range(1, TERMS_READ_ATTEMPTS + 1):
         try:
             answer = get_json(f"{REST_BASE}/fapi/v1/exchangeInfo", proxy_url)
@@ -115,4 +114,4 @@ def terms(instrument_id, proxy_url: str | None) -> dict:
     rows = [row for row in answer["symbols"] if row["symbol"] == symbol(instrument_id)]
     if len(rows) != 1:
         raise ValueError(f"Binance has no unique USD-M instrument {symbol(instrument_id)}")
-    return venue_terms(rows[0])
+    return rows[0]

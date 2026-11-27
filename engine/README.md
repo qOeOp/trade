@@ -138,7 +138,11 @@ its source cancels while it waits (a market exit cancels it too) is never sent a
 during its market exit does not wait: it is denied at once, as in a replay, in Paper by Nautilus and in Live by the
 entry gate (`entry_denied`, detail `entry_during_market_exit`), and Live's run goes on. A difference is
 `TERMS_CHANGED`, with both values: the entry is not sent and the run stops; reduce-only orders are not checked. Paper refuses an entry whose terms it could not read the
-same way. A replay never meets a change: it trades the whole window on one terms snapshot per contract
+same way. Both admit an entry only on an active USDT-margined perpetual (`engine.config.venue_inactive`: status
+`TRADING`, contract type `PERPETUAL`, margin asset `USDT`): Binance keeps sending bars of a `SETTLING` contract.
+Paper then does not send the entry, journals `entry_not_sent` (`PAPER_INSTRUMENT`) and goes on, as Live denies an
+entry on a contract that is not `TRADING` and goes on (a Live contract whose type or margin asset changed is
+`LIVE_INSTRUMENT` and ends the run; Binance does not change those under a symbol without its status). A replay never meets a change: it trades the whole window on one terms snapshot per contract
 (`market.instrument`). Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
 replace an instrument), so it keeps the loader's 0.1 and sets its leverage to `--leverage` x 0.1, which locks the
 same margin; a loaded contract with other rates is `TERMS_CHANGED` too. Live never sets leverage: the venue's

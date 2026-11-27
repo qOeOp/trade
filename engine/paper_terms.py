@@ -1,6 +1,9 @@
 """Paper's TERMS_CHANGED: the contract's terms (engine.config.TERMS_COMPARED) against the market's at the run's market
 day, on the instrument the loader gave at start and on Binance's terms read for each entry, as Live admits each entry
-(engine.live_venue.require_admission): rc7 does not reload a loaded instrument mid-run (C-172).
+(engine.live_venue.require_admission): rc7 does not reload a loaded instrument mid-run (C-172). The same read admits an
+entry only on an active USDT-margined perpetual (engine.config.venue_inactive): on another the entry is not sent and
+the run goes on (PAPER_INSTRUMENT), as Live denies an entry on a contract that is not TRADING and goes on (Live's
+LIVE_INSTRUMENT for another type or margin asset ends its run); Binance keeps sending bars of a SETTLING contract.
 
 As Live's account observation, an entry's read runs off the node's thread: the entry waits in QUEUE, unsent, while
 bars, timers and reduce-only orders go on, and the recorder's tick (`release`) sends it, or refuses it, once its read is
@@ -21,7 +24,7 @@ from nautilus_trader.model import ExecAlgorithmId, OrderSide, StrategyId
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 
 from engine import klines, unsent
-from engine.config import terms_changed
+from engine.config import terms_changed, venue_inactive, venue_terms
 from engine.order_rules import native_cache
 from engine.strategy import source_config
 
@@ -50,13 +53,18 @@ def loaded(market: dict, instrument) -> list[str]:
                       if Decimal(str(rate)) != LOADER_MARGIN]
 
 
-def entry(market_terms: dict, instrument_id: str, proxy_url: str | None) -> list[str]:
-    """The differences of Binance's terms of the contract now (engine.klines.terms) from the market's (`market_terms`,
-    by symbol); terms Binance does not give are one too."""
+def entry(market_terms: dict, instrument_id: str, proxy_url: str | None) -> tuple[str | None, list[str]]:
+    """Of Binance's contract now (engine.klines.contract): why it takes no entry (engine.config.venue_inactive) or None,
+    and the differences of its terms from the market's (`market_terms`, by symbol), [] when it takes none; terms
+    Binance does not give are one too."""
     try:
-        return terms_changed(market_terms[klines.symbol(instrument_id)], klines.terms(instrument_id, proxy_url))
-    except Exception as exc:  # the network, or an answer without the contract's filters
-        return [f"Binance's terms were not read ({type(exc).__name__}: {exc})"]
+        row = klines.contract(instrument_id, proxy_url)
+        inactive = venue_inactive(row)
+        if inactive:
+            return inactive, []
+        return None, terms_changed(market_terms[klines.symbol(instrument_id)], venue_terms(row))
+    except Exception as exc:  # the network, or an answer without the contract's fields or filters
+        return None, [f"Binance's terms were not read ({type(exc).__name__}: {exc})"]
 
 
 @dataclass
@@ -66,6 +74,7 @@ class Entry:
     send: Callable[[], Any]  # the order rules' submit, bound to the order
     end: Callable[[], Any]  # the native cancel of the unsent order (engine.unsent), bound to the order
     canceled: bool = False  # the source cancelled it while it waited
+    inactive: str | None = None  # why the contract takes no entry, once the read is done (entry)
     changed: list[str] | None = None  # the read's differences once it is done
     thread: threading.Thread = field(init=False)
 
@@ -73,13 +82,13 @@ class Entry:
 QUEUE: list[Entry] = []
 
 
-def queue(read: Callable[[str], list[str]], instrument_id: str, order, send: Callable[[], Any],
+def queue(read: Callable[[str], tuple[str | None, list[str]]], instrument_id: str, order, send: Callable[[], Any],
           end: Callable[[], Any]) -> None:
     """Queue an entry and start its read (`read`: `entry` with the market's terms bound; it never raises)."""
     item = Entry(instrument_id, order, send, end)
 
     def work():
-        item.changed = read(instrument_id)
+        item.inactive, item.changed = read(instrument_id)
     item.thread = threading.Thread(target=work, name=f"terms-{order.client_order_id}", daemon=True)
     QUEUE.append(item)
     item.thread.start()
@@ -95,8 +104,9 @@ def cancel(instrument_id: str, match: Callable[[Any], bool]) -> set:
 
 def release(record: Callable[..., None], stop: Callable[[str], None], *, stopping: bool, final: bool = False) -> None:
     """On the node's thread, the queued entries whose read is done (every one when `final`), in order: on other terms
-    the entry is refused and the run stops (TERMS_CHANGED); while the run is stopping it is not sent; else it is sent.
-    One its source cancelled is ended natively instead of either."""
+    the entry is refused and the run stops (TERMS_CHANGED); while the run is stopping it is not sent; on a contract
+    that takes no entry it is not sent and the run goes on (PAPER_INSTRUMENT); else it is sent. One its source
+    cancelled is ended natively instead of any of these."""
     while QUEUE and (final or not QUEUE[0].thread.is_alive()):
         item = QUEUE.pop(0)
         fields = {"instrument_id": item.instrument_id, "client_order_id": str(item.order.client_order_id)}
@@ -110,6 +120,8 @@ def release(record: Callable[..., None], stop: Callable[[str], None], *, stoppin
             pass  # refused
         elif stopping or item.changed is None:
             record("entry_not_sent", reason="the run is stopping", **fields)
+        elif item.inactive:
+            record("entry_not_sent", code="PAPER_INSTRUMENT", reason=item.inactive, **fields)
         else:
             item.send()
 
