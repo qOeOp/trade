@@ -1017,7 +1017,11 @@ class EntryTermsTests(unittest.TestCase):
             self.addCleanup(value.clear)
         self.sent = mock.Mock(return_value=None)
         self.journal = mock.Mock()
+        # A waiting entry goes out with the time its source submitted it (engine.paper_terms.Waiting._wait).
+        held = mock.Mock(side_effect=lambda submitted_ns, *args: self.sent(*args))
         for patcher in (mock.patch.object(paper.OrderRules, "submit_order", self.sent),
+                        mock.patch.object(paper.OrderRules, "_submit_held", held),
+                        mock.patch.object(paper.paper_terms, "strategy_ns", lambda _: 0),
                         mock.patch.object(paper, "SESSION", None), mock.patch.object(paper, "journal", self.journal),
                         mock.patch.object(paper, "denied_exiting", lambda *_: False),
                         mock.patch("time.sleep")):

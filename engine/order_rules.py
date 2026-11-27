@@ -22,12 +22,12 @@ contract at once (user, 2026-11-11).
    matched on the bar's price in replay and Paper and on another price at Binance). A GTD order is a LIMIT,
    STOP_LIMIT or LIMIT_IF_TOUCHED order (GTD_TYPES), expires on a whole second (Binance keeps an expiry to the
    second and the client denies a fraction of one) and expires at least GTD_LEAD_NS after the strategy submits it,
-   by the strategy's clock: Binance's GTD_MINIMUM_NS, which the client requires strictly at its own send time, plus
-   SEND_MARGIN_NS, which Live leaves for an entry's account check (engine.live_connection.require_send_time). The
-   client's denials are in crates/adapters/binance/src/futures/execution.rs (validate_order,
-   determine_futures_order_lifetime), http/client.rs (order_type_to_binance_futures) and common/enums.rs
-   (BinanceTimeInForce) of the pinned version. Decided under the user's delegation (2026-11-21;
-   docs/plans/order-rules-live-shapes-20261121.zh.md).
+   by the strategy's clock (an entry Paper holds for its terms read counts from its submit, engine.paper_terms):
+   Binance's GTD_MINIMUM_NS, which the client requires strictly at its own send time, plus SEND_MARGIN_NS, which
+   Live leaves for an entry's account check (engine.live_connection.require_send_time). The client's denials are in
+   crates/adapters/binance/src/futures/execution.rs (validate_order, determine_futures_order_lifetime),
+   http/client.rs (order_type_to_binance_futures) and common/enums.rs (BinanceTimeInForce) of the pinned version.
+   Decided under the user's delegation (2026-11-21; docs/plans/order-rules-live-shapes-20261121.zh.md).
 6. A strategy cancels and closes only its own orders and positions.
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
@@ -80,6 +80,11 @@ def _strategy_id(source):
     return Strategy.strategy_id.__get__(source, type(source))
 
 
+def strategy_ns(source) -> int:
+    """The strategy's clock now, past the source's own `clock` (engine.strategy)."""
+    return Strategy.clock.__get__(source, type(source)).timestamp_ns()
+
+
 def denied_exiting(source, order) -> bool:
     """Nautilus denies the entry `order`: the source's market exit runs. The native flag, past a name of the source's
     own."""
@@ -98,8 +103,9 @@ def entry_price(order):
     return order.trigger_price if order.order_type == OrderType.STOP_MARKET else order.price
 
 
-def violation(source, order, position_id=None, client_id=None, params=None) -> str | None:
-    """Why `order` breaks a rule, or None."""
+def violation(source, order, position_id=None, client_id=None, params=None, submitted_ns: int | None = None) \
+        -> str | None:
+    """Why `order` breaks a rule, or None; `submitted_ns`: when the strategy submitted it (None: now)."""
     if str(order.strategy_id) in WARMING:
         return "no order before the warm-up has ended and on_start has run"
     if (order.emulation_trigger is not None or order.contingency_type is not None or order.order_list_id is not None
@@ -120,7 +126,6 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
         return "a trailing offset is in basis points: Live cannot send another"
     if getattr(order, "trigger_type", None) not in TRIGGERS:
         return "an order triggers on the default price: replay and Paper match any other on the bar's price"
-    clock = Strategy.clock.__get__(source, type(source))
     if order.time_in_force == TimeInForce.GTD:
         if order.order_type not in GTD_TYPES:
             return ("a GTD order is a LIMIT, STOP_LIMIT or LIMIT_IF_TOUCHED order: Live cannot send a GTD "
@@ -130,7 +135,7 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
         # expire_time: nanoseconds on every order type (expire_time_ns exists on LimitOrder alone); never absent on GTD
         if order.expire_time % 1_000_000_000:
             return "a GTD order expires on a whole second: Live cannot send a fraction of one"
-        if order.expire_time - clock.timestamp_ns() < GTD_LEAD_NS:
+        if order.expire_time - (strategy_ns(source) if submitted_ns is None else submitted_ns) < GTD_LEAD_NS:
             return "a GTD order expires at least 605 seconds after it is submitted"
     cache = native_cache(source)
     if order.is_reduce_only:
@@ -207,16 +212,21 @@ class OrderRules:
     def _order_rule(self, text: str):
         return self._breach(CODE, f"{_strategy_id(self)}: {text}")
 
-    def _orders_allowed(self, order, position_id=None, client_id=None, params=None) -> bool:
-        """True when `order` keeps the rules; otherwise the breach is reported (and raised, in Live)."""
-        found = violation(self, order, position_id, client_id, params)
+    def _orders_allowed(self, order, position_id=None, client_id=None, params=None,
+                        submitted_ns: int | None = None) -> bool:
+        """True when `order` keeps the rules (violation); otherwise the breach is reported (and raised, in Live)."""
+        found = violation(self, order, position_id, client_id, params, submitted_ns)
         if found is None:
             return True
         self._order_rule(f"{order.client_order_id}: {found}")
         return False
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
-        if self._orders_allowed(order, position_id, client_id, params):
+        return self._submit_held(None, order, position_id, client_id, params)
+
+    def _submit_held(self, submitted_ns: int | None, order, position_id=None, client_id=None, params=None):
+        """Submit `order`, which the strategy submitted at `submitted_ns` (None: now), when it keeps the rules."""
+        if self._orders_allowed(order, position_id, client_id, params, submitted_ns):
             return super().submit_order(order, position_id=position_id, client_id=client_id,  # type: ignore[misc]
                                         params=params)
         return None

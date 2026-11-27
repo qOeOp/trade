@@ -9,7 +9,7 @@ from unittest import mock
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
-from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, TraderId
+from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, TimeInForce, TraderId
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 
 from engine import order_rules, paper, paper_terms, run
@@ -263,3 +263,31 @@ class MarketExitTests(Clocked):
             self.release()
             self.feed(self.now + 2 * MINUTE)
         self.assertEqual((self.engine.cache.positions_open(), self.engine.cache.orders_open()), ([], []))
+
+    def test_a_gtd_entry_counts_its_lead_from_its_submit_not_its_read(self):
+        """#3658: an entry with GTD_LEAD_NS left when the source submits it keeps the rule after waiting a minute for
+        its read, sent or cancelled while it waits; one with a second less breaks it, as in a replay."""
+        for lead, cancel, breaches, status in (
+                (order_rules.GTD_LEAD_NS, False, [], "ACCEPTED"),
+                (order_rules.GTD_LEAD_NS, True, [], "CANCELED"),
+                (order_rules.GTD_LEAD_NS - 1_000_000_000, False, [order_rules.CODE], None),
+                (order_rules.GTD_LEAD_NS - 1_000_000_000, True, [order_rules.CODE], None)):
+            with self.subTest(lead=lead, cancel=cancel):
+                orders = []
+
+                def act(source, lead=lead, cancel=cancel):
+                    orders.append(source.order_factory.limit(
+                        fixture.INSTRUMENT_ID, OrderSide.BUY, Quantity.from_str("0.010"), Price.from_str("90.00"),
+                        time_in_force=TimeInForce.GTD, expire_time=source.clock.timestamp_ns() + lead))
+                    source.submit_order(orders[0])
+                    if cancel:
+                        source.cancel_order(orders[0].client_order_id)
+                self.on_next_bar(act)
+                self.feed(self.now + MINUTE)  # the read takes a minute
+                self.release()
+                self.feed(self.now + MINUTE)
+                self.assertEqual([code for code, _ in strategy_runtime.BREACHES], breaches)
+                found = self.engine.cache.order(orders[0].client_order_id)
+                self.assertEqual(found and found.status.name, status)
+            self.doCleanups()
+            self.setUp()
