@@ -11,6 +11,7 @@ market exit does not wait: Nautilus denies it at once, as in a replay."""
 
 from __future__ import annotations
 
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig
 
 from engine import klines, unsent
 from engine.config import terms_changed
-from engine.order_rules import native_cache
+from engine.order_rules import native_cache, strategy_ns
 from engine.strategy import source_config
 
 ENTRY_GATE = ExecAlgorithmId("PAPER-GATE")  # ends an entry its source cancelled while it waited (engine.unsent)
@@ -129,16 +130,22 @@ class Waiting:
     _paper_instrument_id: str
     _paper_entry_terms: Any
     _orders_allowed: Any
+    _submit_held: Any
 
-    def _wait(self, order, send, end) -> None:
-        queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
+    def _wait(self, order, position_id, client_id, params) -> None:
+        """Queue an entry. Its order rules run when it is sent or ended, with a GTD order's lead counted from now, when
+        the source submits it, as a replay counts it (engine.order_rules rule 5)."""
+        now = strategy_ns(self)
+        queue(self._paper_entry_terms, self._paper_instrument_id, order,
+              functools.partial(self._submit_held, now, order, position_id, client_id, params),
+              functools.partial(self._end_waiting, now, order, position_id, client_id, params))
 
-    def _end_waiting(self, order, position_id, client_id, params) -> None:
+    def _end_waiting(self, submitted_ns, order, position_id, client_id, params) -> None:
         """End a cancelled entry. An unsent order keeps the order rules too, as in a replay, which checks it before
         its cancel."""
         if native_cache(self).order(order.client_order_id) is not None:  # an order the source submitted before
             super().cancel_order(order.client_order_id, None, None)  # type: ignore[misc]
-        elif self._orders_allowed(order, position_id, client_id, params):
+        elif self._orders_allowed(order, position_id, client_id, params, submitted_ns):
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
