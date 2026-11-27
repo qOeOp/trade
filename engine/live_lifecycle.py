@@ -228,8 +228,10 @@ class Observer(Strategy):
                 return
         if getattr(session.account_observation, "purpose", None) != "stop":
             commands.discard_observation(session)
-        if session.mode not in ("run", "finish") or not (session.sources or session.keepers) or session.venue_flat:
-            session.node.handle().stop()  # nothing to close: no source, or Binance holds nothing (venue_flat_exit)
+        if (session.mode not in ("run", "finish") or not (session.sources or session.keepers) or session.venue_flat
+                or session.stop_venue_flat):
+            # Nothing (more) to close: no source, Binance holds nothing (venue_flat_exit), or the closes are done.
+            session.node.handle().stop()
             return
         positions = owned(self.cache.positions_open, session.manifest)
         pending = owned(lambda strategy_id: pending_orders(self.cache, strategy_id), session.manifest)
@@ -258,7 +260,7 @@ class Observer(Strategy):
                 or found.quantity.as_decimal() > session.phantoms[str(found.id)]] and not entries:
             session.cancel_open(self.cache, pending, now)
             if not pending and positions:
-                live_connection.venue_flat_exit(session, session.stop_read)
+                session.stop_venue_flat = True  # engine.live.start reads Binance again once the node stops (#3727)
                 session.node.handle().stop()
             elif not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)
@@ -287,7 +289,7 @@ def venue_held(session, positions: list) -> dict | None:
     C-140, doctor 20261114-25): a leg closed outside the run (by hand, a liquidation) is still open in the native
     cache, and a close of it from there can only be rejected. The run's positions on a contract and side take
     Binance's quantity there in turn. None while the read is outstanding; {} when it failed or could not be read,
-    which leaves every close to the cache, as before."""
+    which leaves every close to the cache, as before. The run is never released on this read (engine.live start)."""
     if session.stop_read is not None:
         return session.stop_held
     try:
