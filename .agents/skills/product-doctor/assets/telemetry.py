@@ -624,7 +624,7 @@ def _build_object_reports(
                 for p in prod_paths
                 if tracked_lines.get(p, 0) >= 50
             ],
-            key=lambda x: (x["last_commit_date"] or "0000-00-00", -x["lines"], x["file"]),
+            key=lambda x: (str(x["last_commit_date"] or "0000-00-00"), -int(x["lines"] or 0), str(x["file"])),
         )[:5]
         eff_test_count = len(colocated) if is_test_obj else len(t_paths)
         eff_test_lines = meta["lines"] if is_test_obj else t_lines

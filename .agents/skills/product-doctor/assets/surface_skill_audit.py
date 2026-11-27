@@ -30,8 +30,46 @@ from urllib.parse import urlsplit
 _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
-import ops_invariants  # noqa: E402
-import prod_invariants  # noqa: E402
+import friction  # noqa: E402
+
+_SECRET_BASENAME_TOKENS = ("secret", "credential", "passwd", "password")
+_SECRET_STEMS = frozenset({"token", "tokens", "key", "keys", "apikey", "cookie", "cookies"})
+_SECRET_COMPOUND_RE = re.compile(
+    r"(?:api[_-]?key|private[_-]?key|priv[_-]?key|auth[_-]?token|access[_-]?token|"
+    r"refresh[_-]?token|paper[_-]?token|bot[_-]?token|api[_-]?token|session[_-]?token|"
+    r"bearer[_-]?token|id_rsa|id_ed25519)",
+    re.IGNORECASE,
+)
+_SECRET_EXTENSIONS = frozenset({".pem", ".p12", ".pfx", ".key"})
+MAX_JSON_BYTES = 2 * 1024 * 1024
+
+
+def is_secret_path(path: Path) -> bool:
+    """Return True if `path` looks like a credential or key file that must never be read."""
+    name = path.name.lower()
+    if name == ".env" or name.startswith(".env.") or name in ("service.json", "telegram.json"):
+        return True
+    if path.suffix.lower() in _SECRET_EXTENSIONS:
+        return True
+    if any(tok in name for tok in _SECRET_BASENAME_TOKENS) or _SECRET_COMPOUND_RE.search(name):
+        return True
+    return path.stem.lower() in _SECRET_STEMS
+
+
+def _read_json_bounded(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any, str | None]:
+    if is_secret_path(path):
+        return None, f"refused secret file {path.name}"
+    try:
+        if not path.exists():
+            return None, "file not found"
+        if not path.is_file():
+            return None, "not a regular file"
+        if path.stat().st_size > max_bytes:
+            return None, f"file exceeds {max_bytes} bytes"
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        return json.loads(raw), None
+    except (OSError, json.JSONDecodeError) as err:
+        return None, str(err)
 
 # Dimension 7 constants
 REQUIRED_FONT_ASSETS = (
@@ -69,18 +107,18 @@ FLAKY_LOW_RATE = 0.15
 FLAKY_HIGH_RATE = 0.85
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
-SKILL_PATH_MARKER = ".agents/skills/"
-SKILL_PATH_RE = re.compile(r"\.agents/skills/([A-Za-z0-9_.-]+)/SKILL\.md")
-NONZERO_EXIT_RE = re.compile(
-    r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
-    re.MULTILINE,
-)
+_HELP_FLAG_RE = re.compile(r"(?:^|\s)(?:--help|-h)(?:\s|$)")
 
 # Command hints used to flag missed skill triggers across multi-session transcripts.
+# Only match actual strategy-research write/run commands (not read-only debugging or --help).
 SKILL_COMMAND_HINTS: dict[str, re.Pattern[str]] = {
     "product-doctor": re.compile(r"\b(?:doctor\.py|agent-finding)\b"),
-    "research-round": re.compile(r"\bcli\.main\b[^\n]*\b(?:research|trial|replay)\b"),
-    "research-start": re.compile(r"\bcli\.main\b[^\n]*\b(?:line|market)\b"),
+    "research-round": re.compile(
+        r"\bcli\.main\b[^\n;&|]*\b(?:registration\s+add|replay\s+(?:run|precheck|explore))\b"
+    ),
+    "research-start": re.compile(
+        r"\bcli\.main\b[^\n;&|]*\bline\s+(?:open|close|select)\b"
+    ),
     "nautilus-report-analysis": re.compile(r"\b(?:nautilus_trader|deflated_sharpe|tearsheet)\b|\btables\s*\(\s*\)"),
     "research-sources": re.compile(r"\b(?:openalex|crossref|semanticscholar|coinalyze|cftc)\b", re.IGNORECASE),
     "video-evidence": re.compile(r"\b(?:yt-dlp|ffmpeg|faster-whisper|whisper)\b"),
@@ -726,6 +764,7 @@ def probe_http_surface(
 def run_surface_audit(
     *,
     repo_root: Path | None = None,
+    tree_rev: str | None = None,
     http_target: str | None = None,
     health_path: str = "/api/overview/health",
     trusted_host: str | None = None,
@@ -747,7 +786,7 @@ def run_surface_audit(
         *routes["triggers"],
         *(http_probe["triggers"] if http_probe else []),
     ]
-    return {
+    out: dict[str, Any] = {
         "dimension": "D7_ide_http_surface",
         "repo_root": str(root),
         "ok": not triggers,
@@ -757,6 +796,9 @@ def run_surface_audit(
         "http_probe": http_probe,
         "triggers": triggers,
     }
+    if tree_rev is not None:
+        out["tree"] = tree_rev
+    return out
 
 
 # ============================================================================
@@ -890,120 +932,29 @@ def audit_skill_inventory(
     }
 
 
-def _unwrap_str(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
-        try:
-            decoded = json.loads(value)
-            if isinstance(decoded, str):
-                return decoded
-        except json.JSONDecodeError:
-            pass
-    return value
-
-
-def _record_tool_activity(
-    tname: str,
-    raw_args: Any,
-    skills_loaded: set[str],
-    related_skills: set[str],
-) -> None:
-    if isinstance(raw_args, str):
-        for sk in SKILL_PATH_RE.findall(raw_args):
-            skills_loaded.add(sk)
-        try:
-            args = json.loads(raw_args)
-        except json.JSONDecodeError:
-            args = None
-    else:
-        args = raw_args
-    if not isinstance(args, dict):
-        return
-    fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
-    if SKILL_PATH_MARKER in fpath and fpath.endswith("SKILL.md"):
-        skills_loaded.add(fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0])
-    if tname == "Skill" and args.get("skill"):
-        skills_loaded.add(_unwrap_str(args["skill"]).split(":")[-1])
-    cmd = _unwrap_str(args.get("CommandLine") or args.get("command") or args.get("cmd") or "")
-    if cmd:
-        for sk, pat in SKILL_COMMAND_HINTS.items():
-            if pat.search(cmd):
-                related_skills.add(sk)
-
-
-def _extract_transcript_step(
-    obj: dict[str, Any],
-    skills_loaded: set[str],
-    related_skills: set[str],
-) -> tuple[int, int]:
-    calls = errors = 0
-    status = str(obj.get("status") or "").upper()
-    step_type = str(obj.get("type") or "").upper()
-    if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
-        errors += 1
-
-    raw_tcs = obj.get("tool_calls")
-    for tc in raw_tcs if isinstance(raw_tcs, list) else ():
-        if isinstance(tc, dict):
-            calls += 1
-            raw_args = tc.get("args") if tc.get("args") is not None else tc.get("arguments")
-            _record_tool_activity(str(tc.get("name") or ""), raw_args, skills_loaded, related_skills)
-
-    msg = obj.get("message")
-    blocks = msg.get("content") if isinstance(msg, dict) else None
-    for blk in blocks if isinstance(blocks, list) else ():
-        if not isinstance(blk, dict):
-            continue
-        if blk.get("type") == "tool_use":
-            calls += 1
-            _record_tool_activity(str(blk.get("name") or ""), blk.get("input"), skills_loaded, related_skills)
-        elif blk.get("type") == "tool_result" and blk.get("is_error"):
-            errors += 1
-
-    payload = obj.get("payload")
-    if isinstance(payload, dict):
-        ptype = str(payload.get("type") or "").lower()
-        if ptype in ("function_call", "custom_tool_call"):
-            calls += 1
-            _record_tool_activity(
-                str(payload.get("name") or ""),
-                payload.get("arguments") or payload.get("input"),
-                skills_loaded,
-                related_skills,
-            )
-        elif ptype.endswith("_output") and NONZERO_EXIT_RE.search(str(payload.get("output") or "")):
-            errors += 1
-    return calls, errors
-
-
 def _inspect_transcript_skills(path: Path) -> dict[str, Any]:
-    if ops_invariants.is_secret_path(path):
+    if is_secret_path(path):
         raise ValueError(f"refused secret file {path.name}")
-    skills_loaded: set[str] = set()
     related_skills: set[str] = set()
-    calls = errors = 0
+
+    def _on_command(cmd: str) -> None:
+        for seg in friction._split_shell_segments(cmd):
+            if _HELP_FLAG_RE.search(seg):
+                continue
+            for sk, pat in SKILL_COMMAND_HINTS.items():
+                if pat.search(seg):
+                    related_skills.add(sk)
+
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in prod_invariants._read_bounded_lines(fh, 2_000_000):
-                if not line.strip():
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(obj, dict):
-                    c, e = _extract_transcript_step(obj, skills_loaded, related_skills)
-                    calls += c
-                    errors += e
-    except OSError as err:
-        raise ValueError(f"cannot read transcript {path}: {err}") from None
+        parsed = friction.parse_transcript_file(path, on_command=_on_command)
+    except SystemExit as err:
+        raise ValueError(str(err)) from None
     return {
-        "file": path.name,
-        "tool_calls": calls,
-        "tool_errors": errors,
-        "tool_error_rate": round(errors / calls, 3) if calls else 0.0,
-        "skills_loaded": sorted(skills_loaded),
+        "file": parsed["file"],
+        "tool_calls": parsed["tool_calls"],
+        "tool_errors": parsed["tool_errors"],
+        "tool_error_rate": parsed["tool_error_rate"],
+        "skills_loaded": parsed["skills_loaded"],
         "related_command_skills": sorted(related_skills),
     }
 
@@ -1161,7 +1112,7 @@ def _extract_eval_records(payload: Any) -> list[tuple[str, int, int]]:
 def _load_eval_counts(paths: list[Path]) -> dict[str, tuple[int, int]]:
     totals: dict[str, list[int]] = {}
     for path in paths:
-        payload, err = ops_invariants._read_json_bounded(path)
+        payload, err = _read_json_bounded(path)
         if err is not None:
             raise ValueError(f"invalid eval JSON {path}: {err}")
         for case_name, p_cnt, t_cnt in _extract_eval_records(payload):
@@ -1288,6 +1239,7 @@ def analyze_eval_results(
 def run_skills_audit(
     *,
     repo_root: Path | None = None,
+    tree_rev: str | None = None,
     transcripts: list[Path] | None = None,
     eval_jsons: list[Path] | None = None,
     eval_baseline: Path | None = None,
@@ -1316,7 +1268,7 @@ def run_skills_audit(
         *(firing["triggers"] if firing else []),
         *(eval_stats["triggers"] if eval_stats else []),
     ]
-    return {
+    out: dict[str, Any] = {
         "dimension": "D9_skills_eval_audit",
         "repo_root": str(root),
         "ok": not triggers,
@@ -1325,6 +1277,9 @@ def run_skills_audit(
         "eval_stats": eval_stats,
         "triggers": triggers,
     }
+    if tree_rev is not None:
+        out["tree"] = tree_rev
+    return out
 
 
 # ============================================================================
@@ -1337,6 +1292,7 @@ def run_surface_cmd(args: argparse.Namespace) -> None:
     try:
         report = run_surface_audit(
             repo_root=args.root,
+            tree_rev=getattr(args, "_tree_rev", None),
             http_target=args.http_target,
             health_path=args.health_path,
             trusted_host=args.trusted_host,
@@ -1352,6 +1308,7 @@ def run_skills_audit_cmd(args: argparse.Namespace) -> None:
     try:
         report = run_skills_audit(
             repo_root=args.root,
+            tree_rev=getattr(args, "_tree_rev", None),
             transcripts=list(args.transcripts or []) or None,
             eval_jsons=list(args.eval_json or []) or None,
             eval_baseline=args.eval_baseline,
@@ -1370,6 +1327,7 @@ def register_surface_skill_parsers(commands: Any) -> None:
         help="Dimension 7 audit: PP Supply Mono font integrity, IDE/overview security patterns, route parity, and loopback HTTP probe",
     )
     surf_p.add_argument("--root", type=Path, help="repository root directory (default: git top-level)")
+    surf_p.add_argument("--tree", default=None, metavar="REV", help="optional git revision to audit via git archive instead of --root")
     surf_p.add_argument(
         "--http-target",
         help="isolated loopback host:port (127.0.0.1, localhost, or ::1 only) for active HTTP/1.1 security & DoS probe",
@@ -1384,6 +1342,7 @@ def register_surface_skill_parsers(commands: Any) -> None:
         help="Dimension 9 audit: skill burden ratchet, eval coverage, multi-session skill firing, and Wilson 95%% CI eval stats",
     )
     skill_p.add_argument("--root", type=Path, help="repository root directory (default: git top-level)")
+    skill_p.add_argument("--tree", default=None, metavar="REV", help="optional git revision to audit via git archive instead of --root")
     skill_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     skill_p.add_argument("--eval-json", type=Path, nargs="+", help="optional multi-run eval result JSON files")
     skill_p.add_argument("--eval-baseline", type=Path, help="optional baseline eval result JSON for regression comparison")

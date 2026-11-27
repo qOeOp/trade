@@ -1,13 +1,14 @@
-"""Deterministic CI delivery and agent/user transcript friction telemetry for product-doctor (v2.4).
+"""Deterministic CI delivery, production log, and agent/user transcript friction telemetry (product-doctor).
 
-Operationalizes the `Friction` (`delivery`, `agents`, `burden`) theme so `doctor.py advise` can
-deterministically detect and schedule `friction` audits instead of relying on ad-hoc manual checks.
+Operationalizes the `Friction` (`delivery`, `agents`, `burden`, `operation`) theme with streaming
+JSONL parsing, Claude Code / Antigravity / Codex support, and privacy-safe redaction.
 Pure Python standard library; never prints raw transcript prompts, outputs, or credentials.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 import json
 import math
@@ -15,56 +16,44 @@ from pathlib import Path
 import re
 import shlex
 import statistics
-import sys
 from typing import Any
 
-_ASSETS_DIR = str(Path(__file__).resolve().parent)
-if _ASSETS_DIR not in sys.path:
-    sys.path.insert(0, _ASSETS_DIR)
-import prod_invariants  # noqa: E402
-import research_quality  # noqa: E402
-SKILL_PATH_MARKER = ".agents/skills/"
-SKILL_PATH_RE = re.compile(r"\.agents/skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+SKILL_PATH_RE = re.compile(r"(?:\.agents|\.claude)/skills/([A-Za-z0-9_.-]+)/SKILL\.md")
+SKILL_CMD_RE = re.compile(
+    r"(?:\.agents|\.claude)/skills/([A-Za-z0-9_.-]+)(?:/SKILL\.md|\b[^\n]*\bSKILL\.md)"
+)
+INJECTED_SKILL_RE = re.compile(
+    r"Base directory for this skill:[^\n]*(?:\.agents|\.claude)/skills/([A-Za-z0-9_.-]+)"
+)
 NONZERO_EXIT_RE = re.compile(
     r"(?:^Command exited with code |^Process exited with code |^Exit code:\s*)([1-9]\d*)\b",
     re.MULTILINE,
 )
-_PATH_PREFIX = r"(?:(?:/[\w.+-]+)+/)?"
-_CMD_WRAPPER_PREFIX = (
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
-    r"(?:" + _PATH_PREFIX
-    + r"(?:env|sudo|command|exec)(?:\s+-[ugCaS]\s+\S+|\s+-[A-Za-z]+|\s+[A-Za-z_][A-Za-z0-9_]*=\S+)*\s+)*"
-    + _PATH_PREFIX
+
+SECRET_TOKEN_RE = re.compile(r"(?:^|[\s/'\"<=(])([^\s'\";|&()]*?(?:\.env|dolt/service\.json))(?:$|[\s'\")|;&])")
+SECRET_REDIR_RE = re.compile(r"<\s*['\"]?([^\s'\";|&()]*?(?:\.env|dolt/service\.json))(?:['\"]|$|[\s;|&)])")
+DEPLOY_ENV_RE = re.compile(r"(?:^|/)deploy/\.env$")
+RESEARCH_KEY_NAMES = (
+    "OPENALEX_API_KEY|SEMANTIC_SCHOLAR_API_KEY|FRED_API_KEY|"
+    "COINALYZE_API_KEY|CRYPTOHFTDATA_API_KEY|RESEARCH_CONTACT_EMAIL|"
+    "OPENALEX|SEMANTIC_SCHOLAR|FRED|COINALYZE|CRYPTOHFTDATA|RESEARCH_CONTACT"
 )
-GIT_SEARCH_RE = re.compile(r"^\s*" + _PATH_PREFIX + r"git\s+(?:grep|log|show|diff|blame)\b")
-GREP_CMD_RE = re.compile(_CMD_WRAPPER_PREFIX + r"(?:e?grep|fgrep|rg|ag)\b")
-AD_HOC_SQL_RE = re.compile(
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
-    r"(?:" + _PATH_PREFIX + r"(?:env|sudo|command|exec|docker\s+exec(?:\s+-\S+)*\s+\S+)\s+)*"
-    + _PATH_PREFIX
-    + r"(?:dolt(?:\s+-\S+(?:\s+[^-;\s]\S*)?){0,3}\s+sql|mysql)\b",
-    re.IGNORECASE,
+RESEARCH_KEY_LOOKUP_RE = re.compile(
+    rf"""(?:^|[\s'"^(])(?:\^)?(?:{RESEARCH_KEY_NAMES})(?:_[A-Z0-9_]+)?(?:\b|=|\$)"""
+    r"""|s/\^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?=//p"""
 )
-SECRET_FILE_RE = re.compile(r"(?:^|[\s/'\"<=(])(?:\.env|dolt/service\.json)(?:$|[\s'\")|;&])")
-SECRET_REDIR_RE = re.compile(r"<\s*['\"]?(?:[^\s'\";|&]*/)?(?:\.env|dolt/service\.json)(?:['\"]|$|[\s;|&)])")
-SECRET_READ_CMD_RE = re.compile(
-    _CMD_WRAPPER_PREFIX
-    + r"(?:\.(?=\s)|(?:cat|head|tail|less|more|sed|awk|gawk|jq|source|base64|xxd|od|strings|hexdump|"
-    r"nl|tac|rev|cut|sort|tr|bat|view|cp|mv|tee)\b)"
-)
-INLINE_SCRIPT_CMD_RE = re.compile(
-    _CMD_WRAPPER_PREFIX + r"(?:uv\s+run\s+(?:--\S+\s+)*)?"
-    r"(?:python\d*(?:\.\d+)?|node|perl|ruby|bash|sh|zsh)\b"
-)
-_GREP_BINS = frozenset({"grep", "egrep", "fgrep", "rg", "ag"})
+_DOC_PATH_RE = re.compile(r"(?:^|/)(?:README\.md|AGENTS\.md|docs(?:/.*)?)$", re.IGNORECASE)
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPER_BINS = frozenset({"env", "sudo", "command", "exec"})
 _WRAPPER_ARG_FLAGS = frozenset({"-u", "-g", "-C", "-a", "-S"})
-_ENV_ASSIGN_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_GREP_LONG_VAL_FLAGS = frozenset({"--regexp", "--file", "--glob", "--type"})
-_DOC_PATH_RE = re.compile(r"(?:^|/)(?:README\.md|AGENTS\.md|docs(?:/.*)?)$", re.IGNORECASE)
-RESEARCH_CMD_RE = re.compile(
-    r"\bcli\.main(?:\s+--?[A-Za-z0-9_-]+(?:=\S+|\s+[^\s-]\S*)?)*\s+(?:research|line|trial|replay)\b"
-)
+_GREP_BINS = frozenset({"grep", "egrep", "fgrep", "rg", "ag"})
+_SECRET_READ_BINS = frozenset({
+    ".", "source", "cat", "head", "tail", "less", "more", "sed", "awk", "gawk", "jq",
+    "base64", "xxd", "od", "strings", "hexdump", "nl", "tac", "rev", "cut", "sort",
+    "tr", "bat", "view", "cp", "mv", "tee",
+})
+_INTERPRETER_RE = re.compile(r"^(?:python\d*(?:\.\d+)?|node|perl|ruby|bash|sh|zsh)$")
+
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROD_LOG_PREFIX_RE = re.compile(
     r"^(?:(?!(?:DEBUG|INFO|WARN(?:ING)?|TRACE)\s+\|)[\w.-]+\s+\|\s+"
@@ -89,6 +78,8 @@ PROD_ERROR_RE = re.compile(
 )
 PROD_SERVICE_HINTS = ("paper", "live", "ide", "ledger", "market")
 NON_EFFECTIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "neutral"})
+ACTIVE_GAP_CAP_MIN = 30.0
+
 _SUMMARY_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
     (re.compile(r"(?i)\b(Authorization\s*:\s*(?:Bearer|Basic|Token)\s+)\S+"), r"\1<REDACTED>"),
@@ -156,7 +147,6 @@ def _summarize_workflow_runs(name: str, items: list[dict[str, Any]]) -> tuple[di
     cancelled = conclusions["cancelled"]
     fail_rate = round(failures / total, 3) if total else 0.0
 
-    # Order oldest -> newest to measure recent-half vs earlier-half wait-time growth (excluding cancelled/skipped).
     dated: list[tuple[datetime, float]] = []
     for r in effective:
         c_at = _parse_iso(r.get("createdAt") or r.get("created_at"))
@@ -204,7 +194,6 @@ def analyze_ci_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
     by_workflow: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
-        # Prefer `workflowName` over `name` because GitHub Actions `name` can be a per-PR `run-name`.
         name = str(run.get("workflowName") or run.get("name") or "unknown")
         by_workflow.setdefault(name, []).append(run)
 
@@ -236,15 +225,11 @@ def _is_shell_sep(cmd: str, i: int) -> bool:
 
 
 def _find_matching_paren(cmd: str, start: int) -> int:
-    depth = 1
-    quote: str | None = None
-    i = start
-    n = len(cmd)
+    depth, quote, i, n = 1, None, start, len(cmd)
     while i < n:
         ch = cmd[i]
         if quote == "'":
-            if ch == "'":
-                quote = None
+            quote = None if ch == "'" else quote
         elif quote == '"':
             if ch == "\\" and i + 1 < n:
                 i += 1
@@ -264,30 +249,14 @@ def _find_matching_paren(cmd: str, start: int) -> int:
     return n
 
 
-def _find_closing_backtick(cmd: str, start: int) -> int:
-    i = start
-    n = len(cmd)
-    while i < n:
-        ch = cmd[i]
-        if ch == "\\" and i + 1 < n:
-            i += 2
-            continue
-        if ch == "`":
-            return i
-        i += 1
-    return n
-
-
 def _extract_cmd_subs(cmd: str) -> list[str]:
     subs: list[str] = []
     quote: str | None = None
-    i = 0
-    n = len(cmd)
+    i, n = 0, len(cmd)
     while i < n:
         ch = cmd[i]
         if quote == "'":
-            if ch == "'":
-                quote = None
+            quote = None if ch == "'" else quote
         elif ch == "\\" and i + 1 < n:
             i += 1
         elif quote is None and ch in ("'", '"'):
@@ -299,7 +268,8 @@ def _extract_cmd_subs(cmd: str) -> list[str]:
             subs.append(cmd[i + 2:end])
             i = end
         elif ch == "`":
-            end = _find_closing_backtick(cmd, i + 1)
+            end = cmd.find("`", i + 1)
+            end = n if end == -1 else end
             subs.append(cmd[i + 1:end])
             i = end
         i += 1
@@ -307,12 +277,11 @@ def _extract_cmd_subs(cmd: str) -> list[str]:
 
 
 def _split_shell_segments(cmd: str, _depth: int = 0) -> list[str]:
-    """Split a shell command on unquoted pipes, semicolons, newlines, &, &&, ||, and command substitutions."""
+    """Split a shell command on unquoted separators and command substitutions."""
     segs: list[str] = []
     buf: list[str] = []
     quote: str | None = None
-    i = 0
-    n = len(cmd)
+    i, n = 0, len(cmd)
     while i < n:
         ch = cmd[i]
         if quote:
@@ -346,114 +315,111 @@ def _split_shell_segments(cmd: str, _depth: int = 0) -> list[str]:
     return [s for s in segs if s]
 
 
-def _find_grep_arg_start(tokens: list[str]) -> int:
+def _is_secret_target(path_str: str) -> bool:
+    """Return True if `path_str` refers to `.env` (excluding `deploy/.env`) or `dolt/service.json`."""
+    cleaned = path_str.strip().strip("'\"")
+    if not cleaned or DEPLOY_ENV_RE.search(cleaned):
+        return False
+    return cleaned in (".env", "dolt/service.json") or cleaned.endswith(("/.env", "/dolt/service.json"))
+
+
+def _extract_cmd_and_args(tokens: list[str]) -> tuple[str, list[str]]:
+    """Skip leading `VAR=val` assignments and wrappers (`env`, `sudo`, `command`, `exec`)."""
     idx = 0
     while idx < len(tokens):
         tok = tokens[idx]
-        base = Path(tok).name
-        if base in _GREP_BINS:
-            return idx + 1
-        if base in _WRAPPER_BINS or _ENV_ASSIGN_TOKEN_RE.match(tok):
+        if _ENV_ASSIGN_RE.match(tok):
             idx += 1
             continue
-        if tok.startswith("-"):
-            idx += 2 if tok in _WRAPPER_ARG_FLAGS else 1
+        base = "." if tok == "." else Path(tok).name
+        if base in _WRAPPER_BINS:
+            idx += 1
+            while idx < len(tokens) and (tokens[idx].startswith("-") or _ENV_ASSIGN_RE.match(tokens[idx])):
+                idx += 2 if tokens[idx] in _WRAPPER_ARG_FLAGS else 1
             continue
-        break
-    return min(idx + 1, len(tokens))
+        return base, tokens[idx + 1:]
+    return "", []
 
 
-def _parse_grep_short_flag(tok: str, next_tok: str | None) -> tuple[bool, bool, int]:
-    """Inspect a short-option token like `-n`, `-ePAT`, `-fFILE`, `-if.env`.
-
-    Returns `(reads_secret_file, supplies_pattern, token_step)`.
-    """
-    for j, ch in enumerate(tok[1:], 1):
-        attached = j + 1 < len(tok)
-        if ch == "f":
-            arg = tok[j + 1:] if attached else (next_tok or "")
-            return bool(SECRET_FILE_RE.search(arg)), True, (1 if attached else 2)
-        if ch == "e":
-            return False, True, (1 if attached else 2)
-        if ch in ("m", "A", "B", "C", "g", "t"):
-            return False, False, (1 if attached else 2)
-    return False, False, 1
+def _grep_short_flag(flags: str, next_tok: str) -> tuple[bool, bool, int]:
+    """Return `(reads_secret, has_pattern, step)` for a short-flag cluster like `-ieKEY` or `-f.env`."""
+    if "f" in flags:
+        after = flags.split("f", 1)[1]
+        return _is_secret_target(after or next_tok), True, (1 if after else 2)
+    if "e" in flags:
+        return False, True, (2 if flags.endswith("e") else 1)
+    return False, False, (2 if flags[-1] in ("m", "A", "B", "C", "g", "t") else 1)
 
 
-def _grep_reads_secret(seg: str) -> bool:
-    if SECRET_REDIR_RE.search(seg):
-        return True
+def _grep_reads_secret(args: list[str], seg: str) -> bool:
+    if RESEARCH_KEY_LOOKUP_RE.search(seg) and "dolt/service.json" not in seg:
+        return False
+    has_pat, positionals, idx = False, [], 0
+    while idx < len(args):
+        tok = args[idx]
+        if tok == "--":
+            positionals.extend(args[idx + 1:])
+            break
+        if tok.startswith("--file="):
+            if _is_secret_target(tok.split("=", 1)[1]):
+                return True
+            has_pat = True
+        elif tok == "--file":
+            if idx + 1 < len(args) and _is_secret_target(args[idx + 1]):
+                return True
+            has_pat, idx = True, idx + 1
+        elif tok in ("--regexp", "--glob", "--type"):
+            has_pat = has_pat or tok == "--regexp"
+            idx += 1
+        elif tok.startswith("--regexp="):
+            has_pat = True
+        elif tok.startswith("-") and len(tok) >= 2 and not tok.startswith("--"):
+            sec, pat, step = _grep_short_flag(tok[1:], args[idx + 1] if idx + 1 < len(args) else "")
+            if sec:
+                return True
+            has_pat, idx = has_pat or pat, idx + step
+            continue
+        elif not tok.startswith("--"):
+            positionals.append(tok)
+        idx += 1
+    targets = positionals if has_pat else positionals[1:]
+    return any(_is_secret_target(t) and not _DOC_PATH_RE.search(t) for t in targets)
+
+
+def _segment_reads_secret(seg: str) -> bool:
+    for m in SECRET_REDIR_RE.finditer(seg):
+        if _is_secret_target(m.group(1)):
+            return True
     try:
         tokens = shlex.split(seg)
     except ValueError:
         tokens = seg.split()
-    has_pattern_flag = False
-    positionals: list[str] = []
-    idx = _find_grep_arg_start(tokens)
-    while idx < len(tokens):
-        tok = tokens[idx]
-        if tok == "--":
-            positionals.extend(tokens[idx + 1:])
-            break
-        if tok.startswith("--"):
-            if tok == "--file" and idx + 1 < len(tokens):
-                if SECRET_FILE_RE.search(tokens[idx + 1]):
-                    return True
-                has_pattern_flag = True
-                idx += 2
-            elif tok in _GREP_LONG_VAL_FLAGS:
-                has_pattern_flag = has_pattern_flag or tok == "--regexp"
-                idx += 2
-            elif tok.startswith("--file="):
-                if SECRET_FILE_RE.search(tok.split("=", 1)[1]):
-                    return True
-                has_pattern_flag = True
-                idx += 1
-            else:
-                has_pattern_flag = has_pattern_flag or tok.startswith("--regexp=")
-                idx += 1
-            continue
-        if tok.startswith("-") and len(tok) >= 2:
-            next_tok = tokens[idx + 1] if idx + 1 < len(tokens) else None
-            secret_file, pat_flag, step = _parse_grep_short_flag(tok, next_tok)
-            if secret_file:
-                return True
-            has_pattern_flag = has_pattern_flag or pat_flag
-            idx += step
-            continue
-        positionals.append(tok)
-        idx += 1
-    targets = positionals if has_pattern_flag else positionals[1:]
-    return any(SECRET_FILE_RE.search(t) and not _DOC_PATH_RE.search(t) for t in targets)
-
-
-def _segment_reads_secret(seg: str) -> bool:
-    if SECRET_REDIR_RE.search(seg):
+    cmd_bin, args = _extract_cmd_and_args(tokens)
+    if not cmd_bin:
+        return False
+    if cmd_bin == "git" and args and args[0] in ("grep", "log", "show", "diff", "blame", "rev-parse"):
+        return False
+    if cmd_bin in _GREP_BINS:
+        return _grep_reads_secret(args, seg)
+    secret_hits = [m.group(1) for m in SECRET_TOKEN_RE.finditer(seg) if _is_secret_target(m.group(1))]
+    if not secret_hits:
+        return False
+    if cmd_bin == "sed" and RESEARCH_KEY_LOOKUP_RE.search(seg) and all("dolt/service.json" not in h for h in secret_hits):
+        return False
+    if cmd_bin in _SECRET_READ_BINS:
+        return any(_is_secret_target(a) for a in args) or bool(secret_hits)
+    if _INTERPRETER_RE.match(cmd_bin):
         return True
-    if GIT_SEARCH_RE.search(seg):
-        return False
-    if GREP_CMD_RE.search(seg):
-        return _grep_reads_secret(seg)
-    if not SECRET_FILE_RE.search(seg):
-        return False
-    return bool(SECRET_READ_CMD_RE.search(seg) or INLINE_SCRIPT_CMD_RE.search(seg))
+    return cmd_bin == "uv" and any(_INTERPRETER_RE.match(Path(a).name) for a in args[:5])
 
 
-def _scan_workflow_args(
-    args: dict[str, Any], violations: Counter[str], research_activity: list[bool],
-) -> None:
-    """Detect research-workflow adherence violations from tool arguments without retaining raw inputs."""
+def _scan_workflow_args(args: dict[str, Any], violations: Counter[str]) -> None:
+    """Detect credential file access from tool arguments without retaining raw inputs."""
     cmd = _unwrap_str(args.get("CommandLine") or args.get("command") or args.get("cmd") or "")
     fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
-    if cmd:
-        segs = _split_shell_segments(cmd)
-        if any(not GIT_SEARCH_RE.search(s) and not GREP_CMD_RE.search(s) and AD_HOC_SQL_RE.search(s) for s in segs):
-            violations["ad_hoc_ledger_sql"] += 1
-        if any(_segment_reads_secret(s) for s in segs):
-            violations["secret_file_access"] += 1
-        if RESEARCH_CMD_RE.search(cmd):
-            research_activity[0] = True
-    if fpath and SECRET_FILE_RE.search(fpath):
+    if cmd and any(_segment_reads_secret(s) for s in _split_shell_segments(cmd)):
+        violations["secret_file_access"] += 1
+    if fpath and _is_secret_target(fpath):
         violations["secret_file_access"] += 1
 
 
@@ -468,38 +434,72 @@ def _decode_tool_args(raw_args: Any, skills_loaded: set[str]) -> Any:
         return None
 
 
-def _record_skill_args(
+def _record_tool_call(
     tname: str, args: Any, skills_loaded: set[str], cmd_summaries: Counter[str],
-    violations: Counter[str] | None = None, research_activity: list[bool] | None = None,
+    violations: Counter[str], on_command: Callable[[str], None] | None,
 ) -> None:
     if not isinstance(args, dict):
         return
     fpath = _unwrap_str(args.get("Path") or args.get("path") or args.get("file_path") or "")
-    if SKILL_PATH_MARKER in fpath and fpath.endswith("SKILL.md"):
-        skills_loaded.add(fpath.split(SKILL_PATH_MARKER, 1)[1].split("/", 1)[0])
+    for skill in SKILL_PATH_RE.findall(fpath):
+        skills_loaded.add(skill)
     if tname == "Skill" and args.get("skill"):
-        skills_loaded.add(_unwrap_str(args["skill"]))
+        skills_loaded.add(_unwrap_str(args["skill"]).split(":")[-1])
+    cmd = _unwrap_str(args.get("CommandLine") or args.get("command") or args.get("cmd") or "")
+    if cmd:
+        for skill in SKILL_CMD_RE.findall(cmd):
+            skills_loaded.add(skill)
+        if on_command is not None:
+            on_command(cmd)
     summary = _sanitize_summary(_unwrap_str(args.get("toolSummary") or ""))
     if summary:
         cmd_summaries[summary] += 1
-    if violations is not None and research_activity is not None:
-        _scan_workflow_args(args, violations, research_activity)
+    _scan_workflow_args(args, violations)
+
+
+def _is_claude_user_turn(obj: dict[str, Any], skills_loaded: set[str]) -> bool:
+    """Detect real human turns in Claude Code `type=='user'` rows and extract injected skill headers."""
+    msg = obj.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    is_meta = bool(obj.get("isMeta"))
+    if isinstance(content, str):
+        for sk in INJECTED_SKILL_RE.findall(content):
+            skills_loaded.add(sk)
+        stripped = content.strip()
+        return not is_meta and bool(stripped) and not stripped.startswith(("<local-command", "<command-"))
+    if isinstance(content, list):
+        has_human = False
+        for blk in content:
+            if not isinstance(blk, dict):
+                continue
+            btype = blk.get("type")
+            if btype == "text":
+                txt = str(blk.get("text") or "")
+                for sk in INJECTED_SKILL_RE.findall(txt):
+                    skills_loaded.add(sk)
+                if txt.strip():
+                    has_human = True
+            elif btype != "tool_result":
+                has_human = True
+        return not is_meta and has_human
+    return False
 
 
 def _record_step_tools(
-    obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str],
-    violations: Counter[str], research_activity: list[bool],
+    obj: dict[str, Any], seen_tool_ids: set[str], skills_loaded: set[str],
+    cmd_summaries: Counter[str], violations: Counter[str],
+    on_command: Callable[[str], None] | None,
 ) -> tuple[int, int]:
-    """Count (tool_calls, tool_errors) from Antigravity `tool_calls` and Claude Code `message.content`."""
+    """Count deduplicated (tool_calls, tool_errors) from Antigravity and Claude Code rows."""
     calls = errors = 0
     raw_tcs = obj.get("tool_calls")
     for tc in raw_tcs if isinstance(raw_tcs, list) else ():
         if isinstance(tc, dict):
             calls += 1
             raw_args = tc.get("args") if tc.get("args") is not None else tc.get("arguments")
-            _record_skill_args(
+            _record_tool_call(
                 str(tc.get("name") or ""), _decode_tool_args(raw_args, skills_loaded),
-                skills_loaded, cmd_summaries, violations, research_activity,
+                skills_loaded, cmd_summaries, violations, on_command,
             )
     msg = obj.get("message")
     blocks = msg.get("content") if isinstance(msg, dict) else None
@@ -510,37 +510,24 @@ def _record_step_tools(
             continue
         btype = blk.get("type")
         if btype == "tool_use":
+            tid = blk.get("id")
+            if isinstance(tid, str) and tid:
+                if tid in seen_tool_ids:
+                    continue
+                seen_tool_ids.add(tid)
             calls += 1
-            _record_skill_args(
+            _record_tool_call(
                 str(blk.get("name") or ""), blk.get("input"),
-                skills_loaded, cmd_summaries, violations, research_activity,
+                skills_loaded, cmd_summaries, violations, on_command,
             )
         elif btype == "tool_result" and blk.get("is_error"):
             errors += 1
     return calls, errors
 
 
-def _iter_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
-    try:
-        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as error:
-        raise SystemExit(f"cannot read transcript {path}: {error}") from None
-    out: list[dict[str, Any]] = []
-    for line in raw_lines:
-        if not line.strip():
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict):
-            out.append(obj)
-    return out
-
-
 def _record_codex_payload(
     obj: dict[str, Any], skills_loaded: set[str], cmd_summaries: Counter[str],
-    violations: Counter[str], research_activity: list[bool],
+    violations: Counter[str], on_command: Callable[[str], None] | None,
 ) -> tuple[int, int, int]:
     """Extract (user_turns, tool_calls, tool_errors) from Codex rollout `{timestamp, type, payload}` rows."""
     payload = obj.get("payload")
@@ -551,8 +538,8 @@ def _record_codex_payload(
         return 1, 0, 0
     if ptype in ("function_call", "custom_tool_call"):
         raw_args = _decode_tool_args(payload.get("arguments") or payload.get("input"), skills_loaded)
-        _record_skill_args(
-            str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries, violations, research_activity,
+        _record_tool_call(
+            str(payload.get("name") or ""), raw_args, skills_loaded, cmd_summaries, violations, on_command,
         )
         return 0, 1, 0
     if ptype.endswith("_output") and NONZERO_EXIT_RE.search(str(payload.get("output") or "")):
@@ -560,52 +547,78 @@ def _record_codex_payload(
     return 0, 0, 0
 
 
-def _inspect_transcript_file(path: Path) -> dict[str, Any]:
-    """Parse one JSONL transcript (Antigravity, Claude Code, or Codex) into privacy-safe friction metrics."""
-    rows = _iter_jsonl_dicts(path)
-    user_turns = tool_calls = tool_errors = 0
+def _compute_durations(timestamps: list[datetime]) -> tuple[float | None, float | None]:
+    if len(timestamps) < 2:
+        return None, None
+    timestamps.sort()
+    span_min = round((timestamps[-1] - timestamps[0]).total_seconds() / 60.0, 1)
+    active_min = round(
+        sum(min((b - a).total_seconds() / 60.0, ACTIVE_GAP_CAP_MIN) for a, b in zip(timestamps, timestamps[1:], strict=False)),
+        1,
+    )
+    return span_min, active_min
+
+
+def parse_transcript_file(
+    path: Path,
+    *,
+    on_command: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Stream-parse one JSONL transcript (Antigravity, Claude Code, or Codex) into privacy-safe metrics."""
+    steps = user_turns = tool_calls = tool_errors = 0
+    seen_tool_ids: set[str] = set()
     skills_loaded: set[str] = set()
     cmd_summaries: Counter[str] = Counter()
     violations: Counter[str] = Counter()
-    research_activity = [False]
     timestamps: list[datetime] = []
 
-    for obj in rows:
-        ts = _parse_iso(obj.get("created_at") or obj.get("timestamp"))
-        if ts:
-            timestamps.append(ts)
-        step_type = str(obj.get("type") or "").upper()
-        role = str(obj.get("role") or "").lower()
-        source = str(obj.get("source") or "").upper()
-        if step_type == "USER_INPUT" or source == "USER_EXPLICIT" or (role == "user" and step_type in ("", "USER")):
-            user_turns += 1
-        status = str(obj.get("status") or "").upper()
-        if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
-            tool_errors += 1
-        c, e = _record_step_tools(obj, skills_loaded, cmd_summaries, violations, research_activity)
-        cu, cc, ce = _record_codex_payload(obj, skills_loaded, cmd_summaries, violations, research_activity)
-        user_turns += cu
-        tool_calls += c + cc
-        tool_errors += e + ce
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict) or obj.get("type") == "api-request-blob":
+                    continue
+                steps += 1
+                ts = _parse_iso(obj.get("created_at") or obj.get("timestamp"))
+                if ts:
+                    timestamps.append(ts)
+                raw_type = str(obj.get("type") or "")
+                step_type = raw_type.upper()
+                role = str(obj.get("role") or "").lower()
+                source = str(obj.get("source") or "").upper()
+                if raw_type == "user" and isinstance(obj.get("message"), dict):
+                    if _is_claude_user_turn(obj, skills_loaded):
+                        user_turns += 1
+                elif step_type == "USER_INPUT" or source == "USER_EXPLICIT" or (role == "user" and step_type in ("", "USER")):
+                    user_turns += 1
+                status = str(obj.get("status") or "").upper()
+                if status == "ERROR" or (step_type == "GENERIC" and NONZERO_EXIT_RE.search(str(obj.get("content") or ""))):
+                    tool_errors += 1
+                c, e = _record_step_tools(obj, seen_tool_ids, skills_loaded, cmd_summaries, violations, on_command)
+                cu, cc, ce = _record_codex_payload(obj, skills_loaded, cmd_summaries, violations, on_command)
+                user_turns += cu
+                tool_calls += c + cc
+                tool_errors += e + ce
+    except OSError as error:
+        raise SystemExit(f"cannot read transcript {path}: {error}") from None
 
-    if research_activity[0] and tool_calls >= 5 and not (skills_loaded & {"research-round", "research-start", "product-doctor"}):
-        violations["missing_research_skill"] += 1
-
-    span_min = (
-        round((max(timestamps) - min(timestamps)).total_seconds() / 60.0, 1)
-        if len(timestamps) >= 2 else None
-    )
+    span_min, active_min = _compute_durations(timestamps)
     err_rate = round(tool_errors / tool_calls, 3) if tool_calls else 0.0
     repeated = [(s, c) for s, c in cmd_summaries.most_common(5) if c >= 4]
-
     return {
         "file": path.name,
-        "steps": len(rows),
+        "steps": steps,
         "user_turns": user_turns,
         "tool_calls": tool_calls,
         "tool_errors": tool_errors,
         "tool_error_rate": err_rate,
         "duration_minutes": span_min,
+        "active_minutes": active_min,
         "skills_loaded": sorted(skills_loaded),
         "repeated_actions": [{"action": s, "count": c} for s, c in repeated],
         "workflow_violations": [{"kind": k, "count": c} for k, c in sorted(violations.items())],
@@ -614,7 +627,7 @@ def _inspect_transcript_file(path: Path) -> dict[str, Any]:
 
 def analyze_transcripts(paths: list[Path]) -> dict[str, Any]:
     """Summarize one or more agent session transcripts into privacy-safe agent/burden friction signals."""
-    sessions = [_inspect_transcript_file(p) for p in paths]
+    sessions = [parse_transcript_file(p) for p in paths]
     tot_calls = sum(s["tool_calls"] for s in sessions)
     tot_errors = sum(s["tool_errors"] for s in sessions)
     err_rate = round(tot_errors / tot_calls, 3) if tot_calls else 0.0
@@ -626,8 +639,9 @@ def analyze_transcripts(paths: list[Path]) -> dict[str, Any]:
         if s["repeated_actions"]:
             top = s["repeated_actions"][0]
             triggers.append(f"agent_repeated_action ({s['file']}: '{top['action']}' x{top['count']})")
-        if s["user_turns"] >= 12 and (s["duration_minutes"] or 0.0) >= 30.0:
-            triggers.append(f"user_clarification_burden ({s['file']}: {s['user_turns']} user turns over {s['duration_minutes']}m)")
+        active = s["active_minutes"] if s["active_minutes"] is not None else s["duration_minutes"]
+        if s["user_turns"] >= 12 and (active or 0.0) >= 30.0:
+            triggers.append(f"user_clarification_burden ({s['file']}: {s['user_turns']} user turns over {active}m active)")
         triggers.extend(f"workflow_{v['kind']} ({s['file']}: x{v['count']})" for v in s["workflow_violations"])
 
     return {
@@ -726,38 +740,27 @@ def analyze_prod_logs(paths: list[Path]) -> dict[str, Any]:
     return out
 
 
-def collect_friction(ci_runs: list[dict[str, Any]] | None = None,
-                     transcript_paths: list[Path] | None = None,
-                     prod_log_paths: list[Path] | None = None,
-                     prod_state_paths: list[Path] | None = None,
-                     ledger_summary_paths: list[Path] | None = None) -> dict[str, Any]:
-    """Combine CI delivery, transcript, research-quality, prod-log, and silent prod-state invariant signals."""
+def collect_friction(
+    ci_runs: list[dict[str, Any]] | None = None,
+    transcript_paths: list[Path] | None = None,
+    prod_log_paths: list[Path] | None = None,
+) -> dict[str, Any]:
+    """Combine CI delivery, agent transcript, and production service log friction signals."""
     ci = analyze_ci_runs(ci_runs) if ci_runs is not None else None
     tx = analyze_transcripts(transcript_paths) if transcript_paths else None
     pl = analyze_prod_logs(prod_log_paths) if prod_log_paths else None
-    ps = prod_invariants.analyze_prod_states(prod_state_paths) if prod_state_paths else None
-    rq = (
-        research_quality.analyze_research_quality(transcript_paths or None, ledger_summary_paths or None)
-        if (transcript_paths or ledger_summary_paths) else None
-    )
     triggers = [
         *(ci["triggers"] if ci else []),
         *(tx["triggers"] if tx else []),
         *(pl["triggers"] if pl else []),
-        *(ps["triggers"] if ps else []),
-        *(rq["triggers"] if rq else []),
     ]
     return {
         "ci_provided": ci is not None,
         "transcripts_provided": tx is not None,
         "prod_logs_provided": pl is not None,
-        "prod_state_provided": ps is not None,
-        "ledger_summaries_provided": bool(ledger_summary_paths),
         "ci": ci,
         "transcripts": tx,
         "prod_logs": pl,
-        "prod_state_summary": ps,
-        "research_quality": rq,
         "triggers": triggers,
         "has_friction": bool(triggers),
     }

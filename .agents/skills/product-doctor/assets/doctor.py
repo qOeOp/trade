@@ -42,11 +42,12 @@ _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 import friction  # noqa: E402
-import prod_invariants  # noqa: E402
 import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
 import surface_skill_audit  # noqa: E402
 import telemetry  # noqa: E402
+
+DEFAULT_TREE = "origin/main"
 
 ITEM = re.compile(r"^- \*\*([a-z]+)\*\* \[([a-z ]+)\]:", re.MULTILINE)
 ANY = "any"
@@ -182,10 +183,10 @@ def git(*args: str) -> bytes:
 _WARNED_TREE_MISMATCH = False
 
 
-def commit(rev: str) -> str:
+def commit(rev: str, *, defaulted: bool = False) -> str:
     global _WARNED_TREE_MISMATCH
     resolved = git("rev-parse", "--verify", rev + "^{commit}").decode().strip()
-    if rev == "origin/main" and not _WARNED_TREE_MISMATCH:
+    if defaulted and rev == DEFAULT_TREE and not _WARNED_TREE_MISMATCH:
         try:
             head_rev = git("rev-parse", "--verify", "HEAD^{commit}").decode().strip()
         except SystemExit:
@@ -193,11 +194,15 @@ def commit(rev: str) -> str:
         if head_rev != resolved:
             _WARNED_TREE_MISMATCH = True
             print(
-                f"note: --tree defaulted to origin/main ({resolved[:9]}), which differs from HEAD ({head_rev[:9]}); "
+                f"note: --tree defaulted to {DEFAULT_TREE} ({resolved[:9]}), which differs from HEAD ({head_rev[:9]}); "
                 "pass --tree HEAD to audit this checkout",
                 file=sys.stderr,
             )
     return resolved
+
+
+def resolve_tree_arg(rev: str | None) -> str:
+    return commit(DEFAULT_TREE, defaulted=True) if rev is None else commit(rev, defaulted=False)
 
 
 @contextmanager
@@ -383,9 +388,15 @@ def history(rev: str, tops: dict[str, dict[str, Any]],
         date = Path(path).name[:10]
         for item, subject in RECORDED.findall(raw.decode(errors="replace")):
             by_item[item] = date
-            parts, scenario = split(subject.strip())
-            kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
-            by_object.update(dict.fromkeys(covers(f"{kept}:{scenario}", tops), date))
+            raw_subj = subject.strip()
+            if ":" in raw_subj:
+                parts, scenario = split(raw_subj)
+                kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
+                by_object.update(dict.fromkeys(covers(f"{kept}:{scenario}", tops), date))
+            else:
+                bare = raw_subj.rstrip("/")
+                if bare in tops:
+                    by_object[bare] = date
     return by_object, by_item
 
 
@@ -442,11 +453,11 @@ def scan_data(rev: str, days: int, *, tops: dict[str, dict[str, Any]] | None = N
 
 
 def scan(args: argparse.Namespace) -> None:
-    print(json.dumps(scan_data(commit(args.tree), args.days), indent=1))
+    print(json.dumps(scan_data(resolve_tree_arg(args.tree), args.days), indent=1))
 
 
 def telemetry_cmd(args: argparse.Namespace) -> None:
-    rev = commit(args.tree)
+    rev = resolve_tree_arg(args.tree)
     lines = tracked(rev)
     tops = objects(rev, lines)
     data = telemetry.collect_telemetry(rev, tops, lines, owner, days=args.days, long_days=args.long_days)
@@ -470,16 +481,10 @@ def friction_cmd(args: argparse.Namespace) -> None:
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
-    prod_states = list(getattr(args, "prod_state", None) or [])
-    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
-    if ci_runs is None and not tx_paths and not prod_logs and not prod_states and not ledger_summaries:
-        raise SystemExit("friction needs --ci-json, --transcripts, --prod-logs, --prod-state, and/or --ledger-summary")
+    if ci_runs is None and not tx_paths and not prod_logs:
+        raise SystemExit("friction needs --ci-json, --transcripts, and/or --prod-logs")
     print(json.dumps(
-        friction.collect_friction(
-            ci_runs, tx_paths or None, prod_logs or None,
-            prod_state_paths=prod_states or None,
-            ledger_summary_paths=ledger_summaries or None,
-        ),
+        friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None),
         indent=1,
     ))
 
@@ -505,7 +510,7 @@ def advise_cmd(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"invalid --steady-exit-code {steady_code}: must be 0 (disabled) or in 2..125"
         )
-    rev = commit(args.tree)
+    rev = resolve_tree_arg(args.tree)
     lines = tracked(rev)
     tops = objects(rev, lines)
     by_object, by_item = history(rev, tops, lines)
@@ -516,15 +521,9 @@ def advise_cmd(args: argparse.Namespace) -> None:
     ci_runs = _load_json_file(args.ci_json, "--ci-json") if args.ci_json else None
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
-    prod_states = list(getattr(args, "prod_state", None) or [])
-    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
     fric = (
-        friction.collect_friction(
-            ci_runs, tx_paths or None, prod_logs or None,
-            prod_state_paths=prod_states or None,
-            ledger_summary_paths=ledger_summaries or None,
-        )
-        if (ci_runs is not None or tx_paths or prod_logs or prod_states or ledger_summaries) else None
+        friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None)
+        if (ci_runs is not None or tx_paths or prod_logs) else None
     )
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
@@ -540,7 +539,7 @@ def scope(args: argparse.Namespace) -> None:
     """What a themed audit is judged against; declared before its evidence, so that it cannot shrink to what was done."""
     if rows(args.directory):
         raise SystemExit("the scope comes before any evidence, once")
-    rev = commit(args.tree)
+    rev = resolve_tree_arg(args.tree)
     listed, tops = items(), objects(rev)
     contracts = list(getattr(args, "contracts", []) or [])
     if args.theme == "steady" and (args.objects or args.items or contracts):
@@ -636,7 +635,7 @@ def probe(args: argparse.Namespace) -> None:
     if args.refutes and any(row["kind"] == "probe" and row["id"] == args.id and row["probe_sha256"] == digest
                             for row in rows(args.directory)):
         raise SystemExit("this is the claim's own probe; a refutation is written without it")
-    main_rev = commit(args.tree)
+    main_rev = resolve_tree_arg(args.tree)
     with tree(main_rev) as root:
         main = ask(root, args.probe, "probe", args.timeout)
         control = None if args.control_tree else ask(root, args.probe, "control", args.timeout)
@@ -714,7 +713,7 @@ def read_cost(
 
 
 def cost(args: argparse.Namespace) -> None:
-    rev, readings = commit(args.tree), {}
+    rev, readings = resolve_tree_arg(args.tree), {}
     known("cost", args.subject, rev)
     try:
         sizes = sorted({int(size) for size in args.sizes.split(",")})
@@ -872,7 +871,7 @@ def _run_recheck_tree(
 
 
 def recheck(args: argparse.Namespace) -> None:
-    rev, main_rev = commit(args.commit), commit(args.tree)
+    rev, main_rev = commit(args.commit), resolve_tree_arg(args.tree)
     paths = git("diff-tree", "-r", "--no-renames", "--no-commit-id", "--name-only", f"{rev}^", rev).decode().splitlines()
     modules = [path[:-3].replace("/", ".") for path in paths
                if path.startswith("tests/") and Path(path).name.startswith("test_") and path.endswith(".py")]
@@ -1043,10 +1042,17 @@ def _print_probe_table(found: list[dict]) -> None:
 
 def report(args: argparse.Namespace) -> None:
     found = rows(args.directory)
-    rev = commit(args.tree)
+    rev = resolve_tree_arg(args.tree)
     tops = objects(rev)
     table, missing = coverage(found, tops)
     late = stopped(found)
+    if getattr(args, "focused", False):
+        print("# Focused diagnosis\n")
+        print(f"Evidence: {spent(found)}.\n")
+        if table:
+            _print_coverage_table(table)
+        _print_probe_table(found)
+        return
     declared = next((row for row in found if row["kind"] == "scope"), None)
     whole = not missing and not late
     title = (f"{'Themed' if whole else 'Partial themed'} audit: {declared['theme']}" if declared
@@ -1094,14 +1100,11 @@ def _build_parser() -> argparse.ArgumentParser:
     delta_p.add_argument("base", help="base revision (e.g. origin/main or HEAD~1)")
     delta_p.add_argument("head", nargs="?", default="HEAD", help="target revision (default: HEAD)")
     delta_p.set_defaults(function=delta_cmd)
-    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, research-quality, prod-log, and silent prod-state friction telemetry")
+    fric_p = commands.add_parser("friction", help="deterministic CI delivery, agent transcript, and prod-log friction telemetry")
     fric_p.add_argument("--ci-json", type=Path, help="path to JSON output of `gh run list --json ...`")
     fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
     fric_p.add_argument("--prod-logs", type=Path, nargs="+", help="one or more production service log files (Paper/Live/IDE/Dolt)")
-    fric_p.add_argument("--prod-state", type=Path, nargs="+", help="one or more redacted production state JSON snapshots for silent invariant checks")
-    fric_p.add_argument("--ledger-summary", type=Path, nargs="+", help="one or more read-only ledger trial summary JSON files")
     fric_p.set_defaults(function=friction_cmd)
-    prod_invariants.register_prod_snapshot_parser(commands)
     runtime_posture.register_posture_parser(commands)
     surface_skill_audit.register_surface_skill_parsers(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
@@ -1112,11 +1115,9 @@ def _build_parser() -> argparse.ArgumentParser:
     adv_p.add_argument("--ci-json", type=Path, help="optional path to JSON output of `gh run list --json ...`")
     adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     adv_p.add_argument("--prod-logs", type=Path, nargs="+", help="optional production service log files")
-    adv_p.add_argument("--prod-state", type=Path, nargs="+", help="optional redacted production state JSON snapshots for silent invariant checks")
-    adv_p.add_argument("--ledger-summary", type=Path, nargs="+", help="optional read-only ledger trial summary JSON files")
     adv_p.add_argument(
         "--auto", action="store_true",
-        help="full-auto scheduled mode: unblock non-redline `authority` harm issues while keeping irreversible AGENTS.md redlines blocked",
+        help="full-auto scheduled mode: unblock plain `authority` harm issues while keeping `authority:redline` blocked",
     )
     adv_p.add_argument(
         "--steady-exit-code", type=_steady_exit_code,
@@ -1148,14 +1149,15 @@ def _build_parser() -> argparse.ArgumentParser:
     rec_p = add("recheck", recheck, "whether a repair's own tests fail without it and pass now", 1800)
     rec_p.add_argument("commit")
     for parsed in (probe_p, cost_p, rec_p):
-        parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
+        parsed.add_argument("--tree", default=None, metavar="REV", help=f"product tree (default: {DEFAULT_TREE})")
     unex_p = add("unexamined", unexamined, "name what a pass did not reach; the audit is then partial", 0)
     unex_p.add_argument("item")
     unex_p.add_argument("subject")
     unex_p.add_argument("why", help="what stopped it")
     final = add("report", report, "print coverage and findings from the evidence", 0)
+    final.add_argument("--focused", action="store_true", help="print compact focused-diagnosis report without full-audit missing-coverage wall")
     for parsed in (zero, tele_p, adv_p, declared, final):
-        parsed.add_argument("--tree", default="origin/main", metavar="REV", help="product tree (default: %(default)s)")
+        parsed.add_argument("--tree", default=None, metavar="REV", help=f"product tree (default: {DEFAULT_TREE})")
     return parser
 
 
@@ -1168,13 +1170,23 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function in (
-        scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd,
-        prod_invariants.run_prod_snapshot_cmd,
+    tree_backed_cmds = (
         runtime_posture.run_posture_cmd,
         surface_skill_audit.run_surface_cmd,
         surface_skill_audit.run_skills_audit_cmd,
-    ):
+    )
+    if args.function in tree_backed_cmds:
+        target_tree = getattr(args, "tree", None)
+        if target_tree:
+            rev = commit(target_tree, defaulted=False)
+            with tree(rev) as root:
+                args.root = root
+                args._tree_rev = rev
+                args.function(args)
+            return
+        args.function(args)
+        return
+    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}

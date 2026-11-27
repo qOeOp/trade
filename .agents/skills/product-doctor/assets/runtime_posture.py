@@ -1,10 +1,10 @@
-"""Runtime parity, cost regression baseline gate, security/supply-chain posture, and docs drift checks (product-doctor v3.2).
+"""Cost regression baseline gate, Dockerfile digest pinning, and security posture checks (product-doctor).
 
-Covers Dimensions 3 (Replay/Engine/Nautilus) and 10 (Code/Cost/Security/Docs):
+Covers high-signal checks with zero CI overlap:
   1. Cost regression baseline gate (`compare_cost_baseline`, `write_cost_baseline`) for `doctor.py cost --baseline`
-  2. Replay closure & Nautilus pinning audit (`doctor.py posture --check runtime`)
-  3. Security & supply-chain posture audit (`doctor.py posture --check security`)
-  4. Docs & CLI reference drift detector (`doctor.py posture --check docs`)
+  2. Dockerfile `@sha256:` digest pinning across all Dockerfiles (`doctor.py posture --check runtime`)
+  3. Python security AST scan (`eval`/`exec`/`pickle`/`yaml.load`/`shell=True`/`verify=False`) and
+     tracked secret file hygiene (`doctor.py posture --check security`)
 
 100% pure Python standard library; strictly read-only on repository files; never reads credential file contents.
 """
@@ -15,11 +15,8 @@ import ast
 import json
 import math
 from pathlib import Path
-import re
-import shlex
 import statistics
 import subprocess
-import tomllib
 from typing import Any
 
 # Cost baseline regression thresholds.
@@ -32,30 +29,7 @@ RSS_DELTA_MIB_MIN = 32.0
 WALL_TIME_RATIO_MIN = 1.50
 WALL_TIME_DELTA_S_MIN = 0.05
 
-# Runtime closure expectations.
-RUNTIME_CLOSURE_FILES = (
-    "engine/runtime/replay.Dockerfile",
-    "engine/runtime/Dockerfile",
-    "runtime/image.py",
-    "runtime/container.py",
-    "runtime/identity.py",
-)
-REPLAY_CLOSURE_TEST = "tests/runtime/test_replay_closure.py"
-REPLAY_CLOSURE_MARKERS = (
-    "RUNTIME_SOURCE_PATHS",
-    "AUDIT_PATH",
-    "replay.Dockerfile",
-    "engine.run",
-    "engine.audit",
-    "engine.compare",
-)
-
-# Security & supply-chain expectations.
-NODE_MANIFEST_CANDIDATES = (
-    "ide/web/package.json",
-    "ide/overview/package.json",
-    "ide/agent/package.json",
-)
+# Security posture expectations.
 AST_SECURITY_ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "engine/load.py",
@@ -67,33 +41,6 @@ _SAFE_YAML_LOADERS = frozenset({"SafeLoader", "CSafeLoader", "BaseLoader", "CBas
 _SKIP_DIR_PARTS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 _ENV_TEMPLATE_NAMES = frozenset({".env.example", ".env.sample", ".env.template"})
 _SECRET_KEY_SUFFIXES = frozenset({".key", ".key_secret", ".p12", ".pfx"})
-
-# Docs drift expectations.
-TOP_LEVEL_DOCS = ("README.md", "AGENTS.md", "CLAUDE.md", "SECURITY.md")
-REPO_PATH_PREFIXES = (
-    "docs/",
-    ".agents/skills/",
-    ".github/",
-    "engine/",
-    "cli/",
-    "runtime/",
-    "deploy/",
-    "ide/",
-    "ledger/",
-    "market/",
-    "paper/",
-    "live/",
-    "replay/",
-    "report/",
-    "registration/",
-    "shared/",
-    "changelog.d/",
-)
-_MD_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
-_BACKTICK_RE = re.compile(r"`([^`\n]+)`")
-_PY_SPEC_OP_RE = re.compile(r"(==|>=|<=|~=|!=|<|>)")
-_NODE_WILDCARD_EXACT = frozenset({"", "*", "latest", "next", "canary", "x", "X"})
-_NODE_WILDCARD_RE = re.compile(r"(?:^|\.)[*xX](?:$|\.)|^\s*>=?\s*\d")
 
 
 def _as_finite_float(value: Any) -> float | None:
@@ -276,10 +223,6 @@ def write_cost_baseline(path: Path, row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _canonical_pkg(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
 def _resolve_root(root: Path | None) -> Path:
     if root is not None:
         return root.resolve()
@@ -290,13 +233,14 @@ def _resolve_root(root: Path | None) -> Path:
 
 
 def _tracked_files(root: Path, *patterns: str) -> list[str]:
-    done = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", *patterns],
-        capture_output=True,
-        check=False,
-    )
-    if done.returncode == 0:
-        return sorted(entry.decode("utf-8", errors="surrogateescape") for entry in done.stdout.split(b"\0") if entry)
+    if (root / ".git").exists():
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", *patterns],
+            capture_output=True,
+            check=False,
+        )
+        if done.returncode == 0:
+            return sorted(entry.decode("utf-8", errors="surrogateescape") for entry in done.stdout.split(b"\0") if entry)
     found: list[str] = []
     for path in root.rglob("*"):
         if not path.is_file():
@@ -304,102 +248,9 @@ def _tracked_files(root: Path, *patterns: str) -> list[str]:
         rel = path.relative_to(root)
         if _SKIP_DIR_PARTS.intersection(rel.parts):
             continue
-        rel_str = rel.as_posix()
         if not patterns or any(path.match(pat) for pat in patterns):
-            found.append(rel_str)
+            found.append(rel.as_posix())
     return sorted(found)
-
-
-def _find_pyproject_nautilus_spec(root: Path) -> str | None:
-    pyproject = root / "pyproject.toml"
-    if not pyproject.is_file():
-        return None
-    try:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    deps = data.get("project", {}).get("dependencies", [])
-    if not isinstance(deps, list):
-        return None
-    for spec in deps:
-        if isinstance(spec, str):
-            name = re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0]
-            if _canonical_pkg(name) == "nautilus-trader":
-                return spec
-    return None
-
-
-def _check_nautilus_pinning(root: Path, violations: list[dict[str, Any]], triggers: list[str]) -> dict[str, Any]:
-    uv_lock = root / "uv.lock"
-    py_spec = _find_pyproject_nautilus_spec(root)
-    info: dict[str, Any] = {
-        "uv_lock_present": uv_lock.is_file(),
-        "pinned": False,
-        "version": None,
-        "sdist_locked": False,
-        "wheel_count": 0,
-        "all_wheels_hashed": False,
-        "pyproject_spec": py_spec,
-        "pyproject_exact_pin": bool(py_spec and "==" in py_spec and "*" not in py_spec),
-    }
-    if not uv_lock.is_file():
-        violations.append({"kind": "missing_uv_lock", "file": "uv.lock", "detail": "uv.lock is missing"})
-        triggers.append("runtime:missing_uv_lock")
-        return info
-    try:
-        lock_data = tomllib.loads(uv_lock.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        violations.append({"kind": "invalid_uv_lock", "file": "uv.lock", "detail": str(error)})
-        triggers.append("runtime:invalid_uv_lock")
-        return info
-    pkgs = lock_data.get("package", [])
-    entry = next(
-        (p for p in pkgs if isinstance(p, dict) and _canonical_pkg(str(p.get("name", ""))) == "nautilus-trader"),
-        None,
-    )
-    if entry is None:
-        violations.append({"kind": "nautilus_not_locked", "file": "uv.lock", "detail": "nautilus-trader not in uv.lock"})
-        triggers.append("runtime:nautilus_not_locked")
-        return info
-    version = str(entry.get("version", "")).strip()
-    sdist = entry.get("sdist")
-    sdist_locked = isinstance(sdist, dict) and str(sdist.get("hash", "")).startswith("sha256:")
-    wheels = entry.get("wheels") if isinstance(entry.get("wheels"), list) else []
-    all_wheels_hashed = bool(wheels) and all(
-        isinstance(w, dict) and str(w.get("hash", "")).startswith("sha256:") for w in wheels
-    )
-    exact_ver = bool(version) and "*" not in version and not any(op in version for op in ("<", ">", "~", "^"))
-    info.update({
-        "pinned": exact_ver and (sdist_locked or all_wheels_hashed),
-        "version": version or None,
-        "sdist_locked": sdist_locked,
-        "wheel_count": len(wheels),
-        "all_wheels_hashed": all_wheels_hashed,
-    })
-    if not info["pinned"]:
-        violations.append({
-            "kind": "nautilus_unpinned",
-            "file": "uv.lock",
-            "detail": f"nautilus-trader version={version!r} lacks exact pin or sha256 artifact hashes",
-        })
-        triggers.append("runtime:nautilus_unpinned")
-    if py_spec and not info["pyproject_exact_pin"]:
-        violations.append({
-            "kind": "nautilus_pyproject_not_exact",
-            "file": "pyproject.toml",
-            "detail": f"nautilus_trader dependency {py_spec!r} is not pinned with ==",
-        })
-        triggers.append("runtime:nautilus_pyproject_not_exact")
-    elif py_spec and info["pyproject_exact_pin"] and version:
-        py_ver = py_spec.split("==", 1)[1].split(";", 1)[0].strip()
-        if py_ver != version:
-            violations.append({
-                "kind": "nautilus_version_mismatch",
-                "file": "pyproject.toml",
-                "detail": f"pyproject.toml pins {py_ver!r} but uv.lock locks {version!r}",
-            })
-            triggers.append("runtime:nautilus_version_mismatch")
-    return info
 
 
 def _parse_dockerfile_from_lines(text: str) -> list[tuple[int, str, str | None]]:
@@ -462,186 +313,21 @@ def _audit_dockerfile(rel: str, path: Path, violations: list[dict[str, Any]], tr
     return {"file": rel, "external_images": external_images}
 
 
-def _check_replay_dockerfile_copies(root: Path, rel: str, violations: list[dict[str, Any]], triggers: list[str]) -> dict[str, Any]:
-    path = root / rel
-    if not path.is_file():
-        return {"present": False, "missing_copied_files": [], "frozen_uv_sync": False, "has_contract_label": False}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    missing_copies: list[str] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or not line.upper().startswith("COPY "):
-            continue
-        try:
-            words = shlex.split(line)
-        except ValueError:
-            continue
-        if len(words) < 3 or any(w.startswith("--from=") for w in words[1:]):
-            continue
-        for src in words[1:-1]:
-            if src.startswith("--") or "*" in src:
-                continue
-            if not (root / src).exists():
-                missing_copies.append(src)
-    frozen_sync = "uv sync --frozen" in text
-    has_contract = "trade.runtime.contract=" in text
-    if missing_copies:
-        violations.append({
-            "kind": "replay_dockerfile_missing_copy_source",
-            "file": rel,
-            "missing": sorted(missing_copies),
-            "detail": f"{rel} copies missing path(s): {', '.join(sorted(missing_copies))}",
-        })
-        triggers.append("runtime:replay_closure_missing_source")
-    if not frozen_sync:
-        violations.append({"kind": "replay_dockerfile_unfrozen_sync", "file": rel, "detail": f"{rel} lacks `uv sync --frozen`"})
-        triggers.append("runtime:replay_unfrozen_sync")
-    return {
-        "present": True,
-        "missing_copied_files": sorted(missing_copies),
-        "frozen_uv_sync": frozen_sync,
-        "has_contract_label": has_contract,
-    }
-
-
 def check_runtime_posture(root: Path) -> dict[str, Any]:
-    """Dimension 3: Replay closure, Dockerfile pinning hygiene, and Nautilus lock verification."""
+    """Verify every Dockerfile external `FROM` image is pinned by `@sha256:` digest (no floating tags)."""
     violations: list[dict[str, Any]] = []
     triggers: list[str] = []
-
-    nautilus = _check_nautilus_pinning(root, violations, triggers)
     dockerfiles_found = [
         rel for rel in _tracked_files(root)
         if not rel.endswith(".dockerignore") and (Path(rel).name == "Dockerfile" or Path(rel).name.endswith(".Dockerfile"))
     ]
     dockerfiles = [_audit_dockerfile(rel, root / rel, violations, triggers) for rel in dockerfiles_found if (root / rel).is_file()]
-
-    runtime_files = {rel: (root / rel).is_file() for rel in RUNTIME_CLOSURE_FILES}
-    missing_runtime = [rel for rel, ok in runtime_files.items() if not ok]
-    for rel in missing_runtime:
-        violations.append({"kind": "missing_runtime_closure_file", "file": rel, "detail": f"missing closure file {rel}"})
-        triggers.append("runtime:missing_closure_file")
-
-    closure_test = root / REPLAY_CLOSURE_TEST
-    test_present = closure_test.is_file()
-    test_text = closure_test.read_text(encoding="utf-8", errors="replace") if test_present else ""
-    markers_present = [m for m in REPLAY_CLOSURE_MARKERS if m in test_text]
-    missing_markers = [m for m in REPLAY_CLOSURE_MARKERS if m not in test_text]
-    if not test_present:
-        violations.append({"kind": "missing_replay_closure_test", "file": REPLAY_CLOSURE_TEST, "detail": f"missing {REPLAY_CLOSURE_TEST}"})
-        triggers.append("runtime:missing_closure_test")
-    elif missing_markers:
-        violations.append({
-            "kind": "incomplete_replay_closure_test",
-            "file": REPLAY_CLOSURE_TEST,
-            "missing_markers": missing_markers,
-            "detail": f"{REPLAY_CLOSURE_TEST} missing closure markers: {', '.join(missing_markers)}",
-        })
-        triggers.append("runtime:incomplete_closure_test")
-
-    replay_df = _check_replay_dockerfile_copies(root, "engine/runtime/replay.Dockerfile", violations, triggers)
-
     return {
         "status": "ok" if not violations else "fail",
-        "nautilus": nautilus,
         "dockerfiles": dockerfiles,
-        "replay_closure": {
-            "test_present": test_present,
-            "test_path": REPLAY_CLOSURE_TEST,
-            "markers_present": markers_present,
-            "missing_markers": missing_markers,
-            "runtime_files_present": runtime_files,
-            "replay_dockerfile": replay_df,
-        },
         "violations": violations,
         "triggers": sorted(set(triggers)),
     }
-
-
-def _is_unpinned_py_spec(spec: str) -> bool:
-    cleaned = spec.split(";", 1)[0].strip()
-    if not cleaned:
-        return True
-    if "*" in cleaned or "latest" in cleaned.lower():
-        return True
-    return _PY_SPEC_OP_RE.search(cleaned) is None
-
-
-def _is_unpinned_node_spec(spec: str) -> bool:
-    cleaned = spec.strip()
-    if cleaned in _NODE_WILDCARD_EXACT:
-        return True
-    return bool(_NODE_WILDCARD_RE.search(cleaned))
-
-
-def _check_pyproject_deps(
-    root: Path,
-    manifests: list[str],
-    dep_findings: list[dict[str, Any]],
-    missing_locks: list[str],
-) -> None:
-    pyproject = root / "pyproject.toml"
-    if not pyproject.is_file():
-        return
-    manifests.append("pyproject.toml")
-    if not (root / "uv.lock").is_file():
-        missing_locks.append("uv.lock")
-    try:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        dep_findings.append({"file": "pyproject.toml", "spec": "<parse_error>", "detail": str(error)})
-        return
-    groups: list[tuple[str, list[Any]]] = [("project.dependencies", data.get("project", {}).get("dependencies", []))]
-    dep_groups = data.get("dependency-groups", {})
-    if isinstance(dep_groups, dict):
-        for group_name, entries in sorted(dep_groups.items()):
-            if isinstance(entries, list):
-                groups.append((f"dependency-groups.{group_name}", entries))
-    for section, entries in groups:
-        dep_findings.extend(
-            {
-                "file": "pyproject.toml",
-                "section": section,
-                "spec": spec,
-                "detail": f"unpinned or wildcard Python dependency: {spec!r}",
-            }
-            for spec in entries
-            if isinstance(spec, str) and _is_unpinned_py_spec(spec)
-        )
-
-
-def _check_node_manifests(
-    root: Path,
-    manifests: list[str],
-    dep_findings: list[dict[str, Any]],
-    missing_locks: list[str],
-) -> None:
-    for rel in NODE_MANIFEST_CANDIDATES:
-        path = root / rel
-        if not path.is_file():
-            continue
-        manifests.append(rel)
-        lock_rel = (Path(rel).parent / "package-lock.json").as_posix()
-        if not (root / lock_rel).is_file():
-            missing_locks.append(lock_rel)
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            dep_findings.append({"file": rel, "spec": "<parse_error>", "detail": str(error)})
-            continue
-        for section in ("dependencies", "devDependencies"):
-            block = data.get(section)
-            if not isinstance(block, dict):
-                continue
-            for pkg, ver in sorted(block.items()):
-                if not isinstance(ver, str) or _is_unpinned_node_spec(ver):
-                    dep_findings.append({
-                        "file": rel,
-                        "section": section,
-                        "package": pkg,
-                        "spec": ver,
-                        "detail": f"unpinned or wildcard Node dependency {pkg}: {ver!r}",
-                    })
 
 
 def _collect_import_aliases(tree: ast.AST) -> tuple[dict[str, str], dict[str, str]]:
@@ -794,24 +480,12 @@ def _check_tracked_secrets(root: Path) -> tuple[list[dict[str, Any]], list[str]]
 
 
 def check_security_posture(root: Path) -> dict[str, Any]:
-    """Dimension 10: Dependency pinning, lockfiles, Python AST dangerous patterns, and tracked credential hygiene."""
-    manifests: list[str] = []
-    dep_findings: list[dict[str, Any]] = []
-    missing_locks: list[str] = []
-    _check_pyproject_deps(root, manifests, dep_findings, missing_locks)
-    _check_node_manifests(root, manifests, dep_findings, missing_locks)
-
+    """Scan production Python AST for dangerous calls and verify no secret files are tracked."""
     scanned_count, ast_findings, allowlisted = _scan_python_security_ast(root)
     tracked_secrets, public_certs = _check_tracked_secrets(root)
 
     violations: list[dict[str, Any]] = []
     triggers: list[str] = []
-    for dep in dep_findings:
-        violations.append({"kind": "unpinned_dependency", **dep})
-        triggers.append("security:unpinned_dependency")
-    for lock in sorted(set(missing_locks)):
-        violations.append({"kind": "missing_lockfile", "file": lock, "detail": f"missing lockfile {lock}"})
-        triggers.append("security:missing_lockfile")
     for hit in ast_findings:
         violations.append({"kind": f"ast_{hit['pattern']}", **hit})
         triggers.append(f"security:ast_{hit['pattern']}")
@@ -821,9 +495,6 @@ def check_security_posture(root: Path) -> dict[str, Any]:
 
     return {
         "status": "ok" if not violations else "fail",
-        "manifests_checked": manifests,
-        "dependency_findings": dep_findings,
-        "missing_lockfiles": sorted(set(missing_locks)),
         "ast_files_scanned": scanned_count,
         "ast_findings": ast_findings,
         "allowlisted_ast_findings": allowlisted,
@@ -834,96 +505,17 @@ def check_security_posture(root: Path) -> dict[str, Any]:
     }
 
 
-def _doc_targets(root: Path) -> list[str]:
-    targets = [name for name in TOP_LEVEL_DOCS if (root / name).is_file()]
-    skills_dir = root / ".agents/skills"
-    if skills_dir.is_dir():
-        targets.extend(skill_doc.relative_to(root).as_posix() for skill_doc in sorted(skills_dir.glob("*/SKILL.md")))
-    return targets
-
-
-def _scan_doc_file(root: Path, rel: str) -> tuple[int, int, list[dict[str, Any]]]:
-    doc_path = root / rel
-    root_resolved = root.resolve()
-    broken: list[dict[str, Any]] = []
-    links_checked = 0
-    paths_checked = 0
-    fence_char = ""
-
-    for lineno, line in enumerate(doc_path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-        stripped = line.strip()
-        if not fence_char and stripped.startswith(("```", "~~~")):
-            fence_char = stripped[0]
-            continue
-        if fence_char:
-            if stripped.startswith(fence_char * 3):
-                fence_char = ""
-            continue
-        prose = _BACKTICK_RE.sub("", line)
-        for match in _MD_LINK_RE.finditer(prose):
-            raw_target = match.group(1)
-            target = raw_target.split("#", 1)[0].split("?", 1)[0]
-            if not target or "://" in target or target.startswith(("mailto:", "#")):
-                continue
-            links_checked += 1
-            resolved = ((root_resolved / target.lstrip("/")) if target.startswith("/") else (doc_path.parent / target)).resolve()
-            if not resolved.is_relative_to(root_resolved) or not resolved.exists():
-                broken.append({"file": rel, "line": lineno, "kind": "markdown_link", "target": raw_target})
-        for match in _BACKTICK_RE.finditer(line):
-            tok = match.group(1).strip()
-            if not tok or not tok.startswith(REPO_PATH_PREFIXES):
-                continue
-            if any(ch in tok for ch in " *<>{}$|;():") or "..." in tok:
-                continue
-            paths_checked += 1
-            clean = tok.split("#", 1)[0].rstrip("/")
-            if clean and not (root / clean).exists():
-                broken.append({"file": rel, "line": lineno, "kind": "backtick_path", "target": tok})
-    return links_checked, paths_checked, broken
-
-
-def check_docs_posture(root: Path) -> dict[str, Any]:
-    """Dimension 10: Verify relative markdown links and backticked repo paths in top-level & skill docs exist."""
-    docs = _doc_targets(root)
-    links_checked = 0
-    paths_checked = 0
-    broken_refs: list[dict[str, Any]] = []
-    for rel in docs:
-        l_cnt, p_cnt, broken = _scan_doc_file(root, rel)
-        links_checked += l_cnt
-        paths_checked += p_cnt
-        broken_refs.extend(broken)
-    violations = [
-        {
-            "kind": "broken_doc_ref",
-            "location": f"{ref['file']}:{ref['line']}",
-            **ref,
-            "detail": f"broken {ref['kind']} in {ref['file']}:{ref['line']} -> {ref['target']}",
-        }
-        for ref in broken_refs
-    ]
-    triggers = ["docs:broken_doc_refs"] if broken_refs else []
-    return {
-        "status": "ok" if not broken_refs else "fail",
-        "docs_scanned": docs,
-        "links_checked": links_checked,
-        "paths_checked": paths_checked,
-        "broken_doc_refs": broken_refs,
-        "violations": violations,
-        "triggers": triggers,
-    }
-
-
-def run_posture(root: Path | None = None, *, check: str = "all") -> dict[str, Any]:
-    """Run runtime, security, and/or docs posture audits against `root`."""
+def run_posture(root: Path | None = None, *, check: str = "all", tree_rev: str | None = None) -> dict[str, Any]:
+    """Run Dockerfile digest pinning and/or Python security AST + tracked-secret checks against `root`."""
     resolved = _resolve_root(root)
-    selected = ("runtime", "security", "docs") if check == "all" else (check,)
+    selected = ("runtime", "security") if check == "all" else (check,)
     out: dict[str, Any] = {"status": "ok", "check": check, "root": str(resolved)}
+    if tree_rev is not None:
+        out["tree"] = tree_rev
     triggers: list[str] = []
     runners = {
         "runtime": check_runtime_posture,
         "security": check_security_posture,
-        "docs": check_docs_posture,
     }
     for name in selected:
         section = runners[name](resolved)
@@ -944,7 +536,7 @@ def _is_forbidden_out_path(path: Path) -> bool:
 
 def run_posture_cmd(args: Any) -> None:
     """CLI handler for `doctor.py posture`."""
-    result = run_posture(getattr(args, "root", None), check=args.check)
+    result = run_posture(getattr(args, "root", None), check=args.check, tree_rev=getattr(args, "_tree_rev", None))
     rendered = json.dumps(result, indent=1)
     out_path = getattr(args, "out", None)
     if out_path:
@@ -959,11 +551,11 @@ def register_posture_parser(commands: Any) -> None:
     """Attach the `posture` subcommand to `doctor.py`'s argparse subparsers."""
     pos_p = commands.add_parser(
         "posture",
-        help="deterministic runtime pinning/closure, security/supply-chain, and docs-drift audit",
+        help="deterministic Dockerfile @sha256 digest pinning, Python security AST, and tracked-secret audit",
     )
     pos_p.add_argument(
         "--check",
-        choices=("all", "runtime", "security", "docs"),
+        choices=("all", "runtime", "security"),
         default="all",
         help="which posture checks to run (default: %(default)s)",
     )
@@ -972,6 +564,12 @@ def register_posture_parser(commands: Any) -> None:
         type=Path,
         default=None,
         help="repository root to audit (default: current git toplevel)",
+    )
+    pos_p.add_argument(
+        "--tree",
+        default=None,
+        metavar="REV",
+        help="optional git revision to materialize via git archive and audit instead of --root",
     )
     pos_p.add_argument("--out", type=Path, help="optional path to write structured posture JSON")
     pos_p.set_defaults(function=run_posture_cmd)

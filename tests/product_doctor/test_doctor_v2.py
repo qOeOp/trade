@@ -276,7 +276,8 @@ class ClosedLoopSchedulerTests(unittest.TestCase):
         rec2 = (
             "# Themed audit: find\n\n"
             "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
-            "| results | cold:check | examined | ok |\n\n"
+            "| results | cold:check | examined | ok |\n"
+            "| methodology | cold:bench | examined | ok |\n\n"
             "Shown: 0 of 0 probed. Shown by a refuter's own probe too: 0.\n"
         )
         self.commit({
@@ -515,7 +516,8 @@ export function load(cfg?: Config) {
             "# Themed audit: find\n\n"
             "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
             "| results | beta:check | examined | ok |\n"
-            "| results | cold:check | examined | ok |\n\n"
+            "| results | cold:check | examined | ok |\n"
+            "| methodology | cold:bench | examined | ok |\n\n"
             "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
         )
         self.commit({
@@ -1044,7 +1046,8 @@ export function load(cfg?: Config) {
             "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
             "| results | alpha:check | examined | ok |\n"
             "| results | beta:check | examined | ok |\n"
-            "| results | cold:check | examined | ok |\n\n"
+            "| results | cold:check | examined | ok |\n"
+            "| methodology | cold:bench | examined | ok |\n\n"
             "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
         )
         rec_fric = (
@@ -1142,22 +1145,18 @@ export function load(cfg?: Config) {
         self.assertIn("prod_recovery_unavailable", joined)
         self.assertIn("prod_log_empty", joined)
 
-        # 2) Research transcript workflow adherence detects ad-hoc dolt sql, .env read, and missing research skill.
+        # 2) Research transcript workflow adherence detects .env / dolt/service.json reads.
         bad_tx = self.home / "research_bad.jsonl"
         tx_rows = [
             json.dumps({"type": "PLANNER_RESPONSE", "created_at": "2026-11-26T10:00:00Z", "tool_calls": [
-                {"name": "run_command", "args": {"CommandLine": "dolt sql -q 'select * from runs'"}},
+                {"name": "run_command", "args": {"CommandLine": "cat ~/.local/share/trade/dolt/service.json"}},
                 {"name": "read_file", "args": {"Path": "/repo/.env"}},
-                {"name": "run_command", "args": {"CommandLine": "python -m cli.main research state"}},
-                {"name": "run_command", "args": {"CommandLine": "python -m cli.main line select"}},
-                {"name": "run_command", "args": {"CommandLine": "python -m cli.main trial list"}},
             ]}),
         ]
         bad_tx.write_text("\n".join(tx_rows) + "\n", encoding="utf-8")
         tx_res = friction.analyze_transcripts([bad_tx])
-        viols = {v["kind"] for v in tx_res["sessions"][0]["workflow_violations"]}
-        self.assertEqual(viols, {"ad_hoc_ledger_sql", "secret_file_access", "missing_research_skill"})
-        self.assertTrue(any("workflow_ad_hoc_ledger_sql" in t for t in tx_res["triggers"]))
+        self.assertEqual(tx_res["sessions"][0]["workflow_violations"], [{"kind": "secret_file_access", "count": 2}])
+        self.assertTrue(any("workflow_secret_file_access" in t for t in tx_res["triggers"]))
 
         # 3) `--auto` mode treats `authority`-labeled harm issues as actionable (no authority deadlock).
         self.commit({"paper/runs.py": "def run():\n    return 1\n"}, message="feat(paper): add paper module")
@@ -1186,7 +1185,8 @@ export function load(cfg?: Config) {
         rec_all = (
             "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
             "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
-            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n\n"
+            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n"
+            "| methodology | alpha:bench | examined | ok |\n\n"
             "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
         )
         self.commit({
@@ -1211,7 +1211,8 @@ export function load(cfg?: Config) {
         rec_find = (
             "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
             "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
-            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n\n"
+            "| results | cold:x | examined | ok |\n| results | paper:x | examined | ok |\n"
+            "| methodology | alpha:bench | examined | ok |\n\n"
             "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
         )
         rec_fric = (
@@ -1260,68 +1261,38 @@ export function load(cfg?: Config) {
                 self.assertFalse(plan["friction_summary"]["in_cooldown"])
                 self.assertFalse(plan["stopping_checks"]["no_friction_triggers"])
 
-    def test_v3_1_f2_auto_mode_field_and_irreversible_redlines(self):
-        """F2 [P0/P1]: advise emits explicit `auto_mode`, blocks irreversible AGENTS.md redlines under
-        `--auto`, and unblocks ordinary bug fixes / missing refusal guard fixes with legacy `authority`."""
+    def test_v3_1_f2_auto_mode_field_and_label_redlines(self):
+        """F2 [P0/P1]: advise emits explicit `auto_mode`, blocks `authority:redline` / `redline` labels
+        under `--auto`, and unblocks plain `authority` defect fixes without brittle prose regexes."""
         self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
         today = self.git("show", "-s", "--format=%cs", "HEAD")
         redline_issues = self.home / "redlines.json"
         redline_issues.write_text(json.dumps([
-            {
-                "number": 9001, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Allow real orders on primary live account during nightly check",
-                "body": "Modifies paper/serve.py to place live orders on primary funds.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
-            {
-                "number": 9002, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Add stored drawdown column to ledger schema",
-                "body": "Adds a stored field to ledger.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
-            {
-                "number": 9003, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Weaken refusal check for invalid stops in paper/serve.py",
-                "body": "Relaxes refusal guard on stops.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
-            {
-                "number": 9004, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Replace PP Supply Mono font in IDE header",
-                "body": "Swap project font assets.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
-            {
-                "number": 9005, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Reset active Dolt ledger history before migration",
-                "body": "Clears published records in active ledger.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
-            {
-                "number": 9006, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Tag release v0.5.0 on main",
-                "body": "Create release tag v0.5.0.",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-            },
             {
                 "number": 9007, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
                 "title": "paper/serve.py silently drops fills on reconnect",
                 "body": "Explicitly labeled redline.",
                 "labels": [{"name": "agent-finding"}, {"name": "authority:redline"}],
             },
+            {
+                "number": 9008, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
+                "title": "Reset active Dolt ledger history before migration",
+                "body": "Redline via `redline` label.",
+                "labels": [{"name": "agent-finding"}, {"name": "redline"}],
+            },
         ]), encoding="utf-8")
 
         p_gated = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues)
         self.assertFalse(p_gated["auto_mode"])
         self.assertEqual(p_gated["issues_summary"]["actionable_harm"], [])
-        self.assertEqual(p_gated["issues_summary"]["blocked_authority_count"], 7)
+        self.assertEqual(p_gated["issues_summary"]["blocked_authority_count"], 2)
 
         p_auto = self.call_json("advise", "--tree", "HEAD", "--issues-json", redline_issues, "--auto")
         self.assertTrue(p_auto["auto_mode"])
         self.assertEqual(p_auto["issues_summary"]["actionable_harm"], [])
-        self.assertEqual(p_auto["issues_summary"]["blocked_authority_count"], 7)
+        self.assertEqual(p_auto["issues_summary"]["blocked_authority_count"], 2)
 
-        # Ordinary defect / tightening missing guard with legacy `authority` label DOES unblock under `--auto`.
+        # Ordinary defect / tightening missing guard with plain `authority` label DOES unblock under `--auto`.
         normal_auth = self.home / "normal_auth.json"
         normal_auth.write_text(json.dumps([
             {
@@ -1389,30 +1360,30 @@ export function load(cfg?: Config) {
         tx_str.write_text(json.dumps({
             "type": "PLANNER_RESPONSE",
             "tool_calls": [
-                {"name": "run_command", "arguments": json.dumps({"CommandLine": "dolt sql -q 'DELETE FROM trials'"})},
+                {"name": "run_command", "arguments": json.dumps({"CommandLine": "cat ~/.local/share/trade/dolt/service.json"})},
                 {"name": "read_file", "arguments": json.dumps({"Path": "/repo/.env"})},
             ],
         }) + "\n", encoding="utf-8")
         res_str = friction.analyze_transcripts([tx_str])
         self.assertEqual(
-            {v["kind"] for v in res_str["sessions"][0]["workflow_violations"]},
-            {"ad_hoc_ledger_sql", "secret_file_access"},
+            res_str["sessions"][0]["workflow_violations"],
+            [{"kind": "secret_file_access", "count": 2}],
         )
 
-        # RESEARCH_CMD_RE must match global flags before subcommand (`--ledger temp replay`).
-        tx_res = self.home / "f8_research_flag.jsonl"
-        tx_res.write_text(json.dumps({
+        # deploy/.env and sanctioned research-sources single-key extraction must NOT trigger secret_file_access.
+        tx_exempt = self.home / "f8_exempt.jsonl"
+        tx_exempt.write_text(json.dumps({
             "type": "PLANNER_RESPONSE",
             "tool_calls": [
-                {"name": "run_command", "args": {"CommandLine": "uv run python -m cli.main --ledger temp replay run --help"}}
-                for _ in range(5)
+                {"name": "run_command", "args": {"CommandLine": "grep -m1 '^TRADE_RUNTIME_IMAGE=' deploy/.env"}},
+                {"name": "run_command", "args": {"CommandLine": "cp /repo/deploy/.env /tmp/deploy.env.bak"}},
+                {"name": "read_file", "args": {"Path": "/repo/deploy/.env"}},
+                {"name": "run_command", "args": {"CommandLine": 'ENV="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"; key() { for n; do sed -n "s/^${n}=//p" "$ENV" | tr -d \'"\'; done; }; echo ok'}},
+                {"name": "run_command", "args": {"CommandLine": 'grep -E "^(OPENALEX|SEMANTIC_SCHOLAR|FRED)_" /repo/.env'}},
             ],
         }) + "\n", encoding="utf-8")
-        res_flag = friction.analyze_transcripts([tx_res])
-        self.assertEqual(
-            res_flag["sessions"][0]["workflow_violations"],
-            [{"kind": "missing_research_skill", "count": 1}],
-        )
+        res_exempt = friction.analyze_transcripts([tx_exempt])
+        self.assertEqual(res_exempt["sessions"][0]["workflow_violations"], [])
 
         # Space-separated secret flags and bare 40-64 hex strings must be redacted; benign text stays intact.
         for sample, leak in (
@@ -1470,7 +1441,7 @@ export function load(cfg?: Config) {
         rec_all = (
             "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
             "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
-            "| results | cold:x | examined | ok |\n\n"
+            "| results | cold:x | examined | ok |\n| methodology | alpha:bench | examined | ok |\n\n"
             "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
         )
         self.commit({
@@ -1537,77 +1508,78 @@ export function load(cfg?: Config) {
         self.assertTrue(any("prod_oom_kill" in t for t in j_entry["triggers"]))
         self.assertTrue(any("prod_error_burst" in t for t in j_entry["triggers"]))
 
-    def test_v3_2_r2_2_auto_redlines_full_body_comments_and_no_bug_fp(self):
-        """R2-2 [P1]: scan full body & comments (no 1200-char truncation), block all AGENTS.md redlines
-        (active market switch, GHCR image deletion, Docker/compose restart, credential reads), and avoid
-        false positives on ordinary defect/regression prose."""
-        # 1) Remedy past char 1200 must still be blocked.
-        long_body = ("Proof details. " * 90) + "\n### Remedy\nReset the Dolt ledger and place real orders on the primary live account."
-        self.assertGreater(len(long_body), 1300)
-        self.assertTrue(scheduler._is_redline_text("Schema corruption bug in ledger", long_body))
-
-        # 2) Redline in comments (e.g. #3505 active market directory rebuild/switch) must be blocked.
-        self.assertTrue(scheduler._is_redline_text(
-            "Pool history omits reused symbols",
-            "Read-only proof.",
-            comments=[{"body": "What the next version line's market directory must do: Build anew from 2020-01 and perform the directory switch."}],
-        ))
-
-        # 3) Missing AGENTS.md redlines must all be blocked.
-        for label, title, body in (
-            ("active-market-switch", "Rebuild and switch active market directory", "Switch active market directory to v2."),
-            ("delete-runtime-images", "Enable deletion of retained runtime images in GHCR", "Deletes published image versions."),
-            ("ghcr-retention", "GHCR retention only lists pull request images; turn deletion on", "Ask owner before passing --delete on the schedule."),
-            ("restart-compose", "Restart Docker Desktop and trade-ide compose services", "Terminates host process and restarts services."),
-            ("read-credentials", "Read Binance API key from .env and dolt/service.json", "Reads credentials directly."),
-            ("lower-target", "Lower maximum drawdown target to 25%", "Relaxes research target."),
-            ("weaken-refusal", "Weaken refusal check on invalid stops", "Relaxes refusal guard."),
-            ("add-stored-col", "Add stored drawdown column to ledger schema", "Adds a stored field to ledger."),
-        ):
-            with self.subTest(redline=label):
-                self.assertTrue(scheduler._is_redline_text(title, body))
-
-        # 4) Ordinary bug / regression / validation-fix prose must NOT false-positive.
-        for label, title, body in (
-            ("bug-disables-refusal", "Bug: missing check disables refusal when --universe is passed", "Fix validation in paper/serve.py."),
-            ("bug-removes-guard", "Regression removes guard on negative Content-Length", "Fix HTTP handler."),
-            ("bug-lowers-drawdown", "Warm-up bug lowers maximum drawdown in replay report", "Fix ledger/metrics.py."),
-            ("fix-stored-field-val", "Fix: add missing validation for stored field in service.json", "Reject empty databases."),
-            ("changes-number-judged", "CapitalObserver delays exposure valuation", "It changes the number the maximum drawdown target is judged on."),
-        ):
-            with self.subTest(benign=label):
-                self.assertFalse(scheduler._is_redline_text(title, body))
-
-        # 5) End-to-end `--auto` blocks #3505/#3524-style redlines while keeping ordinary bugs actionable.
-        self.commit({"paper/serve.py": "def run():\n    return 1\n"}, message="feat(paper): add serve")
+    def test_v3_2_stage3_real_data_fixes(self):
+        """Stage 3 real-data fixes: never-examined override lens blocks steady, partial audit with
+        quoted `# Full audit` stays partial, legacy pre-colon history(), Claude Code user_turns &
+        active_minutes, and `report --focused`."""
+        # 1) Never-examined override lens (`methodology`) MUST be overdue and block `steady`.
         today = self.git("show", "-s", "--format=%cs", "HEAD")
-        issues_p = self.home / "r2_2_issues.json"
-        issues_p.write_text(json.dumps([
-            {
-                "number": 3505, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Pool history omits earlier contracts whose symbols were reused",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-                "body": ("Proof context. " * 90) + "\n### Remedy\nStored months then recompute to other members (`UNIVERSE_CHANGED`).",
-                "comments": [{"body": "Build anew the active market directory on the owner's start."}],
-            },
-            {
-                "number": 3524, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "GHCR retention only lists pull request images; turn deletion on",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-                "body": "Action: authority (deletes published image versions).",
-                "comments": [],
-            },
-            {
-                "number": 3697, "state": "OPEN", "updatedAt": f"{today}T23:59:59Z",
-                "title": "Regression removes guard on negative Content-Length in paper/serve.py",
-                "labels": [{"name": "agent-finding"}, {"name": "authority"}],
-                "body": "Bug: missing check disables refusal when negative Content-Length is passed.",
-                "comments": [],
-            },
-        ]), encoding="utf-8")
-        plan = self.call_json("advise", "--tree", "HEAD", "--auto", "--issues-json", issues_p)
-        self.assertEqual([i["number"] for i in plan["issues_summary"]["actionable_harm"]], [3697])
-        self.assertEqual(plan["issues_summary"]["blocked_authority_count"], 2)
+        rec_no_meth = (
+            "# Themed audit: find\n\n| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| results | alpha:x | examined | ok |\n| results | beta:x | examined | ok |\n"
+            "| results | cold:x | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        # Also include a legacy pre-colon record and a `-partial-` record quoting `# Full audit`.
+        rec_partial = (
+            "# 2026-11-25 整体审计（覆盖不全）\n\n| Item | Value |\n|---|---|\n"
+            "| Coverage | 覆盖不全，当时的 report 原样打印了 `# Full audit` 与 `Not exercised` |\n\n"
+            "| Item | Subject | State | Evidence |\n|---|---|---|---|\n"
+            "| consumers | alpha | examined | ok |\n\n"
+            "Shown: 0 of 1 probed. Shown by a refuter's own probe too: 0. Refuters ran on 1.\n"
+        )
+        self.commit({
+            f"docs/plans/doctor/{today}-no-meth-1.zh.md": rec_no_meth,
+            f"docs/plans/doctor/{today}-no-meth-2.zh.md": rec_no_meth,
+            f"docs/plans/doctor/{today}-partial-audit.zh.md": rec_partial,
+        }, message="docs(doctor): records for stage3 checks")
+        empty_issues = self.home / "s3_empty.json"
+        empty_issues.write_text("[]", encoding="utf-8")
+        plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues)
+        self.assertIn("methodology", plan["lens_sla_breaches"])
+        self.assertFalse(plan["stopping_checks"]["no_overdue_lens_sla"])
+        self.assertEqual(plan["recommended_theme"], "find")
+        self.assertIn("methodology", plan["recommended_scope"]["items"])
+
+        # Partial audit quoting `# Full audit` must be marked is_partial=True!
+        rev = doctor.commit("HEAD")
+        lines = doctor.tracked(rev)
+        tops = doctor.objects(rev, lines)
+        recs = scheduler.read_audit_history(rev, lines, tops, doctor.owner)
+        partial_rec = next(r for r in recs if r["path"].endswith("-partial-audit.zh.md"))
+        self.assertTrue(partial_rec["is_partial"])
+        self.assertIn("alpha", partial_rec["objects"])
+
+        # 2) Claude Code user_turns (non-tool_result, non-isMeta) + active_minutes (gaps capped at 30m).
+        cc_real = self.home / "cc_real.jsonl"
+        cc_rows = [
+            {"type": "user", "timestamp": "2026-11-10T10:00:00Z", "message": {"role": "user", "content": "start task"}},
+            {"type": "user", "isMeta": True, "timestamp": "2026-11-10T10:00:01Z",
+             "message": {"role": "user", "content": [{"type": "text", "text": "Base directory for this skill: /repo/.agents/skills/research-start"}]}},
+            {"type": "assistant", "timestamp": "2026-11-10T10:01:00Z",
+             "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "echo hi"}}]}},
+            {"type": "user", "timestamp": "2026-11-10T10:02:00Z",
+             "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "hi"}]}},
+            # 11-day gap later -> wall duration ~15840m, active_minutes capped at 30m gap!
+            {"type": "user", "timestamp": "2026-11-21T10:02:00Z", "message": {"role": "user", "content": "resume task"}},
+        ]
+        cc_real.write_text("\n".join(json.dumps(r) for r in cc_rows) + "\n", encoding="utf-8")
+        res_cc = friction.analyze_transcripts([cc_real])["sessions"][0]
+        self.assertEqual(res_cc["user_turns"], 2)
+        self.assertEqual(res_cc["tool_calls"], 1)
+        self.assertEqual(res_cc["skills_loaded"], ["research-start"])
+        self.assertGreater(res_cc["duration_minutes"], 15000.0)
+        self.assertLessEqual(res_cc["active_minutes"], 35.0)
+
+        # 3) `report --focused` omits the full-audit `Not exercised:` wall.
+        ev = self.home / "focused-ev"
+        doctor.main(["run", str(ev), "results", "alpha:check", "--", "python3", "-c", "print('ok')"])
+        out_f = io.StringIO()
+        with redirect_stdout(out_f):
+            doctor.main(["report", str(ev), "--tree", "HEAD", "--focused"])
+        focused_txt = out_f.getvalue()
+        self.assertIn("# Focused diagnosis", focused_txt)
+        self.assertNotIn("Not exercised:", focused_txt)
 
     def test_v3_2_r2_3_shell_parser_escapes_amp_subshell_wrappers_and_grep(self):
         """R2-3 [P1]: handle unquoted backslash escapes, single `&` (not `>&`/`<&`), command
@@ -1617,17 +1589,14 @@ export function load(cfg?: Config) {
 
         def scan_cmd(cmd: str) -> dict[str, int]:
             v: Counter[str] = Counter()
-            friction._scan_workflow_args({"CommandLine": cmd}, v, [False])
+            friction._scan_workflow_args({"CommandLine": cmd}, v)
             return dict(v)
 
         for label, cmd, want_key in (
             ("escaped-quote-secret", r"echo \' ; cat .env", "secret_file_access"),
-            ("escaped-quote-sql", r"echo \' ; dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
             ("single-amp-secret", "echo hi & cat .env", "secret_file_access"),
-            ("single-amp-sql", "echo hi & dolt sql -q 'SELECT 1'", "ad_hoc_ledger_sql"),
             ("subshell-secret", "echo $(cat .env)", "secret_file_access"),
             ("backtick-secret", "echo `head -n 5 .env`", "secret_file_access"),
-            ("nested-subshell-sql", "echo \"$(dolt sql -q 'SELECT 1')\"", "ad_hoc_ledger_sql"),
             ("env-wrapper-secret", "env cat .env", "secret_file_access"),
             ("sudo-wrapper-secret", "sudo -u root /usr/bin/head .env", "secret_file_access"),
             ("command-wrapper-secret", "command /bin/cat .env", "secret_file_access"),
