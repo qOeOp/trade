@@ -1560,6 +1560,13 @@ export function load(cfg?: Config) {
              "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "echo hi"}}]}},
             {"type": "user", "timestamp": "2026-11-10T10:02:00Z",
              "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "hi"}]}},
+            # Synthetic Claude Code system notifications and auto-compaction resumes are not human user turns.
+            {"type": "user", "timestamp": "2026-11-10T10:03:00Z",
+             "message": {"role": "user", "content": "<task-notification><task-id>bg1</task-id></task-notification>"}},
+            {"type": "user", "timestamp": "2026-11-10T10:04:00Z",
+             "message": {"role": "user", "content": [{"type": "text", "text": "<system-reminder>not user input</system-reminder>"}]}},
+            {"type": "user", "timestamp": "2026-11-10T10:05:00Z",
+             "message": {"role": "user", "content": "This session is being continued from a previous conversation..."}},
             # 11-day gap later -> wall duration ~15840m, active_minutes capped at 30m gap!
             {"type": "user", "timestamp": "2026-11-21T10:02:00Z", "message": {"role": "user", "content": "resume task"}},
         ]

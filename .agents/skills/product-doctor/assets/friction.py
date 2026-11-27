@@ -457,6 +457,21 @@ def _record_tool_call(
     _scan_workflow_args(args, violations)
 
 
+_CLAUDE_SYNTHETIC_PREFIXES = (
+    "<local-command",
+    "<command-",
+    "<task-notification>",
+    "<system-reminder>",
+    "This session is being continued from a previous conversation",
+    "Base directory for this skill:",
+)
+
+
+def _is_human_claude_text(text: str) -> bool:
+    stripped = text.strip()
+    return bool(stripped) and not stripped.startswith(_CLAUDE_SYNTHETIC_PREFIXES)
+
+
 def _is_claude_user_turn(obj: dict[str, Any], skills_loaded: set[str]) -> bool:
     """Detect real human turns in Claude Code `type=='user'` rows and extract injected skill headers."""
     msg = obj.get("message")
@@ -465,8 +480,7 @@ def _is_claude_user_turn(obj: dict[str, Any], skills_loaded: set[str]) -> bool:
     if isinstance(content, str):
         for sk in INJECTED_SKILL_RE.findall(content):
             skills_loaded.add(sk)
-        stripped = content.strip()
-        return not is_meta and bool(stripped) and not stripped.startswith(("<local-command", "<command-"))
+        return not is_meta and _is_human_claude_text(content)
     if isinstance(content, list):
         has_human = False
         for blk in content:
@@ -477,7 +491,7 @@ def _is_claude_user_turn(obj: dict[str, Any], skills_loaded: set[str]) -> bool:
                 txt = str(blk.get("text") or "")
                 for sk in INJECTED_SKILL_RE.findall(txt):
                     skills_loaded.add(sk)
-                if txt.strip():
+                if _is_human_claude_text(txt):
                     has_human = True
             elif btype != "tool_result":
                 has_human = True

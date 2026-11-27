@@ -31,7 +31,7 @@ Pass `--tree HEAD` when auditing a non-`origin/main` checkout. Route directly to
 - Hotspots + cold untouched files inside a package: `doctor.py telemetry` (`break_even_files`, `fix_bursts`, `objects.<name>.quiet_files`).
 - IDE, Overview, fonts, routes and HTTP servers: `doctor.py surface` (plus `--http-target 127.0.0.1:<port>` on isolated servers).
 - Dockerfile `@sha256:` digest pinning, Python security AST and tracked secrets: `doctor.py posture`; scaling regressions: `doctor.py cost --baseline`.
-- Ground-truth ledger research audit: `doctor.py research-audit --state-json <state> --status-json <status>` (optional `--transcripts`; consumes real `cli.main research state` / `research status` JSON for review/comparison backlogs, undistinguished streaks, correlated sweeps, stale image runs, and blocking gates).
+- Ground-truth ledger research audit: `doctor.py research-audit --state-json <state> --status-json <status>` (optional `--transcripts`; consumes real `cli.main research state --without-image` / `research status` JSON for review/comparison backlogs, undistinguished streaks, correlated sweeps, stale image runs, and blocking gates).
 - Falsifiable defect proof on a clean `git archive` tree: `doctor.py probe` (`probe()` + contrasting `control()`; links host `ide/web` / `ide/overview` `node_modules` read-only so `.ts`/`.tsx` probes can run `node --experimental-vm-modules` with `cwd=Path.cwd() / "ide" / "web"` importing `./scripts/load.mjs`). Examine what answers the question and stop.
 
 ## Themed audit
