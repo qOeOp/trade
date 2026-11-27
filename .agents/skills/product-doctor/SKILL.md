@@ -26,11 +26,11 @@ Research conclusions and experiment choice belong to `research-round`.
 
 ## Focused diagnosis
 
-One question or scoped subsystem: steps 3, 4, 6 and 7, then its issues (step 8) — skip `scope`/`report` and `advise`.
+One question or scoped subsystem: steps 3, 4, 6 and 7, then its issues (step 8) — skip `scope`/`report` (or pass `doctor.py report DIR --focused`) and `advise`.
 Pass `--tree HEAD` when auditing a non-`origin/main` checkout. Route directly to the signal tools that fit the target:
-- Hotspots + cold untouched files inside a package: `doctor.py telemetry` (`fix_burst_files`, `break_even_files`, `quiet_files`).
+- Hotspots + cold untouched files inside a package: `doctor.py telemetry` (`break_even_files`, `fix_bursts`, `objects.<name>.quiet_files`).
 - IDE, Overview, fonts, routes and HTTP servers: `doctor.py surface` (plus `--http-target 127.0.0.1:<port>` on isolated servers).
-- Runtime pinning, security AST and doc-link drift: `doctor.py posture`; scaling regressions: `doctor.py cost --baseline`.
+- Dockerfile `@sha256:` digest pinning, Python security AST and tracked secrets: `doctor.py posture`; scaling regressions: `doctor.py cost --baseline`.
 - Falsifiable defect proof on a clean `git archive` tree: `doctor.py probe` (`probe()` + contrasting `control()`). Examine what answers the question and stop.
 
 ## Themed audit
@@ -38,10 +38,9 @@ Pass `--tree HEAD` when auditing a non-`origin/main` checkout. Route directly to
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
 signals deterministically: dump open `agent-finding` issues and recent CI runs (`gh run list --limit 80 --json databaseId,workflowName,name,status,conclusion,createdAt,updatedAt,event,headBranch`)
 to temporary JSON files and run `doctor.py advise --issues-json <issues> --ci-json <ci>` (add `--transcripts <path...>`
-and optional `--ledger-summary <path...>` for session workflow adherence and research-quality telemetry,
-`--prod-logs <path...>` for production service logs, `--prod-state <path...>` for silent production invariants
-assembled read-only via `doctor.py prod-snapshot` per [prod-ops.md](references/prod-ops.md), and
-`--auto --steady-exit-code 2` for scheduled unattended gates; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
+for session workflow adherence and agent/burden telemetry, `--prod-logs <path...>` for production service logs per
+[prod-ops.md](references/prod-ops.md), and `--auto --steady-exit-code 2` for scheduled unattended gates; backed by
+`doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
 last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why and what is
 left out:
 
@@ -53,13 +52,11 @@ left out:
    triggers (`slim_candidates`), subject to `advise`'s cooldown while coverage SLA breaches remain. Group Shape and
    **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): CI failure rate, wait-time growth, agent tool error rate, repeated actions, user
-   clarification burden, research-quality degradation (`research_quality:*` triggers—`param_churn_ratio`,
-   `unattributed_pivot`, `prereg_drift`, `evidence_gap`, `multi_trial_overfit`—routed to
-   `.agents/skills/research-round` and `.agents/skills/nautilus-report-analysis`), or active production log/state
+   clarification burden, credential-access violations (`workflow_secret_file_access`), or active production log
    incidents (`friction_summary.triggers` from `advise` / `doctor.py friction`, or named directly by the user).
-   Ordinary friction is subject to cooldown while coverage SLA breaches remain; active production incidents
-   (`--prod-logs` / `--prod-state` silent invariants) preempt cooldown and `steady` directly onto their owning
-   code object(s) under `operation`. Group Use (and `operation` for prod).
+   Ordinary friction is subject to cooldown while coverage SLA breaches remain; active production log incidents
+   (`--prod-logs`) preempt cooldown and `steady` directly onto their owning code object(s) under `operation`.
+   Group Use (and `operation` for prod).
 4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 friction
    triggers, 0 coverage SLA breaches, 0 overdue per-lens SLAs such as 60d `methodology`, saturated marginal yield
    over complete substantive audits). Declare
@@ -68,7 +65,8 @@ left out:
 5. **Find** (`find`): otherwise. Pair the top fresh risk/churn object with the coldest coverage-SLA-breached object from
    `advise` (plus its top `coupled_contracts` `A+B` pair via `--contracts` and `outside`), under the stalest remaining
    groups of [lenses.md](references/lenses.md) (respecting per-lens SLA overrides such as 60d for `methodology`).
-   Review `low_yield_lenses` under the `self` perspective.
+   Review `low_yield_lenses` under the `self` perspective; any `product-doctor` asset or check must prove real-data
+   recall > 0 and low false-positive rate on real transcripts or historical bugs (see `docs/plans/doctor/recall-benchmark.zh.md`), or be cut.
 
 Declare one to three objects, those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where only
 some do), and any coupled `--contracts A+B` with `doctor.py scope` before any evidence (`harm` its objects alone;

@@ -1,15 +1,8 @@
-"""Closed-loop convergence scheduler and stopping controller for product-doctor (v2.2).
+"""Closed-loop convergence scheduler and stopping controller for product-doctor.
 
-Hardened against Round 3B adversarial red-team & longitudinal simulation findings:
-- P0-1: `steady` gate cannot be gamed by 0-probe audits, unrefuted bug-heavy audits, partial audits,
-  or repeated `steady` records themselves.
-- P0-2: `read_audit_history` batch-reads records via `git cat-file --batch` and parses case-insensitive
-  headings and `record.md` `| Coverage |` cells (`Partial themed audit:` / `Themed audit:` / `Full audit`).
-- P1-2: `structural_decay` requires fixes specifically on unhealthy files (`unhealthy_fixes_short >= 2`);
-  when coverage SLA breaches remain, `slim` yields after 1 run instead of 2:1 ping-ponging `find`.
-- P1-6: Validates `issues` schema, fixes `last_touch` max(updated, comments), checks body harm for
-  unclaimed issues (excluding docs-only typos), widens file citation matching, and expires `claimed` > 2d.
-- P2-1: `zero_yield_streak` maps file-level subjects via `owner_fn` and resets immediately on `confirmed > 0`.
+Routes audits across Harm -> Prod Incident -> Slim -> Friction -> Steady -> Find using deterministic
+git telemetry, issue labels (`authority` / `authority:redline`), audit history, per-lens SLA overrides,
+and saturation stopping checks. Pure Python standard library.
 """
 
 from __future__ import annotations
@@ -25,8 +18,6 @@ from typing import Any
 _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
-import prod_invariants  # noqa: E402
-import research_quality  # noqa: E402
 import telemetry  # noqa: E402
 
 HARM_RE = re.compile(
@@ -45,114 +36,21 @@ SHOWN_RE = re.compile(r"Shown:\s*(\d+)\s+of\s+(\d+)\s+probed")
 REFUTED_SHOWN_RE = re.compile(r"Shown by a refuter's own probe too:\s*(\d+)")
 REFUTERS_RAN_RE = re.compile(r"Refuters ran on\s*(\d+)")
 REFUTER_TABLE_ROW_RE = re.compile(r"^\|[^|\n]+\|[^|\n]+\|[^|\n]+\|[^|\n]+\|[^|\n]+\|[^|\n]+\|\s*([a-z]+)\s*\|$", re.MULTILINE)
-THEME_RE = re.compile(
-    r"(?:^#\s*|\|\s*Coverage\s*\|[^\n]*?)(Partial\s+)?Themed audit:\s*([a-z]+)",
-    re.MULTILINE | re.IGNORECASE,
-)
-FULL_RE = re.compile(
-    r"(?:^#\s*|\|\s*Coverage\s*\|[^\n]*?)(Partial|Full)\s+audit\b",
-    re.MULTILINE | re.IGNORECASE,
-)
+HEADING_THEME_RE = re.compile(r"^#\s*(Partial\s+)?Themed audit:\s*([a-z]+)\b", re.MULTILINE | re.IGNORECASE)
+HEADING_FULL_RE = re.compile(r"^#\s*(Partial|Full)\s+audit\b", re.MULTILINE | re.IGNORECASE)
+COVERAGE_ROW_RE = re.compile(r"^\|\s*Coverage\s*\|\s*([^\n|]+)", re.MULTILINE | re.IGNORECASE)
+CELL_THEME_RE = re.compile(r"\b(Partial\s+)?Themed audit:\s*([a-z]+)\b", re.IGNORECASE)
+CELL_FULL_RE = re.compile(r"\b(Partial|Full)\s+audit\b", re.IGNORECASE)
 RECORDED_ROW_RE = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
+
 CLAIM_EXPIRY_SECONDS = 2 * 86400  # record.md: a claim under 2 days old is left alone
+FRICTION_COOLDOWN_DAYS = 7
+LENS_SLA_OVERRIDES: dict[str, int] = {"methodology": 60}
 PROD_INCIDENT_PREFIXES = (
     "prod_oom_kill",
     "prod_recovery_unavailable",
     "prod_checkpoint_deferred",
     "prod_log_empty",
-    "prod_invariant:",
-    "prod_state:",
-)
-REDLINE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # Real orders / live real-account trials.
-    re.compile(r"\bprimary\s+(?:live\s+|binance\s+)?(?:account|funds?)\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:real|live)\s+orders?\b.{0,40}\b(?:primary|live\s+account|production\s+account|main\s+account|real\s+account)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:real[\s-]account\s+trial|live\s+real[\s-]account)\b", re.IGNORECASE),
-    # Project fonts.
-    re.compile(r"\bpp\s+supply\s+mono\b", re.IGNORECASE),
-    re.compile(r"\b(?:change|replace|remove|override|swap)\b.{0,30}\b(?:project(?:'s)?\s+)?fonts?\b", re.IGNORECASE),
-    # Destructive writes, ledger/artifact/run/catalog/GHCR image deletion.
-    re.compile(
-        r"\b(?:reset(?:ting)?|clear(?:ing)?|wipe(?:s|d|ing)?|truncat(?:e|es|ed|ing)|delet(?:e|es|ed|ing|ion)|"
-        r"rewrit(?:e|es|ing)|drop(?:s|ped|ping)?)\b.{0,45}\b(?:dolt\s+ledger|active\s+ledger|"
-        r"ledger\s+(?:history|records?|table)|published\s+records?|stored\s+runs?|sealed\s+artifacts?|"
-        r"database\s+backups?|historical\s+receipts?|canonical\s+catalog\s+inputs?|"
-        r"retained\s+runtime\s+images?|published\s+image\s+versions?|ghcr\s+(?:images?|versions?)|"
-        r"pull\s+request\s+images?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:ghcr\s+retention|passes?\s+--delete\s+on\s+the\s+schedule)\b", re.IGNORECASE),
-    re.compile(r"\bdestructive\s+(?:write|ledger|history|wipe)\b", re.IGNORECASE),
-    # Creating, rebuilding, or switching the active ledger or market directory.
-    re.compile(r"\b(?:ledger|market)\s+init\s+--kind\s+active\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:rebuild(?:s|ing)?|switch(?:es|ed|ing)?|replac(?:e|es|ed|ing)|recreat(?:e|es|ed|ing)|"
-        r"build(?:s|ing)?\s+anew)\b.{0,45}\b(?:active\s+(?:dolt\s+)?(?:ledger|market\s+directory|directory)|"
-        r"market\s+directory)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bactive\s+(?:market|ledger)\s+directory\b.{0,45}\b(?:switch(?:es|ed|ing)?|rebuild(?:s|ing)?|"
-        r"rebuilt|written|replac(?:e|es|ed|ing)|build\s+anew|made\s+active)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:directory\s+switch|stored\s+months\s+then\s+recompute|universe_changed)\b", re.IGNORECASE),
-    # Adding a stored field / column / table to ledger or record schema (tightened against validation-fix prose).
-    re.compile(
-        r"\b(?:add(?:s|ed|ing)?|introduc(?:e|es|ed|ing)|creat(?:e|es|ed|ing))\s+"
-        r"(?:a\s+|an\s+|the\s+)?(?:new\s+)?stored\s+(?:[a-z0-9_-]+\s+){0,2}(?:field|column|table|value|term)s?\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:add(?:s|ed|ing)?|introduc(?:e|es|ed|ing))\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?"
-        r"(?:[a-z0-9_-]+\s+){0,2}(?:column|table|field)s?\s+(?:to|in|into)\s+(?:the\s+)?(?:dolt\s+)?(?:ledger|record|schema)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\bnew\s+stored\s+(?:[a-z0-9_-]+\s+){0,2}(?:field|column|table|value|term)s?\b", re.IGNORECASE),
-    # Changing research targets (maximum drawdown target / minimum annual return target).
-    re.compile(
-        r"\b(?:weaken(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|lower(?:s|ed|ing)?|"
-        r"rais(?:e|es|ed|ing)|chang(?:e|es|ed|ing))\s+(?:the\s+|either\s+of\s+the\s+|user'?s\s+|owner'?s\s+|current\s+)?"
-        r"(?:research\s+targets?|"
-        r"(?:max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return)\s+(?:target|threshold|limit|cap|bar|floor|ceiling)s?|"
-        r"(?:target|threshold|limit|cap|bar|floor|ceiling)\s+(?:for|of|on)\s+"
-        r"(?:max(?:imum)?\s+drawdown|min(?:imum)?\s+annual\s+return))\b",
-        re.IGNORECASE,
-    ),
-    # Restarting Docker Desktop / compose services / terminating host processes / host settings.
-    re.compile(
-        r"\b(?:start(?:s|ed|ing)?|stop(?:s|ped|ping)?|restart(?:s|ed|ing)?)\b.{0,35}\b"
-        r"(?:docker\s+desktop|trade-ide\s+compose|compose\s+services?|host\s+services?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\bterminat(?:e|es|ed|ing)\s+(?:any\s+|a\s+|the\s+)?host\s+process(?:es)?\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:chang(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|alter(?:s|ed|ing)?)\s+"
-        r"(?:the\s+)?(?:docker|system|host)\s+(?:settings?|configuration|config)\b",
-        re.IGNORECASE,
-    ),
-    # Reading or saving credentials (.env, dolt/service.json, exchange keys, cookies, paper token).
-    re.compile(
-        r"\b(?:read(?:s|ing)?|load(?:s|ed|ing)?|print(?:s|ed|ing)?|dump(?:s|ed|ing)?|fetch(?:es|ed|ing)?|"
-        r"extract(?:s|ed|ing)?|save(?:s|d|ing)?|access(?:es|ed|ing)?)\b.{0,45}"
-        r"(?:(?<!\w)\.env\b|\bdolt/service\.json\b|\bexchange\s+credentials?\b|"
-        r"\bbinance\s+api\s+(?:key|secret)\b|\bbrowser\s+cookies?\b|\bpaper\s+token\b|\bcredentials?\s+directly\b)",
-        re.IGNORECASE,
-    ),
-    # Tagging a release.
-    re.compile(r"\b(?:tag(?:s|ged|ging)?\b.{0,25}\brelease\b|\brelease\s+tag\b|\btag\s+v\d+\.\d+\.\d+\b)", re.IGNORECASE),
-)
-_POLICY_RELAX_RE = re.compile(
-    r"\b(?:weaken(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|disable|disabling|remove|removing)\b"
-    r".{0,35}\b(?:refusal|audit\s+(?:check|gate)|guard|test\s+bar|ci\s+gate)\b",
-    re.IGNORECASE,
-)
-_DEFECT_SUBJECT_RE = re.compile(
-    r"\b(?:bug|regression|defect|flaw|fault|missing\s+\w+|omission|broken|typo)\b",
-    re.IGNORECASE,
 )
 
 
@@ -163,21 +61,11 @@ def _is_redline_label(labels: set[str]) -> bool:
     )
 
 
-def _has_policy_relaxation(text: str) -> bool:
-    for match in _POLICY_RELAX_RE.finditer(text):
-        prefix = text[max(0, match.start() - 60):match.start()]
-        clause = re.split(r"[\n.;]", prefix)[-1]
-        if not _DEFECT_SUBJECT_RE.search(clause):
-            return True
-    return False
-
-
-def _is_redline_text(title: str, body: str, comments: list[dict[str, Any]] | None = None) -> bool:
-    parts = [title, body]
-    if comments:
-        parts.extend(str(c.get("body") or "") for c in comments)
-    sample = "\n".join(p for p in parts if p)
-    return any(pat.search(sample) for pat in REDLINE_PATTERNS) or _has_policy_relaxation(sample)
+def _has_authority_label(labels: set[str]) -> bool:
+    return any(
+        (low := lbl.lower()) == "authority" or low.startswith("authority:")
+        for lbl in labels
+    )
 
 
 def _has_prod_incident(friction_triggers: list[str]) -> bool:
@@ -211,12 +99,40 @@ def _refuters_ran_count(text: str) -> int:
     m = REFUTERS_RAN_RE.search(text)
     if m:
         return int(m.group(1))
-    # Fallback for older records without `Refuters ran on N.`: inspect the `Refuter's probe` table column.
     verdicts = [
         v.lower() for v in REFUTER_TABLE_ROW_RE.findall(text)
         if v.lower() in ("shown", "absent", "broken", "indiscriminate", "uncontrolled")
     ]
     return len(verdicts)
+
+
+def _classify_record_header(path: str, text: str) -> tuple[str, bool]:
+    """Classify an audit record's (theme, is_partial) without letting quoted prose override partial."""
+    fname_partial = "-partial-" in Path(path).name.lower()
+    cov_m = COVERAGE_ROW_RE.search(text)
+    cov_cell = cov_m.group(1).strip() if cov_m else ""
+    first_heading = text.lstrip().splitlines()[0] if text.strip() else ""
+    heading_partial = bool(re.match(r"^#\s*.*(?:\bPartial\b|覆盖不全)", first_heading, re.IGNORECASE))
+    cov_partial = bool(re.search(r"\bPartial\b|覆盖不全", cov_cell, re.IGNORECASE))
+
+    h_theme = HEADING_THEME_RE.search(text)
+    c_theme = CELL_THEME_RE.search(cov_cell)
+    h_full = HEADING_FULL_RE.search(text)
+    c_full = CELL_FULL_RE.search(cov_cell)
+
+    if h_theme or c_theme:
+        m = h_theme or c_theme
+        assert m is not None
+        is_partial = fname_partial or heading_partial or cov_partial or bool(m.group(1))
+        return m.group(2).lower(), is_partial
+    if h_full or c_full:
+        m = h_full or c_full
+        assert m is not None
+        is_partial = fname_partial or heading_partial or cov_partial or (m.group(1).lower() == "partial")
+        return "full", is_partial
+    if fname_partial or heading_partial or cov_partial:
+        return "full", True
+    return "focused", False
 
 
 def read_audit_history(rev: str, tracked_paths: dict[str, int],
@@ -238,18 +154,7 @@ def read_audit_history(rev: str, tracked_paths: dict[str, int],
             continue
         text = raw.decode("utf-8", errors="replace")
         date_str = Path(path).name[:10]
-
-        theme_m = THEME_RE.search(text)
-        full_m = FULL_RE.search(text)
-        if theme_m:
-            is_partial = bool(theme_m.group(1))
-            theme = theme_m.group(2).lower()
-        elif full_m:
-            is_partial = full_m.group(1).lower() == "partial"
-            theme = "full"
-        else:
-            is_partial = False
-            theme = "focused"
+        theme, is_partial = _classify_record_header(path, text)
 
         shown_m = SHOWN_RE.search(text)
         ref_m = REFUTED_SHOWN_RE.search(text)
@@ -261,20 +166,23 @@ def read_audit_history(rev: str, tracked_paths: dict[str, int],
         elif ref_m and refuters_ran > 0:
             confirmed = int(ref_m.group(1))
         else:
-            # Never treat unrefuted `shown > 0` defects as `confirmed = 0`!
             confirmed = shown
 
         exercised_objs: set[str] = set()
         exercised_items: set[str] = set()
         for item_name, subj in RECORDED_ROW_RE.findall(text):
             exercised_items.add(item_name)
-            named, sep, _ = subj.strip().partition(":")
-            if not sep:
-                continue
-            for part in named.split("+"):
-                mapped = owner_fn(part.rstrip("/"), tops)
-                if mapped:
-                    exercised_objs.add(mapped)
+            raw_subj = subj.strip()
+            if ":" in raw_subj:
+                named, _, _ = raw_subj.partition(":")
+                for part in named.split("+"):
+                    mapped = owner_fn(part.rstrip("/"), tops)
+                    if mapped:
+                        exercised_objs.add(mapped)
+            else:
+                bare = raw_subj.rstrip("/")
+                if bare in tops:
+                    exercised_objs.add(bare)
 
         records.append({
             "path": path,
@@ -350,12 +258,10 @@ def _classify_one_issue(issue: dict[str, Any], tops: dict[str, dict[str, Any]], 
     if docs_only and not SECURITY_RE.search(f"{title}\n{body}"[:600]):
         has_harm_text = False
     is_harm = not title.lower().startswith("minor:") and "enhancement" not in labels and has_harm_text
-    has_redline_label = _is_redline_label(labels)
-    is_redline = has_redline_label or ("authority" in labels and _is_redline_text(title, body, comments))
-    is_auth_blocked = is_redline or (authority_gate and "authority" in labels)
+    is_redline = _is_redline_label(labels)
+    is_auth_blocked = is_redline or (authority_gate and _has_authority_label(labels))
 
     if "claimed" in labels:
-        # Per record.md:24, claims under 2 days old are left alone; older ones are stale.
         claim_age = (now_ts - touch_ts) if touch_ts else CLAIM_EXPIRY_SECONDS + 1
         if claim_age < CLAIM_EXPIRY_SECONDS:
             return ["claimed"], entry
@@ -391,7 +297,7 @@ def classify_issues(issues: list[dict[str, Any]], tops: dict[str, dict[str, Any]
                     owner_fn, file_latest_ts: dict[str, int],
                     now_dt: datetime, *, authority_gate: bool = True) -> dict[str, list[dict[str, Any]]]:
     """Partition open `agent-finding` issues into actionable harm, authority-drifted, authority-blocked,
-    claimed, stale-claimed, and other. With `authority_gate=False` (full-auto mode), `authority` does not block."""
+    claimed, stale-claimed, and other. Rely on `authority` / `authority:redline` labels for gating."""
     if not isinstance(issues, list) or not all(isinstance(item, dict) for item in issues):
         raise SystemExit("--issues-json must contain a JSON array of issue objects")
 
@@ -431,12 +337,7 @@ def _percentile(values: list[float], pct: float) -> float:
 
 def _slim_candidates(telemetry_data: dict[str, Any],
                      last_slimmed: dict[str, str] | None = None) -> tuple[list[dict[str, Any]], list[str], dict[str, int]]:
-    """Identify code objects triggering oscillation, test-bloat, structural-decay, or clone-bloat slimming.
-
-    Uses repo-cadence-aware outlier thresholds (`max(floor, p75)`) so high-velocity repos target genuine
-    outliers ("well ahead of the rest") while slow repos keep the absolute floor, and applies per-object
-    slimming cooldown when no new fix/revert landed after the object's last complete `slim` audit.
-    """
+    """Identify code objects triggering oscillation, test-bloat, structural-decay, or clone-bloat slimming."""
     last_slimmed = last_slimmed or {}
     code_objs = [o for o in telemetry_data["objects"].values() if o["kind"] == "code"]
     active_obj_fixes = [float(o["fixes_short"]) for o in code_objs if o["fixes_short"] > 0]
@@ -446,7 +347,6 @@ def _slim_candidates(telemetry_data: dict[str, Any],
     ]
     p75_obj_fixes = _percentile(active_obj_fixes, 0.75)
     p75_file_fixes = _percentile(active_file_fixes, 0.75)
-    # Absolute floors preserve sensitivity on quiet repos; p75 scales smoothly on hyper-velocity repos.
     file_burst_bar = max(4, int(math.ceil(p75_file_fixes)))
     severe_burst_bar = max(8, int(math.ceil(p75_file_fixes * 1.5)))
     unhealthy_fix_bar = max(3, int(math.ceil(p75_obj_fixes * 0.5)))
@@ -456,7 +356,6 @@ def _slim_candidates(telemetry_data: dict[str, Any],
     for name, obj in telemetry_data["objects"].items():
         if obj["kind"] != "code":
             continue
-        # Per-object slim cooldown: skip if already slimmed on/after its latest fix/revert commit.
         slim_date = last_slimmed.get(name)
         if slim_date:
             slim_dt = _parse_iso(f"{slim_date}T23:59:59Z")
@@ -502,7 +401,7 @@ def _slim_candidates(telemetry_data: dict[str, Any],
                 "min_health": obj["min_health"],
                 "break_even_caution": obj["break_even_caution"],
                 "recommended_strategy": (
-                    "seam-and-characterize-first (arXiv:2610.33343: health < 6.0)"
+                    "characterize-before-refactor (heuristic health < 6.0)"
                     if obj["break_even_caution"] else "direct-restate-or-remove"
                 ),
                 "top_burst_files": obj["fix_burst_files"][:3],
@@ -516,10 +415,34 @@ def _slim_candidates(telemetry_data: dict[str, Any],
     return candidates, sorted(cooled_objects), bars
 
 
-FRICTION_COOLDOWN_DAYS = 7
-RESEARCH_QUALITY_PREFIX = research_quality.RESEARCH_QUALITY_PREFIX
-RESEARCH_QUALITY_TARGETS = research_quality.RESEARCH_QUALITY_TARGETS
-LENS_SLA_OVERRIDES = research_quality.LENS_SLA_OVERRIDES
+def evaluate_lens_slas(
+    scan_items: dict[str, str | None], now_dt: datetime, default_sla_days: int,
+    lens_sla_overrides: dict[str, int] | None = None,
+) -> tuple[list[dict[str, Any]], list[str], list[str], dict[str, int]]:
+    """Rank non-meta lenses using per-lens SLA overrides (e.g. 60d for `methodology`).
+
+    A never-examined override lens (`examined is None`) counts as overdue so `no_overdue_lens_sla`
+    is consistently `False` whenever `lens_sla_breaches` contains an override lens.
+    """
+    overrides = {**LENS_SLA_OVERRIDES, **(lens_sla_overrides or {})}
+    rows: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    breaches: list[str] = []
+    overdue_overrides: list[str] = []
+    for item, dt in scan_items.items():
+        if item in ("fixed", "self"):
+            continue
+        eff_sla = overrides.get(item, default_sla_days)
+        examined_dt = _parse_iso(f"{dt}T00:00:00Z") if dt else None
+        stale_days = eff_sla * 2 if examined_dt is None else max(0, int((now_dt - examined_dt).total_seconds() // 86400))
+        breach = examined_dt is None or stale_days > eff_sla
+        if breach:
+            breaches.append(item)
+            if item in overrides:
+                overdue_overrides.append(item)
+        entry = {"item": item, "examined": dt, "sla_days": eff_sla, "stale_days": stale_days, "sla_breach": breach}
+        rows.append(((not breach, -(stale_days / max(eff_sla, 1)), dt or "0000-00-00", item), entry))
+    rows.sort(key=lambda pair: pair[0])
+    return [e for _, e in rows], sorted(breaches), sorted(overdue_overrides), overrides
 
 
 def _compute_yield_streaks(
@@ -573,7 +496,6 @@ def _rank_code_objects(
             + len(obj["fix_burst_files"]) * 4.0
             + max(0, obj["max_cognitive"] - 15) * 0.25
         )
-        # Drop risk prior to 0 once examined on/after its latest code commit (prevents re-auditing unchanged hotspots).
         risk_prior = 0.0 if unchanged else raw_risk
         staleness_bonus = min(stale_days, sla_days * 2) * (1.2 if breach else 0.35)
         saturation_pen = zero_yield_streak.get(name, 0) * 6.0
@@ -592,7 +514,28 @@ def _rank_code_objects(
 def _friction_targets(
     friction_data: dict[str, Any] | None, tops: dict[str, dict[str, Any]], ranked_objects: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
-    return research_quality.resolve_friction_targets(friction_data, tops, ranked_objects)
+    data = friction_data or {}
+    pl_data = data.get("prod_logs")
+    if isinstance(pl_data, dict) and pl_data.get("triggers"):
+        prod_objs = [n for n in (pl_data.get("affected_services") or []) if n in tops]
+        if not prod_objs and ranked_objects:
+            prod_objs = [ranked_objects[0]["object"]]
+        return prod_objs[:3], ["operation"]
+    ci_fired = bool(isinstance(data.get("ci"), dict) and data["ci"].get("triggers"))
+    tx_fired = bool(isinstance(data.get("transcripts"), dict) and data["transcripts"].get("triggers"))
+    f_objs: list[str] = []
+    f_items: list[str] = []
+    if ci_fired:
+        if ".github" in tops:
+            f_objs.append(".github")
+        f_items.append("delivery")
+    if tx_fired:
+        if ".agents" in tops and ".agents" not in f_objs:
+            f_objs.append(".agents")
+        f_items.extend(["agents", "burden"])
+    if not f_objs and ranked_objects:
+        f_objs = [ranked_objects[0]["object"]]
+    return f_objs[:3], (list(dict.fromkeys(f_items)) or ["delivery", "agents", "burden"])
 
 
 def _friction_is_object_cooled(
@@ -801,12 +744,11 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
     ranked_objects, staleness_breaches = _rank_code_objects(
         telemetry_data, scan_objects, zero_yield_streak, now_dt, sla_days
     )
-    stalest_items, lens_sla_breaches, overdue_override_lenses, effective_lens_slas = research_quality.evaluate_lens_slas(
+    stalest_items, lens_sla_breaches, overdue_override_lenses, effective_lens_slas = evaluate_lens_slas(
         scan_items, now_dt, sla_days, lens_sla_overrides=lens_sla_overrides
     )
     friction_triggers = list(friction_data.get("triggers", [])) if friction_data else []
     has_prod_incident = _has_prod_incident(friction_triggers)
-    rq_fired = research_quality.has_research_quality_triggers(friction_data)
     friction_objs, friction_items = _friction_targets(friction_data, tops, ranked_objects)
     friction_obj_cooled = _friction_is_object_cooled(
         friction_objs, last_friction_zero, now_dt, tops=tops, owner_fn=owner_fn
@@ -824,10 +766,12 @@ def advise(rev: str, tops: dict[str, dict[str, Any]], tracked_lines: dict[str, i
         has_prod_incident=has_prod_incident, overdue_override_lenses=overdue_override_lenses,
     )
     coupled_contracts = [c for c in telemetry_data["couplings"] if any(obj in c["pair"].split("+") for obj in chosen_objs)][:3]
-    friction_summary = research_quality.build_friction_summary(
-        friction_data, friction_obj_cooled, has_prod_incident, friction_triggers, rq_fired,
-    )
-    friction_summary["prod_state_summary"] = prod_invariants.compact_summary(friction_data)
+    friction_summary = {
+        "provided": friction_data is not None,
+        "in_cooldown": friction_obj_cooled and not has_prod_incident,
+        "prod_incident_active": has_prod_incident,
+        "triggers": friction_triggers[:8],
+    }
 
     return {
         "tree": rev, "as_of": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), "sla_days": sla_days,

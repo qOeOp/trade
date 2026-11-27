@@ -1,5 +1,5 @@
 ---
-description: Rule check (v3.3) — `journey` lens requires all three L4 proofs from an empty temporary environment using only real CLI/IDE commands: joint satisfiability (`A ∧ B ∧ C ∧ D ∧ E`), per-gate independence (`¬X ∧ ⋀(Y≠X)`) via `doctor.py gates-map` to catch shadowed/redundant gates, and refusal → remedy → clear loops without breaking prior gates.
+description: Rule check (v3.3) — `journey` lens requires all three L4 proofs from an empty temporary environment using only real CLI/IDE commands: joint satisfiability (`A ∧ B ∧ C ∧ D ∧ E`), per-gate independence (`¬X ∧ ⋀(Y≠X)`) to catch shadowed/redundant gates, and refusal → remedy → clear loops without breaking prior gates.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -10,4 +10,4 @@ allowed_tools: [Read, Glob, Grep, Skill]
 2. 影子/冗余门控：某个后置拒绝码 `X` 因为上游更早门控必然先报错，在任何可达用户状态下都无法单独触发；
 3. 修复破坏前置状态：严格按拒绝文案建议的命令去修补门控 `C` 后，反而破坏了原本已满足的门控 `E`（形成循环或死胡同）。
 
-请按 product-doctor 的 `journey` 视角规范给出完整的诊断协议、先导静态命令、证据记录方式、判定分类，以及必须遵守的隔离与凭据边界（不用实际执行命令）。
+请按 product-doctor 的 `journey` 视角规范给出完整的诊断协议、证据记录方式、判定分类，以及必须遵守的隔离与凭据边界（不用实际执行命令）。

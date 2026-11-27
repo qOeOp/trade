@@ -353,27 +353,70 @@ class Dimension9SkillsEvalAuditTests(unittest.TestCase):
             ]) + "\n",
             encoding="utf-8",
         )
+        # tx2 executes real strategy-research write/run command without loading research-round,
+        # plus duplicate tool_use.id and api-request-blob rows that must be deduplicated/skipped.
         tx2 = self.home / "tx2.jsonl"
         tx2.write_text(
             "\n".join([
                 json.dumps({
+                    "type": "assistant",
                     "message": {
                         "content": [
-                            {"type": "tool_use", "name": "Bash", "input": {"command": "python -m cli.main research status"}},
-                            {"type": "tool_result", "is_error": False},
+                            {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "python -m cli.main replay run --reg 1"}},
+                            {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "python -m cli.main replay run --reg 1"}},
                         ]
-                    }
+                    },
+                }),
+                json.dumps({
+                    "type": "api-request-blob",
+                    "message": {
+                        "content": [
+                            {"type": "tool_use", "id": "tu_blob", "name": "Bash", "input": {"command": "python -m cli.main line open"}},
+                        ]
+                    },
                 }),
             ]) + "\n",
             encoding="utf-8",
         )
-        res = ssa.audit_transcript_skill_firing([tx1, tx2], {"product-doctor", "research-round"})
-        self.assertFalse(res["ok"])
+        # tx3 runs only read-only debugging & --help, plus Bash SKILL.md & Base directory skill injection -> 0 missed.
+        tx3 = self.home / "tx3.jsonl"
+        tx3.write_text(
+            "\n".join([
+                json.dumps({
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "Base directory for this skill: /repo/.claude/skills/research-start\n..."}],
+                    },
+                }),
+                json.dumps({
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "tool_use", "id": "tu_3a", "name": "Bash", "input": {"command": "sed -n 1,20p .agents/skills/research-round/SKILL.md"}},
+                            {"type": "tool_use", "id": "tu_3b", "name": "Bash", "input": {"command": "python -m cli.main research status && python -m cli.main replay report 1 && python -m cli.main replay run --help"}},
+                        ]
+                    },
+                }),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        res = ssa.audit_transcript_skill_firing([tx1, tx2, tx3], {"product-doctor", "research-round", "research-start"})
+        self.assertTrue(res["ok"], res["triggers"])
         self.assertEqual(res["per_skill"]["product-doctor"]["sessions_loaded"], 1)
         self.assertEqual(res["per_skill"]["product-doctor"]["tool_error_rate"], 0.5)
-        self.assertEqual(res["per_skill"]["research-round"]["sessions_loaded"], 0)
-        self.assertEqual(res["per_skill"]["research-round"]["related_command_sessions"], 1)
-        self.assertTrue(any("missed_skill_triggers (research-round:" in t for t in res["triggers"]))
+        # tx2 deduplicated tool_use.id -> 1 call (not 2), and skipped api-request-blob
+        self.assertEqual(res["sessions"][1]["tool_calls"], 1)
+        self.assertEqual(res["sessions"][1]["related_command_skills"], ["research-round"])
+        # tx3 loaded both research-round (via Bash SKILL.md) and research-start (via Base directory header)
+        self.assertEqual(res["sessions"][2]["skills_loaded"], ["research-round", "research-start"])
+        # Read-only research status / replay report / --help must NOT mark research-round or research-start
+        self.assertEqual(res["sessions"][2]["related_command_skills"], [])
+
+        # When only tx2 runs without loading research-round, missed_skill_triggers fires!
+        res_missed = ssa.audit_transcript_skill_firing([tx2], {"research-round"})
+        self.assertFalse(res_missed["ok"])
+        self.assertTrue(any("missed_skill_triggers (research-round:" in t for t in res_missed["triggers"]))
 
     def test_wilson_ci_math_flaky_undersampled_and_baseline_regression(self):
         # Exact analytical Wilson 95% CI values

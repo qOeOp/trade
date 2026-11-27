@@ -208,42 +208,24 @@ class PostureAuditTests(unittest.TestCase):
         )
         return repo
 
-    def test_runtime_posture_detects_floating_latest_and_unpinned_nautilus(self) -> None:
+    def test_runtime_posture_detects_floating_latest_and_unpinned_digest(self) -> None:
         repo = self._make_git_repo({
-            "pyproject.toml": '[project]\nname = "x"\ndependencies = ["nautilus_trader>=2.0"]\n',
-            "uv.lock": '[[package]]\nname = "nautilus-trader"\nversion = "2.0.0rc7"\n',
-            "engine/runtime/replay.Dockerfile": "FROM python:latest\nRUN uv sync\nCOPY engine/missing.py ./engine/\n",
+            "engine/runtime/replay.Dockerfile": "FROM python:latest\n",
             "engine/runtime/Dockerfile": "FROM python:3.14-slim\n",
-            "runtime/image.py": "",
-            "runtime/container.py": "",
-            "runtime/identity.py": "",
         })
         res = runtime_posture.check_runtime_posture(repo)
         self.assertEqual(res["status"], "fail")
         kinds = {v["kind"] for v in res["violations"]}
-        self.assertIn("floating_latest_base_image", kinds)
-        self.assertIn("unpinned_base_image_digest", kinds)
-        self.assertIn("nautilus_unpinned", kinds)
-        self.assertIn("nautilus_pyproject_not_exact", kinds)
-        self.assertIn("missing_replay_closure_test", kinds)
-        self.assertIn("replay_dockerfile_missing_copy_source", kinds)
+        self.assertEqual(kinds, {"floating_latest_base_image", "unpinned_base_image_digest"})
 
     def test_runtime_posture_passes_on_real_repo(self) -> None:
         res = runtime_posture.check_runtime_posture(ROOT)
         self.assertEqual(res["status"], "ok", res)
-        self.assertTrue(res["nautilus"]["pinned"])
-        self.assertTrue(res["nautilus"]["sdist_locked"])
-        self.assertTrue(res["nautilus"]["all_wheels_hashed"])
-        self.assertTrue(res["replay_closure"]["test_present"])
+        self.assertGreaterEqual(len(res["dockerfiles"]), 2)
         self.assertEqual(res["violations"], [])
 
-    def test_security_posture_detects_dangerous_ast_wildcards_and_secrets(self) -> None:
+    def test_security_posture_detects_dangerous_ast_and_tracked_secrets(self) -> None:
         repo = self._make_git_repo({
-            "pyproject.toml": '[project]\nname = "x"\ndependencies = ["requests", "foo==1.*"]\n',
-            "ide/web/package.json": json.dumps({
-                "name": "web",
-                "dependencies": {"left-pad": "latest", "bad-star": "*"},
-            }),
             "pkg/danger.py": (
                 "import pickle, subprocess, yaml\n"
                 "def bad(data, url, http):\n"
@@ -273,10 +255,6 @@ class PostureAuditTests(unittest.TestCase):
         self.assertEqual(sum(1 for h in res["ast_findings"] if h["pattern"] == "unsafe_yaml_load"), 1)
         # tests/ is excluded from prod AST scan
         self.assertTrue(all(not h["file"].startswith("tests/") for h in res["ast_findings"]))
-        # Wildcard/unpinned deps and missing lockfiles caught
-        self.assertGreaterEqual(len(res["dependency_findings"]), 4)
-        self.assertIn("uv.lock", res["missing_lockfiles"])
-        self.assertIn("ide/web/package-lock.json", res["missing_lockfiles"])
         # Tracked secret files caught, while public cert bundle is not flagged
         secret_paths = {s["file"] for s in res["tracked_secret_files"]}
         self.assertEqual(secret_paths, {".env", "dolt/service.json", "certs/private.key", "certs/secret.pem"})
@@ -287,47 +265,33 @@ class PostureAuditTests(unittest.TestCase):
         self.assertEqual(res["status"], "ok", res)
         self.assertEqual(res["ast_findings"], [])
         self.assertEqual(res["tracked_secret_files"], [])
-        self.assertEqual(res["dependency_findings"], [])
-        self.assertEqual(res["missing_lockfiles"], [])
+        self.assertIn("ledger/tsa-roots.pem", res["public_cert_bundles"])
         self.assertTrue(any(h["file"] == "engine/load.py" and h["pattern"] == "exec" for h in res["allowlisted_ast_findings"]))
 
-    def test_docs_posture_detects_broken_links_and_phantom_paths(self) -> None:
-        repo = self._make_git_repo({
-            "README.md": (
-                "# Repo\n"
-                "See [real](docs/real.md), [broken](docs/missing.md), and [ext](https://example.com/x).\n"
-                "Check `docs/plans/phantom.md` and `engine/exists.py`.\n"
-                "```md\n"
-                "[ignored](docs/in-fence.md) `docs/plans/ignored.md`\n"
-                "```\n"
-            ),
-            "docs/real.md": "# Real\n",
-            "engine/exists.py": "",
-            ".agents/skills/demo/SKILL.md": "Read [bad ref](references/none.md) and `cli/nope.py`.\n",
-        })
-        res = runtime_posture.check_docs_posture(repo)
-        self.assertEqual(res["status"], "fail")
-        broken = {(r["file"], r["kind"], r["target"]) for r in res["broken_doc_refs"]}
-        self.assertEqual(
-            broken,
-            {
-                ("README.md", "markdown_link", "docs/missing.md"),
-                ("README.md", "backtick_path", "docs/plans/phantom.md"),
-                (".agents/skills/demo/SKILL.md", "markdown_link", "references/none.md"),
-                (".agents/skills/demo/SKILL.md", "backtick_path", "cli/nope.py"),
-            },
-        )
-
-    def test_cli_posture_all_passes_on_real_repo(self) -> None:
+    def test_cli_posture_all_passes_on_real_repo_and_supports_tree(self) -> None:
         out = io.StringIO()
         with redirect_stdout(out):
             doctor.main(["posture", "--root", str(ROOT)])
         payload = json.loads(out.getvalue())
         self.assertEqual(payload["status"], "ok", payload)
         self.assertEqual(payload["triggers"], [])
-        for key in ("runtime", "security", "docs"):
+        for key in ("runtime", "security"):
             self.assertIn(key, payload)
             self.assertEqual(payload[key]["status"], "ok")
+
+        prev_cwd = Path.cwd()
+        os.chdir(ROOT)
+        try:
+            out_tree = io.StringIO()
+            with redirect_stdout(out_tree):
+                doctor.main(["posture", "--tree", "HEAD"])
+            tree_payload = json.loads(out_tree.getvalue())
+            self.assertEqual(tree_payload["status"], "ok", tree_payload)
+            self.assertIn("tree", tree_payload)
+            self.assertEqual(tree_payload["runtime"]["status"], "ok")
+            self.assertEqual(tree_payload["security"]["status"], "ok")
+        finally:
+            os.chdir(prev_cwd)
 
     def test_all_product_doctor_assets_stay_pure_stdlib_and_within_cognitive_limit(self) -> None:
         asset_names = {p.stem for p in ASSETS_DIR.glob("*.py")}

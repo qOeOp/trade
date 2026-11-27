@@ -30,8 +30,8 @@ running, cut short and at a limit.
 - **interrupt** [any]: a many-step operation stopped after each step and resumed, on fakes that,
   like the real thing, do not give back what the stopped step had consumed; check whether locks held
   across slow I/O, subprocesses, or container replays can block emergency controls (`live stop`, `paper stop`, maintenance).
-- **operation** [any]: what an operator learns, and when, as a service degrades, stalls silently (`--prod-state`
-  invariants in [prod-ops.md](prod-ops.md)), a feed 404s, or a disk fills — verify healthcheck and alert states
+- **operation** [any]: what an operator learns, and when, as a service degrades, stalls silently (see silent
+  failure taxonomy in [prod-ops.md](prod-ops.md)), a feed 404s, or a disk fills — verify healthcheck and alert states
   (e.g. `lagging`, daily summaries) are actually reachable under realistic upstream failures rather than masked by equal thresholds.
 - **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting/reuse across
   month rollover (`market/follow + market/files + market/universe`), on copies.
