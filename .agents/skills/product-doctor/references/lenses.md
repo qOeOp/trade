@@ -82,3 +82,10 @@ running, cut short and at a limit.
   `docs/plans/doctor/index.zh.md`.
 - **self** [any]: what the user found first, rerun claims overturned, lenses that ran and found
   nothing for several audits (say so).
+- **methodology** [any]: on a 60-90d cadence (60d per-lens scheduler SLA) or before a new version
+  line, benchmark `research-start`, `research-round`, `nautilus-report-analysis` and `report/`
+  against external literature and mature open-source quant-agent frameworks (such as RD-Agent
+  evolutionary hypothesis trees, multiple-testing control / Deflated Sharpe, walk-forward leakage
+  guards and failure attribution) via `research-sources`; every proposal must cite a concrete
+  in-repo gap (transcript or ledger failure), survive Step 6 refutation against the `burden`
+  counterweight, introduce no parallel workflow engine, and add no stored ledger field.

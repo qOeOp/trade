@@ -32,8 +32,9 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
 signals deterministically: dump open `agent-finding` issues and recent CI runs (`gh run list --limit 80 --json databaseId,workflowName,name,status,conclusion,createdAt,updatedAt,event,headBranch`)
 to temporary JSON files and run `doctor.py advise --issues-json <issues> --ci-json <ci>` (add `--transcripts <path...>`
-for session workflow adherence, `--prod-logs <path...>` for production service logs, `--prod-state <path...>` for silent
-production invariants assembled read-only via `doctor.py prod-snapshot` per [prod-ops.md](references/prod-ops.md), and
+and optional `--ledger-summary <path...>` for session workflow adherence and research-quality telemetry,
+`--prod-logs <path...>` for production service logs, `--prod-state <path...>` for silent production invariants
+assembled read-only via `doctor.py prod-snapshot` per [prod-ops.md](references/prod-ops.md), and
 `--auto --steady-exit-code 2` for scheduled unattended gates; backed by `doctor.py telemetry`, `doctor.py friction` and `doctor.py scan`), plus the
 last two records. Take the first theme that holds, unless the last two audits took it (harm aside); say why and what is
 left out:
@@ -46,17 +47,22 @@ left out:
    triggers (`slim_candidates`), subject to `advise`'s cooldown while coverage SLA breaches remain. Group Shape and
    **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): CI failure rate, wait-time growth, agent tool error rate, repeated actions, user
-   clarification burden, or active production log/state incidents (`friction_summary.triggers` from `advise` /
-   `doctor.py friction`, or named directly by the user). Ordinary friction is subject to cooldown while coverage SLA
-   breaches remain; active production incidents (`--prod-logs` / `--prod-state` silent invariants) preempt cooldown
-   and `steady` directly onto their owning code object(s) under `operation`. Group Use (and `operation` for prod).
+   clarification burden, research-quality degradation (`research_quality:*` triggers—`param_churn_ratio`,
+   `unattributed_pivot`, `prereg_drift`, `evidence_gap`, `multi_trial_overfit`—routed to
+   `.agents/skills/research-round` and `.agents/skills/nautilus-report-analysis`), or active production log/state
+   incidents (`friction_summary.triggers` from `advise` / `doctor.py friction`, or named directly by the user).
+   Ordinary friction is subject to cooldown while coverage SLA breaches remain; active production incidents
+   (`--prod-logs` / `--prod-state` silent invariants) preempt cooldown and `steady` directly onto their owning
+   code object(s) under `operation`. Group Use (and `operation` for prod).
 4. **Steady** (`steady`): when `advise`'s `stopping_checks` all hold (0 actionable harm, 0 slim triggers, 0 friction
-   triggers, 0 coverage SLA breaches, saturated marginal yield over complete substantive audits). Declare
+   triggers, 0 coverage SLA breaches, 0 overdue per-lens SLAs such as 60d `methodology`, saturated marginal yield
+   over complete substantive audits). Declare
    `doctor.py scope DIR steady` (with no `--objects`, `--items` or `--contracts`), report the stopping signals and
    next re-entry trigger, and stop without manufacturing findings.
 5. **Find** (`find`): otherwise. Pair the top fresh risk/churn object with the coldest coverage-SLA-breached object from
    `advise` (plus its top `coupled_contracts` `A+B` pair via `--contracts` and `outside`), under the stalest remaining
-   groups of [lenses.md](references/lenses.md). Review `low_yield_lenses` under the `self` perspective.
+   groups of [lenses.md](references/lenses.md) (respecting per-lens SLA overrides such as 60d for `methodology`).
+   Review `low_yield_lenses` under the `self` perspective.
 
 Declare one to three objects, those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where only
 some do), and any coupled `--contracts A+B` with `doctor.py scope` before any evidence (`harm` its objects alone;

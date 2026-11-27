@@ -452,9 +452,17 @@ def friction_cmd(args: argparse.Namespace) -> None:
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
     prod_states = list(getattr(args, "prod_state", None) or [])
-    if ci_runs is None and not tx_paths and not prod_logs and not prod_states:
-        raise SystemExit("friction needs --ci-json, --transcripts, --prod-logs, and/or --prod-state")
-    print(json.dumps(friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None, prod_states or None), indent=1))
+    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
+    if ci_runs is None and not tx_paths and not prod_logs and not prod_states and not ledger_summaries:
+        raise SystemExit("friction needs --ci-json, --transcripts, --prod-logs, --prod-state, and/or --ledger-summary")
+    print(json.dumps(
+        friction.collect_friction(
+            ci_runs, tx_paths or None, prod_logs or None,
+            prod_state_paths=prod_states or None,
+            ledger_summary_paths=ledger_summaries or None,
+        ),
+        indent=1,
+    ))
 
 
 def _steady_exit_code(text: str) -> int:
@@ -490,9 +498,14 @@ def advise_cmd(args: argparse.Namespace) -> None:
     tx_paths = list(args.transcripts or [])
     prod_logs = list(getattr(args, "prod_logs", None) or [])
     prod_states = list(getattr(args, "prod_state", None) or [])
+    ledger_summaries = list(getattr(args, "ledger_summary", None) or [])
     fric = (
-        friction.collect_friction(ci_runs, tx_paths or None, prod_logs or None, prod_states or None)
-        if (ci_runs is not None or tx_paths or prod_logs or prod_states) else None
+        friction.collect_friction(
+            ci_runs, tx_paths or None, prod_logs or None,
+            prod_state_paths=prod_states or None,
+            ledger_summary_paths=ledger_summaries or None,
+        )
+        if (ci_runs is not None or tx_paths or prod_logs or prod_states or ledger_summaries) else None
     )
     plan = scheduler.advise(
         rev, tops, lines, scan_objs, scan_items, tele, owner,
@@ -1046,11 +1059,12 @@ def _build_parser() -> argparse.ArgumentParser:
     delta_p.add_argument("base", help="base revision (e.g. origin/main or HEAD~1)")
     delta_p.add_argument("head", nargs="?", default="HEAD", help="target revision (default: HEAD)")
     delta_p.set_defaults(function=delta_cmd)
-    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, prod-log, and silent prod-state friction telemetry")
+    fric_p = commands.add_parser("friction", help="deterministic CI delivery, transcript, research-quality, prod-log, and silent prod-state friction telemetry")
     fric_p.add_argument("--ci-json", type=Path, help="path to JSON output of `gh run list --json ...`")
     fric_p.add_argument("--transcripts", type=Path, nargs="+", help="one or more agent JSONL transcript files")
     fric_p.add_argument("--prod-logs", type=Path, nargs="+", help="one or more production service log files (Paper/Live/IDE/Dolt)")
     fric_p.add_argument("--prod-state", type=Path, nargs="+", help="one or more redacted production state JSON snapshots for silent invariant checks")
+    fric_p.add_argument("--ledger-summary", type=Path, nargs="+", help="one or more read-only ledger trial summary JSON files")
     fric_p.set_defaults(function=friction_cmd)
     prod_invariants.register_prod_snapshot_parser(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
@@ -1062,6 +1076,7 @@ def _build_parser() -> argparse.ArgumentParser:
     adv_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
     adv_p.add_argument("--prod-logs", type=Path, nargs="+", help="optional production service log files")
     adv_p.add_argument("--prod-state", type=Path, nargs="+", help="optional redacted production state JSON snapshots for silent invariant checks")
+    adv_p.add_argument("--ledger-summary", type=Path, nargs="+", help="optional read-only ledger trial summary JSON files")
     adv_p.add_argument(
         "--auto", action="store_true",
         help="full-auto scheduled mode: unblock non-redline `authority` harm issues while keeping irreversible AGENTS.md redlines blocked",
