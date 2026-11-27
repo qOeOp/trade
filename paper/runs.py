@@ -425,8 +425,13 @@ def resume(profile: db.LedgerProfile, market: dict, paper_id: int) -> dict:
     named = names(profile, paper_id)
     if _running(named["runner"]):
         return {"paper_id": paper_id, "write_status": "replayed", "state": "running"}
-    expected = recovery_identity(row, (directory / "inputs" / "universe.json").read_bytes())
-    if hashlib.sha256((directory / "inputs" / "strategy.py").read_bytes()).hexdigest() != row["source_sha256"]:
+    try:
+        universe = (directory / "inputs" / "universe.json").read_bytes()
+        source = (directory / "inputs" / "strategy.py").read_bytes()
+    except OSError as exc:
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's original inputs are missing or unreadable") from exc
+    expected = recovery_identity(row, universe)
+    if hashlib.sha256(source).hexdigest() != row["source_sha256"]:
         raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the run's original strategy input has changed")
     try:
         held = json.loads((directory / "inputs" / "terms.json").read_bytes())
