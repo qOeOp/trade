@@ -11,8 +11,14 @@ series. A result whose intervals all cross zero is uncertain; development eviden
 conditional.
 
 Before the next registration, interpret the previous completed result with its applicability and
-reassessment conditions. Invalid runs retried through `retry_of` receive repair evidence instead
-(diagnosis.md). Losing, insignificant or zero-activity results do not exclude a direction. Record
+reassessment conditions. When a run loses, ties its control or breaks a registered prediction sign,
+attribute the miss across four classes—mechanism (gross `price` or `trade_structure` did not move as
+predicted), cost or execution drag (`fee`, `funding`, `daily_turnover`, `entry_filled_share`),
+exposure or scale confound (`mean_notional` or time in market shifted without `unit_return`), or
+concentration and regime dependence (`residual_after_top5_days`, `dev_years`, `by_regime`,
+`net_without_top_instrument`)—citing the slice so later rounds reuse the diagnosis. Invalid runs
+retried through `retry_of` receive repair evidence instead (diagnosis.md). Losing, insignificant or
+zero-activity results do not exclude a direction. Record
 self-computed views as search_exposure, naming each variant compared: analyses of replayed runs,
 skill-required ones included, and views of signals, dates or counts. Its first line is `Evaluated
 variants: K`, K the rule or parameter variants it set against the line's data without a replay (a
@@ -40,7 +46,11 @@ position size as the effect does, so enlarging both sides does not make an effec
 a grid whose points spread the change far enough to reach it. Moving one constant inside a range
 whose neighbours already read alike tests nothing new. Before adding a rule, weigh removing one an
 earlier version added whose effect no comparison separated on its own: deleting it is one change
-like any other. Repeated metrics, labels and registrations
+like any other. Check lineage history (`research graph --line LINE --without-comparisons
+--without-counts` and prior interpretations) so a new registration does not repeat an already-tested
+mechanism under cosmetic constants on the same duty and bottleneck; when a branch has stacked
+several coupled rules, prefer branching from a simpler ancestor or pruning an unseparated rule over
+layering another condition on the latest leaf. Repeated metrics, labels and registrations
 on the same development data are not independent evidence.
 
 ## Change approach
@@ -52,8 +62,10 @@ return moved over the counted runs, beside their detectable annual difference; i
 the user, not an option to close the line. Next name the one bottleneck (opportunities, signal
 quality, costs, capital use or tail drawdown) and the report slice and measure that show it (such
 as `trade_structure.cycles` or `fee_stress.breakeven_fee_multiple`); when two fit, the first step
-tells them apart. Then weigh two or three approaches inside this line,
-never one an earlier `Change of approach.` judgment chose unless you name it and the new evidence. First list the
+tells them apart. Then weigh two or three structurally distinct approaches inside this line (targeting different
+duties or mechanisms, including branching from an earlier, simpler ancestor rather than only
+extending the latest leaf), never one an earlier `Change of approach.` judgment chose unless you
+name it and the new evidence. First list the
 duties no version of the line has changed (`duties` in `research graph --line LINE --without-comparisons
 --without-counts`) and the recommended header's `default` duties: at least one approach changes one of them, or say
 in one line why none can act on the bottleneck. Each
