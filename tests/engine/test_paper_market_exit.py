@@ -47,7 +47,7 @@ class MarketExitTests(Clocked):
         self.changed: list[str] = []
         inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), JAN, JAN, "SOURCE-001",
                                    paper.Membership("AAAUSDT", [(JAN, FEB)], FEB, self.months), JAN,
-                                   entry_terms=lambda _: self.changed)
+                                   entry_terms=lambda _: (None, self.changed))
         self.engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
                                                           logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
         self.addCleanup(self.engine.dispose)
@@ -226,7 +226,7 @@ class MarketExitTests(Clocked):
         other = self.entry("limit")
         for command in (lambda source: source.cancel_order(other.client_order_id),
                         lambda source: source.cancel_orders(iter([other.client_order_id]))):
-            paper_terms.queue(lambda _: [], "BBBUSDT-PERP.BINANCE", other, mock.Mock(), mock.Mock())
+            paper_terms.queue(lambda _: (None, []), "BBBUSDT-PERP.BINANCE", other, mock.Mock(), mock.Mock())
             self.on_next_bar(command)
             self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
             self.assertEqual([item.canceled for item in paper_terms.QUEUE], [False])

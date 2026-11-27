@@ -1025,11 +1025,12 @@ class EntryTermsTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     @staticmethod
-    def exchange(tick: str) -> dict:
-        """fapi/v1/exchangeInfo as Binance answers it, the contract's filters among others."""
+    def exchange(tick: str, **contract: str) -> dict:
+        """fapi/v1/exchangeInfo as Binance answers it, the contract's filters and `contract` fields among others."""
         return {"symbols": [
             {"symbol": "ETHUSDT", "filters": []},
-            {"symbol": "BTCUSDT", "filters": [
+            {"symbol": "BTCUSDT", "status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT", **contract,
+             "filters": [
                 {"filterType": "PRICE_FILTER", "tickSize": tick, "minPrice": "556.80", "maxPrice": "4529764"},
                 {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
                 {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]}
@@ -1078,6 +1079,32 @@ class EntryTermsTests(unittest.TestCase):
         get.assert_not_called()
         self.assertIs(self.sent.call_args.args[0], order)
         self.assertEqual(paper.STOP_REASON, [])
+
+    def test_an_entry_on_a_contract_binance_does_not_trade_is_not_sent_and_the_run_goes_on(self):
+        """#3674: as Live admits an entry (engine.live_venue.require_admission), only on a TRADING USDT-margined
+        perpetual; a SETTLING one keeps sending bars. Reduce-only orders go out unread."""
+        for field, value in (("status", "SETTLING"), ("status", "PENDING_TRADING"),
+                             ("contractType", "CURRENT_QUARTER"), ("marginAsset", "USDC")):
+            with self.subTest(field=field, value=value):
+                self.sent.reset_mock()
+                self.journal.reset_mock()
+                self.submit(self.exchange("0.10", **{field: value}))
+                self.sent.assert_not_called()
+                self.assertEqual(paper.STOP_REASON, [])
+                [call] = self.journal.call_args_list
+                self.assertEqual(call.args, ("entry_not_sent",))
+                self.assertEqual((call.kwargs["code"], call.kwargs["client_order_id"]), ("PAPER_INSTRUMENT", "O-1"))
+                self.assertIn(f"{field} {value}", call.kwargs["reason"])
+        order, get = self.submit(self.exchange("0.10", status="SETTLING"), reduce_only=True)
+        get.assert_not_called()
+        self.assertIs(self.sent.call_args.args[0], order)
+
+    def test_a_contract_answer_without_its_status_refuses_the_entry(self):
+        answer = self.exchange("0.10")
+        del answer["symbols"][1]["status"]
+        self.submit(answer)
+        self.sent.assert_not_called()
+        self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
 
     def test_terms_binance_does_not_give_refuse_the_entry(self):
         for answer in ({"symbols": [{"symbol": "ETHUSDT", "filters": []}]}, OSError("connection reset")):

@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 from uuid import UUID
 
-from engine.config import terms_changed, venue_terms
+from engine.config import terms_changed, venue_inactive, venue_terms
 from engine.live_errors import LiveRefusal as Refusal
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
@@ -327,7 +327,7 @@ def require_admission(snapshot: dict, manifest: dict, budget: Decimal | None, *,
         for symbol in manifest["symbols"] if symbols is None else symbols:
             details = snapshot["symbols"][symbol]
             terms = details["instrument"]
-            if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
+            if venue_inactive(terms):
                 raise Refusal("LIVE_INSTRUMENT", f"the trial requires an active USDT-margined perpetual ({symbol})")
             filters = {row["filterType"]: row for row in terms["filters"]}
             changed = terms_changed(manifest["market"]["terms"][symbol], venue_terms(terms))
