@@ -43,6 +43,7 @@ if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 import friction  # noqa: E402
 import prod_invariants  # noqa: E402
+import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
 import telemetry  # noqa: E402
 
@@ -717,14 +718,26 @@ def cost(args: argparse.Namespace) -> None:
                 rss_readings[size] = result["peak_rss_mib"]
             if result.get("peak_heap_kib"):
                 heap_readings[size] = result["peak_heap_kib"]
-    keep(args.directory, {
+    row: dict[str, Any] = {
         "kind": "cost", "item": "cost", "subject": args.subject, "tree": rev, "probe": str(args.probe),
         **read_cost(
             readings,
             rss_readings=rss_readings if len(rss_readings) == len(sizes) else None,
             heap_readings=heap_readings if len(heap_readings) == len(sizes) else None,
         ),
-    })
+    }
+    baseline_path = getattr(args, "baseline", None)
+    if baseline_path is not None:
+        comparison = runtime_posture.compare_cost_baseline(row, _load_json_file(baseline_path, "--baseline"))
+        row["baseline"] = str(baseline_path)
+        row["baseline_comparison"] = comparison
+        row["regression"] = comparison["regression"]
+        row["violations"] = comparison["violations"]
+    write_baseline_path = getattr(args, "write_baseline", None)
+    if write_baseline_path is not None:
+        runtime_posture.write_cost_baseline(write_baseline_path, row)
+        row["baseline_written"] = str(write_baseline_path)
+    keep(args.directory, row)
 
 
 def judge(fixed: dict[str, str], reverted: dict[str, str], now: dict[str, str]) -> tuple[str, list[str]]:
@@ -1067,6 +1080,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fric_p.add_argument("--ledger-summary", type=Path, nargs="+", help="one or more read-only ledger trial summary JSON files")
     fric_p.set_defaults(function=friction_cmd)
     prod_invariants.register_prod_snapshot_parser(commands)
+    runtime_posture.register_posture_parser(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1106,6 +1120,8 @@ def _build_parser() -> argparse.ArgumentParser:
     cost_p.add_argument("subject")
     cost_p.add_argument("probe", type=Path)
     cost_p.add_argument("--sizes", required=True, help="comma-separated")
+    cost_p.add_argument("--baseline", type=Path, help="optional saved baseline JSON to check for cost regressions")
+    cost_p.add_argument("--write-baseline", type=Path, help="optional path to write measured cost metrics as a baseline JSON")
     rec_p = add("recheck", recheck, "whether a repair's own tests fail without it and pass now", 1800)
     rec_p.add_argument("commit")
     for parsed in (probe_p, cost_p, rec_p):
@@ -1129,7 +1145,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.command = command
     if args.function is run and not command:
         raise SystemExit("run needs `-- COMMAND`")
-    if args.function in (scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd, prod_invariants.run_prod_snapshot_cmd):
+    if args.function in (
+        scan, telemetry_cmd, delta_cmd, friction_cmd, advise_cmd,
+        prod_invariants.run_prod_snapshot_cmd, runtime_posture.run_posture_cmd,
+    ):
         return args.function(args)
     args.directory = args.directory.resolve()
     roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve()}
