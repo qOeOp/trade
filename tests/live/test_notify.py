@@ -232,7 +232,7 @@ class Sending(Base):
         self.assertEqual(self.tick(DAY + 24 * HOUR + 10).calls, [])
         self.assertIn(notify.DAILY + "2026-11-10", self.record()["done"])  # the day is done, never sent later
         self.assertEqual(self.tick(DAY + 25 * HOUR).calls, [])
-        prepared["minute_results"] = [[DAY + 24 * HOUR + 60 * 10**9, "0"]]  # it ran on 11-10
+        prepared["minute_results"] = [[str(DAY + 24 * HOUR + 60 * 10**9), "0"]]  # it ran on 11-10 (live.views: a string)
         prepared["host"] = {"state": "running", "mode": "run", "exit_code": None}
         sent = self.tick(DAY + 48 * HOUR + 10).texts()
         self.assertIn("Live daily summary for 2026-11-10 (UTC)", sent[-1])

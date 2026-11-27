@@ -520,7 +520,7 @@ def _active(run: dict, day: str) -> bool:
     minutes = run.get("minute_results")
     if (run.get("host") or {}).get("state") == "running" and not minutes:
         return True
-    times = [minute for minute, _ in minutes or []]
+    times = [_ns(minute) for minute, _ in minutes or []]
     times += [_ns(row.get("ts_event")) for row in _fills(run)]
     times += [_ns(row.get("observed_ns")) for row in run.get("restarts") or []]
     times.append(_ns((run.get("terminal") or {}).get("observed_ns")))
