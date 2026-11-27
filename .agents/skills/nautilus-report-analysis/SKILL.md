@@ -71,3 +71,5 @@ active ledger, its head; cycles under key `positions`; the docstring lists the r
   exit-reason table or splitting contributions by exit.
 - [depth.md](references/depth.md): before reading fill sizes, liquidation prices or slippage of a
   quote-execution run (`execution` is `quotes` in the run's summary).
+- [robustness.md](references/robustness.md): before checking closed-cycle tail concentration or
+  perpetual funding-vs-price regime dependence.
