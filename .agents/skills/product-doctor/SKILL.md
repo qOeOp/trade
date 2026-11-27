@@ -22,6 +22,7 @@ Research conclusions and experiment choice belong to `research-round`.
   one; hand it transcript paths, ledger commit range, checkout commit, and any attach evidence
   directory and diagnoses, nothing else; invoke this skill. Transcripts: [hosts.md](references/hosts.md).
 - Attach keeps the evidence of a running session: [attach.md](references/attach.md).
+- User-journey gate satisfiability, per-gate independence and refusal-remedy loops: `doctor.py gates-map` and [journey.md](references/journey.md).
 
 ## Focused diagnosis
 

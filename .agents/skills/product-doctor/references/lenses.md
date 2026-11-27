@@ -18,6 +18,11 @@ running, cut short and at a limit.
   symbols); each line's history read through the product's read commands, never ad hoc SQL.
 - **gates** [empty failed partial]: every admission, eligibility and refusal with a state never
   started, failed or cut short; a stated reason is tested, not trusted, and a good case must pass.
+- **journey** [satisfiability independence remedy]: real-user end-to-end gate chain proofs per
+  [journey.md](journey.md) backed by `doctor.py gates-map`: prove joint satisfiability
+  (`A ∧ B ∧ C ∧ D ∧ E`) from an empty temporary environment using only real CLI/IDE commands (no
+  hand-forged internal state), prove per-gate independence (`¬X ∧ ⋀(Y≠X)`) to expose redundant or
+  shadowed gates, and close every refusal → remedy → clear loop without breaking prior gates.
 
 ## Failure
 
