@@ -412,7 +412,8 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     held_ms = clock.day_ms(through[month]) if month in through else None
 
     observed, listed = sources.rest_exchange_info()
-    by_symbol = {item["symbol"]: item for item in listed}
+    listed_by_symbol = {item["symbol"]: item for item in listed}
+    by_symbol = listed_by_symbol
     candidates = scope if scope is not None else sorted(
         {item["symbol"] for item in listed} | set(sources.archive_symbols()))
     seen = _terms_history(market)
@@ -511,9 +512,9 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
         terms_file = files.write_file(market, "instrument", None, None, _with_stored_terms(
             market, instrument_batch(appended_terms)))
     # The month's members are computed on what this import makes, its terms and bars included.
-    members, new = _universe(market, month, first_month)
+    members, new = _universe(market, month, first_month, listed_by_symbol)
     member_files = [_members_file(market, month, new)] if new else []
-    filled = _fill_universe(market, month, earliest, latest) if backfill else {}
+    filled = _fill_universe(market, month, earliest, latest, listed_by_symbol) if backfill else {}
     member_files += [_members_file(market, at, found) for at, found in filled.items() if found]
     failed = files.data_tests(market, universe.RULE)
     if failed:
@@ -683,7 +684,8 @@ def _members(market: files.Market, month: date) -> set[str]:
     return found
 
 
-def _universe(market: files.Market, month: date, first_month: date) -> tuple[list[str], list[str]]:
+def _universe(market: files.Market, month: date, first_month: date,
+              listed: dict[str, dict]) -> tuple[list[str], list[str]]:
     """The universe of `month` alone: (members, members to write). Stored months cannot change
     (bars only extend, and a month's look-back lies before it), so only the imported month is computed;
     importing it again must give the stored members (UNIVERSE_CHANGED otherwise). The first month has
@@ -695,10 +697,12 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
             raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} has stored members before the second imported month",
                          missing=(f"{month:%Y-%m}",))
         return [], []
-    # Only eligible contracts' bars are imported: a symbol holding them in the look-back is one.
-    symbols = sorted(_terms_history(market))
+    seen = _terms_history(market)
+    classes = [universe.contract_in_month(symbol, rows, listed.get(symbol), month)
+               for symbol, rows in sorted(seen.items())]
+    symbols = [item["symbol"] for item in classes if item["eligible"]]
     days = trading_days(market, symbols, month - timedelta(days=universe.LISTED_DAYS), month)
-    computed = set(universe.monthly_universe([{"symbol": symbol, "eligible": True} for symbol in symbols], days, month))
+    computed = set(universe.monthly_universe(classes, days, month))
     if stored and computed != stored:
         raise refuse("UNIVERSE_CHANGED", f"{month:%Y-%m} recomputes to other members than stored: "
                      + ", ".join(sorted(computed ^ stored)),
@@ -731,13 +735,14 @@ def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms
                      missing=(label, symbol))
 
 
-def _fill_universe(market: files.Market, month: date, earliest: date, latest: date) -> dict[date, list[str]]:
+def _fill_universe(market: files.Market, month: date, earliest: date, latest: date,
+                   listed: dict[str, dict]) -> dict[date, list[str]]:
     """After backfilling `month` before `earliest`: the months whose look-back the backfill completes, {month: members
     to write}. A month that has members already must recompute to them
     (UNIVERSE_CHANGED otherwise). Later months already had their look-back and stay as stored."""
     filled, at = {}, _first_members(month)
     while at < _first_members(earliest) and at <= latest:
-        filled[at] = _universe(market, at, month)[1]
+        filled[at] = _universe(market, at, month, listed)[1]
         at = clock.next_month(at)
     return filled
 

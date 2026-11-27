@@ -462,10 +462,14 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                     entry["state"] = "caught_up"
                     continue
                 first = metrics_from[symbol]
-                left = missing(listing["metrics"].get(symbol, set()), first, today, _passed(memory, symbol))
+                held = listing["metrics"].get(symbol, set())
+                passed = _passed(memory, symbol)
+                # Unpublished days before the latest held day are settled holes; trailing 404s stall head and lag.
+                tail = max(first, max(held) + timedelta(days=1)) if held else first
+                left = missing(held, first, today, {day for day in passed if day < tail})
                 flat = [day for days in left.values() for day in days]
                 entry["missing_from"], entry["missing_days"] = (flat[0].isoformat() if flat else None), len(flat)
-                entry["unpublished"] = sorted(day.isoformat() for day in _passed(memory, symbol))
+                entry["unpublished"] = sorted(day.isoformat() for day in passed)
                 entry["state"] = ("caught_up" if not flat else "lagging" if flat[0] < lag else "waiting")
             else:
                 first = scope.trades_from if kind == "trades" else scope.quotes_from
