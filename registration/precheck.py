@@ -142,8 +142,8 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
     """The precheck trial ID when the review and its native capture bind this source, the image, market
     commit, lifecycle and comparable configuration of `identity`, and both passed; any mismatch is a refusal:
     a review of the precheck reviews the configuration it ran. Any failed review of the cited precheck, or of
-    another precheck of the source on that image, fails it too (api, causal and readiness are properties of the
-    source), except an activity-only failure a later traded precheck resolved (review_activity.resolved)."""
+    another precheck of the source on that image, fails it too (api, causal and readiness judge the source on that
+    runtime, not one run), except an activity-only failure a later traded precheck resolved (review_activity.resolved)."""
     record = read_review(conn, review_id)
     trial = trial_identity(conn, record["trial_id"])
     digest = digest_of(identity.get("image_ref"))
