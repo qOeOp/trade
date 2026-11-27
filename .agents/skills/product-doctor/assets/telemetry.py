@@ -611,6 +611,7 @@ def _build_object_reports(
             0 if is_test_obj else sum(short["file_net"][p] for p in colocated)
         )
         prod_paths = [p for p in obj_paths.get(name, []) if not is_test_path(p) and not p.endswith(".md")]
+        code_exts = {".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".sh", ".sql"}
         quiet_files = sorted(
             [
                 {
@@ -622,7 +623,7 @@ def _build_object_reports(
                     ),
                 }
                 for p in prod_paths
-                if tracked_lines.get(p, 0) >= 50
+                if tracked_lines.get(p, 0) >= 50 and Path(p).suffix.lower() in code_exts
             ],
             key=lambda x: (str(x["last_commit_date"] or "0000-00-00"), -int(x["lines"] or 0), str(x["file"])),
         )[:5]

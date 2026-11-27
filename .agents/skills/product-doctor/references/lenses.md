@@ -7,7 +7,7 @@ running, cut short and at a limit.
 
 ## Correctness
 
-- **results** [any]: verify quantitative estimators and `telemetry`'s `quiet_files` against outside originals, conservation sums, or adversarial ground-truth inputs — checking domain/support alignment on sign/direction tests (`[0, 1]` shares, counts, ratios), float64 residue vs exact zero (`np.ptp == 0`), liquidation/domain bounds (`log1p(-1)`), and fail-open null short-circuits in auditors.
+- **results** [any]: verify quantitative estimators and `telemetry`'s `quiet_files` against outside originals, conservation identities, and adversarial inputs — checking domain and support boundaries, degenerate, constant, or extreme inputs, sign/direction semantics, and fail-closed null/empty guards in auditors.
 - **flow** [single pool]: research end to end on a temporary ledger and market, `line select` to
   `line close`, then Paper and `paper compare`, then Live's research-side refusals, short windows,
   no credential and no run; include misaligned multi-track start dates (bars vs `--metrics`, `--execution quotes`,
@@ -31,8 +31,9 @@ running, cut short and at a limit.
   like the real thing, do not give back what the stopped step had consumed; check whether locks held
   across slow I/O, subprocesses, or container replays can block emergency controls (`live stop`, `paper stop`, maintenance).
 - **operation** [any]: what an operator learns, and when, as a service degrades, stalls silently (see silent
-  failure taxonomy in [prod-ops.md](prod-ops.md)), a feed 404s, or a disk fills — verify healthcheck and alert states
-  (e.g. `lagging`, daily summaries) are actually reachable under realistic upstream failures rather than masked by equal thresholds.
+  failure taxonomy in [prod-ops.md](prod-ops.md)), a feed 404s, or a disk fills — verify every degraded, stalled,
+  and alert or healthcheck state is reachable under realistic upstream failures and not shadowed by overlapping
+  thresholds or silent swallows.
 - **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting/reuse across
   month rollover (`market/follow + market/files + market/universe`), on copies.
 
@@ -82,8 +83,8 @@ running, cut short and at a limit.
 ## Audit
 
 - **checks** [any]: whether a test, eval or CI gate fails for a wrong product and passes a right one;
-  verify mocks match real wire types (e.g. `str` ns fields from `views.run_view()`, Docker Go `null`
-  slices) and exercise producer-to-consumer chains rather than isolated helpers.
+  verify mocks match real producer wire types and exercise producer-to-consumer chains end-to-end rather than
+  isolated helpers so stripped fields, wire-type drift, and null-handling mismatches cannot hide behind unit tests.
 - **unchanged** [any]: an object the last audits' findings and the recent commits leave alone.
 - **fixed** [any]: `doctor.py recheck` on closed issues (Python `tests/` and Node `node:test` `.test.{mjs,cjs,js,ts,tsx}`;
   `no test`: their own probe, `--control-tree` the repair's parent) and the old rows linked in the header of

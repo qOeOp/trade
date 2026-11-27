@@ -69,3 +69,14 @@
 - **Bench B（历史时间机器 @ `16e51a5dc` / `d876f6b3d`，32 个 `shown`）**：
   - `report/`（9 项）：`deflated_sharpe` 常量收益除零、`measures` 强平 `log1p(-1)` 崩溃、`attribution` 非负指标符号检验不可达、`status` `mean_correlation` ULP 残差压扁有效试验数、`review` 空 `run_return` 绕过审计、`splits` 29 日/5 季度边界、`history` 未完成对照、`compare_reports` NaN 崩溃、`expectancy` 不可检。
   - `paper/` & `live/` & `engine/`（23 项）：`paper` 封存后迟到 K 线/孤儿恢复死循环/封存线程崩溃/持锁阻塞 `stop`/零权益除零/资金费 1ms 边界/`warmup` 覆盖/`audit` 过期停止；`live` 静默丢日报（`str` 分钟类型错配）/部分撤单幽灵态/`held` 失败穿透与首 tick 误报/平仓缺 K 线；`engine` & `audit` 撤单拒单/同时间戳 UUID/Live 成交 UUID/GTD 提前量对等/指标部分缺失崩溃。
+
+---
+
+## 五、Phase 3 去过拟合后的样本外盲测成绩单（2026-11-28）
+
+在彻底洗掉 `references/lenses.md` / `references/journey.md` / `references/prod-ops.md` 中的具体旧坑剧透、删掉自造 `--eval-json`/`wilson_ci`（-259 行）、打通 React `.tsx` 隔离探针与基于真实账本输出的 `doctor.py research-audit` 之后，对两批**完全未测过的样本外靶场**执行零提示盲测：
+
+| 样本外基准 | 靶标（完全无剧透、零提示） | 实测结果 | 核心价值验证 |
+|---|---|---|---|
+| **OOS Bench 1（未盲测子系统 + `.tsx` 实战）** | `origin/main` @ `d4460250a` 的 `ledger/` + `replay/` + `ide/web/src/`（`/tmp/doctor-crucible/evidence_oos_1/`） | **7 / 7 `shown`**（含 **3 个真实 React `.tsx` SSR 探针**） | • `ide/web/src/model/history.ts:133-140` + `HistoryPage.tsx`（高危）：按 Holdout Sharpe 排序时把控制组复现失败与短窗作废策略排到最前（假 mock 掩盖真实 wire shape）<br>• `replay/history.py:103-109`（高危）：并行停容器缺异常隔离导致泄漏与 Ctrl+C 挂死<br>• `ledger/run_journal.py:401-404` & `ledger/metrics.py:521-537`（`quiet_files` 命中）：零/负净值崩溃与符号翻转、NaN 穿透 `<= -1`<br>• `ReadingsBoard.tsx:135-138`（手机 320px+ 误渲染空 Sharpe/Win rate）与 `Compare.tsx:85`（下单量错显成交量）<br>• `replay/comparison.py:584-594`：`late_aggregate` 漏记首异常时间戳 |
+| **OOS Bench 2（更早历史时光机）** | 单提交无历史快照 `5fc5168d6`（`/tmp/doctor-crucible/evidence_oos_2/`） | **10 / 10 `shown`** | • 在无任何剧透下独立召回多个更早历史 PR 真缺陷：`#3633/#3644`（`validation_register` `retry_of` 分叉绕过一次 OOS 验证）、`#3635`（`engine/audit.py:683-704` `OrderPendingCancel` 状态泄漏误判正常撤单）、`#3732`（部分平仓同 tick `venue_flat_exit`）<br>• 额外挖出 2 个新 P2：`engine/live_connection.py:300-308` 重连后 `connection_lost` 告警永久静默、`market/export.py:609-617` 缓存键漏 `universe_month` 与截断 `bar` 至 `end_ms`<br>• 反向抓出 `references/prod-ops.md` 残留的 2 处具体旧坑指纹并同步清零泛化 |

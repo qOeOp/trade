@@ -1721,3 +1721,270 @@ export function load(cfg?: Config) {
         self.assertIn("rss_mib", rep_text)
         self.assertIn("heap_kib", rep_text)
         self.assertIn("heap_exp", rep_text)
+
+    def test_v3_4_probe_links_node_modules_for_tsx_and_shared_clones(self):
+        """Phase 2 Weapon 1: `doctor.py probe` auto-links host `ide/web` & `ide/overview` `node_modules`
+        read-only (including across worktrees and `git clone --shared` alternates) so probes can run
+        Node ESM / `.tsx` checks inside the clean `git archive` tree."""
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("node is required for JS/TS probe tests")
+
+        # 1) Temp repo with ide/web/package.json + host-side untracked node_modules package (simulating
+        #    untracked `npm ci` deps) and a `git clone --shared` checkout without its own node_modules.
+        self.commit({
+            "ide/web/package.json": json.dumps({"name": "ide-web", "type": "module", "dependencies": {"toy-dep": "1.0.0"}}),
+            "ide/web/src/calc.mjs": "import { factor } from 'toy-dep';\nexport const score = (x) => x * factor;\n",
+        }, message="feat(ide): add ide/web package and calc module")
+        dep_dir = self.repo / "ide/web/node_modules/toy-dep"
+        dep_dir.mkdir(parents=True, exist_ok=True)
+        (dep_dir / "package.json").write_text(json.dumps({"name": "toy-dep", "type": "module", "main": "index.mjs"}), encoding="utf-8")
+        (dep_dir / "index.mjs").write_text("export const factor = 7;\n", encoding="utf-8")
+
+        shared = self.home / "shared-clone"
+        subprocess.run(["git", "clone", "-q", "--shared", str(self.repo), str(shared)], check=True)
+        self.assertFalse((shared / "ide/web/node_modules").exists())
+
+        probe_py = self.home / "probe_js_dep.py"
+        probe_py.write_text(
+            "import pathlib, subprocess\n"
+            "def _run(x):\n"
+            "    code = f'import {{ score }} from \"./src/calc.mjs\"; console.log(score({x}));'\n"
+            "    done = subprocess.run(['node', '--input-type=module', '-e', code], cwd=pathlib.Path('ide/web'), capture_output=True, text=True, check=True)\n"
+            "    return int(done.stdout.strip())\n"
+            "def probe():\n"
+            "    return _run(3), 99\n"
+            "def control():\n"
+            "    return _run(2), 14\n",
+            encoding="utf-8",
+        )
+        ev = self.home / "ev-probe-shared"
+        prev_cwd = Path.cwd()
+        os.chdir(shared)
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                doctor.main(["probe", str(ev), "js-dep-link", str(probe_py), "--tree", "HEAD"])
+        finally:
+            os.chdir(prev_cwd)
+        row = doctor.rows(ev)[-1]
+        self.assertEqual(row["verdict"], "shown", row)
+        self.assertEqual(row["main"]["observed"], "21")
+        self.assertEqual(row["control"]["observed"], "14")
+
+        # 2) Sibling fallback when host `ide/web/node_modules` is empty but `docs-site/node_modules` has deps.
+        import shutil as _shutil
+        _shutil.rmtree(dep_dir)  # leave `ide/web/node_modules` empty
+        fb_dep = self.repo / "docs-site/node_modules/toy-dep"
+        fb_dep.mkdir(parents=True, exist_ok=True)
+        (fb_dep / "package.json").write_text(json.dumps({"name": "toy-dep", "type": "module", "main": "index.mjs"}), encoding="utf-8")
+        (fb_dep / "index.mjs").write_text("export const factor = 7;\n", encoding="utf-8")
+        ev_fb = self.home / "ev-probe-fallback"
+        os.chdir(shared)
+        try:
+            out_fb = io.StringIO()
+            with redirect_stdout(out_fb):
+                doctor.main(["probe", str(ev_fb), "js-dep-fallback", str(probe_py), "--tree", "HEAD"])
+        finally:
+            os.chdir(prev_cwd)
+        self.assertEqual(doctor.rows(ev_fb)[-1]["verdict"], "shown")
+
+        # 3) Real-repo `.tsx` probe via `ide/web/scripts/load.mjs` when host node_modules has typescript + react!
+        os.chdir(ROOT)
+        try:
+            host_roots = doctor._repo_roots()
+            has_host_tsx_deps = any(
+                (hr / pkg / "node_modules/typescript").is_dir()
+                and (hr / pkg / "node_modules/react").is_dir()
+                and (hr / pkg / "node_modules/react-dom").is_dir()
+                for hr in host_roots
+                for pkg in (Path("ide/web"), Path("docs-site"), Path("ide/overview"))
+            )
+            if has_host_tsx_deps:
+                real_probe = self.home / "probe_real_tsx.py"
+                real_probe.write_text(
+                    "import os, pathlib, subprocess\n"
+                    "JS = r'''\n"
+                    "import { createElement, Fragment } from 'react';\n"
+                    "import { renderToStaticMarkup } from 'react-dom/server';\n"
+                    "import { loader } from './scripts/load.mjs';\n"
+                    "const part = ({ children }) => createElement(Fragment, null, children);\n"
+                    "const parts = { Root: part, Portal: part, Overlay: () => null, Content: part, Title: part, Description: part, Close: part, Cancel: part, Action: part };\n"
+                    "const pos = process.env.WANT_POS === '1' ? [{ position_id: 'P-1', instrument_id: 'BTCUSDT-PERP.BINANCE', signed_qty: '1', avg_px_open: '97000', mark: '97500', unrealized_pnl: '500 USDT', realized_pnl: '0 USDT' }] : [];\n"
+                    "const target = { paper_id: 7, candidate: 'demo@1', state: 'running', readings: { held: { minute_ns: 0, orders: [], positions: pos } } };\n"
+                    "const { namespace } = loader({ stubs: {\n"
+                    "  'radix-ui': { Dialog: parts, AlertDialog: parts },\n"
+                    "  'tinykeys': { tinykeys: () => () => {} },\n"
+                    "  'state/atom': { useAtom: (a) => a.value },\n"
+                    "  'state/paper': { startDialog: { value: null }, stopDialog: { value: target }, deleteDialog: { value: null }, usePaperRuns: () => ({ runs: [target], running: 1, memory: null, starting: [] }), deletePaper() {}, startDefaults() {}, startPaper() {}, stopPaper() {} },\n"
+                    "  'icons/Icon': { Icon: () => null },\n"
+                    "} });\n"
+                    "const { PaperDialogs } = await namespace('widgets/paper/PaperDialogs.tsx');\n"
+                    "console.log(renderToStaticMarkup(createElement(PaperDialogs)));\n"
+                    "'''\n"
+                    "def _render(pos_flag):\n"
+                    "    env = {**os.environ, 'WANT_POS': pos_flag}\n"
+                    "    done = subprocess.run(['node', '--experimental-vm-modules', '--input-type=module', '-e', JS], cwd=pathlib.Path('ide/web'), capture_output=True, text=True, check=True, env=env)\n"
+                    "    return 'BTCUSDT' in done.stdout\n"
+                    "def probe():\n"
+                    "    return _render('1'), False\n"
+                    "def control():\n"
+                    "    return _render('0'), False\n",
+                    encoding="utf-8",
+                )
+                ev_real = self.home / "ev-probe-real-tsx"
+                out_real = io.StringIO()
+                with redirect_stdout(out_real):
+                    doctor.main(["probe", str(ev_real), "real-tsx-paper-dialog", str(real_probe), "--tree", "HEAD"])
+                real_row = doctor.rows(ev_real)[-1]
+                self.assertEqual(real_row["verdict"], "shown", real_row)
+                self.assertEqual(real_row["main"]["observed"], "True")
+                self.assertEqual(real_row["control"]["observed"], "False")
+        finally:
+            os.chdir(prev_cwd)
+
+    def test_v3_4_research_audit_ledger_schema_parity_and_triggers(self):
+        """Phase 2 Weapon 2: `doctor.py research-audit` consumes exact `report/status.py` JSON schemas
+        (`research state` / `research status` / `research multiple-testing`) and fires all 6 ledger triggers
+        plus optional transcript signals without false positives on healthy lines."""
+        # 1) Verify key parity against actual `report/status.py` source.
+        status_src = (ROOT / "report/status.py").read_text(encoding="utf-8")
+        for key in (
+            '"gates"', '"undistinguished_runs"', '"unreviewed_trials"', '"review_every"',
+            '"trials_on_line"', '"runs_behind_image"', '"interpretations"', '"search_exposures"',
+            '"multiple_testing"', '"runs_with_returns"', '"mean_correlation"', '"effective_trials"',
+            '"trials_with_sweeps"', '"uncompared"', '"distinguished"',
+        ):
+            self.assertIn(key, status_src, f"expected verbatim report/status.py key {key}")
+
+        # 2) Healthy line -> ok=True, 0 triggers (even when distinguished is a trial ID int, not bool).
+        healthy_state = {
+            "ledger_commit": "abc123",
+            "gates": [],
+            "undistinguished_runs": {"trials": [10, 11], "uncompared": [12], "distinguished": 9},
+            "line": {"line_id": 1, "name": "btc-carry", "closed_at": None},
+            "review_every": 5,
+            "trials_on_line": 12,
+            "unreviewed_trials": [10, 11, 12],
+            "runs_behind_image": [],
+            "recommendation": {"judgment_id": 4},
+            "interpretations": [{"judgment_id": 5}],
+            "search_exposures": [{"judgment_id": 6}],
+        }
+        healthy_status = {
+            "ledger_commit": "abc123",
+            "trials": 12,
+            "multiple_testing": {
+                "line": "btc-carry",
+                "research_trials": 8,
+                "all_purpose_trials": 12,
+                "sweep_variants": 2,
+                "trials_with_sweeps": 14,
+                "runs_with_returns": 8,
+                "mean_correlation": 0.42,
+                "effective_trials": 5.06,
+            },
+        }
+        res_ok = friction.analyze_research_ledger(healthy_state, healthy_status)
+        self.assertTrue(res_ok["ok"], res_ok["triggers"])
+        self.assertEqual(res_ok["triggers"], [])
+        self.assertEqual(res_ok["state"]["distinguished_trial"], 9)
+
+        # 3) All 6 triggers firing simultaneously on an unhealthy open line + transcript violation via CLI!
+        bad_state = {
+            "ledger_commit": "def456",
+            "gates": [{"code": "MARKET_DAY_UNRESOLVED", "message": "missing day", "missing": ["2026-11-20"]}],
+            "undistinguished_runs": {"trials": [1, 2, 3, 4, 5], "uncompared": [6, 7, 8, 9, 10], "distinguished": None},
+            "line": {"line_id": 2, "name": "eth-grid", "closed_at": None},
+            "review_every": 5,
+            "trials_on_line": 15,
+            "unreviewed_trials": [11, 12, 13, 14, 15],
+            "runs_behind_image": [1, 2],
+            "recommendation": None,
+            "interpretations": [],
+            "search_exposures": [],
+        }
+        bad_status = {
+            "ledger_commit": "def456",
+            "trials": 15,
+            "multiple_testing": {
+                "line": "eth-grid",
+                "research_trials": 10,
+                "all_purpose_trials": 15,
+                "sweep_variants": 20,
+                "trials_with_sweeps": 35,
+                "runs_with_returns": 10,
+                "mean_correlation": 0.91,
+                "effective_trials": 1.81,
+            },
+        }
+        tx_path = self.home / "research_tx.jsonl"
+        tx_path.write_text(
+            json.dumps({
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [{"name": "run_command", "args": {"CommandLine": "cat /data/dolt/service.json"}}],
+            }) + "\n",
+            encoding="utf-8",
+        )
+        state_file = self.home / "state.json"
+        status_file = self.home / "status.json"
+        state_file.write_text(json.dumps(bad_state), encoding="utf-8")
+        status_file.write_text(json.dumps(bad_status), encoding="utf-8")
+
+        res_bad = self.call_json(
+            "research-audit", "--state-json", state_file, "--status-json", status_file, "--transcripts", tx_path
+        )
+        self.assertFalse(res_bad["ok"])
+        joined = "\n".join(res_bad["triggers"])
+        for expected in (
+            "research_unreviewed_backlog",
+            "research_uncompared_backlog",
+            "research_undistinguished_streak",
+            "research_correlated_sweep",
+            "research_stale_runtime_runs",
+            "research_blocking_gates",
+            "workflow_secret_file_access",
+        ):
+            self.assertIn(expected, joined)
+
+        # 4) Edge cases: `research state --full` (`facts.counts` fallback), low-effective-ratio trigger
+        #    at mean_correlation < 0.85, closed line does NOT fire `research_blocking_gates`, and rwr < 6 ignored.
+        full_state = {
+            **healthy_state,
+            "line": {"line_id": 3, "name": "closed-line", "closed_at": "2026-11-25T00:00:00Z"},
+            "gates": [{"code": "LINE_CLOSED", "message": "closed", "missing": []}],
+            "facts": {
+                "counts": {
+                    "ledger_commit": "abc123",
+                    "trials": 10,
+                    "multiple_testing": {
+                        "line": "closed-line",
+                        "research_trials": 10,
+                        "runs_with_returns": 10,
+                        "mean_correlation": 0.75,
+                        "effective_trials": 3.25,
+                    },
+                }
+            },
+        }
+        res_full = friction.analyze_research_ledger(full_state)
+        self.assertTrue(res_full["status_provided"])
+        self.assertTrue(any("research_correlated_sweep" in t for t in res_full["triggers"]))
+        self.assertFalse(any("research_blocking_gates" in t for t in res_full["triggers"]))
+
+        small_mt = {
+            "ledger_commit": "abc123",
+            "multiple_testing": {
+                "line": "tiny",
+                "research_trials": 5,
+                "runs_with_returns": 5,
+                "mean_correlation": 0.99,
+                "effective_trials": 1.04,
+            },
+        }
+        self.assertTrue(friction.analyze_research_ledger(status_data=small_mt)["ok"])
+
+        with self.assertRaises(SystemExit):
+            self.call_json("research-audit")
+        with self.assertRaises(SystemExit):
+            friction.analyze_research_ledger(state_data=["not", "a", "dict"])  # type: ignore[arg-type]

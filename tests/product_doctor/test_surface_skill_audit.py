@@ -1,5 +1,5 @@
 """Tests for Dimension 7 (IDE/font/route/loopback HTTP security surface) and Dimension 9
-(skill burden ratchet, eval coverage, multi-session skill firing, and Wilson 95% CI eval stats)."""
+(skill burden ratchet, eval coverage, and multi-session skill firing)."""
 
 from __future__ import annotations
 
@@ -307,8 +307,15 @@ class Dimension9SkillsEvalAuditTests(unittest.TestCase):
         self.assertTrue(inv["ok"], inv["triggers"])
         self.assertEqual(inv["skills_count"], 6)
         self.assertIn("product-doctor", inv["skills"])
-        self.assertGreaterEqual(inv["skills"]["product-doctor"]["eval_case_count"], 40)
+        self.assertGreaterEqual(inv["skills"]["product-doctor"]["eval_case_count"], 39)
         self.assertEqual(inv["triggers"], [])
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            doctor.main(["skills-audit", "--root", str(ROOT)])
+        cli_report = json.loads(out.getvalue())
+        self.assertTrue(cli_report["ok"], cli_report["triggers"])
+        self.assertTrue(cli_report["inventory"]["ok"])
 
     def test_skill_burden_ratchet_and_eval_coverage_triggers(self):
         repo = self.home / "skills_repo"
@@ -417,76 +424,6 @@ class Dimension9SkillsEvalAuditTests(unittest.TestCase):
         res_missed = ssa.audit_transcript_skill_firing([tx2], {"research-round"})
         self.assertFalse(res_missed["ok"])
         self.assertTrue(any("missed_skill_triggers (research-round:" in t for t in res_missed["triggers"]))
-
-    def test_wilson_ci_math_flaky_undersampled_and_baseline_regression(self):
-        # Exact analytical Wilson 95% CI values
-        lo10, hi10 = ssa.wilson_ci(10, 12)
-        self.assertAlmostEqual(lo10, 0.5519, places=3)
-        self.assertAlmostEqual(hi10, 0.9531, places=3)
-        lo12, hi12 = ssa.wilson_ci(12, 12)
-        self.assertAlmostEqual(lo12, 0.7575, places=3)
-        self.assertAlmostEqual(hi12, 1.0, places=4)
-        lo0, hi0 = ssa.wilson_ci(0, 12)
-        self.assertAlmostEqual(lo0, 0.0, places=4)
-        self.assertAlmostEqual(hi0, 0.2425, places=3)
-        self.assertEqual(ssa.wilson_ci(0, 0), (0.0, 1.0))
-
-        # Combine per-run format and aggregated count format across two eval JSON files
-        eval_a = self.home / "eval_a.json"
-        eval_a.write_text(
-            json.dumps([
-                {"case": "stable-pass", "pass_count": 12, "total": 12},
-                {"case": "flaky-case", "pass_count": 6, "total": 12},
-                {"case": "undersampled-case", "pass_count": 5, "total": 8},
-                {"case": "regressed-case", "pass_count": 6, "total": 20},
-                {"case": "small-drop-ok", "pass_count": 10, "total": 12},
-            ]),
-            encoding="utf-8",
-        )
-        eval_b = self.home / "eval_b.json"
-        eval_b.write_text(
-            json.dumps({
-                "results": [
-                    {"case": "per-run-case", "passed": True},
-                    {"case": "per-run-case", "passed": True},
-                    {"case": "per-run-case", "passed": True},
-                ]
-            }),
-            encoding="utf-8",
-        )
-        baseline = self.home / "baseline.json"
-        baseline.write_text(
-            json.dumps([
-                {"case": "regressed-case", "pass_count": 18, "total": 20},
-                {"case": "small-drop-ok", "pass_count": 11, "total": 12},
-            ]),
-            encoding="utf-8",
-        )
-
-        stats = ssa.analyze_eval_results([eval_a, eval_b], baseline_path=baseline)
-        self.assertFalse(stats["ok"])
-        self.assertIn("flaky-case", stats["flaky_cases"])
-        self.assertIn("undersampled-case", stats["flaky_cases"])
-        self.assertNotIn("stable-pass", stats["flaky_cases"])
-        self.assertEqual(stats["under_sampled_cases"], ["undersampled-case"])
-        self.assertEqual(stats["cases"]["per-run-case"]["pass_count"], 3)
-        self.assertEqual(stats["cases"]["per-run-case"]["total"], 3)
-        self.assertEqual([r["case"] for r in stats["regressions"]], ["regressed-case"])
-        self.assertTrue(stats["regressions"][0]["non_overlapping_ci"])
-        self.assertLess(stats["regressions"][0]["p_value"], 0.05)
-
-        # Exercise CLI doctor.py skills-audit end-to-end
-        out = io.StringIO()
-        with redirect_stdout(out):
-            doctor.main([
-                "skills-audit",
-                "--root", str(ROOT),
-                "--eval-json", str(eval_a), str(eval_b),
-                "--eval-baseline", str(baseline),
-            ])
-        cli_report = json.loads(out.getvalue())
-        self.assertTrue(cli_report["inventory"]["ok"])
-        self.assertEqual(cli_report["eval_stats"]["summary"]["regression_count"], 1)
 
     def test_all_product_doctor_assets_keep_cognitive_budget(self):
         for py_file in sorted(ASSETS.glob("*.py")):

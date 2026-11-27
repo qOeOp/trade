@@ -1,13 +1,12 @@
-"""IDE/HTTP security surface probe (Dimension 7) and Skill/Eval statistical audit (Dimension 9) for product-doctor.
+"""IDE/HTTP security surface probe (Dimension 7) and Skill/Eval inventory audit (Dimension 9) for product-doctor.
 
 Provides two deterministic, pure-stdlib audit suites registered on `doctor.py`:
   1. `doctor.py surface`      — Static PP Supply Mono font integrity, dangerous sink / Host-before-URL scan,
                                 `ide/web` <-> `ide/overview` API route contract parity, and optional active
                                 loopback-only raw-socket HTTP/1.1 security & DoS contract probe.
   2. `doctor.py skills-audit` — Skill inventory & burden ratchet (`SKILL.md` / frontmatter / `references/`),
-                                `.agents/evals/` completeness & symlink checks, optional multi-session
-                                transcript skill-firing telemetry, and optional multi-run eval statistics
-                                (exact Wilson score 95% CI, flakiness, under-sampling, baseline regression).
+                                `.agents/evals/` completeness & symlink checks, and optional multi-session
+                                transcript skill-firing telemetry.
 
 Pure Python standard library; strictly refuses non-loopback HTTP targets and never reads secret files.
 """
@@ -18,7 +17,6 @@ import argparse
 from collections import Counter
 import ipaddress
 import json
-import math
 from pathlib import Path
 import re
 import socket
@@ -41,7 +39,6 @@ _SECRET_COMPOUND_RE = re.compile(
     re.IGNORECASE,
 )
 _SECRET_EXTENSIONS = frozenset({".pem", ".p12", ".pfx", ".key"})
-MAX_JSON_BYTES = 2 * 1024 * 1024
 
 
 def is_secret_path(path: Path) -> bool:
@@ -55,21 +52,6 @@ def is_secret_path(path: Path) -> bool:
         return True
     return path.stem.lower() in _SECRET_STEMS
 
-
-def _read_json_bounded(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any, str | None]:
-    if is_secret_path(path):
-        return None, f"refused secret file {path.name}"
-    try:
-        if not path.exists():
-            return None, "file not found"
-        if not path.is_file():
-            return None, "not a regular file"
-        if path.stat().st_size > max_bytes:
-            return None, f"file exceeds {max_bytes} bytes"
-        raw = path.read_text(encoding="utf-8", errors="replace")
-        return json.loads(raw), None
-    except (OSError, json.JSONDecodeError) as err:
-        return None, str(err)
 
 # Dimension 7 constants
 REQUIRED_FONT_ASSETS = (
@@ -100,11 +82,6 @@ HTTP_STATUS_RE = re.compile(rb"^HTTP/1\.[01]\s+(\d{3})\b([^\r\n]*)")
 # Dimension 9 constants
 DEFAULT_MAX_SKILL_WORDS = 2500
 DEFAULT_MAX_FRONTMATTER_WORDS = 120
-WILSON_Z_95 = 1.959963984540054
-MIN_RECOMMENDED_EVAL_RUNS = 12
-FLAKY_MIN_RUNS = 4
-FLAKY_LOW_RATE = 0.15
-FLAKY_HIGH_RATE = 0.85
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 _HELP_FLAG_RE = re.compile(r"(?:^|\s)(?:--help|-h)(?:\s|$)")
@@ -802,7 +779,7 @@ def run_surface_audit(
 
 
 # ============================================================================
-# Dimension 9 — Agent Skills, Burden Ratchet & Statistical Eval Audit
+# Dimension 9 — Agent Skills, Burden Ratchet & Transcript Firing Audit
 # ============================================================================
 
 
@@ -1013,240 +990,15 @@ def audit_transcript_skill_firing(
     }
 
 
-def wilson_ci(passes: int, total: int, z: float = WILSON_Z_95) -> tuple[float, float]:
-    """Compute exact Wilson score confidence interval (clamped to [0.0, 1.0]) using pure stdlib math."""
-    if total <= 0:
-        return 0.0, 1.0
-    if passes < 0 or passes > total:
-        raise ValueError(f"invalid Wilson inputs: passes={passes}, total={total}")
-    p = passes / total
-    z2 = z * z
-    denom = 1.0 + z2 / total
-    center = (p + z2 / (2.0 * total)) / denom
-    half = (z * math.sqrt((p * (1.0 - p)) / total + z2 / (4.0 * total * total))) / denom
-    return max(0.0, center - half), min(1.0, center + half)
-
-
-def _two_proportion_z(k1: int, n1: int, k2: int, n2: int) -> tuple[float, float]:
-    """Return `(z_score, two_sided_p_value)` comparing current `k1/n1` against baseline `k2/n2`."""
-    if n1 <= 0 or n2 <= 0:
-        return 0.0, 1.0
-    p1 = k1 / n1
-    p2 = k2 / n2
-    pooled = (k1 + k2) / (n1 + n2)
-    var = pooled * (1.0 - pooled) * (1.0 / n1 + 1.0 / n2)
-    if var <= 0.0:
-        return 0.0, 1.0
-    z = (p1 - p2) / math.sqrt(var)
-    p_val = math.erfc(abs(z) / math.sqrt(2.0))
-    return z, p_val
-
-
-def _parse_bool_pass(item: dict[str, Any]) -> bool | None:
-    for key in ("passed", "pass", "ok", "success"):
-        if key in item and isinstance(item[key], bool):
-            return item[key]
-    status = item.get("status")
-    if isinstance(status, str):
-        low = status.strip().lower()
-        if low in ("pass", "passed", "ok", "success"):
-            return True
-        if low in ("fail", "failed", "error"):
-            return False
-    return None
-
-
-def _parse_count_pair(item: dict[str, Any]) -> tuple[int, int] | None:
-    p_val = None
-    for key in ("pass_count", "passes", "passed_count", "n_pass"):
-        if key in item and isinstance(item[key], int) and not isinstance(item[key], bool):
-            p_val = item[key]
-            break
-    t_val = None
-    for key in ("total", "n", "runs", "trials", "total_runs"):
-        if key in item and isinstance(item[key], int) and not isinstance(item[key], bool):
-            t_val = item[key]
-            break
-    if p_val is not None and t_val is not None:
-        if t_val < 0 or p_val < 0 or p_val > t_val:
-            raise ValueError(f"invalid eval counts: pass_count={p_val}, total={t_val}")
-        return p_val, t_val
-    return None
-
-
-def _extract_eval_records(payload: Any) -> list[tuple[str, int, int]]:
-    if isinstance(payload, dict):
-        if isinstance(payload.get("results"), list):
-            items = payload["results"]
-        elif isinstance(payload.get("cases"), list):
-            items = payload["cases"]
-        elif isinstance(payload.get("cases"), dict):
-            items = [{"case": k, **v} for k, v in payload["cases"].items() if isinstance(v, dict)]
-        else:
-            raise ValueError("eval JSON object must contain 'results' or 'cases'")
-    elif isinstance(payload, list):
-        items = payload
-    else:
-        raise ValueError("eval JSON must be a list or an object with 'results'/'cases'")
-
-    records: list[tuple[str, int, int]] = []
-    for entry in items:
-        if not isinstance(entry, dict):
-            raise ValueError("each eval result entry must be a JSON object")
-        case_name = str(entry.get("case") or entry.get("eval_case") or entry.get("id") or entry.get("name") or "").strip()
-        if not case_name:
-            raise ValueError("eval result entry missing 'case' name")
-        skill_prefix = str(entry.get("skill") or "").strip()
-        full_name = f"{skill_prefix}/{case_name}" if skill_prefix and "/" not in case_name else case_name
-        counts = _parse_count_pair(entry)
-        if counts is not None:
-            records.append((full_name, counts[0], counts[1]))
-            continue
-        passed = _parse_bool_pass(entry)
-        if passed is None:
-            raise ValueError(f"eval entry {full_name!r} missing 'passed' or ('pass_count', 'total')")
-        records.append((full_name, 1 if passed else 0, 1))
-    return records
-
-
-def _load_eval_counts(paths: list[Path]) -> dict[str, tuple[int, int]]:
-    totals: dict[str, list[int]] = {}
-    for path in paths:
-        payload, err = _read_json_bounded(path)
-        if err is not None:
-            raise ValueError(f"invalid eval JSON {path}: {err}")
-        for case_name, p_cnt, t_cnt in _extract_eval_records(payload):
-            bucket = totals.setdefault(case_name, [0, 0])
-            bucket[0] += p_cnt
-            bucket[1] += t_cnt
-    return {k: (v[0], v[1]) for k, v in sorted(totals.items())}
-
-
-def _detect_baseline_regressions(
-    current: dict[str, dict[str, Any]],
-    baseline_counts: dict[str, tuple[int, int]],
-    triggers: list[str],
-) -> list[dict[str, Any]]:
-    regressions: list[dict[str, Any]] = []
-    for case_name, cur in current.items():
-        if case_name not in baseline_counts:
-            continue
-        b_pass, b_tot = baseline_counts[case_name]
-        c_pass, c_tot = cur["pass_count"], cur["total"]
-        if b_tot <= 0 or c_tot <= 0:
-            continue
-        b_rate = b_pass / b_tot
-        c_rate = c_pass / c_tot
-        if c_rate >= b_rate:
-            continue
-        b_low, b_high = wilson_ci(b_pass, b_tot)
-        c_low, c_high = cur["ci_low"], cur["ci_high"]
-        z_score, p_val = _two_proportion_z(c_pass, c_tot, b_pass, b_tot)
-        non_overlapping = c_high < b_low
-        z_significant = z_score < -WILSON_Z_95 and p_val < 0.05
-        if non_overlapping or z_significant:
-            regressions.append({
-                "case": case_name,
-                "baseline_pass_count": b_pass,
-                "baseline_total": b_tot,
-                "baseline_rate": round(b_rate, 4),
-                "baseline_ci": [round(b_low, 4), round(b_high, 4)],
-                "current_pass_count": c_pass,
-                "current_total": c_tot,
-                "current_rate": round(c_rate, 4),
-                "current_ci": [c_low, c_high],
-                "delta": round(c_rate - b_rate, 4),
-                "z_score": round(z_score, 3),
-                "p_value": round(p_val, 5),
-                "non_overlapping_ci": non_overlapping,
-            })
-            triggers.append(
-                f"eval_regression ({case_name}: {b_rate:.0%} -> {c_rate:.0%}, z={z_score:.2f}, p={p_val:.4f})"
-            )
-    return regressions
-
-
-def analyze_eval_results(
-    eval_json_paths: list[Path],
-    *,
-    baseline_path: Path | None = None,
-) -> dict[str, Any]:
-    """Compute Wilson 95% CIs, detect flaky/under-sampled cases, and check baseline regressions."""
-    counts = _load_eval_counts(eval_json_paths)
-    cases_out: dict[str, dict[str, Any]] = {}
-    flaky_cases: list[str] = []
-    under_sampled_cases: list[str] = []
-    triggers: list[str] = []
-
-    tot_passes = 0
-    tot_runs = 0
-    for case_name, (passes, total) in counts.items():
-        tot_passes += passes
-        tot_runs += total
-        rate = (passes / total) if total else 0.0
-        ci_low, ci_high = wilson_ci(passes, total)
-        is_flaky = total >= FLAKY_MIN_RUNS and FLAKY_LOW_RATE < rate < FLAKY_HIGH_RATE
-        is_under_sampled = 0 < total < MIN_RECOMMENDED_EVAL_RUNS and 0.0 < rate < 1.0
-
-        if is_flaky:
-            flaky_cases.append(case_name)
-            triggers.append(
-                f"eval_flaky_case ({case_name}: {passes}/{total} = {rate:.0%}, "
-                f"95% CI [{ci_low:.2f}, {ci_high:.2f}])"
-            )
-        if is_under_sampled:
-            under_sampled_cases.append(case_name)
-            triggers.append(
-                f"eval_under_sampled ({case_name}: n={total} < {MIN_RECOMMENDED_EVAL_RUNS} "
-                f"with non-deterministic rate {rate:.0%})"
-            )
-        cases_out[case_name] = {
-            "pass_count": passes,
-            "total": total,
-            "pass_rate": round(rate, 4),
-            "ci_low": round(ci_low, 4),
-            "ci_high": round(ci_high, 4),
-            "flaky": is_flaky,
-            "under_sampled": is_under_sampled,
-        }
-
-    regressions: list[dict[str, Any]] = []
-    if baseline_path is not None:
-        baseline_counts = _load_eval_counts([baseline_path])
-        regressions = _detect_baseline_regressions(cases_out, baseline_counts, triggers)
-
-    overall_low, overall_high = wilson_ci(tot_passes, tot_runs)
-    return {
-        "ok": not triggers,
-        "summary": {
-            "case_count": len(cases_out),
-            "total_passes": tot_passes,
-            "total_runs": tot_runs,
-            "overall_pass_rate": round(tot_passes / tot_runs, 4) if tot_runs else 0.0,
-            "overall_ci_95": [round(overall_low, 4), round(overall_high, 4)],
-            "flaky_count": len(flaky_cases),
-            "under_sampled_count": len(under_sampled_cases),
-            "regression_count": len(regressions),
-        },
-        "cases": cases_out,
-        "flaky_cases": flaky_cases,
-        "under_sampled_cases": under_sampled_cases,
-        "regressions": regressions,
-        "triggers": triggers,
-    }
-
-
 def run_skills_audit(
     *,
     repo_root: Path | None = None,
     tree_rev: str | None = None,
     transcripts: list[Path] | None = None,
-    eval_jsons: list[Path] | None = None,
-    eval_baseline: Path | None = None,
     max_skill_words: int = DEFAULT_MAX_SKILL_WORDS,
     max_frontmatter_words: int = DEFAULT_MAX_FRONTMATTER_WORDS,
 ) -> dict[str, Any]:
-    """Run Dimension 9 skill burden ratchet, eval coverage, transcript firing, and statistical eval audit."""
+    """Run Dimension 9 skill burden ratchet, eval coverage, and multi-session transcript firing audit."""
     root = _resolve_repo_root(repo_root)
     inventory = audit_skill_inventory(
         root,
@@ -1258,15 +1010,9 @@ def run_skills_audit(
         if transcripts
         else None
     )
-    eval_stats = (
-        analyze_eval_results(eval_jsons, baseline_path=eval_baseline)
-        if eval_jsons
-        else None
-    )
     triggers = [
         *inventory["triggers"],
         *(firing["triggers"] if firing else []),
-        *(eval_stats["triggers"] if eval_stats else []),
     ]
     out: dict[str, Any] = {
         "dimension": "D9_skills_eval_audit",
@@ -1274,7 +1020,6 @@ def run_skills_audit(
         "ok": not triggers,
         "inventory": inventory,
         "transcript_firing": firing,
-        "eval_stats": eval_stats,
         "triggers": triggers,
     }
     if tree_rev is not None:
@@ -1310,8 +1055,6 @@ def run_skills_audit_cmd(args: argparse.Namespace) -> None:
             repo_root=args.root,
             tree_rev=getattr(args, "_tree_rev", None),
             transcripts=list(args.transcripts or []) or None,
-            eval_jsons=list(args.eval_json or []) or None,
-            eval_baseline=args.eval_baseline,
             max_skill_words=args.max_skill_words,
             max_frontmatter_words=args.max_frontmatter_words,
         )
@@ -1339,13 +1082,11 @@ def register_surface_skill_parsers(commands: Any) -> None:
 
     skill_p = commands.add_parser(
         "skills-audit",
-        help="Dimension 9 audit: skill burden ratchet, eval coverage, multi-session skill firing, and Wilson 95%% CI eval stats",
+        help="Dimension 9 audit: skill burden ratchet, eval coverage, and multi-session transcript skill firing",
     )
     skill_p.add_argument("--root", type=Path, help="repository root directory (default: git top-level)")
     skill_p.add_argument("--tree", default=None, metavar="REV", help="optional git revision to audit via git archive instead of --root")
     skill_p.add_argument("--transcripts", type=Path, nargs="+", help="optional agent JSONL transcript files")
-    skill_p.add_argument("--eval-json", type=Path, nargs="+", help="optional multi-run eval result JSON files")
-    skill_p.add_argument("--eval-baseline", type=Path, help="optional baseline eval result JSON for regression comparison")
     skill_p.add_argument(
         "--max-skill-words",
         type=int,
