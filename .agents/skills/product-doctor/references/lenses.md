@@ -7,7 +7,7 @@ running, cut short and at a limit.
 
 ## Correctness
 
-- **results** [any]: one number against an outside original, a conservation sum, or an input made so its answer is known.
+- **results** [any]: verify quantitative estimators and `telemetry`'s `quiet_files` against outside originals, conservation sums, or adversarial ground-truth inputs — checking domain/support alignment on sign/direction tests (`[0, 1]` shares, counts, ratios), float64 residue vs exact zero (`np.ptp == 0`), liquidation/domain bounds (`log1p(-1)`), and fail-open null short-circuits in auditors.
 - **flow** [single pool]: research end to end on a temporary ledger and market, `line select` to
   `line close`, then Paper and `paper compare`, then Live's research-side refusals, short windows,
   no credential and no run; include misaligned multi-track start dates (bars vs `--metrics`, `--execution quotes`,
@@ -19,25 +19,28 @@ running, cut short and at a limit.
 - **gates** [empty failed partial]: every admission, eligibility and refusal with a state never
   started, failed or cut short; a stated reason is tested, not trusted, and a good case must pass.
 - **journey** [satisfiability independence remedy]: real-user end-to-end gate chain proofs per
-  [journey.md](journey.md) backed by `doctor.py gates-map`: prove joint satisfiability
-  (`A ∧ B ∧ C ∧ D ∧ E`) from an empty temporary environment using only real CLI/IDE commands (no
-  hand-forged internal state), prove per-gate independence (`¬X ∧ ⋀(Y≠X)`) to expose redundant or
-  shadowed gates, and close every refusal → remedy → clear loop without breaking prior gates.
+  [journey.md](journey.md): prove joint satisfiability (`A ∧ B ∧ C ∧ D ∧ E`) from an empty
+  temporary environment using only real CLI/IDE commands (no hand-forged internal state), prove
+  per-gate independence (`¬X ∧ ⋀(Y≠X)`) to expose redundant/shadowed gates or dead CLI choices,
+  and close every refusal → remedy → clear loop without breaking prior gates.
 
 ## Failure
 
 - **faults** [live docker]: fault fixtures (live loopback, fake Docker).
 - **interrupt** [any]: a many-step operation stopped after each step and resumed, on fakes that,
-  like the real thing, do not give back what the stopped step had consumed.
+  like the real thing, do not give back what the stopped step had consumed; check whether locks held
+  across slow I/O, subprocesses, or container replays can block emergency controls (`live stop`, `paper stop`, maintenance).
 - **operation** [any]: what an operator learns, and when, as a service degrades, stalls silently (`--prod-state`
-  invariants in [prod-ops.md](prod-ops.md)) or a disk fills.
-- **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting across
+  invariants in [prod-ops.md](prod-ops.md)), a feed 404s, or a disk fills — verify healthcheck and alert states
+  (e.g. `lagging`, daily summaries) are actually reachable under realistic upstream failures rather than masked by equal thresholds.
+- **lifecycle** [any]: first install, upgrade, idle, moving host, and contract delisting/reuse across
   month rollover (`market/follow + market/files + market/universe`), on copies.
 
 ## Contracts
 
 - **consumers** [ledger report cli ide]: one state through every reader; no stored column
-  without a reader.
+  without a reader; verify ingestion-vs-export domain parity, classification-vs-materialization parity,
+  and cache-invalidation diff filters against indirect reader dependencies.
 - **words** [any]: a document or help followed literally; published pages against the code they name.
 
 ## Scale

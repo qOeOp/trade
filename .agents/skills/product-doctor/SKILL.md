@@ -22,11 +22,16 @@ Research conclusions and experiment choice belong to `research-round`.
   one; hand it transcript paths, ledger commit range, checkout commit, and any attach evidence
   directory and diagnoses, nothing else; invoke this skill. Transcripts: [hosts.md](references/hosts.md).
 - Attach keeps the evidence of a running session: [attach.md](references/attach.md).
-- User-journey gate satisfiability, per-gate independence and refusal-remedy loops: `doctor.py gates-map` and [journey.md](references/journey.md).
+- User-journey gate satisfiability, per-gate independence and refusal-remedy loops: [journey.md](references/journey.md).
 
 ## Focused diagnosis
 
-One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examine what answers it and stop.
+One question or scoped subsystem: steps 3, 4, 6 and 7, then its issues (step 8) — skip `scope`/`report` and `advise`.
+Pass `--tree HEAD` when auditing a non-`origin/main` checkout. Route directly to the signal tools that fit the target:
+- Hotspots + cold untouched files inside a package: `doctor.py telemetry` (`fix_burst_files`, `break_even_files`, `quiet_files`).
+- IDE, Overview, fonts, routes and HTTP servers: `doctor.py surface` (plus `--http-target 127.0.0.1:<port>` on isolated servers).
+- Runtime pinning, security AST and doc-link drift: `doctor.py posture`; scaling regressions: `doctor.py cost --baseline`.
+- Falsifiable defect proof on a clean `git archive` tree: `doctor.py probe` (`probe()` + contrasting `control()`). Examine what answers the question and stop.
 
 ## Themed audit
 

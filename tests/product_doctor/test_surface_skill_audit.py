@@ -255,7 +255,7 @@ class Dimension7SurfaceAuditTests(unittest.TestCase):
         self.assertTrue(probe["ok"], probe)
         self.assertTrue(probe["liveness_ok"])
         self.assertEqual(probe["triggers"], [])
-        self.assertEqual(len(probe["checks"]), 8)
+        self.assertEqual(len(probe["checks"]), 9)
 
         # Also exercise CLI integration via doctor.py surface
         repo = self._build_clean_repo()

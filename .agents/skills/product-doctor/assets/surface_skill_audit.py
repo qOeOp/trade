@@ -418,8 +418,37 @@ def _check_overview_app_security(root: Path) -> tuple[dict[str, Any], list[dict[
     return info, issues
 
 
+PYTHON_HTTP_SERVERS = (
+    "paper/serve.py",
+    "ide/research_graph/serve.py",
+    "live/serve.py",
+    "ledger/replica.py",
+)
+RAW_CL_INT_RE = re.compile(r"\bint\s*\([^)\n]*headers\.get\s*\(\s*['\"]Content-Length['\"]", re.IGNORECASE)
+
+
+def _check_python_http_servers(root: Path) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for rel in PYTHON_HTTP_SERVERS:
+        path = root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in RAW_CL_INT_RE.finditer(text):
+            line_no = _line_number(text, m.start())
+            window = text[m.start():m.start() + 300]
+            if "< 0" not in window and "isdigit" not in window:
+                issues.append({
+                    "kind": "unguarded_content_length_parse",
+                    "file": rel,
+                    "line": line_no,
+                    "detail": "int(headers.get('Content-Length')) without negative/digit validation",
+                })
+    return issues
+
+
 def audit_ide_security_patterns(root: Path) -> dict[str, Any]:
-    """Scan `ide/web/src/` and `ide/overview/src/` for dangerous sinks, secret reads, and Host/URL order."""
+    """Scan `ide/web/src/`, `ide/overview/src/`, and Python HTTP servers for dangerous sinks and parsing bugs."""
     findings: list[dict[str, Any]] = []
     audited_static: list[dict[str, Any]] = []
     files_scanned = 0
@@ -432,6 +461,7 @@ def audit_ide_security_patterns(root: Path) -> dict[str, Any]:
 
     overview_check, overview_issues = _check_overview_app_security(root)
     findings.extend(overview_issues)
+    findings.extend(_check_python_http_servers(root))
 
     triggers = [
         f"{item['kind']} ({item['file']}:{item['line']})"
@@ -620,6 +650,14 @@ def _http_probe_cases(trusted_host: str, health_path: str) -> list[tuple[str, by
             (
                 f"POST /api/overview/snapshot HTTP/1.1\r\nHost: {trusted_host}\r\n"
                 "Content-Length: abc\r\nConnection: close\r\n\r\n"
+            ).encode("ascii"),
+            (400, 405, 411, 413),
+        ),
+        (
+            "negative_content_length",
+            (
+                f"POST /api/overview/snapshot HTTP/1.1\r\nHost: {trusted_host}\r\n"
+                "Content-Length: -1\r\nConnection: close\r\n\r\n"
             ).encode("ascii"),
             (400, 405, 411, 413),
         ),

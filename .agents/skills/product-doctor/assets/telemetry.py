@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 import hashlib
 import io
 import os
@@ -604,11 +605,31 @@ def _build_object_reports(
         t_paths = test_paths_by_code.get(name, [])
         t_lines = sum(tracked_lines.get(p, 0) for p in t_paths)
         colocated = [p for p in obj_paths.get(name, []) if is_test_path(p)]
-        prod_lines = max(1, meta["lines"] - sum(tracked_lines.get(p, 0) for p in colocated))
-        prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - sum(short["file_net"][p] for p in colocated)
+        is_test_obj = kinds[name] == "tests"
+        prod_lines = meta["lines"] if is_test_obj else max(1, meta["lines"] - sum(tracked_lines.get(p, 0) for p in colocated))
+        prod_net_short = (short["obj_added"][name] - short["obj_removed"][name]) - (
+            0 if is_test_obj else sum(short["file_net"][p] for p in colocated)
+        )
         prod_paths = [p for p in obj_paths.get(name, []) if not is_test_path(p) and not p.endswith(".md")]
+        quiet_files = sorted(
+            [
+                {
+                    "file": p,
+                    "lines": tracked_lines.get(p, 0),
+                    "last_commit_date": (
+                        datetime.fromtimestamp(file_latest_ts[p], tz=UTC).strftime("%Y-%m-%d")
+                        if file_latest_ts.get(p) else None
+                    ),
+                }
+                for p in prod_paths
+                if tracked_lines.get(p, 0) >= 50
+            ],
+            key=lambda x: (x["last_commit_date"] or "0000-00-00", -x["lines"], x["file"]),
+        )[:5]
+        eff_test_count = len(colocated) if is_test_obj else len(t_paths)
+        eff_test_lines = meta["lines"] if is_test_obj else t_lines
         objects_out[name] = {
-            "kind": kinds[name], "lines": prod_lines, "analyzed_files": len(o_files),
+            "kind": kinds[name], "lines": prod_lines, "analyzed_files": len(colocated) if is_test_obj else len(o_files),
             "commits_short": short["obj_commits"][name], "fixes_short": short["obj_fixes"][name],
             "reverts_short": short["obj_reverts"][name],
             "latest_code_ts": max((file_latest_ts.get(p, 0) for p in prod_paths), default=0),
@@ -617,15 +638,16 @@ def _build_object_reports(
             "net_short": prod_net_short, "abs_churn_short": short["obj_added"][name] + short["obj_removed"][name],
             "commits_long": long["obj_commits"][name], "fixes_long": long["obj_fixes"][name],
             "abs_churn_long": long["obj_added"][name] + long["obj_removed"][name],
-            "fix_burst_files": burst_files, "oscillation_ratio": max((r["oscillation_ratio"] for r in o_files), default=0.0),
+            "fix_burst_files": burst_files, "quiet_files": quiet_files,
+            "oscillation_ratio": max((r["oscillation_ratio"] for r in o_files), default=0.0),
             "min_health": min_health, "mean_health": mean_health,
             "max_cognitive": max((r["max_cognitive"] for r in o_files), default=0),
             "duplicate_fns": sum(r["duplicate_fns"] for r in o_files),
             "satd": sum(r["satd"] for r in o_files),
             "break_even_caution": min_health is not None and min_health < BREAK_EVEN_HEALTH,
             "unhealthy_fixes_short": sum(r["fixes_short"] + r["reverts_short"] for r in o_files if r["break_even_caution"]),
-            "test_file_count": len(t_paths), "test_lines": t_lines,
-            "test_to_prod_ratio": round(t_lines / prod_lines, 2) if t_lines else None,
+            "test_file_count": eff_test_count, "test_lines": eff_test_lines,
+            "test_to_prod_ratio": None if is_test_obj else (round(t_lines / prod_lines, 2) if t_lines else None),
             "test_net_short": sum(short["file_net"][p] for p in t_paths),
         }
     return objects_out
