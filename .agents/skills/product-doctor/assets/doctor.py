@@ -42,6 +42,7 @@ _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 import friction  # noqa: E402
+import journey_gates  # noqa: E402
 import prod_invariants  # noqa: E402
 import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
@@ -1086,6 +1087,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prod_invariants.register_prod_snapshot_parser(commands)
     runtime_posture.register_posture_parser(commands)
     surface_skill_audit.register_surface_skill_parsers(commands)
+    journey_gates.register_gates_map_parser(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1156,6 +1158,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         runtime_posture.run_posture_cmd,
         surface_skill_audit.run_surface_cmd,
         surface_skill_audit.run_skills_audit_cmd,
+        journey_gates.run_gates_map_cmd,
     ):
         return args.function(args)
     args.directory = args.directory.resolve()
