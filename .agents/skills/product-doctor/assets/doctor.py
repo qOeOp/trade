@@ -42,7 +42,6 @@ _ASSETS_DIR = str(Path(__file__).resolve().parent)
 if _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 import friction  # noqa: E402
-import journey_gates  # noqa: E402
 import prod_invariants  # noqa: E402
 import runtime_posture  # noqa: E402
 import scheduler  # noqa: E402
@@ -180,8 +179,25 @@ def git(*args: str) -> bytes:
     return done.stdout
 
 
+_WARNED_TREE_MISMATCH = False
+
+
 def commit(rev: str) -> str:
-    return git("rev-parse", "--verify", rev + "^{commit}").decode().strip()
+    global _WARNED_TREE_MISMATCH
+    resolved = git("rev-parse", "--verify", rev + "^{commit}").decode().strip()
+    if rev == "origin/main" and not _WARNED_TREE_MISMATCH:
+        try:
+            head_rev = git("rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+        except SystemExit:
+            head_rev = resolved
+        if head_rev != resolved:
+            _WARNED_TREE_MISMATCH = True
+            print(
+                f"note: --tree defaulted to origin/main ({resolved[:9]}), which differs from HEAD ({head_rev[:9]}); "
+                "pass --tree HEAD to audit this checkout",
+                file=sys.stderr,
+            )
+    return resolved
 
 
 @contextmanager
@@ -604,9 +620,10 @@ def unexamined(args: argparse.Namespace) -> None:
         raise SystemExit(f"{args.item} is not an audit item: {', '.join(items())}")
     if not args.why.strip():
         raise SystemExit("say what stopped it")
+    subject = f"{args.subject}:{ANY}" if args.subject.startswith("@") and ":" not in args.subject else args.subject
     if args.item != "fixed":  # whose subjects are commits
-        known(args.item, args.subject, commit("HEAD"))
-    keep(args.directory, {"kind": "unexamined", "item": args.item, "subject": args.subject, "why": args.why})
+        known(args.item, subject, commit("HEAD"))
+    keep(args.directory, {"kind": "unexamined", "item": args.item, "subject": subject, "why": args.why})
 
 
 def probe(args: argparse.Namespace) -> None:
@@ -1087,7 +1104,6 @@ def _build_parser() -> argparse.ArgumentParser:
     prod_invariants.register_prod_snapshot_parser(commands)
     runtime_posture.register_posture_parser(commands)
     surface_skill_audit.register_surface_skill_parsers(commands)
-    journey_gates.register_gates_map_parser(commands)
     adv_p = commands.add_parser("advise", help="closed-loop scheduler: actionable harm, oscillation/bloat slim triggers, friction, staleness SLA, and steady stopping gate")
     adv_p.add_argument("--days", type=int, default=14)
     adv_p.add_argument("--long-days", type=int, default=30)
@@ -1158,7 +1174,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         runtime_posture.run_posture_cmd,
         surface_skill_audit.run_surface_cmd,
         surface_skill_audit.run_skills_audit_cmd,
-        journey_gates.run_gates_map_cmd,
     ):
         return args.function(args)
     args.directory = args.directory.resolve()
