@@ -1,0 +1,1 @@
+- `paper resume` refuses with `PAPER_RECOVERY_UNAVAILABLE` instead of crashing when the run's universe or strategy input is missing or unreadable (#3789).
