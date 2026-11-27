@@ -35,12 +35,17 @@ MAX_SUMMARY_LEN = 160
 
 _INACTIVE_RUN_STATES = frozenset({"STOPPED", "SEALED", "ENDED", "DONE", "IDLE", "FAILED"})
 _SECRET_BASENAME_TOKENS = ("secret", "credential", "token", "key", "passwd", "password")
+_SECRET_DIR_TOKENS = ("secret", "secrets", "credential", "credentials")
 _SECRET_EXTENSIONS = frozenset({".pem", ".p12", ".pfx", ".key"})
 _DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 _ISO_TS_RE = re.compile(
     r"\b(20\d{2}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\b"
 )
-_DAILY_SUMMARY_RE = re.compile(r"(?:daily[\s_-]+summary|daily_summary|heartbeat)", re.IGNORECASE)
+_DAILY_SUMMARY_RE = re.compile(r"(?:daily[\s_-]+summary|daily_summary|heartbeat|@daily:)", re.IGNORECASE)
+_NOTIFY_FAIL_RE = re.compile(
+    r"\b(?:refused|not\s+sent|failed|failure|error|retried\s+later|exception|rejected|timeout)\b",
+    re.IGNORECASE,
+)
 
 _REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
@@ -85,17 +90,16 @@ def sanitize_text(text: str, max_len: int = MAX_SUMMARY_LEN) -> str:
 
 def _path_is_secret_candidate(candidate: Path) -> bool:
     name = candidate.name.lower()
-    if name == ".env" or name.startswith(".env.") or name == "telegram.json":
+    if name == ".env" or name.startswith(".env.") or name.endswith(".env") or name in ("telegram.json", "service.json"):
         return True
     if candidate.suffix.lower() in _SECRET_EXTENSIONS:
         return True
     if any(tok in name for tok in _SECRET_BASENAME_TOKENS):
         return True
     parts = [p.lower() for p in candidate.parts]
-    for idx in range(len(parts) - 1):
-        if parts[idx] == "dolt" and parts[idx + 1] == "service.json":
-            return True
-    return ".env" in parts
+    return ".env" in parts or any(
+        part in _SECRET_DIR_TOKENS or any(t in part for t in ("secret", "credential")) for part in parts
+    )
 
 
 def is_secret_path(path: Path) -> bool:
@@ -704,6 +708,8 @@ def _build_active_paper_entry(run_dir: Path, run_id: str, state: str, meta: dict
         ckpt_dt = _parse_iso(meta.get("last_checkpoint_at")) or _find_checkpoint_mtime(run_dir)
         if ckpt_dt is not None:
             entry["checkpoint_age_s"] = round(max(0.0, (as_of - ckpt_dt).total_seconds()), 1)
+        else:
+            entry["last_checkpoint_at"] = None
     return entry
 
 
@@ -734,6 +740,22 @@ def _inspect_run_dir(
         orphans.append({"id": run_id, "service": service, "age_s": _orphan_age_seconds(run_dir, meta, as_of)})
 
 
+def _extract_latest_daily_date(raw: dict[str, Any]) -> date | None:
+    latest_day: date | None = None
+    candidates: list[str] = [k for k in raw if isinstance(k, str)]
+    done = raw.get("done")
+    if isinstance(done, list):
+        candidates.extend(x for x in done if isinstance(x, str))
+    for item in candidates:
+        if "daily" not in item.lower():
+            continue
+        for match in _DATE_RE.findall(item):
+            parsed = _parse_date(match)
+            if parsed and (latest_day is None or parsed > latest_day):
+                latest_day = parsed
+    return latest_day
+
+
 def _collect_notify_json(path: Path, as_of: datetime, default_service: str, notes: list[str]) -> dict[str, Any] | None:
     raw, err = _read_json_bounded(path)
     if err is not None:
@@ -748,19 +770,27 @@ def _collect_notify_json(path: Path, as_of: datetime, default_service: str, note
         return out
     dt = _parse_iso(raw.get("last_daily_summary_at"))
     if dt is None:
-        latest_day: date | None = None
-        for key in raw:
-            if isinstance(key, str) and "daily" in key.lower():
-                for m in _DATE_RE.findall(key):
-                    d = _parse_date(m)
-                    if d and (latest_day is None or d > latest_day):
-                        latest_day = d
+        latest_day = _extract_latest_daily_date(raw)
         if latest_day is not None:
             dt = datetime(latest_day.year, latest_day.month, latest_day.day, tzinfo=UTC)
     if dt is not None:
         out["last_daily_summary_at"] = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         out["last_daily_summary_age_h"] = round(max(0.0, (as_of - dt).total_seconds()) / 3600.0, 2)
+    elif out["active"]:
+        out["missing"] = True
     return out
+
+
+def _read_bounded_lines(fh: Any, max_chars: int = MAX_LOG_LINE_CHARS) -> Any:
+    while True:
+        chunk = fh.readline(max_chars + 1)
+        if not chunk:
+            break
+        yield chunk[:max_chars]
+        while len(chunk) > max_chars and not chunk.endswith("\n"):
+            chunk = fh.readline(max_chars + 1)
+            if not chunk:
+                break
 
 
 def _collect_notify_log(path: Path, as_of: datetime, notes: list[str]) -> dict[str, Any] | None:
@@ -776,9 +806,8 @@ def _collect_notify_log(path: Path, as_of: datetime, notes: list[str]) -> dict[s
     latest_dt: datetime | None = None
     try:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
-            for raw_line in fh:
-                line = raw_line[:MAX_LOG_LINE_CHARS]
-                if not _DAILY_SUMMARY_RE.search(line):
+            for line in _read_bounded_lines(fh):
+                if not _DAILY_SUMMARY_RE.search(line) or _NOTIFY_FAIL_RE.search(line):
                     continue
                 m = _ISO_TS_RE.search(line)
                 dt = _parse_iso(m.group(1)) if m else None
@@ -799,6 +828,33 @@ def _collect_notify_log(path: Path, as_of: datetime, notes: list[str]) -> dict[s
     return out
 
 
+def _extract_compare_record(rec: dict[str, Any], default_svc: str) -> dict[str, Any]:
+    unexp = rec.get("unexplained")
+    count = max(_as_int(rec.get("unexplained_count")) or 0, len(unexp) if isinstance(unexp, list) else 0)
+    orders_differ = bool(rec.get("orders_differ", False))
+    positions_differ = bool(rec.get("positions_differ", False))
+    summary = rec.get("summary")
+    if isinstance(summary, dict):
+        for key in ("equity_unexplained_minutes", "unexplained_count", "unexplained"):
+            val = summary.get(key)
+            if isinstance(val, list):
+                count = max(count, len(val))
+            elif (ival := _as_int(val)) is not None:
+                count = max(count, ival)
+        if any((_as_int(summary.get(k)) or 0) > 0 for k in ("differs", "run_only", "replay_only")):
+            orders_differ = True
+    groups = rec.get("groups")
+    if isinstance(groups, list):
+        unexp_groups = sum(1 for g in groups if isinstance(g, dict) and str(g.get("cause") or "").lower() == "unexplained")
+        count = max(count, unexp_groups)
+    return {
+        "service": _normalize_service(rec.get("service") or rec.get("mode"), default=default_svc, allowed=("paper", "live", "engine")),
+        "unexplained_count": count,
+        "orders_differ": orders_differ,
+        "positions_differ": positions_differ,
+    }
+
+
 def _collect_compares(compare_paths: list[Path], notes: list[str]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for path in compare_paths:
@@ -808,16 +864,7 @@ def _collect_compares(compare_paths: list[Path], notes: list[str]) -> list[dict[
             continue
         default_svc = _normalize_service(path.stem, default="engine", allowed=("paper", "live", "engine"))
         items = [raw] if isinstance(raw, dict) else ([x for x in raw if isinstance(x, dict)] if isinstance(raw, list) else [])
-        for rec in items:
-            unexp = rec.get("unexplained")
-            unexp_cnt = _as_int(rec.get("unexplained_count"))
-            count = max(unexp_cnt or 0, len(unexp) if isinstance(unexp, list) else 0)
-            out.append({
-                "service": _normalize_service(rec.get("service") or rec.get("mode"), default=default_svc, allowed=("paper", "live", "engine")),
-                "unexplained_count": count,
-                "orders_differ": bool(rec.get("orders_differ", False)),
-                "positions_differ": bool(rec.get("positions_differ", False)),
-            })
+        out.extend(_extract_compare_record(rec, default_svc) for rec in items)
     return out
 
 

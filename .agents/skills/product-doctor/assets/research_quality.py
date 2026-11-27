@@ -13,7 +13,13 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Any
+
+_ASSETS_DIR = str(Path(__file__).resolve().parent)
+if _ASSETS_DIR not in sys.path:
+    sys.path.insert(0, _ASSETS_DIR)
+import prod_invariants  # noqa: E402
 
 RESEARCH_QUALITY_PREFIX = "research_quality:"
 RESEARCH_QUALITY_TARGETS = (
@@ -26,7 +32,7 @@ LENS_SLA_OVERRIDES: dict[str, int] = {
 
 MAX_LINE_CHARS = 2_000_000
 MAX_TEXT_SCAN = 16_384
-MAX_CACHED_FILES = 16
+MAX_CACHED_FILES = 128
 
 PARAM_CHURN_MIN_TRIALS = 5
 PARAM_CHURN_THRESHOLD = 0.70
@@ -51,20 +57,27 @@ RESEARCH_NOUNS = frozenset({
     "candidate", "hypothesis", "judgment", "evidence",
 })
 TRIAL_EXEC_VERBS = frozenset({
-    ("replay", "run"), ("replay", "explore"),
+    ("replay", "run"),
     ("trial", "run"), ("trial", "submit"), ("trial", "register"),
 })
-PREREG_VERBS = frozenset({("registration", "add"), ("preregistration", "add"), ("trial", "preregister")})
+PREREG_VERBS = frozenset({
+    ("registration", "add"), ("preregistration", "add"), ("trial", "preregister"),
+    ("validation", "registration"),
+})
 REPORT_ANALYSIS_VERBS = frozenset({
     ("replay", "report"), ("hypothesis", "compare"),
     ("research", "history"), ("research", "status"), ("evidence", "export"),
+    ("validation", "report"), ("research", "comparison"),
 })
 BACKING_VERBS = frozenset({
     ("replay", "report"), ("hypothesis", "compare"),
-    ("research", "history"), ("research", "status"),
+    ("research", "history"), ("research", "status"), ("research", "state"),
+    ("research", "comparison"), ("research", "runs"), ("validation", "report"),
     ("replay", "run"), ("replay", "explore"),
 })
 MULTI_TEST_VERBS = frozenset({("hypothesis", "compare"), ("research", "status")})
+REG_ID_FLAG_RE = re.compile(r"--registration(?:=|\s+)([^\s'\"]+)")
+VALIDATION_FLAG_RE = re.compile(r"(?:^|\s)--validation(?:=|\s|\b)")
 
 ANALYSIS_CMD_RE = re.compile(
     r"(?:\btables\s*\(|\breport\.runs\b|nautilus-report-analysis|\bcomparison\b|\battribution\b)",
@@ -126,7 +139,7 @@ SEG_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\n)\s*")
 
 TARGET_PREFIX_RE = re.compile(
     r"(?:target|goal|threshold|require[sd]?|must\s+be|aim(?:ing)?\s+for|bar|cap|floor|limit|"
-    r"目标|要求|阈值|不低于|不超过)\s*[:：]?\s*$",
+    r"目标|要求|阈值|不低于|不超过)",
     re.IGNORECASE,
 )
 METRIC_CLAIM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -332,6 +345,18 @@ def _scope_has_drift(declared: dict[str, set[str]], used: dict[str, set[str]]) -
     return False
 
 
+def _extract_nested_hyps(data: dict[str, Any], hyps: list[str]) -> None:
+    for field in ("hypothesis", "mechanism", "conjecture", "description", "difference", "changed_duties"):
+        val = data.get(field)
+        if val:
+            hyps.append(json.dumps(val, sort_keys=True) if isinstance(val, (list, dict)) else str(val))
+    for parent, key in (("prediction", "mechanism"), ("prediction", "hypothesis"), ("rationale", "conjecture"), ("rationale", "mechanism")):
+        sub = data.get(parent)
+        if isinstance(sub, dict) and sub.get(key):
+            val = sub[key]
+            hyps.append(json.dumps(val, sort_keys=True) if isinstance(val, (list, dict)) else str(val))
+
+
 def _extract_mechanism_from_cmd(seg: str, extra_text: str = "") -> tuple[str, str]:
     """Return `(strategy_family, masked_mechanism_text)` from a CLI segment and optional JSON text."""
     cand_m = CANDIDATE_FLAG_RE.search(seg)
@@ -349,10 +374,7 @@ def _extract_mechanism_from_cmd(seg: str, extra_text: str = "") -> tuple[str, st
         if isinstance(data, dict):
             if not family and data.get("candidate"):
                 family = VERSION_SUFFIX_RE.sub("", str(data["candidate"])).lower()
-            for field in ("hypothesis", "mechanism", "conjecture", "description", "difference", "changed_duties"):
-                val = data.get(field)
-                if val:
-                    hyps.append(json.dumps(val, sort_keys=True) if isinstance(val, (list, dict)) else str(val))
+            _extract_nested_hyps(data, hyps)
     mech = _mask_numeric_text(" | ".join(hyps)) if hyps else ""
     return family, mech
 
@@ -370,16 +392,22 @@ def _extract_unbacked_metric_claims(text: str) -> list[str]:
     return found
 
 
-def _compute_param_churn(trials: list[dict[str, str]]) -> float:
+def _compute_param_churn(trials: list[dict[str, Any]]) -> float:
     if len(trials) < 2:
         return 0.0
     churn = 0
     for prev, cur in zip(trials, trials[1:], strict=False):
-        same_mech = prev["mechanism"] == cur["mechanism"]
-        same_family = prev["family"] == cur["family"]
+        same_family = bool(cur["family"]) and prev["family"] == cur["family"]
         same_skel = prev["skeleton"] == cur["skeleton"]
-        if same_mech and (same_skel or (same_family and bool(cur["family"]))):
-            churn += 1
+        both_have_mech = bool(prev["mechanism"]) and bool(cur["mechanism"])
+        both_empty_mech = not prev["mechanism"] and not cur["mechanism"]
+        if both_have_mech:
+            if prev["mechanism"] == cur["mechanism"] and (same_skel or same_family):
+                churn += 1
+        elif both_empty_mech:
+            opaque = bool(prev.get("opaque_file") or cur.get("opaque_file"))
+            if same_family or (same_skel and not opaque):
+                churn += 1
     return round(churn / (len(trials) - 1), 3)
 
 
@@ -401,6 +429,8 @@ def _new_session_state() -> dict[str, Any]:
         "pending_backing": False,
         "last_call_role": "",
         "pending_failed_trial": False,
+        "pending_failed_reg_id": "",
+        "last_exec_reg_id": "",
         "analyzed_since_failure": False,
         "unattributed_pivot_count": 0,
         "pending_unbacked_claims": 0,
@@ -415,6 +445,7 @@ def _mark_backing_call(state: dict[str, Any]) -> None:
 
 def _record_trial_entry(
     state: dict[str, Any], bucket: str, seg: str, family: str, mech: str, scope: dict[str, set[str]],
+    opaque_file: bool = False,
 ) -> None:
     eff_family = family or state["pending_meta"]["family"]
     eff_mech = mech or state["pending_meta"]["mechanism"] or state["pending_prose_hyp"]
@@ -422,6 +453,7 @@ def _record_trial_entry(
         "family": eff_family,
         "mechanism": eff_mech,
         "skeleton": _mask_numeric_text(seg),
+        "opaque_file": opaque_file and not eff_mech,
     }
     state[bucket].append(entry)
     line_m = LINE_FLAG_RE.search(seg)
@@ -435,18 +467,22 @@ def _record_trial_entry(
         state["reg_line_window_counts"][f"{line_key}|{win_key}"] += 1
 
 
-def _resolve_extra_json(seg: str, cached_files: dict[str, str]) -> str:
+def _resolve_extra_json(seg: str, cached_files: dict[str, str]) -> tuple[str, bool]:
     m = JSON_FILE_FLAG_RE.search(seg)
     if not m:
-        return ""
+        return "", False
     raw_ref = m.group(1)
-    return cached_files.get(raw_ref) or cached_files.get(Path(raw_ref).name) or ""
+    found = cached_files.get(raw_ref) or cached_files.get(Path(raw_ref).name) or ""
+    return found, not bool(found)
 
 
-def _check_unattributed_pivot(state: dict[str, Any]) -> None:
+def _check_unattributed_pivot(state: dict[str, Any], next_reg_id: str = "") -> None:
     if state["pending_failed_trial"] and not state["analyzed_since_failure"]:
+        if next_reg_id and state.get("pending_failed_reg_id") == next_reg_id:
+            return
         state["unattributed_pivot_count"] += 1
         state["pending_failed_trial"] = False
+        state["pending_failed_reg_id"] = ""
 
 
 def _handle_cli_segment(state: dict[str, Any], seg: str) -> None:
@@ -458,10 +494,12 @@ def _handle_cli_segment(state: dict[str, Any], seg: str) -> None:
     pair = (m.group(1), m.group(2))
     if pair[0] in RESEARCH_NOUNS:
         state["research_session"] = True
-    extra = _resolve_extra_json(seg, state["cached_files"])
+    extra, opaque_file = _resolve_extra_json(seg, state["cached_files"])
     combined = f"{seg}\n{extra}" if extra else seg
     scope = _extract_scope(combined)
     family, mech = _extract_mechanism_from_cmd(seg, extra)
+    reg_m = REG_ID_FLAG_RE.search(seg)
+    reg_id = reg_m.group(1) if reg_m else ""
 
     if pair in REPORT_ANALYSIS_VERBS or (pair == ("research", "state") and "--history" in seg):
         state["analyzed_since_failure"] = True
@@ -477,7 +515,7 @@ def _handle_cli_segment(state: dict[str, Any], seg: str) -> None:
             state["active_prereg"] = scope
         if family or mech:
             state["pending_meta"] = {"family": family, "mechanism": mech}
-        _record_trial_entry(state, "reg_trials", seg, family, mech, scope)
+        _record_trial_entry(state, "reg_trials", seg, family, mech, scope, opaque_file=opaque_file)
         state["last_call_role"] = "prereg"
         return
 
@@ -492,11 +530,28 @@ def _handle_cli_segment(state: dict[str, Any], seg: str) -> None:
         return
 
     if pair in TRIAL_EXEC_VERBS:
-        _check_unattributed_pivot(state)
-        if state["active_prereg"] and _scope_has_drift(state["active_prereg"], scope):
+        _check_unattributed_pivot(state, next_reg_id=reg_id)
+        if state["active_prereg"] and not VALIDATION_FLAG_RE.search(seg) and _scope_has_drift(state["active_prereg"], scope):
             state["prereg_drift_count"] += 1
-        _record_trial_entry(state, "exec_trials", seg, family, mech, scope)
+        _record_trial_entry(state, "exec_trials", seg, family, mech, scope, opaque_file=opaque_file)
+        state["last_exec_reg_id"] = reg_id
         state["last_call_role"] = "trial_exec"
+
+
+def _cache_heredoc_files(cmd: str, cached_files: dict[str, str]) -> None:
+    if "<<" not in cmd or ">" not in cmd:
+        return
+    for pat in (
+        r"cat\s+<<['\"]?([A-Za-z0-9_]+)['\"]?\s*>\s*([^\s'\";]+)\s*\n(.*?)\n\1(?=\n|$)",
+        r"cat\s+>\s*([^\s'\";]+)\s+<<['\"]?([A-Za-z0-9_]+)['\"]?\s*\n(.*?)\n\2(?=\n|$)",
+    ):
+        for m in re.finditer(pat, cmd, re.DOTALL):
+            if len(cached_files) >= MAX_CACHED_FILES:
+                return
+            path_str = m.group(2) if pat.startswith("cat\\s+<<") else m.group(1)
+            body = m.group(3)
+            cached_files[path_str] = body
+            cached_files[Path(path_str).name] = body
 
 
 def _handle_tool_call(state: dict[str, Any], ev: dict[str, Any]) -> None:
@@ -526,6 +581,7 @@ def _handle_tool_call(state: dict[str, Any], ev: dict[str, Any]) -> None:
     cmd = ev["cmd"]
     if not cmd:
         return
+    _cache_heredoc_files(cmd, state["cached_files"])
     if ANALYSIS_CMD_RE.search(cmd) and not SEARCH_CMD_RE.search(cmd):
         state["analyzed_since_failure"] = True
         _mark_backing_call(state)
@@ -545,6 +601,7 @@ def _handle_tool_output(state: dict[str, Any], ev: dict[str, Any]) -> None:
         state["pending_backing"] = False
     if state["last_call_role"] == "trial_exec" and (is_err or FAILURE_OUT_RE.search(text)):
         state["pending_failed_trial"] = True
+        state["pending_failed_reg_id"] = state.get("last_exec_reg_id", "")
         state["analyzed_since_failure"] = False
     state["last_call_role"] = ""
 
@@ -556,6 +613,7 @@ def _handle_assistant_text(state: dict[str, Any], ev: dict[str, Any]) -> None:
         state["pending_prose_hyp"] = _mask_numeric_text(hyp_m.group(1))
     if state["exec_trials"] and FAILURE_PROSE_RE.search(text) and not state["analyzed_since_failure"]:
         state["pending_failed_trial"] = True
+        state["pending_failed_reg_id"] = state.get("last_exec_reg_id", "")
     has_backing = state["confirmed_backing_count"] > 0 or state["pending_backing"]
     if not has_backing:
         claims = _extract_unbacked_metric_claims(text)
@@ -620,8 +678,8 @@ def _inspect_transcript_quality(path: Path) -> dict[str, Any]:
     state = _new_session_state()
     try:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if not line.strip() or len(line) > MAX_LINE_CHARS:
+            for line in prod_invariants._read_bounded_lines(fh, MAX_LINE_CHARS):
+                if not line.strip():
                     continue
                 try:
                     obj = json.loads(line)
@@ -686,10 +744,9 @@ def _ledger_trial_mechanism(trial: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _load_ledger_payload(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise SystemExit(f"invalid --ledger-summary {path}: {error}") from None
+    raw, err = prod_invariants._read_json_bounded(path)
+    if err is not None:
+        raise SystemExit(f"invalid --ledger-summary {path}: {err}") from None
     if isinstance(raw, list):
         return [t for t in raw if isinstance(t, dict)], {}
     if isinstance(raw, dict):
@@ -831,24 +888,33 @@ def resolve_friction_targets(
     data = friction_data or {}
     ps_data = data.get("prod_state_summary")
     pl_data = data.get("prod_logs")
+    prod_objs: list[str] = []
+    has_prod = False
+    for sec, obj_key in ((ps_data, "affected_objects"), (pl_data, "affected_services")):
+        if isinstance(sec, dict) and sec.get("triggers"):
+            has_prod = True
+            prod_objs.extend(n for n in (sec.get(obj_key) or []) if n in tops and n not in prod_objs)
+    if has_prod:
+        if not prod_objs and ranked_objects:
+            prod_objs = [ranked_objects[0]["object"]]
+        return prod_objs[:3], ["operation"]
     ci_fired = bool(isinstance(data.get("ci"), dict) and data["ci"].get("triggers"))
     tx_fired = bool(isinstance(data.get("transcripts"), dict) and data["transcripts"].get("triggers"))
     rq_fired = has_research_quality_triggers(friction_data)
     f_objs: list[str] = []
     f_items: list[str] = []
-    for sec, obj_key in ((ps_data, "affected_objects"), (pl_data, "affected_services")):
-        if isinstance(sec, dict) and sec.get("triggers"):
-            f_objs.extend(n for n in (sec.get(obj_key) or []) if n in tops and n not in f_objs)
-            f_items.append("operation")
     if ci_fired:
         if ".github" in tops and ".github" not in f_objs:
             f_objs.append(".github")
         f_items.append("delivery")
     if rq_fired:
-        f_objs.extend(t for t in RESEARCH_QUALITY_TARGETS if t not in f_objs)
+        for target in RESEARCH_QUALITY_TARGETS:
+            top = target if target in tops else target.split("/", 1)[0]
+            if top in tops and top not in f_objs:
+                f_objs.append(top)
         f_items.extend(["agents", "burden"])
     if tx_fired:
-        if not rq_fired and ".agents" in tops and ".agents" not in f_objs:
+        if ".agents" in tops and ".agents" not in f_objs:
             f_objs.append(".agents")
         f_items.extend(["agents", "burden"])
     if not f_objs and ranked_objects:

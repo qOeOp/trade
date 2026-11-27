@@ -467,12 +467,13 @@ class ResearchQualitySchedulerAndMethodologyTests(unittest.TestCase):
         self.assertTrue(fric_out["has_friction"])
         self.assertTrue(any("research_quality:param_churn_ratio" in t for t in fric_out["triggers"]))
 
-        # Verify `doctor.py advise --ledger-summary` routes to research-round + nautilus-report-analysis.
+        # Verify `doctor.py advise --ledger-summary` routes to valid scan object(s) accepted by `doctor.py scope`
+        # while surfacing exact skill targets in `friction_summary.research_quality.targets`.
         plan = self.call_json("advise", "--tree", "HEAD", "--issues-json", empty_issues, "--ledger-summary", summary)
         self.assertEqual(plan["recommended_theme"], "friction")
-        self.assertEqual(
-            plan["recommended_scope"]["objects"],
-            [".agents/skills/research-round", ".agents/skills/nautilus-report-analysis"],
+        self.assertTrue(plan["recommended_scope"]["objects"])
+        self.assertTrue(
+            all(o == ".agents" or o in research_quality.RESEARCH_QUALITY_TARGETS for o in plan["recommended_scope"]["objects"])
         )
         self.assertIn("agents", plan["recommended_scope"]["items"])
         rq_summary = plan["friction_summary"]["research_quality"]
