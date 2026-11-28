@@ -263,7 +263,10 @@ the breach's code; Live refuses at once and takes the STOP path.
   least 605 seconds after the strategy submits it, by the strategy's clock (Binance's 600 seconds plus the margin
   Live leaves for an entry's account check, see [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
   positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
-  `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
+  `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load, as is one calling an order command
+  (`submit_order`, `modify_order(s)`, `cancel_order(s)`, `cancel_all_orders`, `close_position`, `market_exit`) on
+  anything but `self`: the rules, Paper and Live sit before the source, so `super().submit_order` or
+  `Strategy.submit_order(self, ...)` would reach the venue past them.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
   position ID) on the closing side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled
   quantity. Native order events do not name a resting stop's position, so the replay audit sums positions and stops

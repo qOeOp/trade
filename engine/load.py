@@ -173,6 +173,10 @@ class LoadedStrategy:
 
 # Order APIs outside engine.order_rules, refused when the source names them at all.
 FORBIDDEN_ORDER_APIS = frozenset({"submit_order_list", "bracket", "add_exec_algorithm", "close_all_positions"})
+# The native order commands the runner's classes (order rules, Paper, Live) put before the source: called on
+# anything but the bare `self` (`super().submit_order`, `Strategy.submit_order(self, ...)`), one resolves past them.
+ORDER_COMMANDS = frozenset({"submit_order", "modify_order", "modify_orders", "cancel_order", "cancel_orders",
+                            "cancel_all_orders", "close_position", "market_exit"})
 
 
 def load_strategy(
@@ -200,10 +204,15 @@ def load_strategy(
         raise Refusal("SOURCE_EXECUTION_FAILED", f"{type(exc).__name__}: {exc}") from exc
     if reach:
         raise Refusal("SOURCE_REACH", "; ".join(reach))
-    named = sorted({node.attr for node in ast.walk(ast.parse(source))
-                    if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_ORDER_APIS})
+    attributes = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Attribute)]
+    named = sorted({node.attr for node in attributes if node.attr in FORBIDDEN_ORDER_APIS})
     if named:
         raise Refusal("ORDER_RULE", f"the source names {', '.join(named)}, outside the order rules (engine.order_rules)")
+    past = sorted({f"line {node.lineno}: {ast.unparse(node)}" for node in attributes if node.attr in ORDER_COMMANDS
+                   and not (isinstance(node.value, ast.Name) and node.value.id == "self")})
+    if past:
+        raise Refusal("ORDER_RULE", f"{'; '.join(past)}: an order command called other than on self skips "
+                                    "the order rules (engine.order_rules)")
     source_path = source_path.resolve()
     module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)

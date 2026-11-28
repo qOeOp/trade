@@ -305,6 +305,26 @@ class StrategyLoaderTests(unittest.TestCase):
                     continue
                 self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
 
+    def test_an_order_command_called_other_than_on_self_is_refused(self):
+        """The runner's order rules, Paper and Live sit before the source: a `super()` or class-bound command
+        would resolve past them to the native Strategy and reach the venue unchecked (#3793)."""
+        for call, code in (("self.submit_order(order)", None),
+                           ("self.cancel_all_orders(order.instrument_id)", None),
+                           ("super().submit_order(order)", "ORDER_RULE"),
+                           ("Strategy.submit_order(self, order)", "ORDER_RULE"),
+                           ("sent = super()\n        sent.close_position(order)", "ORDER_RULE"),
+                           ("super(ProbeStrategy, self).cancel_order(order)", "ORDER_RULE"),
+                           ("super().modify_order(order)", "ORDER_RULE"),
+                           ("Strategy.market_exit(self)", "ORDER_RULE")):
+            changed = SOURCE + f"\n    def send(self, order):\n        {call}\n"
+            with self.subTest(call=call):
+                self.source.write_text(changed)
+                digest = hashlib.sha256(changed.encode()).hexdigest()
+                if code is None:
+                    self.load(digest=digest)
+                    continue
+                self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
+
     def test_the_execution_environment_is_a_runner_argument_in_the_effective_configuration(self):
         """--execution quotes needs both margin rates in (0, 1) with maintenance <= initial; bars takes none; the
         environment changes the effective configuration's account (so its digest and the comparability of runs),

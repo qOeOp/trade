@@ -1,0 +1,1 @@
+- A strategy source that calls an order command other than on `self` (`super().submit_order`, `Strategy.submit_order(self, ...)`, likewise modify, cancel, close and market exit) is refused at load (`ORDER_RULE`); such a call skipped the order rules, Paper's checks and Live's custody (#3793).
