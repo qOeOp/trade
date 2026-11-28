@@ -297,31 +297,37 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
     shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
 
 
-# A start selects its pool on the host clock before the ledger stamps its declaration (after the source copy and
-# admission, seconds later): a pool chosen up to this long before created_at is still its own.
+# A start chooses its contracts on the host clock before the ledger stamps its declaration (after the source copy and
+# admission, seconds later): contracts its scope gave up to this long before created_at are still its own.
 DECLARATION_GAP_NS = 3600 * 10**9
 
 
-def pool_retry(market: dict, prior: dict) -> bool:
-    """Whether a pool start may replay the start declared as `prior`: its contracts are the pool its market day held
-    at its declaration (nothing stored says a start took the pool). A market that no longer resolves that pool cannot
-    tell, and the retry replays."""
+def scope_retry(prior: dict, contracts) -> bool:
+    """Whether a start naming no contracts may replay the start declared as `prior`: nothing stored says how a start
+    chose them, so they must be among those its scope could give at its declaration, `contracts(at)` (the pool its
+    market day held, or any research replay's: two hosts' clocks cannot order those). A scope with no answer cannot tell,
+    and the retry replays."""
     moment, known = clock.moment_ns(prior["created_at"]), False
     for at in (moment, moment - DECLARATION_GAP_NS):
         try:
-            if selection(market, str(prior["market_day"]), None, at)[2] == prior["symbols"]:
+            chosen = contracts(at)
+            if prior["symbols"] in chosen:
                 return True
-            known = True
+            known = known or bool(chosen)
         except Refusal as exc:
             known = known or exc.code == "UNIVERSE_EMPTY"
     return not known
 
 
-def pool_retry_of(profile: db.LedgerProfile, market: dict, op_id: str) -> bool:
-    """pool_retry for the start `op_id` declared in the Paper database `profile`."""
+def retry_of(profile: db.LedgerProfile, op_id: str, market: dict | None, research: db.LedgerProfile) -> bool:
+    """scope_retry for the start `op_id` declared in the Paper database `profile`: of the pool of `market`, else of
+    the HTTP default, a research replay of its source on the research ledger `research`."""
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id)
-    return prior is not None and pool_retry(market, prior)
+    if prior is not None and market is not None:
+        return scope_retry(prior, lambda at: [selection(market, str(prior["market_day"]), None, at)[2]])
+    with db.read_as_of(research) as source:
+        return prior is not None and scope_retry(prior, lambda _: records.research_symbols(source, prior["source_sha256"]))
 
 
 @serialized
@@ -340,7 +346,8 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
             if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
-                    or (symbols != prior["symbols"] if symbols is not None else not pool_retry(market, prior))):
+                    or (symbols != prior["symbols"] if symbols is not None
+                        else not retry_of(profile, prior["op_id"], market, research))):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),

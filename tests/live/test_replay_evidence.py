@@ -209,6 +209,8 @@ class CandidateReadTests(unittest.TestCase):
                                  "source_sha256": hashlib.sha256(data).hexdigest(),
                                  "entry_class": "Fixture", "last_symbols": ["AAAUSDT", "BBBUSDT"]})
         self.assertEqual(caught.code, "LIVE_SOURCE_MISSING")
+        self.assertEqual(control.paper_records.research_symbols(world.conn, hashlib.sha256(data).hexdigest()),
+                         [["AAAUSDT", "BBBUSDT"]], "a Paper default retry's contracts")
 
 
 class EvidenceReadAheadTests(unittest.TestCase):

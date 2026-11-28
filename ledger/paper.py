@@ -128,11 +128,20 @@ def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict
     found = conn.one("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
                      "WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY t.trial_id DESC LIMIT 1",
                      (source_sha256,))
-    if found is None:
-        return None
-    symbols = [symbol for (symbol,) in conn.rows("SELECT symbol FROM trial_instrument WHERE trial_id = %s "
-                                                 "ORDER BY symbol", (found["trial_id"],))]
-    return {"trial_id": found["trial_id"], "symbols": symbols}
+    return None if found is None else {"trial_id": found["trial_id"], "symbols": [symbol for (symbol,) in conn.rows(
+        "SELECT symbol FROM trial_instrument WHERE trial_id = %s ORDER BY symbol", (found["trial_id"],))]}
+
+
+def research_symbols(conn: db.LedgerConnection, source_sha256: str) -> list[list[str]]:
+    """The contracts of each research replay of the source that ran, read on the research ledger: the defaults a paper
+    start of it could have taken."""
+    found: dict[int, list[str]] = {}
+    for trial_id, symbol in conn.rows(
+            "SELECT t.trial_id, i.symbol FROM trial t JOIN run r ON r.trial_id = t.trial_id JOIN trial_instrument i "
+            "ON i.trial_id = t.trial_id WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY i.symbol",
+            (source_sha256,)):
+        found.setdefault(trial_id, []).append(symbol)
+    return list(found.values())
 
 
 def seal_paper_run(conn: db.LedgerConnection, paper_id: int, files: dict[str, bytes]) -> dict:
