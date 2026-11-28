@@ -21,13 +21,13 @@ from registration import inputs as registration_inputs, precheck, register, seam
 from replay import entry, seams
 from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
-from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
+from tests.registration.world import LINE_WINDOW, RUNNER_ARGV, RUNNER_WINDOW
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
 from tests.runtime.test_image import FILES, branch_build, build_inspection, lock
 from tests.helpers import refused, tempdir
 
 
-ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
+ONE = RUNNER_WINDOW + ["--symbols", "AAAUSDT"]
 WEEK = [*ONE[:ONE.index("--end") + 1], "2026-01-08T00:00:00Z", *ONE[ONE.index("--end") + 2:]]  # a precheck window
 
 

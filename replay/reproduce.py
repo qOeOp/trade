@@ -39,7 +39,7 @@ def stored_runner_argv(stored: Mapping, input_start: datetime, trade_start: date
     recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
     selection = recorded["selection"]
     runner_argv = ["--start", _iso(input_start), "--trade-start", _iso(trade_start), "--end", _iso(trade_end),
-                   *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
+                   *(["--symbols", *selection["symbols"]] if "symbols" in selection else ["--universe", "pool"])]
     if recorded.get("lifecycle_bundle"):
         runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
     coverage = stored["capture"].get("input_coverage") or {}

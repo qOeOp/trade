@@ -33,9 +33,10 @@ MINUTE = 60_000
 DAY = 86_400_000
 FIRST = 1_766_534_400_000  # 2025-12-24T00:00:00Z
 END = 1_769_904_000_000  # 2026-02-01T00:00:00Z
-RUNNER = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z"]
+RUNNER = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
+          "--universe", "pool"]
 PRECHECK = ["--start", "2026-01-05T00:00:00Z", "--trade-start", "2026-01-06T00:00:00Z", "--end",
-            "2026-01-08T00:00:00Z"]
+            "2026-01-08T00:00:00Z", "--universe", "pool"]
 DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 5, "resamples": 999, "inner_resamples": 99,
           "seed": 7, "alpha": 0.05, "minimum_effect": 0.01, "design_reason": "five-day blocks for weekly cycles"}
 OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, change control",
@@ -288,7 +289,7 @@ class CommandTests(unittest.TestCase):
         explore = ("replay", "explore", *ledger, "--strategy-file", draft, "--strategy-class", "Fixture")
         self.refused("WINDOW_OUTSIDE_DEVELOPMENT", *explore, "--line", "fixture-trend", "--output",
                      str(self.tmp / "explore-outside"), "--", "--start", "2025-12-30T00:00:00Z", "--trade-start",
-                     "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
+                     "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z", "--universe", "pool")
         explored = self.ok(*explore, "--line", "fixture-trend", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
         self.assertEqual((explored["purpose"], explored["status"]), ("explore", "passed"))
         directory = self.ok("replay", "report", *ledger, "--directory", str(self.tmp / "explore"))

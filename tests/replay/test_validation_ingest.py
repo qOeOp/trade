@@ -74,7 +74,7 @@ class ValidationIngestTests(unittest.TestCase):
         opens, closes = self.windows[label]  # inputs start on a whole minute
         warm, start, end = (f"{moment:%Y-%m-%dT%H:%M:%SZ}" for moment in (opens.replace(second=0), opens, closes))
         return entry.run(self.world.profile, self.world.market, MARKET_DAY, "rsi@1", None,
-                         ["--start", warm, "--trade-start", start, "--end", end],
+                         ["--start", warm, "--trade-start", start, "--end", end, "--universe", "pool"],
                          validation=registration or self.registered[label])
 
     @contextlib.contextmanager

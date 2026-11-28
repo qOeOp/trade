@@ -19,14 +19,15 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(parsed["execution"], "bars")
         universe = runner.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--trade-start",
                                                 "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
-                                                "--lifecycle-bundle", "lifecycle-x"])
+                                                "--universe", "pool", "--lifecycle-bundle", "lifecycle-x"])
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
         self.assertEqual(runner.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end",
-                                                      "2026-02-01T00:00:00Z", "--execution=quotes"])["execution"],
+                                                      "2026-02-01T00:00:00Z", "--universe", "pool", "--execution=quotes"])["execution"],
                          "quotes")
         for bad in ("2025-12-31T00:00:00", "2025-13-01T00:00:00Z", "yesterday"):
             with self.subTest(time=bad):
-                caught = refused(runner.runner_inputs, ["--start", bad, "--end", "2026-02-01T00:00:00Z"])
+                caught = refused(runner.runner_inputs, ["--start", bad, "--end", "2026-02-01T00:00:00Z",
+                                                                "--universe", "pool"])
                 self.assertEqual(caught.code, "WINDOW_INVALID")
         caught = refused(runner.runner_inputs, ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
                                                 "--symbols"])
@@ -41,8 +42,12 @@ class RunnerTests(unittest.TestCase):
         for valid in ([*window, "--universe", "pool"], [*window, "--universe=pool"]):
             with self.subTest(valid=valid):
                 self.assertEqual(runner.runner_inputs(valid)["selection"], {"universe": True})
+        # neither is the whole pool chosen by omission (#3816); an abbreviation, which the runner refuses, is
+        # refused here too, beside a scope or in place of one (#3791)
         for bad in ([*window, "--universe", "bogus"], [*window, "--universe"],
-                    [*window, "--symbols", "AAAUSDT", "--universe", "pool"]):
+                    [*window, "--symbols", "AAAUSDT", "--universe", "pool"], window,
+                    [*window, "--univ", "pool"], [*window, "--sym", "AAAUSDT"],
+                    [*window, "--symbols", "AAAUSDT", "--univ", "pool"], [*window, "--universe", "pool", "--trade", "x"]):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(runner.runner_inputs, bad).code, "USAGE_ERROR")
 

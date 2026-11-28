@@ -28,8 +28,9 @@ OTHER_DAY = "n" * 32
 DEC31 = JAN - DAY  # 2025-12-31T00:00:00Z
 FEB = JAN + 31 * DAY
 LINE_WINDOW = {"start": DEC31, "trade_start": JAN, "end": FEB}
-RUNNER_ARGV = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end",
-               "2026-02-01T00:00:00Z"]
+RUNNER_WINDOW = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z", "--end",
+                 "2026-02-01T00:00:00Z"]
+RUNNER_ARGV = [*RUNNER_WINDOW, "--universe", "pool"]
 SYMBOLS = ["AAAUSDT", "BBBUSDT"]
 MONTHS = ["2025-11", "2025-12", "2026-01", "2026-02"]
 ACCOUNT = {"starting_balance_usdt": "100000", "execution": "bars", "default_leverage": "3", "oms_type": "HEDGING",
