@@ -332,7 +332,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(self.release.transaction.exists())
 
     def test_withdrawal_during_warmup_rolls_back_before_switch(self):
-        self.github.ensure.side_effect = [None, None, RuntimeError("eligibility withdrawn")]  # after the journal
+        self.github.ensure.side_effect = [None, RuntimeError("eligibility withdrawn")]  # after the journal
         with self.assertRaisesRegex(RuntimeError, "withdrawn"):
             self.release.apply(TARGET)
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
