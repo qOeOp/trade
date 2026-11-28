@@ -25,7 +25,7 @@ from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig
 
 from engine import klines, unsent
 from engine.config import terms_changed, venue_inactive, venue_terms
-from engine.order_rules import native_cache
+from engine.order_rules import native_cache, violation
 from engine.strategy import source_config
 
 ENTRY_GATE = ExecAlgorithmId("PAPER-GATE")  # ends an entry its source cancelled while it waited (engine.unsent)
@@ -142,6 +142,10 @@ class Waiting(unsent.Waiting):
     _runner_orders_allowed: Any
 
     def _paper_wait(self, order, send, *args) -> None:
+        """An entry the order rules refuse now (rule 8 during the warm-up) does not wait: it is submitted at once to be
+        refused, as in a replay, and as Live checks an entry before its account read."""
+        if violation(self, order, *args):
+            return send()
         queue(self._paper_entry_terms, self._paper_instrument_id, order, send, lambda: self._paper_end(order, *args))
 
     def _paper_end(self, order, position_id, client_id, params) -> None:
