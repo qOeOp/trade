@@ -166,7 +166,7 @@ class DoctorTests(unittest.TestCase):
                                             "artifact_sha256": None})
         self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Full audit"))
         self.call("unexamined", "parity", "@redis:restart", "no server")
-        self.assertIn("Not examined: parity/@redis:restart (no server).", self.call("report", "--tree", "HEAD"))
+        self.assertIn("| parity | @redis:restart | not examined | no server |", self.call("report", "--tree", "HEAD"))
         self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Partial audit"))
         self.call("run", "parity", "@redis:restart", "--", sys.executable, "-c", "print('restarted')")
         self.assertTrue(self.call("report", "--tree", "HEAD").startswith("# Full audit"))
@@ -227,6 +227,24 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(read["objects"]["shop"]["commits"], 2)
         self.assertEqual(read["outside"], {"@venue": "2026-01-02"})
         self.assertIn("in earlier records but not here: @venue.", self.call("report", "--tree", "HEAD"))
+
+    def test_scan_queues_what_records_left_unexamined_until_a_later_one_exercises_it(self):
+        self.commit({"docs/plans/doctor/2026-01-02-a.zh.md": "| gates | shop:partial | not examined | no fake |\n"
+                                                             "| parity | gone:x | not examined | moved |\n"
+                                                             "| cost | shop:a\\|b | not examined | big \\| slow |\n"
+                                                             "| results | shop:sum | examined | x |\n",
+                     "docs/plans/doctor/2026-01-05-b.zh.md": "| gates | shop:partial | examined | x |\n"
+                                                             "| words | tests:help | not examined | no time |\n"})
+
+        def queued():
+            out = io.StringIO()
+            with redirect_stdout(out):
+                doctor.main(["scan", "--tree", "HEAD"])
+            return [(row["item"], row["subject"], row["since"], row["why"]) for row in json.loads(out.getvalue())["unexamined"]]
+
+        self.assertEqual(queued(), [("cost", "shop:a|b", "2026-01-02", "big | slow"), ("words", "tests:help", "2026-01-05", "no time")])
+        self.commit({"docs/plans/doctor/2026-01-09-c.zh.md": "| words | tests:help | failed | x |\n"})
+        self.assertEqual([row[0] for row in queued()], ["cost"])
 
     def test_every_file_belongs_to_one_object_in_any_layout(self):
         self.git("rm", "-qr", ".")
