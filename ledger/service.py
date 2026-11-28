@@ -274,7 +274,9 @@ def _check_service(service_root: Path, config: dict) -> None:
             if unnamed:
                 raise refuse("SERVICE_CHECK_FAILED", f"service.json records databases no ledger profile in "
                                                      f"{profiles.home()} names at {service_root}: "
-                                                     f"{', '.join(unnamed)}", missing=tuple(unnamed))
+                                                     f"{', '.join(unnamed)}; put each one's profile there, naming "
+                                                     f"this service directory, and start again",
+                             missing=tuple(unnamed))
     finally:
         conn.close()
 
