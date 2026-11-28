@@ -35,7 +35,8 @@ every caller of that; list the states the changed code can meet, and exercise th
 it is fixed before the merge; a reading the base shares predates the change and becomes an issue (step 8).
 `doctor.py recheck COMMIT --tree BRANCH` says whether its own tests fail without it. State its net lines, product and
 tests apart, and the mechanisms, branches and tests it adds and removes; growth a smaller change avoids is a finding,
-shown by that change on a scratch copy passing the same probes. Report nothing unproven; stop at the change's reach.
+shown by that change on a scratch copy passing the same probes; on a file in `scan --days 28`'s `fixed_files`, that
+change is first a restatement of the file. Report nothing unproven; stop at the change's reach.
 
 ## Themed audit
 
@@ -50,7 +51,9 @@ the last two audits took it (harm aside); say why and what is left out:
 2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
    on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
-4. **Find** (`find`): otherwise. First `scan`'s `unexamined` rows, oldest first, each under its own item and subject
+4. **Find** (`find`): otherwise, unless open findings neither `authority` nor `claimed` outnumber twice those closed
+   in the last seven days, or the last two `find` records confirmed nothing above minor and `fixed_files` is empty:
+   then say which and stop; the user or a new version line restarts it. First `scan`'s `unexamined` rows, oldest first, each under its own item and subject
    (say which stay out of reach); then the object much changed or longest unexamined, `outside` too,
    under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
 
