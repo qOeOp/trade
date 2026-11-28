@@ -337,11 +337,12 @@ class Daemon:
         if not isinstance(candidate, str) or not candidate:
             raise Failure(400, "USAGE_ERROR", "the body names a candidate")
         if universe not in (None, "pool") or (symbols is not None and (
-                not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and SYMBOL.fullmatch(s)
-                                                                       for s in symbols))):
+                universe is not None or not isinstance(symbols, list) or not symbols
+                or not all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in symbols))):
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
         if operation and (prior := self.start_result(operation)["run"]):
-            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
+            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols) \
+                    or (universe is not None and prior["symbols"] != self.pool_of(operation)):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
         with db.read_as_of(self.research_profile) as source:
@@ -367,6 +368,13 @@ class Daemon:
         finally:
             with self.lock:
                 self.starting.discard(candidate)
+
+    def pool_of(self, operation: str) -> list[str] | None:
+        """The pool the start `operation` declared chose if it took the pool (runs.pool_of)."""
+        from shared import profiles
+        with db.connect(self.profile, "reader") as conn:
+            prior = records.paper_start_of(conn, operation)
+        return runs.pool_of(profiles.market(self.market), prior) if prior is not None else None
 
     def start_result(self, operation: str) -> dict:
         if not START_ID.fullmatch(operation):

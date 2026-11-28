@@ -1,5 +1,6 @@
 """Remote controls retain run identity, bound log access, and preserve the existing HTTP boundary."""
 from contextlib import contextmanager
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -13,7 +14,8 @@ from tests.helpers import refused
 
 OP = "paper-web:12345678-1234-4234-8234-123456789abc"
 ROW = {"paper_id": 8, "symbols": ["BTCUSDT"], "image_ref": "original@sha256:" + "a" * 64,
-       "config": {"candidate": "a@1", "leverage": "3"}}
+       "config": {"candidate": "a@1", "leverage": "3"}, "market_day": date(2026, 11, 27),
+       "created_at": datetime(2026, 11, 28, 9, 30)}
 
 
 @contextmanager
@@ -40,6 +42,35 @@ class StartIdentityTests(unittest.TestCase):
                     caught = refused(runs.start.__wrapped__, mock.Mock(), {}, None, candidate, symbols, None, op_id=OP,
                                      research=mock.Mock(), leverage=leverage)
                 self.assertEqual(caught.code, "OP_ID_CONFLICT")
+
+    def test_a_pool_retry_replays_only_a_start_that_chose_that_pool(self):
+        # Nothing stored says a start was a pool start; its contracts are compared with the pool its own market day
+        # held at its declaration, so reusing a --symbols start's operation for the pool is a conflict (#3667).
+        for pool, replayed in ((["BTCUSDT"], True), (["BTCUSDT", "ETHUSDT"], False)):
+            chose = mock.Mock(return_value=("2026-11-27", {}, pool))
+            with self.subTest(pool=pool), mock.patch.object(db, "connect", connection), \
+                    mock.patch.object(records, "paper_start_of", return_value=ROW), \
+                    mock.patch.object(runs, "selection", chose), \
+                    mock.patch("shared.profiles.market", return_value={}):
+                if replayed:
+                    profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
+                    found = runs.start.__wrapped__(profile, {}, None, "a@1", None, None, op_id=OP,
+                                                   research=mock.Mock())
+                    self.assertEqual(found["write_status"], "replayed")
+                else:
+                    caught = refused(runs.start.__wrapped__, mock.Mock(), {}, None, "a@1", None, None, op_id=OP,
+                                     research=mock.Mock())
+                    self.assertEqual(caught.code, "OP_ID_CONFLICT")
+                daemon = serve.Daemon.__new__(serve.Daemon)
+                daemon.profile, daemon.market = mock.Mock(), None
+                daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
+                if replayed:
+                    self.assertEqual(daemon.start({"candidate": "a@1", "universe": "pool", "op_id": OP})["paper_id"], 8)
+                else:
+                    caught = refused(daemon.start, {"candidate": "a@1", "universe": "pool", "op_id": OP},
+                                     error=serve.Failure)
+                    self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
+            chose.assert_called_with({}, "2026-11-27", None, 1795858200 * 10**9)
 
     def test_http_retry_precedes_mutable_default_selection(self):
         daemon = serve.Daemon.__new__(serve.Daemon)

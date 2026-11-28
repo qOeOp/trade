@@ -148,7 +148,8 @@ class GateTests(unittest.TestCase):
     def test_a_start_names_a_candidate_and_binance_symbols(self):
         daemon = serve.Daemon.__new__(serve.Daemon)
         for body in ({}, {"candidate": "a@1", "symbols": ["btc usdt"]}, {"candidate": "a@1", "symbols": []},
-                     {"candidate": "a@1", "universe": "all"}):
+                     {"candidate": "a@1", "universe": "all"},
+                     {"candidate": "a@1", "symbols": ["BTCUSDT"], "universe": "pool"}):
             with self.subTest(body):
                 caught = refused(daemon.start, body, error=serve.Failure)
             self.assertEqual(caught.body["code"], "USAGE_ERROR")

@@ -36,6 +36,8 @@ import uuid
 from deploy.release_host import RELEASE_MEMORY_MIB
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
 from ledger import db, paper as records, run_journal, strategies
+from shared import clock
+from shared.errors import Refusal
 from shared.files import atomic_write
 from shared.refusals import refuse
 from runtime import container, image
@@ -295,6 +297,18 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
     shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
 
 
+def pool_of(market: dict, prior: dict) -> list[str] | None:
+    """The pool the start declared as `prior` chose if it took the pool: the current-month members of its market day
+    at its declaration (None when that month has none). Nothing stored says a start took the pool, so a pool start
+    that reuses an operation replays it only when this equals the declared contracts."""
+    try:
+        return selection(market, str(prior["market_day"]), None, clock.moment_ns(prior["created_at"]))[2]
+    except Refusal as exc:
+        if exc.code != "UNIVERSE_EMPTY":
+            raise
+        return None
+
+
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, duration_seconds: int | None = None,
@@ -311,7 +325,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
             if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
-                    or (symbols is not None and symbols != prior["symbols"])):
+                    or prior["symbols"] != (symbols if symbols is not None else pool_of(market, prior))):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
