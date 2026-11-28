@@ -21,7 +21,7 @@ from unittest import mock
 from engine.live_errors import LiveRefusal
 from shared.errors import Refusal
 from live import compare
-from replay import comparison as shared, rerun
+from replay import comparison as shared, equity, rerun
 from tests.helpers import refused
 
 
@@ -406,13 +406,14 @@ class Compare(unittest.TestCase):
         # Minute 1: archive MARK close 0.93241752 -> rounded 0.9324 -> exact Nautilus rounding delta = 0.37515926 USDT.
         # Minute 2: archive MARK close 0.93314173 -> rounded 0.9331 -> exact delta = 0.89357284; add +0.01 USDT -> unexplained.
         # Minute 3: result is None -> omitted from equity and taken.
+        # observed_ns is the host clock, 50 ms behind or 2 s ahead of the venue here: taken is the minute's end.
         events = [{"event": "started", "observation": "connected-account-1.json", "observed_ns": START - 10**9},
                   {"event": "warmup", "at_ns": START},
                   *({"event": "order", "native": event} for event in xrp_orders("L", "P-1")),
                   {"event": "minute_result", "minute_ns": START, "observed_ns": START + MINUTE + 10**8, "result": "0"},
-                  {"event": "minute_result", "minute_ns": START + MINUTE, "observed_ns": START + 2 * MINUTE + 10**8,
+                  {"event": "minute_result", "minute_ns": START + MINUTE, "observed_ns": START + 2 * MINUTE - 5 * 10**7,
                    "result": "0.37515926"},
-                  {"event": "minute_result", "minute_ns": START + 2 * MINUTE, "observed_ns": START + 3 * MINUTE + 10**8,
+                  {"event": "minute_result", "minute_ns": START + 2 * MINUTE, "observed_ns": START + 3 * MINUTE + 2 * 10**9,
                    "result": "0.90357284"},
                   {"event": "minute_result", "minute_ns": START + 3 * MINUTE, "observed_ns": START + 4 * MINUTE + 10**8,
                    "result": None}]
@@ -426,9 +427,18 @@ class Compare(unittest.TestCase):
 
         pack = compare.read_pack(directory)
         built = compare.parts(pack, "100000", account, [])
-        self.assertEqual(built["taken"], {START: START + MINUTE + 10**8,
-                                          START + MINUTE: START + 2 * MINUTE + 10**8,
-                                          START + 2 * MINUTE: START + 3 * MINUTE + 10**8})
+        self.assertEqual(built["taken"], {START: START + MINUTE, START + MINUTE: START + 2 * MINUTE,
+                                          START + 2 * MINUTE: START + 3 * MINUTE})
+        # A host clock behind the venue moves no fill out of its minute: an entry both sides filled 20 ms before
+        # minute 1's end leaves minute 1's unrelated 0.5 USDT difference unexplained, not fill_timing.
+        fills = {side: {"order": f"{side}-E", "fill": {"ts_ns": START + 2 * MINUTE - 2 * 10**7, "qty": "21413.2",
+                                                      "px": "0.9340", "commission": "0"}} for side in ("run", "replay")}
+        compared = [{"instrument": xrp, "side": "SELL", "class": "same",
+                     "orders": [{"role": "ENTRY", "side": "SELL", **fills}]}]
+        self.assertEqual([item["cause"] for item in equity.equity_differences(
+            [(START + MINUTE, Decimal("100000.5"))], {START + MINUTE: Decimal("100000")}, compared,
+            built["taken"], (), {"XRPUSDT": {START + MINUTE: Decimal("0.93241752")}}, {"XRPUSDT": 4})],
+            ["unexplained"])
 
         mark_closes = {0: "0.9340", 1: "0.93241752", 2: "0.93314173", 3: "0.93302071"}
 

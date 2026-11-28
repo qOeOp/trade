@@ -102,18 +102,19 @@ def equity_differences(run_equity: list[tuple[int, Decimal]], replayed: Mapping[
     `orders_differ` when a group that differs has a fill on either side by then (the equity follows the order
     differences already attributed), else `fill_timing` when an order filled on both sides is counted in the minute on
     one side only, else `held` when a held Paper run was down in the minute (`paused`: the [pause, resume] of each held
-    interruption, paper.compare), else `mark_rounding` when the run recorded when it took the minute's value (`taken`) and the difference
-    is exactly the one its price-precision marks make on the open positions (mark_rounding, to metrics.MONEY; user
-    2026-11-24, 「授权全部按建议修」), else `unexplained`; `orders` names the run's orders of that cause. A run values a
-    minute at the last mark it received in it, and from its pause until its held recovery went live after the resume
-    it received none, so it values the minute it paused in at a mark from before then, not at the minute's last mark
-    (Paper runs 3 and 4, 2026-11-18).
+    interruption, paper.compare), else `mark_rounding` when the run says when it took the minute's value (`taken`) and
+    the difference is exactly the one its price-precision marks make on the open positions (mark_rounding, to
+    metrics.MONEY; user 2026-11-24, 「授权全部按建议修」), else `unexplained`; `orders` names the run's orders of that cause. A
+    run values a minute at the last mark it received in it, and from its pause until its held recovery went live after
+    the resume it received none, so it values the minute it paused in at a mark from before then, not at the minute's
+    last mark (Paper runs 3 and 4, 2026-11-18).
 
     A replay values a minute after its bar's close, the fills that bar caused included, at the MARK bar's close. A run
     values it when it took the minute's value (`taken`: {minute: the run clock then}; Paper's snapshot, at the next
-    minute's first mark, by default the minute's end), before the minute's bar reached its source: the fills that bar
-    caused fall in the next minute (audit runs 52 to 54, 2026-11-15: a BTC entry's commission and its open profit to
-    the minute's MARK close, 0.10 to 0.12 USDT)."""
+    minute's first mark; Live's, the minute's end, as its host clock is not its fills' venue clock; by default the
+    minute's end), before the minute's bar reached its source: the fills that bar caused fall in the next minute (audit
+    runs 52 to 54, 2026-11-15: a BTC entry's commission and its open profit to the minute's MARK close, 0.10 to 0.12
+    USDT)."""
     found = []
     for minute, value in run_equity:
         if minute not in replayed or abs(value - replayed[minute]) <= metrics.MONEY:
