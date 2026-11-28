@@ -180,9 +180,9 @@ def _passes(measures: dict, targets: dict, short: bool = False) -> bool:
     return (short or measures["annual_return"] >= targets["annual_return"]) and measures["mark_max_drawdown"] <= targets["max_drawdown"]
 
 
-def _read(measures: dict | None) -> bool:
-    """Whether a segment has both readings the targets are judged on."""
-    return measures is not None and None not in (measures["annual_return"], measures["mark_max_drawdown"])
+def _read(measures: dict | None, short: bool = False) -> bool:
+    """Whether a segment has the readings the targets are judged on: a `short` veto year its drawdown alone."""
+    return measures is not None and measures["mark_max_drawdown"] is not None and (short or measures["annual_return"] is not None)
 
 
 def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tuple[dict, list[str]]:
@@ -204,7 +204,7 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
               if not cell["short"] and cell["measures"]["annual_return"] is not None]
     drawdown = [cell["measures"]["mark_max_drawdown"] for cell in read if cell["measures"]["mark_max_drawdown"] is not None]
     replayed = {cell["label"] for cell in cells if cell["kind"] == "veto"}
-    missing = sorted([*(f"veto {year}" for year, cell in years.items() if not _read(cell.get("measures"))),
+    missing = sorted([*(f"veto {year}" for year, cell in years.items() if not _read(cell.get("measures"), cell["short"])),
                       *(f"veto {year}" for year, passed in part.items() if not passed),
                       *(f"veto {year}" for year in set(planned) - replayed)])
     found = {"whole_years": len(years), "profitable_years": sum(value > 0 for value in annual),
