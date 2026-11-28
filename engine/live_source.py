@@ -7,9 +7,9 @@ from pathlib import Path
 import time
 from datetime import UTC, datetime
 from typing import Any
-from nautilus_trader.model import BarType, OrderSide
+from nautilus_trader.model import BarType
 from nautilus_trader.trading import Strategy
-from engine import history, metrics, strategy as strategy_runtime
+from engine import history, metrics, strategy as strategy_runtime, unsent
 from engine.live_venue import VENUES
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal, read_regular_file
@@ -35,7 +35,7 @@ class LiveClock(strategy_runtime.GuardedClock):
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
 
 
-class _LiveConfigured(history.Warming, metrics.Feed):
+class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
     config: Any
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
@@ -140,66 +140,30 @@ class _LiveConfigured(history.Warming, metrics.Feed):
             raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction needs this strategy's current native account position")
         return position
 
-    def _cancel_unsent(self, match=lambda order: True) -> set:
+    def _unsent_held(self) -> list[tuple[Any, bool]]:
+        own = strategy_ids(self._live.manifest)[self._live_symbol]
+        return [(pending.order, pending.order.strategy_id == own)
+                for pending in [*self._live.pending_entries, *self._live.source_canceled]]
+
+    def _unsent_cancel(self, match) -> set:
         own = strategy_ids(self._live.manifest)[self._live_symbol]
         return commands.cancel_unsent(self._live, lambda order: order.strategy_id == own and match(order))
 
-    def _refuse_unsent(self, match) -> None:
+    def _unsent_holds(self, instrument_id) -> bool:
+        return instrument_id == contract(self._live_symbol)
+
+    def _unsent_check(self) -> None:
+        commands.require_connection(self._live)
+
+    def _unsent_refuse(self) -> None:
         """A cancel the order rules refuse, of an entry that waits unsent, ends the run: none may be sent after it."""
-        live = self._live
-        if any(match(pending.order) for pending in [*live.pending_entries, *live.source_canceled]):
-            commands.refuse_entries(live, CODE, "a strategy cancels only its own orders, without parameters")
-
-    def _foreign(self, client_order_ids) -> list:
-        """Another instance's unsent entry is a known order too (engine.order_rules rule 6)."""
-        ids, own = list(client_order_ids), strategy_ids(self._live.manifest)[self._live_symbol]
-
-        def match(order):
-            return order.strategy_id != own and order.client_order_id in ids
-        found = [str(pending.order.client_order_id) for pending in
-                 [*self._live.pending_entries, *self._live.source_canceled] if match(pending.order)]
-        self._refuse_unsent(match)
-        return super()._foreign(ids) + found  # type: ignore[misc]  # OrderRules, after this class
-
-    def cancel_order(self, client_order_id, client_id=None, params=None):
-        commands.require_connection(self._live)
-        if params:
-            self._refuse_unsent(lambda order: order.client_order_id == client_order_id)
-        elif self._cancel_unsent(lambda order: order.client_order_id == client_order_id):
-            return None
-        return super().cancel_order(client_order_id, client_id, params)
-
-    def cancel_orders(self, client_order_ids, client_id=None, params=None):
-        commands.require_connection(self._live)
-        ids = list(client_order_ids)
-        if params:
-            self._refuse_unsent(lambda order: order.client_order_id in ids)
-        else:
-            unsent = self._cancel_unsent(lambda order: order.client_order_id in ids)
-            ids = [cid for cid in ids if cid not in unsent]
-            if unsent and not ids:
-                return None
-        return super().cancel_orders(ids, client_id, params)
+        commands.refuse_entries(self._live, CODE, "a strategy cancels only its own orders, without parameters")
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None,
                        reduce_only=None, quote_quantity=None, params=None):
         commands.require_connection(self._live)
         current = self.owned_position(position.id if position is not None else None)
         return super().close_position(current, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
-
-    def market_exit(self):
-        commands.require_connection(self._live)
-        if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]  # else natively ignored
-            self._cancel_unsent()
-        return super().market_exit()
-
-    def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
-        commands.require_connection(self._live)
-        if params or not strategy_only:
-            self._refuse_unsent(lambda order: order.instrument_id == instrument_id)
-        elif instrument_id == contract(self._live_symbol):
-            self._cancel_unsent(lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
-        return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
 
     def shutdown_system(self, reason=None):
         self._live.begin_stop("source_shutdown", source_reason=str(reason)[:1000] if reason is not None else None)

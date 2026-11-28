@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-from nautilus_trader.model import ExecAlgorithmId, OrderSide, StrategyId
+from nautilus_trader.model import ExecAlgorithmId, StrategyId
 from nautilus_trader.trading import ExecutionAlgorithm, ExecutionAlgorithmConfig, Strategy
 
 from engine import klines, unsent
@@ -134,9 +134,8 @@ def add_gate(node) -> None:
     node.add_exec_algorithm(ExecutionAlgorithm(ExecutionAlgorithmConfig(exec_algorithm_id=ENTRY_GATE)))
 
 
-class Waiting:
-    """The source's cancels reach its entries that wait in QUEUE, which the native cache does not hold; before the order
-    rules (OrderRules comes after this class)."""
+class Waiting(unsent.Waiting):
+    """An entry waits in QUEUE; nothing more happens on a cancel the order rules refuse."""
 
     _paper_instrument_id: str
     _paper_entry_terms: Any
@@ -154,37 +153,11 @@ class Waiting:
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
-    def _foreign(self, client_order_ids) -> list:
-        """Another instance's waiting entry is a known order too (engine.order_rules rule 6)."""
-        ids = list(client_order_ids)
-        return super()._foreign(ids) + [str(item.order.client_order_id) for item in QUEUE  # type: ignore[misc]
-                                        if item.instrument_id != self._paper_instrument_id
-                                        and item.order.client_order_id in ids]
+    def _unsent_held(self) -> list[tuple[Any, bool]]:
+        return [(item.order, item.instrument_id == self._paper_instrument_id) for item in QUEUE]
 
-    def cancel_order(self, client_order_id, client_id=None, params=None):
-        if not params and cancel(self._paper_instrument_id, lambda order: order.client_order_id == client_order_id):
-            return None
-        return super().cancel_order(client_order_id, client_id, params)  # type: ignore[misc]
+    def _unsent_cancel(self, match: Callable[[Any], bool]) -> set:
+        return cancel(self._paper_instrument_id, match)
 
-    def cancel_orders(self, client_order_ids, client_id=None, params=None):
-        ids = list(client_order_ids)
-        if not params:
-            waiting = cancel(self._paper_instrument_id, lambda order: order.client_order_id in ids)
-            ids = [identity for identity in ids if identity not in waiting]
-            if waiting and not ids:
-                return None
-        return super().cancel_orders(ids, client_id, params)  # type: ignore[misc]
-
-    def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
-        if strategy_only and not params and str(instrument_id) == self._paper_instrument_id:
-            cancel(self._paper_instrument_id,
-                   lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
-        return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only,  # type: ignore[misc]
-                                         params)
-
-    def market_exit(self):
-        """The native exit cancels the orders in its cache; the entries that wait are the source's working orders too.
-        A call natively ignored (not running, or exiting already) cancels none."""
-        if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]
-            cancel(self._paper_instrument_id, lambda order: True)
-        return super().market_exit()  # type: ignore[misc]
+    def _unsent_holds(self, instrument_id) -> bool:
+        return str(instrument_id) == self._paper_instrument_id
