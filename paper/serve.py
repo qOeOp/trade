@@ -43,6 +43,7 @@ from market.sources import SYMBOL  # a contract named as the market holds it, as
 from shared.http import body_length, encode, send_json, trusted
 from shared.errors import Refusal, printed_refusal
 from shared.failures import FAILURES, failure_records
+from shared import profiles
 from shared.refusals import refuse
 from paper import compare, runs
 from replay import comparison
@@ -330,18 +331,18 @@ class Daemon:
         return found
 
     def start(self, body: dict) -> dict:
-        candidate, symbols, universe = body.get("candidate"), body.get("symbols"), body.get("universe")
-        operation = body.get("op_id")
+        candidate, symbols, universe, operation = (body.get(k) for k in ("candidate", "symbols", "universe", "op_id"))
         if operation is not None and (not isinstance(operation, str) or not START_ID.fullmatch(operation)):
             raise Failure(400, "USAGE_ERROR", "op_id is paper-web:<UUID v4>")
         if not isinstance(candidate, str) or not candidate:
             raise Failure(400, "USAGE_ERROR", "the body names a candidate")
         if universe not in (None, "pool") or (symbols is not None and (
-                not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and SYMBOL.fullmatch(s)
-                                                                       for s in symbols))):
+                universe is not None or not isinstance(symbols, list) or not symbols
+                or not all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in symbols))):
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
         if operation and (prior := self.start_result(operation)["run"]):
-            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
+            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols) \
+                    or (universe is not None and not runs.pool_retry_of(self.profile, profiles.market(self.market), operation)):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
         with db.read_as_of(self.research_profile) as source:
@@ -554,7 +555,6 @@ class Daemon:
 
     def write_months(self, run: dict) -> None:
         """Give a running run each new month's membership file once the market holds that month (runs.write_months)."""
-        from shared import profiles
         try:
             runs.write_months(profiles.market(self.market), runs.run_dir(self.profile, run["paper_id"]),
                               list(run["symbols"]), f"{run['created_at']:%Y-%m}")
