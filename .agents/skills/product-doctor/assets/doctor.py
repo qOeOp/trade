@@ -330,8 +330,12 @@ def scan(args: argparse.Namespace) -> None:
         for name in touched:
             table[name]["commits"] += 1
             table[name]["fixes"] += is_fix
+    # The tenth of fixed files fixed most often (three times at least): these are fixed again far more than the rest.
+    counts = sorted(fixed.values())
+    bar = max(3, counts[len(counts) * 9 // 10]) if counts else 3
     print(json.dumps({"tree": rev, "days": args.days, "objects": table,
-                      "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
+                      "fixed_files": dict(sorted(((path, count) for path, count in fixed.items() if count >= bar),
+                                                 key=lambda pair: (-pair[1], pair[0]))),
                       "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
                       "items": {name: by_item.get(name) for name in items()}, "unexamined": queue}, indent=1))
 
