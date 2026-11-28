@@ -304,6 +304,21 @@ class MarkEquityTests(unittest.TestCase):
         self.assertEqual([point["equity"] for point in path], [Decimal(100100), Decimal(100100), Decimal(100100)])
         self.assertEqual(metrics.mark_drawdown(self.SUMMARY, path)["max_drawdown"], 0.0)
 
+    def test_a_position_closed_after_the_trough_label_counts_once_in_the_drawdown_split(self):
+        # The day-2 long closes 30 s after the day-3 trough label: that label's exposure row holds it as of the label
+        # (marked -400), and its closed cycle counts only from a later label (issue 3652).
+        reports, closing = native(), JAN + 2 * DAY + LABEL + 30 * 10**9
+        exit_fill = fill("O-4", "SELL", "70", closing, "E-4", "TAKER")
+        reports.fills.append(exit_fill)
+        reports.orders[-1].update(status="FILLED", filled_qty="1", ts_last=str(closing))
+        reports.positions[-1] = position(f"{IID}-P", [reports.fills[2], exit_fill], True, "-30.20000000", "O-3", "O-4")
+        reports.account.append({"ts_event": iso(closing), "total": "99979.60000000", "locked": "0"})
+        reports.exposures.pop()
+        drawdown = report(reports)["drawdown"]
+        self.assertEqual(drawdown["trough_utc"]["value"], "2026-01-03T23:59")
+        self.assertEqual(drawdown["top_instrument"]["null_reason"], None)
+        self.assertEqual(drawdown["top_instrument_share_in_drawdown"]["value"], 1.0)
+
     def test_each_development_year_reads_its_own_mark_drawdown_from_the_carried_peak(self):
         """2024-03-01 to 2026-06-01: two whole years and a part year. The peak of year 1 carries into year 2, whose
         fall from it is year 2's drawdown; the largest year is the window's."""

@@ -15,8 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from nautilus_trader.analysis import SharpeRatio
-from nautilus_trader.model import ClientOrderId
-from nautilus_trader.model import Venue
+from nautilus_trader.model import ClientOrderId, Position, Venue
 
 from engine.config import (EXECUTION_BAR_MINUTES, MARK_CARRY_MAX_MINUTES, MINUTE_NS, AccountContract, Refusal, Window,
                            utc_text)
@@ -264,6 +263,48 @@ def without_unfilled_liquidity(orders):
     unfilled = [Decimal(str(value or 0)) == 0 for value in result["filled_qty"]]
     result.loc[unfilled, "liquidity_side"] = "NO_LIQUIDITY_SIDE"
     return result
+
+def position_at(position, ts: int, instrument):
+    """The native Position as it stood at `ts` (its fills and adjustments stamped at or before `ts`), or None when it
+    was not open then. A position with no later event is returned as it is; any other is rebuilt from its own events."""
+    if position.ts_last <= ts:
+        return position if position.is_open else None
+    fills = [fill for fill in position.events() if fill.ts_event <= ts]
+    if not fills:
+        return None
+    held = Position(instrument, fills[0])
+    for fill in fills[1:]:
+        held.apply(fill)
+    for adjustment in position.adjustments():
+        if adjustment.ts_event <= ts:
+            held.apply_adjustment(adjustment)
+    return held if held.is_open else None
+
+
+class HeldPositions:
+    """The positions held at each label T, read in label order once T's events are complete: every open position, every
+    one closed since the last label and, when there are new ones, every native snapshot (a HEDGING position ID closed
+    and reopened by an order naming it keeps its earlier cycle only as a snapshot), each as it stood at T
+    (position_at). Cycles of one ID do not overlap, so at most one of them is held at T."""
+
+    def __init__(self) -> None:
+        self.closed: set = set()  # the closed position IDs seen at a label
+        self.snapshots = 0  # the native position snapshots seen at a label
+
+    def at(self, cache, ts: int) -> list:
+        opened = cache.positions_open()
+        self.closed -= {position.id for position in opened}  # a reopened ID: its next close is a new one
+        cycles = list(opened)
+        if cache.positions_closed_count() > len(self.closed):
+            closed = sorted(set(cache.position_closed_ids()) - self.closed, key=str)
+            self.closed.update(closed)
+            cycles += map(cache.position, closed)
+        if len(snapshots := cache.position_snapshots()) > self.snapshots:
+            self.snapshots = len(snapshots)
+            cycles += sorted(snapshots, key=lambda snapshot: str(snapshot.id))
+        held = (position_at(cycle, ts, cache.instrument(cycle.instrument_id)) for cycle in cycles)
+        return [position for position in held if position is not None]
+
 
 def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """engine.capital_findings: the capital observer (engine.run.CapitalObserver) valued every input timestamp and
