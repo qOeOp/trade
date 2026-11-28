@@ -104,6 +104,8 @@ Tests, demos and engineering trials of product code write only to an isolated Do
 - Skill text is product code: a skill change follows `.agents/README.md`.
 - A PR's title and body follow `.github/pull_request_template.md`; the body reports only checks
   actually run.
+- Before a PR that changes product code is opened, a fresh sub-agent given only its base, branch and description
+  runs product-doctor's change check: a `shown` finding is fixed in the PR, one the base shares becomes an issue.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
 - A merge is not a release; `deploy/remote/README.md` says what a release switches and what stays.
