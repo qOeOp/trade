@@ -179,11 +179,18 @@ ORDER_COMMANDS = frozenset({"submit_order", "modify_order", "modify_orders", "ca
                             "cancel_all_orders", "close_position", "market_exit"})
 
 
+# Hooks and class keywords through which the language hands a source a class object it never named.
+CLASS_HOOKS = frozenset({"__init_subclass__", "__set_name__", "__get__", "__set__", "__delete__", "__class_getitem__",
+                         "__mro_entries__", "__prepare__"})
+
+
 def order_bypass_findings(source: bytes) -> list[str]:
-    """The routes past the order rules, one line each: super() used other than to read a non-command attribute at
-    once, and a strategy class (native Strategy, or a source class extending one) used other than as a base,
-    super() or class-check argument, class pattern, comparison operand, annotation or reader of a non-command
-    attribute."""
+    """The routes past the order rules, one line each. A strategy class (native Strategy or ExecutionAlgorithm, a
+    source class extending one, an alias of one, a classmethod's `cls` in one) may serve as a base, a class check,
+    a super() argument, a class pattern, a comparison operand, an annotation, text or the reader of a non-command
+    attribute, nothing else; super() in a strategy class or a class it extends, or with arguments, may only read a
+    non-command attribute at once; no class defines a hook that receives a class or takes class keywords, and no
+    strategy class or class it extends is decorated."""
     tree = ast.parse(source, filename="<strategy>")
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     imported: dict[str, object] = {}
@@ -201,43 +208,80 @@ def order_bypass_findings(source: bytes) -> list[str]:
     classes: set[str] = set()
 
     def strategy_class(node: ast.AST) -> bool:
-        if isinstance(node, ast.Name) and node.id in classes:
+        if isinstance(node, ast.Name) and node.id in classes or isinstance(node, ast.Attribute) and node.attr in classes:
             return True
         value = resolved(node)
         return inspect.isclass(value) and any(hasattr(value, name) for name in ORDER_COMMANDS)
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and any(strategy_class(base) for base in node.bases):
-            classes.add(node.name)
-    def checked(node: ast.AST) -> bool:
-        parent = parents.get(node)
-        if isinstance(parent, ast.Tuple):
-            node, parent = parent, parents.get(parent)
-        return (isinstance(parent, ast.Call) and node in parent.args and isinstance(parent.func, ast.Name)
-                and parent.func.id in ("isinstance", "issubclass", "super"))
-
+    definitions = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    size = -1
+    while size != len(classes):  # nested and aliased classes: until nothing more is found
+        size = len(classes)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and any(strategy_class(base) for base in node.bases):
+                classes.add(node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and node.value is not None \
+                    and strategy_class(node.value):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                classes.update(target.id for target in targets if isinstance(target, ast.Name))
+        related = {node.name for node in definitions if node.name in classes}
+        while True:  # the source classes a strategy class extends: their super() reaches Strategy too
+            more = {base.id if isinstance(base, ast.Name) else base.attr for node in definitions
+                    if node.name in related for base in node.bases if isinstance(base, (ast.Name, ast.Attribute))}
+            if more <= related:
+                break
+            related |= more
+        for node in definitions:
+            if node.name in related:
+                for method in node.body:
+                    if (isinstance(method, ast.FunctionDef) and method.args.args
+                            and any(isinstance(d, ast.Name) and d.id == "classmethod" for d in method.decorator_list)):
+                        classes.add(method.args.args[0].arg)
     annotations = {id(part) for node in ast.walk(tree) for annotation in (
         [node.annotation] if isinstance(node, (ast.arg, ast.AnnAssign)) else
         [node.returns] if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else [])
         if annotation is not None for part in ast.walk(annotation)}
+
+    def enclosing_class(node: ast.AST) -> ast.ClassDef | None:
+        above = parents.get(node)
+        while above is not None and not isinstance(above, ast.ClassDef):
+            above = parents.get(above)
+        return above
+
+    def allowed(node: ast.AST) -> bool:
+        parent = parents.get(node)
+        if (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr not in ORDER_COMMANDS
+                or isinstance(parent, ast.ClassDef) and node in parent.bases
+                or isinstance(parent, ast.MatchClass) and parent.cls is node
+                or isinstance(parent, (ast.Compare, ast.FormattedValue))):
+            return True
+        if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and parent.value is node:
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+            return all(isinstance(target, ast.Name) for target in targets)  # each name is then a strategy class
+        while isinstance(parent, ast.Tuple) or isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.BitOr):
+            node, parent = parent, parents.get(parent)
+        return (isinstance(parent, ast.Call) and node in parent.args and isinstance(parent.func, ast.Name)
+                and parent.func.id in ("isinstance", "issubclass", "super") + tuple(SOURCE_TYPE_USES))
+
     found: set[tuple[int, str]] = set()
     for node in ast.walk(tree):
         if id(node) in annotations:
             continue
         parent = parents.get(node)
-        reads = (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr not in ORDER_COMMANDS)
-        if isinstance(node, ast.Name) and node.id == "super":
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in CLASS_HOOKS:
+            found.add((node.lineno, f"def {node.name}"))
+        elif isinstance(node, ast.ClassDef) and (node.keywords or node.name in related and node.decorator_list):
+            found.add((node.lineno, f"class {node.name} {'keywords' if node.keywords else 'decorators'}"))
+        elif isinstance(node, ast.Name) and node.id == "super":
             call = parent if isinstance(parent, ast.Call) and parent.func is node else None
             above = parents.get(call) if call else None
+            owner = enclosing_class(node)
+            if call is not None and not call.args and owner is not None and owner.name not in related:
+                continue
             if not (isinstance(above, ast.Attribute) and above.value is call and above.attr not in ORDER_COMMANDS):
                 found.add((node.lineno, ast.unparse(above if isinstance(above, ast.Attribute) else parent or node)))
-        elif (isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load)
-                and strategy_class(node) and not (
-                    reads
-                    or isinstance(parent, ast.ClassDef) and node in parent.bases
-                    or isinstance(parent, ast.MatchClass) and parent.cls is node
-                    or isinstance(parent, ast.Compare)
-                    or checked(node))):
+        elif (isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and strategy_class(node)
+              and not allowed(node)):
             found.add((node.lineno, ast.unparse(parent if isinstance(parent, ast.Attribute) else node)))
     return [f"line {line}: {text}" for line, text in sorted(found)]
 

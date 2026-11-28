@@ -324,7 +324,11 @@ class StrategyLoaderTests(unittest.TestCase):
                            ("        match super():\n            case object(submit_order=sent):\n"
                             "                sent(order)\n", "ORDER_RULE"),
                            ("        native = Strategy\n        native.submit_order(self, order)\n", "ORDER_RULE"),
-                           ("        found = super\n        found().submit_order(order)\n", "ORDER_RULE")):
+                           ("        found = super\n        found().submit_order(order)\n", "ORDER_RULE"),
+                           ("        held = (Strategy,)\n        held[0].submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        self.held = Strategy\n", "ORDER_RULE"),
+                           ("        return isinstance(self, Strategy | int) and f'{ProbeStrategy}' != str(Strategy)\n",
+                            None)):
             changed = (SOURCE.replace("from nautilus_trader.trading import Strategy\n",
                                       "import nautilus_trader.trading as trading\nfrom nautilus_trader.trading import Strategy\n")
                        + f"\n    def send(self, order):\n{body}\n\ndef send(strategy: Strategy, order) -> Strategy | None:\n"
@@ -332,6 +336,34 @@ class StrategyLoaderTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.source.write_text(changed)
                 digest = hashlib.sha256(changed.encode()).hexdigest()
+                if code is None:
+                    self.load(digest=digest)
+                    continue
+                self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
+
+    def test_a_strategy_class_reached_as_a_value_is_refused(self):
+        """A class object the source never names (a classmethod's cls, a nested or aliased base, a class hook) holds
+        the native commands unbound as well; a helper class of its own keeps its own super() (#3793)."""
+        head = "from nautilus_trader.trading import Strategy\n"
+        hooks = "    def replay_diagnostics(self):\n        return {}\n    def replay_integrity_findings(self, failed=False):\n        return []\n"
+        for text, code in (
+                (head + "class Book:\n    def cancel_order(self, o):\n        return o\n"
+                 "class Shadow(Book):\n    def cancel_order(self, o):\n        return super().cancel_order(o)\n"
+                 "Native = Strategy\nclass ProbeStrategy(Native):\n" + hooks, None),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    @classmethod\n    def native(cls):\n"
+                 "        return cls\n", "ORDER_RULE"),
+                (head + "class Holder:\n    class Base(Strategy):\n        pass\n"
+                 "class ProbeStrategy(Holder.Base):\n" + hooks + "    def go(self, o):\n"
+                 "        ProbeStrategy.submit_order(self, o)\n", "ORDER_RULE"),
+                (head + "class Mixin:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "class ProbeStrategy(Mixin, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "FOUND = []\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    def __init_subclass__(cls):\n        FOUND.append(cls)\n", "ORDER_RULE"),
+                (head + "class Tool:\n    def __set_name__(self, owner, name):\n        self.owner = owner\n"
+                 "class ProbeStrategy(Strategy):\n    tool = Tool()\n" + hooks, "ORDER_RULE")):
+            with self.subTest(text=text):
+                self.source.write_text(text)
+                digest = hashlib.sha256(text.encode()).hexdigest()
                 if code is None:
                     self.load(digest=digest)
                     continue
