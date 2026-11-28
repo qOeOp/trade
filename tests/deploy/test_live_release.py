@@ -17,7 +17,7 @@ from deploy.live_configuration import CONTROL
 from deploy.live_host import LIVE, LiveHost
 from deploy.release import Release
 from deploy.release_host import AGENT, FRONTEND, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
-from tests.deploy.test_release import A, B, C, Host, Crash, TARGET, paper_release
+from tests.deploy.test_release import A, B, C, D, Host, Crash, TARGET, paper_release
 
 
 SERVICE = "ghcr.io/qoeop/trade-service@sha256:" + "d" * 64
@@ -135,7 +135,6 @@ class PairedReleaseTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.host = PairHost(Path(directory.name).resolve())
         self.source = Mock()
-        self.source.agent_changed.return_value = False
         self.live = PairLive(self.host, self.source)
         self.release = Release(self.host, self.source, live=self.live, paper=paper_release(self.host))
         original = self.release.journal
@@ -286,7 +285,7 @@ class PairedReleaseTests(unittest.TestCase):
             self.assertEqual(child.stdout.readline().strip(), "waiting")
             with self.assertRaises(subprocess.TimeoutExpired):
                 child.wait(timeout=.1)
-            self.release.journal(WEB + B, WEB + A)
+            self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.assertEqual(child.communicate(timeout=5)[0].strip(), "acquired")
         self.assertEqual(child.returncode, 0)
 

@@ -10,19 +10,8 @@ from .release_host import IMAGE_REF, REVISION, RUNTIME_REF, SERVICE_REF, SOURCE
 from .runtime_inputs import DOCKERFILE, project
 
 
-# Paths outside the images' build context (deploy/Dockerfile.dockerignore), plus top-level *.md: a diff touching
-# only these changes no container.
-OUTSIDE_IMAGE = ("docs/", "tests/", ".agents/", ".github/")
-OUTSIDE_IMAGE_FILES = frozenset({"deploy/README.md"})
-# What the Agent never loads, beside those paths: it runs ide/agent and the product's Python but never the browser,
-# the overview or deploy's host modules; deploy/Dockerfile, which builds its image, is a change.
-AGENT_UNCHANGED = ("ide/web/", "ide/overview/", "deploy/")
 # What a version's deploy/compose.yaml pins docker-api to, with or without TRADE_DOCKER_API_IMAGE around it.
 DOCKER_API_PIN = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}")
-
-
-def outside_image(path: str) -> bool:
-    return path.startswith(OUTSIDE_IMAGE) or path in OUTSIDE_IMAGE_FILES or ("/" not in path and path.endswith(".md"))
 
 
 class SourceUnreachable(RuntimeError):
@@ -96,13 +85,6 @@ class GitSource:
             check=False,
         )
         return result.returncode == 0
-
-    def agent_changed(self, before: str, after: str) -> bool:
-        if not self.ancestor(before, after):
-            raise RuntimeError("Agent revision is not an ancestor of the candidate")
-        paths = self.git("diff", "--no-renames", "--name-only", before, after).splitlines()
-        return any(path == "deploy/Dockerfile" or not (outside_image(path) or path.startswith(AGENT_UNCHANGED))
-                   for path in paths)
 
     def docker_api(self, sha: str) -> str:
         """The docker-api digest `sha`'s deploy/compose.yaml pins: a version's proxy, which CI does not admit."""
