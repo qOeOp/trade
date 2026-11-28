@@ -139,7 +139,7 @@ class Market:
 def coverage(market, market_day: str) -> dict:
     """What ledger.lines.run_covered reads of `market` (a Market) at `market_day`: `members`, its universe
     (YYYY-MM, symbol) rows, `tracks(table)`, the months a contract table holds, and `listed(symbol)`, the first day
-    of a contract's trading run into its first universe month (each read once)."""
+    a contract traded before its first universe month (each read once)."""
     return {"members": market.universe_month(market_day),
             "tracks": functools.cache(lambda table: market.track_months(market_day, table)),
             "listed": functools.cache(lambda symbol: market.listed_day(market_day, symbol))}

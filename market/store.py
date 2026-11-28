@@ -667,20 +667,17 @@ def trading_days(market: files.Market, symbols: list[str], low: date, high: date
 
 
 def listed_day(market: files.Market, market_day: str, symbol: str) -> date | None:
-    """The first day of a contract's unbroken run of trading days into its first universe month at `market_day`
-    (its listing, for a contract new to the market): its bars cover every day from there to that month, which
-    begins at least universe.LISTED_DAYS later. None when it is no member of any month."""
+    """The first day a contract traded before its first universe month at `market_day` (its listing, for a contract
+    new to the market): its bars begin there. None when it is no member of any month."""
     months = [month for month, member in universe.months_of(market, market_day) if member == symbol]
     if not months:
         return None
     start = min(months)
-    while True:  # read back a quarter at a time until the run begins inside what was read
-        low = start - timedelta(days=92)
-        days = trading_days(market, [symbol], low, start)[symbol]
-        while start - timedelta(days=1) in days:
-            start -= timedelta(days=1)
-        if start > low:
+    while True:  # read back a quarter at a time until one holds no trading day
+        days = trading_days(market, [symbol], start - timedelta(days=92), start)[symbol]
+        if not days:
             return start
+        start = min(days)
 
 
 def _first_members(first_month: date) -> date:
