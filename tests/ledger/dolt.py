@@ -75,6 +75,7 @@ def coverage(market_day: str = MARKET_DAY, *, effective_config: dict | None = No
     lifecycle_bundle) and, when given, the membership file's content."""
     input_identity = {"market_name": "market", "market_day": market_day, "universe_rule": "usdt-perp-listed30d-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
+    input_identity.setdefault("selection", {"symbols": list(input_identity["symbols"])})
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
                                      "account": dict(ACCOUNT)}
@@ -135,12 +136,12 @@ class Service:
 
 def market(market_day: str = MARKET_DAY, latest_complete_day=None, universe_rule: str | None = "usdt-perp-listed30d-v1",
            first_day=date(2019, 9, 1)):
-    """A stand-in for the market facts line select reads, covered from `first_day`."""
+    """A stand-in for the market facts line select reads, every start covered from `first_day`."""
 
     def facts(market_at: str) -> dict:
         return {"market_day": market_day, "universe_rule": universe_rule,
                 "latest_complete_day": latest_complete_day or date(2026, 3, 31),
-                "members": [(f"{first_day:%Y-%m}", "BTCUSDT")]}
+                "covered": lambda conn, trial_id: first_day.replace(day=1)}
     return facts
 
 
@@ -164,8 +165,9 @@ def pinned(start=None, end=None):
     return patch.object(lines, "development_period", lambda today, latest, covered: period)
 
 
-# The market days line close reads (first day, day after the latest complete day): January 2026, the pinned period.
-MARKET_DAYS = (date(2026, 1, 1), date(2026, 2, 1))
+# The market days line close reads (first day, day after the latest complete day, coverage of a run's arguments):
+# January 2026, the pinned period, with no coverage start later than its first day.
+MARKET_DAYS = (date(2026, 1, 1), date(2026, 2, 1), {"members": [], "tracks": lambda table: []})
 
 
 def january():

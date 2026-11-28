@@ -15,13 +15,11 @@ Closing a line records the Agent's summary: the line's end and an index for late
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, time, timedelta
-import itertools
-import json
 import re
 
-from ledger import db, review_activity, strategies
+from ledger import db, execution, review_activity, strategies
 from ledger import targets as line_targets
 from shared import clock
 from shared.errors import Refusal
@@ -148,27 +146,41 @@ def dev_window(line: Mapping) -> tuple[datetime, datetime]:
             datetime.combine(date.fromisoformat(line["dev_end"]), time()))
 
 
-def selection(runner_argv) -> list[str] | None:
-    """The symbols a replay's runner arguments name after --symbols, or None for the pool (`--universe pool`)."""
-    argv = json.loads(runner_argv) if isinstance(runner_argv, (str, bytes)) else list(runner_argv)
-    if "--symbols" not in argv:
-        return None
-    rest = argv[argv.index("--symbols") + 1:]
-    return [item for item in itertools.takewhile(lambda item: not item.startswith("--"), rest)]
-
-
-def covered_from(selection: list[str] | None, members: list[tuple[str, str]]) -> date | None:
+def covered_from(selection: list[str] | None, members: list[tuple[str, str]],
+                 tracks: Sequence[list[tuple[str, str]]] = ()) -> date | None:
     """The first day every instrument of a replay selection has market coverage, from the market day's universe
-    (YYYY-MM, symbol) rows: the first universe month for the pool (`selection` None), otherwise the latest of
-    the symbols' first universe months; None when one of them is never a universe member."""
-    first: dict[str, str] = {}
-    for month, symbol in sorted(members):
-        first.setdefault(symbol, month)
-    found = [min(first.values())] if selection is None and first else [
-        first[symbol] for symbol in selection or () if symbol in first]
-    if not found or (selection is not None and len(found) != len(selection)):
-        return None
-    return date.fromisoformat(max(found) + "-01")
+    (YYYY-MM, symbol) rows, each kept only when every one of `tracks` (the (YYYY-MM, symbol) months a contract table
+    the replay requires holds: TRACKS) holds it too: for the pool (`selection` None) the first
+    universe month whose every member is kept, otherwise the latest of the symbols' first kept months; None when
+    there is no such month or one of the symbols never has one."""
+    kept = set(members).intersection(*map(set, tracks))
+    if selection is None:
+        months: dict[str, set[str]] = {}
+        for month, symbol in members:
+            months.setdefault(month, set()).add(symbol)
+        found = [month for month in sorted(months) if all((month, symbol) in kept for symbol in months[month])][:1]
+    else:
+        first: dict[str, str] = {}
+        for month, symbol in sorted(kept):
+            first.setdefault(symbol, month)
+        found = [first[symbol] for symbol in selection if symbol in first]
+        if not found or len(found) != len(selection):
+            return None
+    return date.fromisoformat(max(found) + "-01") if found else None
+
+
+# The contract table each market input of a replay reads, which its runner then requires in every UTC month it
+# trades (engine QUOTES_MISSING, TRADES_MISSING, METRICS_MISSING).
+TRACKS = {"include_quotes": "quote", "include_trades": "agg_trade", "include_metrics": "metrics"}
+
+
+def run_covered(conn: db.LedgerConnection, trial_id: int, market: Mapping) -> date | None:
+    """covered_from of a trial's recorded selection and market inputs (execution.recorded_inputs) on `market`
+    (registration.seams.coverage: the market day's universe `members` and `tracks(table)`)."""
+    given = execution.recorded_inputs(execution.recorded_coverage(conn, trial_id))
+    symbols = given["selection"].get("symbols")
+    return covered_from(None if symbols is None else list(symbols), market["members"],
+                        [market["tracks"](table) for key, table in TRACKS.items() if given[key]])
 
 
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
@@ -230,10 +242,11 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     `targets` (maximum drawdown, minimum annual return) are the user's for this line, written in the same commit;
     without them the line reads the ledger default.
 
-    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, members} (the market day, its
-    universe rule and latest complete day, and its universe (YYYY-MM, symbol) rows); the development
-    period follows from that day, `today` (default the ledger server's UTC date) and the coverage of the
-    instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
+    `market(market_at)` returns {market_day, universe_rule, latest_complete_day, covered} (the market day, its
+    universe rule and latest complete day, and `covered(conn, trial_id)`: run_covered on the market there); the
+    development period follows from that day, `today` (default the ledger server's UTC date) and the coverage of
+    the start's latest passed precheck (its instruments and the data it required; LINE_HISTORY_SHORT when too
+    short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
     only on activity (unresolved, or failed on a precheck that did not trade) is not counted once a later precheck
     on its image traded and passed (`review_activity.resolved`).
@@ -270,8 +283,7 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
     passed = max((record for record in reviewed if record["verdict"] == "passed"), key=lambda record: record["review_id"])
-    argv = conn.rows("SELECT runner_argv FROM trial WHERE trial_id = %s", (passed["trial_id"],))
-    covered = covered_from(selection(argv[0][0]) if argv else None, facts.get("members") or [])
+    covered = facts["covered"](conn, passed["trial_id"])
     window_start, window_end = development_period(today, latest_day, covered)
     choice = {"name": slug, "start_source_sha256": candidate["source_sha256"], "market_day": facts["market_day"],
               "universe_rule": facts["universe_rule"], "dev_start": window_start.isoformat(),
@@ -388,15 +400,17 @@ def history_trials(conn: db.LedgerConnection, line_id: int) -> list[dict]:
 
 
 def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after_last: date,
-                 participants: list[dict]) -> list[dict]:
+                 market: Mapping, participants: list[dict]) -> list[dict]:
     """Every pair of participant and segment of the line's closing history test (`participants`: the
     history_participants the test replays; history_segments), participant by participant: the segment with the
-    participant's `source_sha256`, its
-    research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
-    start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
-    the segment is left to trade), `done` (the latest history trial with a run that covers it, or None) and
-    `status` (that run's). A forward segment is covered by any history run trading from the holdout's end: its end
-    moves with the market."""
+    participant's `source_sha256`, its research run `trial_id`, `window` (input_start, trade_start, trade_end: the
+    run's warm-up before a trade start no earlier than the segment's or than the run's coverage start plus that
+    warm-up; None when nothing of the segment is left to trade), `done` (the latest history trial with a run that
+    covers it, or None) and `status` (that run's). The run's coverage start is the later of the market's
+    `first_day` and its run_covered on `market` (registration.seams.coverage: its instruments' first universe
+    month holding the data the run required), the first day when there is none: a year before it is no veto year
+    to replay. A forward segment is covered by any history run trading from the holdout's end: its end moves with
+    the market."""
     record = read_line(conn, line_id)
     dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
     segments = history_segments(dev_start, dev_end, first_day, after_last)
@@ -406,7 +420,8 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
         trial = conn.one("SELECT input_start, trade_start FROM trial WHERE trial_id = %s", (participant["trial_id"],))
         assert trial is not None  # a participant is a run's trial
         warmup = trial["trade_start"] - trial["input_start"]
-        earliest = datetime.combine(first_day, time()) + warmup
+        covered = run_covered(conn, participant["trial_id"], market) or first_day
+        earliest = datetime.combine(max(first_day, covered), time()) + warmup
         own = [row for row in reversed(ran) if row["source_sha256"] == participant["source_sha256"]]
         for segment in segments:
             start = max(datetime.combine(segment["start"], time()), earliest)
@@ -427,12 +442,14 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
 
 # Closing lines
 
-def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days: tuple[date, date],
+def close_line(profile: db.LedgerProfile, line: str, summary: bytes,
+               market_days: tuple[date, date, Mapping],
                candidates: Callable[[db.LedgerConnection, int], list[dict]] = history_participants) -> dict:
     """End the line `line` with the Agent's summary (UTF-8, at most SUMMARY_LIMIT bytes, stored without
     surrounding blank space); the same summary again is a replay, another one LINE_CLOSED (a closing is never
     replaced). HISTORY_INCOMPLETE until every segment of its closing history test (history_plan, with
-    `market_days`: the market's first day and the day after its latest complete day) has a history run.
+    `market_days`: the market's first day, the day after its latest complete day and registration.seams.coverage
+    there) has a history run.
     `candidates` gives the participants the test replays: every one by default; the product passes those whose
     run carries economic evidence (report.history.candidates)."""
     try:

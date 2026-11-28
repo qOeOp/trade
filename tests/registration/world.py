@@ -74,6 +74,10 @@ class FakeMarket:
     def universe_month(self, market_day):
         return list(self.market_days[market_day])
 
+    def track_months(self, market_day, table):
+        """Every universe member holds every contract table in its months, unless `tracks` names the table."""
+        return list(getattr(self, "tracks", {}).get(table, self.market_days[market_day]))
+
     def membership_path(self, market_day, window_end):
         return {"universe_rule": "usdt-perp-listed30d-v1", "membership": universe.merge_months(
             [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.market_days[market_day]])}

@@ -8,7 +8,7 @@ targets is judged on the veto years and on the holdout apart, and it meets them 
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
-year (cut by the market's first day; one cut only by the warm-up is whole when SHORT_DAYS or more are left, _whole_year), a segment shorter than SHORT_DAYS and a cut holdout are
+year (cut by the run's coverage start; one cut only by the warm-up is whole when SHORT_DAYS or more are left, _whole_year), a segment shorter than SHORT_DAYS and a cut holdout are
 shown but read in no summary: a holdout is cut (`cut`) when it ends before the planned holdout's end or, sooner, the
 day after the market's latest complete day (market_days; 20261122-20, user 2026-11-22: a `line history` run on an
 earlier market day replayed part of the holdout and that part alone decided). A segment `line history` replayed again after an invalid run has one cell, its latest
@@ -62,12 +62,13 @@ CAPTURES_CHUNK = 20  # runs whose captured bytes a reading holds at once
 MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "cycles", "plan_win_rate")
 
 
-def market_days(market) -> tuple[date, date]:
-    """(the market's first day, the day after its latest complete day) at its newest day: the days
-    ledger.lines.history_plan plans a closing history test on (`line close` requires its segments)."""
+def market_days(market) -> tuple[date, date, Mapping]:
+    """(the market's first day, the day after its latest complete day, registration.seams.coverage) at its newest
+    day: what ledger.lines.history_plan plans a closing history test on (`line close` requires its segments)."""
     source = registration_seams.current.market(market)
-    first_day, latest = source.days(source.resolve_day(None))
-    return first_day, latest + timedelta(days=1)
+    market_day = source.resolve_day(None)
+    first_day, latest = source.days(market_day)
+    return first_day, latest + timedelta(days=1), registration_seams.coverage(source, market_day)
 
 
 def _kind(row: dict, dev_start: datetime, dev_end: datetime, held: datetime) -> str:
@@ -87,8 +88,8 @@ def _veto_year(row: dict) -> str:
 
 
 def _whole_year(row: dict) -> bool:
-    """A veto segment that reads as its whole year: its input starts on or before the year's start, so the market's
-    first day did not cut it, and it trades SHORT_DAYS or more. A year cut only by the participant's own warm-up is
+    """A veto segment that reads as its whole year: its input starts on or before the year's start, so the run's
+    coverage start did not cut it, and it trades SHORT_DAYS or more. A year cut only by the participant's own warm-up is
     whole (#3760: the market's first day on the year's start, the reserve before a longer period, turned the
     reserved year into a part year that no summary read and require_unfalsified passed on the holdout alone)."""
     year_start = datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
@@ -312,7 +313,7 @@ def qualified(conn: db.LedgerConnection, line_id: int) -> list[dict]:
 
 
 def line_history(conn: db.LedgerConnection, line: str | int, counted: list[dict] | None, checker: Mapping,
-                 records: list, days: tuple[date, date]) -> dict:
+                 records: list, days: tuple[date, date, Mapping]) -> dict:
     """One line's closing history test: its candidates (candidates) with their history cells and summaries,
     ordered by development-period Sharpe, and the participants without economic evidence; the line's targets in
     force, its research trial count and the earlier searches of its holdout among `counted`

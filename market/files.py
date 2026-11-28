@@ -303,6 +303,15 @@ def last_time(market: Market, entry: DataFile) -> int | None:
     return max(found, default=None)
 
 
+def track_months(market: Market, market_day: str, table: str) -> list[tuple[str, str]]:
+    """(YYYY-MM, symbol) of the months a contract table (quote, agg_trade, metrics) holds a file of the contract for,
+    among the files a read at `market_day` can see: the months an export finds that contract's rows in."""
+    if TABLES[table].layout != "contract":
+        raise ValueError(f"{table} is not a contract table")
+    return [(f"{clock.ms_day(entry.start_ms):%Y-%m}", str(entry.symbol))
+            for entry in entries(market, table, None, None, day_end(table, market_day))]
+
+
 def last_day(market: Market, table: str) -> date | None:
     """The last day a table holds, read from the newest file's footer: imports write closed days whole."""
     for entry in reversed(entries(market, table)):
