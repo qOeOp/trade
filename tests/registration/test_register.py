@@ -251,7 +251,13 @@ class RegisterTests(unittest.TestCase):
                           self.world.start(explored["source"]))
         body = self.derived(grid=[explored["candidate"]], prechecks={explored["candidate"]: review})
         self.assertEqual(self.code(body), "SOURCE_ALREADY_EXPOSED")
-        self.assertEqual(self.code({**body, "retry_of": self.root}), "SOURCE_ALREADY_EXPOSED")
+        root = self.world.publish("explored root", parent=None)
+        review = self.world.prechecked(root["source"])
+        trials.open_trial(self.world.conn, "explore", sha(root["source"]), RUNTIME,
+                          coverage(effective_config=config(symbols=["AAAUSDT"]), symbols=["AAAUSDT"]), LINE_WINDOW,
+                          self.world.start(root["source"]))
+        repair = self.world.body([root["candidate"]], {root["candidate"]: review}, retry_of=self.root)
+        self.assertEqual(self.code(repair), "SOURCE_ALREADY_EXPOSED", "a repair of rsi@1 does not excuse its exploration")
 
     def test_a_source_run_on_other_contracts_only_is_not_exposed_on_these(self):
         """Exposure is per contract: a run on CCCUSDT says nothing about AAAUSDT and BBBUSDT."""
