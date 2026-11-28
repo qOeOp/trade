@@ -169,6 +169,17 @@ class Commits(Directory):
         self.assertEqual(files.latest_day(market), date(2025, 1, 8))
         self.assertEqual(files.resolve_day(market, date(2025, 1, 8).isoformat()), date(2025, 1, 8).isoformat())
 
+    def test_track_months_are_the_contract_months_a_market_day_sees(self):
+        """#3759: a line's coverage counts a contract month only when the tables its runs require hold it."""
+        self.write([("metrics", JAN_1, "BTCUSDT", [metrics("BTCUSDT", [JAN + DAY])]),
+                    ("metrics", FEB_1, "BTCUSDT", [metrics("BTCUSDT", [FEB + DAY])]),
+                    ("metrics", FEB_1, "ETHUSDT", [metrics("ETHUSDT", [FEB + DAY])])])
+        market = files.open_market(self.profile, "reader")
+        self.assertEqual(files.track_months(market, date(2025, 1, 31).isoformat(), "metrics"), [("2025-01", "BTCUSDT")])
+        self.assertEqual(sorted(files.track_months(market, date(2025, 2, 1).isoformat(), "metrics")),
+                         [("2025-01", "BTCUSDT"), ("2025-02", "BTCUSDT"), ("2025-02", "ETHUSDT")])
+        self.assertEqual(files.track_months(market, date(2025, 2, 1).isoformat(), "quote"), [])
+
     def test_a_contract_whose_metrics_stopped_long_ago_holds_nothing_back(self):
         self.write([("bar", FEB_1, None, [bars([("BTCUSDT", "LAST", FEB + 9 * DAY, 1)])]),
                     ("metrics", date(2024, 6, 1), "OLDUSDT", [metrics("OLDUSDT", [JAN - 200 * DAY])]),

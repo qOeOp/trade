@@ -102,6 +102,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
                                  "CCCUSDT": "inferred", "USDCUSDT": "exchange_info"})
 
+    def test_a_contract_is_listed_from_the_first_day_of_its_run_into_its_first_month(self):
+        """#3759: a line's veto years of named contracts start at their listing, not their first universe month."""
+        market = files.open_market(self.profile, "reader")
+        day = self.market_days[MAR]
+        self.assertEqual([coverage.listed_day(market, day, symbol) for symbol in ("BBBUSDT", "CCCUSDT", "USDCUSDT")],
+                         [date(2025, 1, 20), JAN, None])
+
     def test_members_need_thirty_unbroken_days_and_a_delisted_contract_keeps_its_months(self):
         self.assertEqual(self.results[FEB]["universe_members"], ["BTCUSDT", "CCCUSDT"])  # BBBUSDT: 12 days
         self.assertEqual(self.results[MAR]["universe_members"], ["BBBUSDT", "BTCUSDT"])  # CCCUSDT stopped
