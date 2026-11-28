@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ledger import db, judgments, lines, trials
+from ledger import db, judgments, lines, strategies, trials
 from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
@@ -252,7 +252,13 @@ class RegisterTests(unittest.TestCase):
                           self.world.start(explored["source"]))
         body = self.derived(grid=[explored["candidate"]], prechecks={explored["candidate"]: review})
         self.assertEqual(self.code(body), "SOURCE_ALREADY_EXPOSED")
-        self.assertEqual(self.code({**body, "retry_of": self.root}), "SOURCE_ALREADY_EXPOSED")
+        root = self.world.publish("explored root", parent=None)
+        review = self.world.prechecked(root["source"])
+        trials.open_trial(self.world.conn, "explore", sha(root["source"]), RUNTIME,
+                          coverage(effective_config=config(symbols=["AAAUSDT"]), symbols=["AAAUSDT"]), LINE_WINDOW,
+                          self.world.start(root["source"]))
+        repair = self.world.body([root["candidate"]], {root["candidate"]: review}, retry_of=self.root)
+        self.assertEqual(self.code(repair), "SOURCE_ALREADY_EXPOSED", "a repair of rsi@1 does not excuse its exploration")
 
     def test_a_source_run_on_other_contracts_only_is_not_exposed_on_these(self):
         """Exposure is per contract: a run on CCCUSDT says nothing about AAAUSDT and BBBUSDT."""
@@ -743,6 +749,33 @@ class RetryTests(unittest.TestCase):
         exc = refused(register.require_line_records, self.world.conn, line)
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {passed}",)),
                          "a valid run still needs its interpretation")
+
+    def test_retry_of_names_a_registration_of_the_same_source_or_change(self):
+        """#3662: retry_of excuses an invalid run's interpretation only for a retry of that source or a repair of
+        the same change (a new source with the same parent and difference; for a root, the same strategy_id)."""
+        first = self.world.register(self.body)["registration_id"]
+        self.world.seal_run(self.world.research_trial(first, source("root")), "invalid")
+
+        def body(published: dict, **overrides) -> dict:
+            return self.world.body([published["candidate"]],
+                                   {published["candidate"]: self.world.prechecked(published["source"])}, **overrides)
+
+        data = source("unrelated root")
+        unrelated = {**strategies.publish_candidate(self.world.profile, data, "other", "Fixture", "unrelated"),
+                     "source": data}
+        unrelated = body(unrelated)
+        self.assertEqual(refused(self.world.register, unrelated).code, "INTERPRETATION_REQUIRED")
+        self.assertEqual(refused(self.world.register, {**unrelated, "retry_of": first}).code, "RETRY_NOT_ALLOWED")
+        self.assertFalse(self.world.register(body(self.world.publish("repaired root", parent=None),
+                                                  retry_of=first))["replayed"])
+
+        child = self.world.register(body(self.world.publish("child"), duties=["G3"]))["registration_id"]
+        self.world.seal_run(self.world.research_trial(child, source("child", "G3")), "invalid")
+        other = body(self.world.publish("another change", difference="cap volume at 6%"), duties=["G3"])
+        self.assertEqual(refused(self.world.register, other).code, "INTERPRETATION_REQUIRED")
+        self.assertEqual(refused(self.world.register, {**other, "retry_of": child}).code, "RETRY_NOT_ALLOWED")
+        self.assertFalse(self.world.register(body(self.world.publish("repaired child"), duties=["G3"],
+                                                  retry_of=child))["replayed"])
 
     def test_a_trial_with_a_recovery_bundle_and_no_run_needs_its_interpretation(self):
         registration = self.world.register(self.body)["registration_id"]

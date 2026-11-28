@@ -4,12 +4,16 @@ A strategy file's header takes a stance on each of the 27 duties (`ledger.strate
 registration names the duties its one change touches (`changed_duties`) and predicts, for each, the direction of a measure
 on a fixed attribution slice. The catalogue is shared by registration checks and both reports, so
 a prediction can only name what the reports measure. The duties a change touches are the header lines it
-edits (`header_changes`).
+edits (`header_changes`). Registration checks a body's changed duties, predictions and header lines against them
+(`check_duties`, `check_prediction`, `check_header`).
 """
 
 from __future__ import annotations
 
-from ledger.strategies import DUTIES, header_lines
+from collections.abc import Mapping
+
+from ledger.strategies import DUTIES, header_lines, name
+from shared.refusals import refuse
 
 
 # Slices in report order, each with its measures and the duties whose rule it can measure: every duty has
@@ -67,3 +71,80 @@ def header_changes(parent: bytes, child: bytes) -> list[str]:
     """The duty IDs whose header line differs between two published sources (added or removed counts), sorted."""
     old, new = header_lines(parent), header_lines(child)
     return sorted(duty for duty in DUTIES if old.get(duty) != new.get(duty))
+
+
+def check_duties(body: Mapping, root: bool) -> None:
+    changed = body["changed_duties"]
+    unknown = [duty for duty in changed if duty not in DUTIES]
+    if unknown:
+        raise refuse("DUTY_UNKNOWN", "changed_duties names unknown duties: " + ", ".join(unknown), missing=tuple(unknown),
+                     expected="duty IDs A1 to I2")
+    if root and changed:
+        raise refuse("DUTY_UNKNOWN", "a root registration changes no duty", missing=("changed_duties",))
+    if not root and not changed:
+        raise refuse("DUTY_UNKNOWN", "a derived registration names at least one changed duty",
+                     missing=("changed_duties",))
+
+
+def check_prediction(body: Mapping, root: bool) -> None:
+    catalogue = slice_measures()
+    every = frozenset().union(*catalogue.values())
+    changed = set(body["changed_duties"])
+    allowed = DUTIES if root else changed  # a root changes no duty, predicts any
+    predicted = set()
+    for index, item in enumerate(body["prediction"]["mechanism"]):
+        where = f"prediction.mechanism[{index}]"
+        if item["duty"] not in allowed:
+            raise refuse("PREDICTION_INVALID", f"{where} predicts duty {item['duty']}, which changed_duties does not "
+                                               "name", missing=(where,))
+        if item["slice"] is None:
+            if not item["reason"].strip():
+                raise refuse("PREDICTION_INVALID", f"{where} has no slice and no reason", missing=(where,))
+            if item["measure"] is not None and item["measure"] not in every:
+                raise refuse("PREDICTION_INVALID", f"{where} names measure {item['measure']} outside the catalogue",
+                             missing=(where,), expected="null or a catalogue measure: " + ", ".join(sorted(every)))
+        elif item["slice"] not in catalogue:
+            raise refuse("PREDICTION_INVALID", f"{where} names slice {item['slice']}, which is not in the measure "
+                                               "catalogue", missing=(where,),
+                         expected="null or a catalogue slice: " + ", ".join(sorted(catalogue)))
+        elif item["measure"] not in catalogue[item["slice"]]:
+            raise refuse("PREDICTION_INVALID", f"{where} names {item['slice']}/{item['measure']}, which is not in the "
+                                               "measure catalogue", missing=(where,),
+                         expected=f"a measure of {item['slice']}: " + ", ".join(sorted(catalogue[item["slice"]])))
+        predicted.add(item["duty"])
+    unpredicted = sorted(changed - predicted)
+    if unpredicted:
+        raise refuse("PREDICTION_INVALID", "changed duties without a prediction: " + ", ".join(unpredicted),
+                     missing=tuple(unpredicted))
+    _check_counting(body["prediction"]["mechanism"], changed, every)
+
+
+def _check_counting(mechanism: list, changed: set[str], every: frozenset[str]) -> None:
+    """A changed duty whose named measures are all counts: a threshold change moves them mechanically."""
+    counts = counting_measures()
+    named: dict[str, set[str]] = {}
+    for item in mechanism:
+        if item["duty"] in changed and item["measure"] is not None:
+            named.setdefault(item["duty"], set()).add(item["measure"])
+    counting_only = sorted(duty for duty, measures in named.items() if measures <= counts)
+    if counting_only:
+        raise refuse("PREDICTION_INVALID", "changed duties predicted only on counting measures ("
+                     + ", ".join(sorted(counts)) + "), which a threshold change moves mechanically: "
+                     + ", ".join(counting_only), missing=tuple(counting_only),
+                     expected="for each such duty, also a catalogue measure of quality, return, drawdown or exit "
+                              "structure: " + ", ".join(sorted(every - counts)))
+
+
+def check_header(body: Mapping, parent: dict | None, sources: Mapping[str, bytes]) -> None:
+    """A derived registration's changed duties are the duty lines each grid candidate's header changes from its
+    parent's."""
+    if parent is None:
+        return
+    changed = sorted(set(body["changed_duties"]))
+    for ref, source in sources.items():
+        edited = header_changes(parent["source"], source)
+        if edited != changed:
+            raise refuse("DUTY_HEADER_MISMATCH", f"grid candidate {ref} changes the header lines of "
+                                                 f"{', '.join(edited) or 'no duty'} from {name(parent)}; "
+                                                 f"changed_duties names {', '.join(changed)}",
+                         missing=tuple(sorted(set(edited) ^ set(changed))), expected=", ".join(edited) or "none")
