@@ -264,23 +264,32 @@ class MarketExitTests(Clocked):
             self.feed(self.now + 2 * MINUTE)
         self.assertEqual((self.engine.cache.positions_open(), self.engine.cache.orders_open()), ([], []))
 
-    def test_an_exit_during_the_warm_up_is_refused(self):
-        """#3650: a recovering source runs its history callbacks and on_load before the recovery is checked; with no
-        back-fill pending (Session.exiting passes it) its market exit then broke rule 8 past submit_order."""
+    def test_no_order_goes_out_during_the_warm_up(self):
+        """#3650, #3820, #3825: a recovering source runs its history callbacks and on_load before the recovery is
+        checked; with no back-fill pending (the session passes them) its market exit and close went past submit_order
+        and broke rule 8, and its entry waited unchecked and was sent once the gate lifted before the read's release."""
         self.source.submit_order(self.entry("limit"))
         self.release()
         self.feed(self.now + MINUTE)
+        [held] = self.engine.cache.positions_open()
         resting = self.entry("limit", "90.00")
         self.source.submit_order(resting)
         self.release()
         self.feed(self.now + MINUTE)
-        order_rules.WARMING.add("SOURCE-001")
-        session = SimpleNamespace(exiting=mock.Mock(return_value=None), callback=nullcontext)
-        with mock.patch.object(paper, "SESSION", session):
-            self.on_next_bar(lambda source: source.market_exit())
-            self.feed(self.now + 2 * MINUTE)
-        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
-        self.assertFalse(self.source.is_exiting())
-        self.assertEqual(len(self.engine.cache.positions_open()), 1)
-        self.assertEqual([order.client_order_id for order in self.engine.cache.orders_open()],
-                         [resting.client_order_id])
+        session = SimpleNamespace(exiting=mock.Mock(return_value=None), commanded=mock.Mock(return_value=False),
+                                  submitted=mock.Mock(return_value=False), callback=nullcontext)
+        for name, command in (("exit", lambda source: source.market_exit()),
+                              ("close", lambda source: source.close_position(held)),
+                              ("entry", lambda source: source.submit_order(self.entry("limit"))),):
+            with self.subTest(name), mock.patch.object(paper, "SESSION", session):
+                order_rules.WARMING.add("SOURCE-001")
+                self.on_next_bar(command)
+                order_rules.WARMING.discard("SOURCE-001")  # lifted before a waiting entry's release
+                self.release()
+                self.feed(self.now + 2 * MINUTE)
+                self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+                self.assertFalse(self.source.is_exiting())
+                self.assertEqual(self.engine.cache.positions_open(), [held])
+                self.assertEqual([order.client_order_id for order in self.engine.cache.orders_open()],
+                                 [resting.client_order_id])
+                strategy_runtime.BREACHES.clear()
