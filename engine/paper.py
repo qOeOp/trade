@@ -110,7 +110,7 @@ from nautilus_trader.trading import Strategy
 from engine import history, metrics, paper_terms, strategy as strategy_runtime
 from engine.kline_events import KlineEvents
 from engine import paper_checkpoint as checkpoint, protection
-from engine.order_rules import OrderRules, denied_exiting
+from engine.order_rules import OrderRules, denied_exiting, violation
 from engine.fill import fill_model
 from engine.paper_redis import CacheUnavailable, NativeCache
 from engine.paper_session import Session, declares_recovery, in_flight, unrestorable
@@ -336,8 +336,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
         on and the contract only reduces (coverage U9). An order on a back-filled bar that cannot wait for T is not
-        sent either: the recovery is refused (engine.paper_session.Session.submitted). Any other entry waits for its
-        terms read, unless Nautilus denies it (engine.paper_terms). The order rules see every order sent."""
+        sent either: the recovery is refused (engine.paper_session.Session.submitted). An entry the order rules pass
+        now waits for its terms read, as Live's for its account, unless Nautilus denies it (engine.paper_terms)."""
         now = NOW()
         if not order.is_reduce_only and not self._paper_membership.member_at(now):
             journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
@@ -346,7 +346,8 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         if SESSION and SESSION.submitted(order):
             return None
         send = functools.partial(super().submit_order, order, position_id, client_id, params)
-        if order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order):
+        if (order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order)
+                or violation(self, order, position_id, client_id, params)):  # refused now, as in a replay
             return send()
         return self._paper_wait(order, send, position_id, client_id, params)
 

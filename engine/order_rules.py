@@ -32,7 +32,7 @@ contract at once (user, 2026-11-11).
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
    docs/plans/cross-line-fusion-20261111.zh.md, 5.1).
-8. No order and no market exit before the strategy's warm-up has ended and the runner has called its on_start
+8. No order, close or market exit before the strategy's warm-up has ended and the runner has called its on_start
    (WARMING).
 
 The source cannot name submit_order_list, bracket, add_exec_algorithm or close_all_positions at all
@@ -255,11 +255,13 @@ class OrderRules:
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
                        quote_quantity=None, params=None):
+        # Native close_position sends its MARKET order past submit_order (rules 5 and 8); a GTD one panics natively.
+        if str(_strategy_id(self)) in WARMING:
+            return self._runner_rule("no close before the warm-up has ended and on_start has run")
         if (position is None or not position.is_open or position.strategy_id != _strategy_id(self)
                 or reduce_only is False or quote_quantity or params or client_id not in (None, ClientId(VENUE))):
             return self._runner_rule("a strategy closes only its own open position, by a base-quantity reduction")
         if time_in_force not in (None, TimeInForce.GTC, TimeInForce.IOC, TimeInForce.FOK):
-            # Native close_position sends its MARKET order past submit_order (rule 5); a GTD one panics natively.
             return self._runner_rule(f"Live cannot send a {time_in_force.name} MARKET order")
         return super().close_position(position, client_id, tags, time_in_force, True, False)  # type: ignore[misc]
 
