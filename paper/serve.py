@@ -341,8 +341,8 @@ class Daemon:
                 or not all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in symbols))):
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
         if operation and (prior := self.start_result(operation)["run"]):
-            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols) \
-                    or (universe is not None and not runs.pool_retry_of(self.profile, profiles.market(self.market), operation)):
+            if prior["candidate"] != candidate or (symbols != prior["symbols"] if symbols else not runs.retry_of(
+                    self.profile, operation, universe and profiles.market(self.market), self.research_profile)):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
         with db.read_as_of(self.research_profile) as source:

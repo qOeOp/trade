@@ -14,7 +14,7 @@ from shared.refusals import refuse
 from tests.helpers import refused
 
 OP = "paper-web:12345678-1234-4234-8234-123456789abc"
-ROW = {"paper_id": 8, "symbols": ["BTCUSDT"], "image_ref": "original@sha256:" + "a" * 64,
+ROW = {"paper_id": 8, "op_id": OP, "symbols": ["BTCUSDT"], "image_ref": "original@sha256:" + "a" * 64,
        "config": {"candidate": "a@1", "leverage": "3"}, "market_day": date(2026, 11, 27),
        "created_at": datetime(2026, 11, 28, 9, 30)}
 
@@ -73,7 +73,7 @@ class StartIdentityTests(unittest.TestCase):
                     mock.patch("shared.profiles.market", return_value={}):
                 profile = SimpleNamespace(service_root=Path("/isolated"), database="test")
                 daemon = serve.Daemon.__new__(serve.Daemon)
-                daemon.profile, daemon.market = profile, None
+                daemon.profile, daemon.market, daemon.research_profile = profile, None, None
                 daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
                 body = {"candidate": "a@1", "universe": "pool", "op_id": OP}
                 if replayed:
@@ -88,10 +88,25 @@ class StartIdentityTests(unittest.TestCase):
                     self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
 
     def test_http_retry_precedes_mutable_default_selection(self):
-        daemon = serve.Daemon.__new__(serve.Daemon)
-        daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
-        daemon.last_config = mock.Mock(side_effect=AssertionError("must not resolve new defaults"))
-        self.assertEqual(daemon.start({"candidate": "a@1", "op_id": OP})["paper_id"], 8)
+        # A start naming no contracts replays the run its default (the last research replay's contracts) chose at its
+        # declaration, even after a later replay changed it; an operation first used for other contracts conflicts.
+        declared = 1795858200 * 10**9  # ROW's created_at
+        for name, default, replayed in (("the default then", ["BTCUSDT"], True), ("other contracts", ["ETHUSDT"], False)):
+            def last(_source, source_sha256, at, default=default):
+                self.assertEqual(source_sha256, "s" * 64)
+                return {"trial_id": 2, "symbols": default if at <= declared else ["SOLUSDT"]}
+            with self.subTest(name), mock.patch.object(db, "connect", connection), \
+                    mock.patch.object(db, "read_as_of", connection), \
+                    mock.patch.object(records, "paper_start_of", return_value={**ROW, "source_sha256": "s" * 64}), \
+                    mock.patch.object(records, "last_research_symbols", side_effect=last):
+                daemon = serve.Daemon.__new__(serve.Daemon)
+                daemon.profile, daemon.research_profile = mock.Mock(), mock.Mock()
+                daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
+                if replayed:
+                    self.assertEqual(daemon.start({"candidate": "a@1", "op_id": OP})["paper_id"], 8)
+                else:
+                    caught = refused(daemon.start, {"candidate": "a@1", "op_id": OP}, error=serve.Failure)
+                    self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
 
     def test_stop_intent_survives_controller_state_loss(self):
         with tempfile.TemporaryDirectory() as root:
