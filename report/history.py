@@ -88,9 +88,8 @@ def _veto_year(row: dict) -> str:
 
 
 def _whole_year(row: dict) -> bool:
-    """A veto segment whose input starts on or before the year's start, so the market's first day did not cut it; one
-    cut only by the participant's own warm-up is whole (#3760, #3823: else no summary read it and require_unfalsified
-    passed a candidate that lost its sole veto year on the holdout alone)."""
+    """A veto segment the market's first day did not cut (its input starts by the year's start), so one cut only by the
+    warm-up is whole (#3760, #3823: else the holdout alone passed a candidate that lost its sole veto year)."""
     return row["input_start"] <= datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
 
 
@@ -181,8 +180,8 @@ def _passes(measures: dict, targets: dict, short: bool = False) -> bool:
 
 
 def _read(measures: dict | None, short: bool = False) -> bool:
-    """Whether a segment has the readings the targets are judged on: a `short` veto year its drawdown alone."""
-    return measures is not None and measures["mark_max_drawdown"] is not None and (short or measures["annual_return"] is not None)
+    """Whether a segment has the readings the targets are judged on; a `short` veto year, its passed run (_veto)."""
+    return measures is not None and (short or None not in (measures["annual_return"], measures["mark_max_drawdown"]))
 
 
 def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tuple[dict, list[str]]:
@@ -191,7 +190,8 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
     without a passed run or without one of the two readings, and part years without a passed run (an audit failure
     such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a year.
     `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with readings, so a
-    trial left without a run does not hide its rerun. A `short` whole year is read on its drawdown alone (#3823)."""
+    trial left without a run does not hide its rerun. A `short` whole year is read on its drawdown alone, and in nothing
+    without one, as a part year (#3823)."""
     years: dict[str, dict] = {}
     part: dict[str, bool] = {}
     for cell in cells:
@@ -199,7 +199,8 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
             years[cell["label"]] = cell
         elif cell["kind"] == "veto" and not cell["whole_year"]:
             part[cell["label"]] = part.get(cell["label"], False) or cell["status"] == "passed"
-    read = [cell for cell in years.values() if cell.get("measures") is not None]
+    read = [cell for cell in years.values()
+            if cell.get("measures") is not None and not (cell["short"] and cell["measures"]["mark_max_drawdown"] is None)]
     annual = [cell["measures"]["annual_return"] for cell in read
               if not cell["short"] and cell["measures"]["annual_return"] is not None]
     drawdown = [cell["measures"]["mark_max_drawdown"] for cell in read if cell["measures"]["mark_max_drawdown"] is not None]
@@ -215,7 +216,7 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
         found["years_meeting_targets"] = found["meets_targets"] = None
         return found, missing
     found["years_meeting_targets"] = sum(_passes(cell["measures"], targets, cell["short"]) for cell in read)
-    found["meets_targets"] = (max(drawdown) <= targets["max_drawdown"]
+    found["meets_targets"] = (all(value <= targets["max_drawdown"] for value in drawdown)
                               and (not annual or statistics.median(annual) >= targets["annual_return"]))
     return found, missing
 
