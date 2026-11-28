@@ -11,7 +11,7 @@ Research conclusions and experiment choice belong to `research-round`.
 
 ## Boundaries
 
-- Read the checkout, transcripts, CI logs and commands whose `--help` `writes` line names nothing in
+- Read the checkout, transcripts, CI and service logs, and commands whose `--help` `writes` line names nothing in
   the active ledger or market (`research state` also moves the local `main` runtime tag). Probes that
   write use a temporary ledger (`ledger temp`), a temporary market and an IDE of the audit's own.
   AGENTS.md owns authority and credentials; a diagnosis grants none, picks no candidate and changes
