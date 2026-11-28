@@ -140,22 +140,22 @@ class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
             raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction needs this strategy's current native account position")
         return position
 
-    def _held(self) -> list[tuple[Any, bool]]:
+    def _unsent_held(self) -> list[tuple[Any, bool]]:
         own = strategy_ids(self._live.manifest)[self._live_symbol]
         return [(pending.order, pending.order.strategy_id == own)
                 for pending in [*self._live.pending_entries, *self._live.source_canceled]]
 
-    def _cancel_waiting(self, match) -> set:
+    def _unsent_cancel(self, match) -> set:
         own = strategy_ids(self._live.manifest)[self._live_symbol]
         return commands.cancel_unsent(self._live, lambda order: order.strategy_id == own and match(order))
 
-    def _holds(self, instrument_id) -> bool:
+    def _unsent_holds(self, instrument_id) -> bool:
         return instrument_id == contract(self._live_symbol)
 
-    def _check(self) -> None:
+    def _unsent_check(self) -> None:
         commands.require_connection(self._live)
 
-    def _refuse_waiting(self) -> None:
+    def _unsent_refuse(self) -> None:
         """A cancel the order rules refuse, of an entry that waits unsent, ends the run: none may be sent after it."""
         commands.refuse_entries(self._live, CODE, "a strategy cancels only its own orders, without parameters")
 

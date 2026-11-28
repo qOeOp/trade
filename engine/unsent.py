@@ -33,72 +33,72 @@ def cancel(commander: Strategy, order: Any, algorithm: ExecAlgorithmId) -> None:
 
 class Waiting:
     """A source's cancels and market exit reach its entries the runner holds unsent, which the native cache does not
-    hold; before the order rules (OrderRules comes after this class). The mode gives the store: `_held`, the held
-    orders of every instance, each with whether it is this instance's; `_cancel_waiting`, which cancels this
-    instance's held entries that match and gives their client order IDs; `_holds`, whether an instrument is this
-    instance's contract. `_check` runs before each path, and `_refuse_waiting` when a cancel the order rules refuse
+    hold; before the order rules (OrderRules comes after this class). The mode gives the store: `_unsent_held`, the held
+    orders of every instance, each with whether it is this instance's; `_unsent_cancel`, which cancels this
+    instance's held entries that match and gives their client order IDs; `_unsent_holds`, whether an instrument is this
+    instance's contract. `_unsent_check` runs before each path, and `_unsent_refuse` when a cancel the order rules refuse
     reaches a held entry."""
 
-    def _held(self) -> list[tuple[Any, bool]]:
+    def _unsent_held(self) -> list[tuple[Any, bool]]:
         raise NotImplementedError
 
-    def _cancel_waiting(self, match: Callable[[Any], bool]) -> set:
+    def _unsent_cancel(self, match: Callable[[Any], bool]) -> set:
         raise NotImplementedError
 
-    def _holds(self, instrument_id) -> bool:
+    def _unsent_holds(self, instrument_id) -> bool:
         raise NotImplementedError
 
-    def _check(self) -> None:
+    def _unsent_check(self) -> None:
         pass
 
-    def _refuse_waiting(self) -> None:
+    def _unsent_refuse(self) -> None:
         pass
 
-    def _refused(self, match: Callable[[Any], bool]) -> None:
-        if any(match(order) for order, _own in self._held()):
-            self._refuse_waiting()
+    def _unsent_refused(self, match: Callable[[Any], bool]) -> None:
+        if any(match(order) for order, _own in self._unsent_held()):
+            self._unsent_refuse()
 
     def _foreign(self, client_order_ids) -> list:
         """Another instance's held entry is a known order too (engine.order_rules rule 6)."""
         ids = list(client_order_ids)
-        found = [order for order, own in self._held() if not own and order.client_order_id in ids]
+        found = [order for order, own in self._unsent_held() if not own and order.client_order_id in ids]
         if found:
-            self._refuse_waiting()
+            self._unsent_refuse()
         return super()._foreign(ids) + [str(order.client_order_id) for order in found]  # type: ignore[misc]
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
-        self._check()
+        self._unsent_check()
         if params:
-            self._refused(lambda order: order.client_order_id == client_order_id)
-        elif self._cancel_waiting(lambda order: order.client_order_id == client_order_id):
+            self._unsent_refused(lambda order: order.client_order_id == client_order_id)
+        elif self._unsent_cancel(lambda order: order.client_order_id == client_order_id):
             return None
         return super().cancel_order(client_order_id, client_id, params)  # type: ignore[misc]
 
     def cancel_orders(self, client_order_ids, client_id=None, params=None):
-        self._check()
+        self._unsent_check()
         ids = list(client_order_ids)
         if params:
-            self._refused(lambda order: order.client_order_id in ids)
+            self._unsent_refused(lambda order: order.client_order_id in ids)
         else:
-            waiting = self._cancel_waiting(lambda order: order.client_order_id in ids)
+            waiting = self._unsent_cancel(lambda order: order.client_order_id in ids)
             ids = [identity for identity in ids if identity not in waiting]
             if waiting and not ids:
                 return None
         return super().cancel_orders(ids, client_id, params)  # type: ignore[misc]
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
-        self._check()
+        self._unsent_check()
         if params or not strategy_only:
-            self._refused(lambda order: order.instrument_id == instrument_id)
-        elif self._holds(instrument_id):
-            self._cancel_waiting(lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
+            self._unsent_refused(lambda order: order.instrument_id == instrument_id)
+        elif self._unsent_holds(instrument_id):
+            self._unsent_cancel(lambda order: order_side in (None, OrderSide.NO_ORDER_SIDE, order.side))
         return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only,  # type: ignore[misc]
                                          params)
 
     def market_exit(self):
         """The native exit cancels the orders in its cache; the held entries are the source's working orders too. A
         call natively ignored (not running, or exiting already) cancels none."""
-        self._check()
+        self._unsent_check()
         if Strategy.is_running(self) and not Strategy.is_exiting(self):  # type: ignore[arg-type]
-            self._cancel_waiting(lambda order: True)
+            self._unsent_cancel(lambda order: True)
         return super().market_exit()  # type: ignore[misc]

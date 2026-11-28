@@ -153,11 +153,11 @@ class Waiting(unsent.Waiting):
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
-    def _held(self) -> list[tuple[Any, bool]]:
+    def _unsent_held(self) -> list[tuple[Any, bool]]:
         return [(item.order, item.instrument_id == self._paper_instrument_id) for item in QUEUE]
 
-    def _cancel_waiting(self, match: Callable[[Any], bool]) -> set:
+    def _unsent_cancel(self, match: Callable[[Any], bool]) -> set:
         return cancel(self._paper_instrument_id, match)
 
-    def _holds(self, instrument_id) -> bool:
+    def _unsent_holds(self, instrument_id) -> bool:
         return str(instrument_id) == self._paper_instrument_id
