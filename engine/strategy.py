@@ -103,24 +103,24 @@ def deferred_start(callbacks: dict) -> dict:
 
 def _refused(name: str):
     def subscribe(self, *args, **kwargs):
-        return self._breach(OUTSIDE, f"{self.strategy_id}: {name} {args[0] if args else ''}; no run serves it"
-                                     + ("; declare history in WARMUP" if name.startswith("request_") else ""))
+        return self._runner_breach(OUTSIDE, f"{self.strategy_id}: {name} {args[0] if args else ''}; no run serves it"
+                                   + ("; declare history in WARMUP" if name.startswith("request_") else ""))
     subscribe.__name__ = name
     return subscribe
 
 
 class Subscriptions:
-    """Refuses every subscription outside the contract; the rest go on as asked. `_breach(code, text)` is the
-    runner's: it records (replay, Paper) or raises (Live)."""
+    """Refuses every subscription outside the contract; the rest go on as asked. `_runner_breach(code, text)` is
+    the runner's: it records (replay, Paper) or raises (Live)."""
 
-    def _breach(self, code: str, text: str):
+    def _runner_breach(self, code: str, text: str):
         BREACHES.append((code, text))
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         identity = str(Strategy.strategy_id.__get__(self, type(self)))
         if not contract_bar_type(bar_type, DECLARED.get(identity, frozenset())):
-            return self._breach(OUTSIDE, f"{identity}: subscribe_bars {bar_type}; bars are 1-MINUTE-LAST-EXTERNAL or "
-                                         "its LAST-INTERNAL aggregation to a period WARMUP declares")
+            return self._runner_breach(OUTSIDE, f"{identity}: subscribe_bars {bar_type}; bars are 1-MINUTE-LAST-"
+                                                "EXTERNAL or its LAST-INTERNAL aggregation to a period WARMUP declares")
         return super().subscribe_bars(bar_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_data(self, data_type, *args, **kwargs):
@@ -128,8 +128,8 @@ class Subscriptions:
         if kind in NOT_SERVED:
             served = (data_type.metadata or {}).get("instrument_id")
             if served not in SERVED[kind]:
-                return self._breach(NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, "
-                                                      "which this run does not stream")
+                return self._runner_breach(NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, "
+                                                             "which this run does not stream")
             if kind == "Metrics" and hasattr(self, "_metrics_follow"):
                 return self._metrics_follow(served)
         return super().subscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
@@ -140,9 +140,9 @@ class Subscriptions:
         return super().unsubscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_trades(self, instrument_id, *args, **kwargs):
-        return self._breach("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; trades "
-                                                 "arrive only through subscribe_data(DataType(\"TradeTick\", "
-                                                 "metadata={\"instrument_id\": ...}))")
+        return self._runner_breach("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; "
+                                                        "trades arrive only through subscribe_data(DataType("
+                                                        "\"TradeTick\", metadata={\"instrument_id\": ...}))")
 
 
 for _name in UNSERVED_SUBSCRIPTIONS:

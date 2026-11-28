@@ -41,7 +41,8 @@ ENVIRONMENT_NAMES = ("QUOTE_EXECUTION", "INITIAL_MARGIN_RATE", "MAINTENANCE_MARG
 # runner or a file: an import beyond pure computation and the native strategy API, a module reached through an
 # allowed one or kept under another name, dynamic execution or attribute access by name, dunder and frame
 # introspection, a private attribute of anything but `self`, a kept `type(...)`, the shared decimal context,
-# assignment through an imported object or a call result, and rebinding what the runner wraps.
+# assignment through an imported object or a call result, rebinding what the runner wraps, and a private name the
+# runner keeps on the same instance: each of those begins with one of RUNNER_WORDS (`_live`, `_paper_held`).
 SOURCE_STDLIB = frozenset({"__future__", "bisect", "calendar", "collections", "dataclasses", "datetime", "decimal",
                            "enum", "heapq", "itertools", "math", "statistics"})
 SOURCE_NAUTILUS = ("nautilus_trader.common", "nautilus_trader.config", "nautilus_trader.core",
@@ -55,6 +56,8 @@ SOURCE_REFUSED_ATTRIBUTES = frozenset({
     "f_locals", "getcontext", "gi_code", "gi_frame", "gi_yieldfrom", "mro", "setcontext", "tb_frame", "tb_next",
 })
 SOURCE_DUNDERS = frozenset({"__init__", "__name__"})
+RUNNER_WORDS = frozenset({"live", "metrics", "paper", "replay", "runner", "source", "unsent", "warming"})
+RUNNER_PREFIXES = ", ".join(f"_{word}" for word in sorted(RUNNER_WORDS))
 # What the runner wraps around the source (engine.strategy.guarded_callbacks): the native callbacks, the two hooks,
 # the guarded clock and the read-only cache.
 SOURCE_WRAPPED = frozenset({name for name in dir(Strategy) if name.startswith("on_")} | {
@@ -71,6 +74,10 @@ def _module_allowed(module: str) -> bool:
 def _refused_attribute(name: str) -> bool:
     return name in SOURCE_REFUSED_ATTRIBUTES or (
         name.startswith("__") and name.endswith("__") and name not in SOURCE_DUNDERS)
+
+
+def _runner_name(name: str) -> bool:
+    return name.startswith("_") and name[1:].partition("_")[0] in RUNNER_WORDS
 
 
 def _imported(node: ast.Import | ast.ImportFrom, found: list) -> dict[str, object]:
@@ -117,6 +124,10 @@ def source_findings(source: bytes) -> list[str]:
             imported.update(_imported(node, found))
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
+        named = {ast.Name: "id", ast.Attribute: "attr", ast.FunctionDef: "name", ast.AsyncFunctionDef: "name",
+                 ast.ClassDef: "name"}.get(type(node))
+        found += [(line, f"name {name}: the runner keeps its own names on the instance under {RUNNER_PREFIXES}")
+                  for name in ([getattr(node, named)] if named else getattr(node, "kwd_attrs", [])) if _runner_name(name)]
         if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__new__"
                 or isinstance(node, ast.ImportFrom) and any(alias.name == "StrategyConfig" for alias in node.names)
                 or isinstance(node, ast.Attribute) and node.attr == "StrategyConfig"):

@@ -1,10 +1,13 @@
 """External strategy identity, the runner's four inputs and the native configuration bridge."""
 
+import ast
 import hashlib
 import importlib
+import inspect
 import json
 import re
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -19,7 +22,7 @@ import dataclasses
 from engine import strategy as strategy_runtime
 from engine.config import Refusal
 from engine.config import runtime_source_metadata
-from engine.load import RUNTIME_CONTRACT, load_strategy, source_findings, strategy_metadata
+from engine.load import RUNTIME_CONTRACT, _runner_name, load_strategy, source_findings, strategy_metadata
 from engine import run
 from engine.strategy import STRATEGIES
 from engine.run import StrategyInputs, effective_configuration, execution_metadata, parse_configuration
@@ -138,6 +141,8 @@ class StrategyLoaderTests(unittest.TestCase):
             ("class P:\n    def f(self):\n        cls = type(self)\n", "type(...) kept"),
             ("class P:\n    def f(self):\n        self.on_bar = None\n", "assignment to self.on_bar"),
             ("class P:\n    def f(self):\n        self.clock._clock.set_timer()\n", "private attribute self.clock._clock"),
+            ("class P:\n    def f(self):\n        self._live.cancel_entries('source')\n", "name _live: the runner"),
+            ("class P:\n    def _runner_foreign(self, ids):\n        return []\n", "name _runner_foreign: the runner"),
         ):
             self.source.write_text(touch + reach)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
@@ -149,6 +154,17 @@ class StrategyLoaderTests(unittest.TestCase):
                        "from decimal import localcontext\nwith localcontext() as context:\n    context.prec = 50\n"):
             with self.subTest(honest=honest):
                 self.assertEqual(source_findings(honest.encode()), [])
+        # Each private name the runner keeps on the source's instance begins with one of RUNNER_WORDS.
+        from engine import history, live_source, metrics, order_rules, paper, paper_terms, unsent
+        for cls in (strategy_runtime.Subscriptions, order_rules.OrderRules, history.Warming, metrics.Feed,
+                    unsent.Waiting, paper_terms.Waiting, paper._PaperConfigured, live_source._LiveConfigured,
+                    run._Configured):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(cls)))
+            names = {*vars(cls), *(node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+                                   and isinstance(node.value, ast.Name) and node.value.id == "self")}
+            with self.subTest(runner=cls.__qualname__):
+                self.assertEqual([name for name in names if name.startswith("_") and not name.startswith("__")
+                                  and not _runner_name(name)], [])
 
     def test_a_cache_write_fails_the_callback_that_made_it(self):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        self.cache.instruments()\n"
