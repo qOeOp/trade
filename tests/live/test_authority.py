@@ -19,6 +19,7 @@ from tests.live.authority_fixture import WEB, inject_cli, install, launch
 from tests.helpers import refused
 
 OTHER = "trade-release-web-" + "b" * 40
+AGENT = {"agent_before": "trade-release-agent-" + "d" * 40}
 
 
 def prepared(root, run_id="original"):
@@ -107,7 +108,7 @@ class InstalledAuthorityTests(unittest.TestCase):
 
     def test_release_transaction_and_retired_owner_cannot_admit_new_effects(self):
         scope = authority.from_file(self.fixture.file, self.fixture.binding)
-        durable_json(self.fixture.state / "transaction.json", {"candidate": OTHER, "previous": WEB})
+        durable_json(self.fixture.state / "transaction.json", {"candidate": OTHER, "previous": WEB, **AGENT})
         self.refused(lambda: scope.admit_locked(self.root))
         scope.admit_locked(self.root, maintenance=True)
         (self.fixture.state / "transaction.json").unlink()
@@ -134,7 +135,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         for kind in ("rolled-back", "retired"):
             with self.subTest(kind=kind):
                 if kind == "rolled-back":  # this control's release is being rolled back to OTHER
-                    durable_json(self.fixture.state / "transaction.json", {"candidate": WEB, "previous": OTHER})
+                    durable_json(self.fixture.state / "transaction.json", {"candidate": WEB, "previous": OTHER, **AGENT})
                 else:
                     (self.fixture.state / "transaction.json").unlink()
                 status, response = serve.command(self.fixture.file, "stop", "original", {"request_id": f"stop-{kind}-request"},

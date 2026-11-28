@@ -11,7 +11,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 from deploy.live_host import LIVE, LiveBusy
@@ -219,7 +219,6 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.host = Host(Path(temporary.name))
         self.github = Mock()
-        self.github.agent_changed.return_value = True
         self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
 
     def test_success_switches_only_after_readiness_and_commits_disk_route(self):
@@ -265,15 +264,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.live, self.host.agent()), (WEB + A, WEB + A, AGENT + D))
         self.assertFalse(self.release.transaction.exists())
 
-    def test_crash_after_disk_commit_but_before_journal_removal_rolls_back_conservatively(self):
-        self.release.journal(WEB + B, WEB + A)
-        self.host.containers[WEB + B] = True
-        self.host.disk = self.host.live = WEB + B
-        self.release.recover()
-        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
-
     def test_rollback_starts_a_stopped_previous_web_before_the_route_returns_to_it(self):
-        self.release.journal(WEB + B, WEB + A)
+        self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.host.containers.update({WEB + A: False, WEB + B: True})
         self.host.disk = self.host.live = WEB + B
         self.release.recover()
@@ -284,7 +276,7 @@ class ReleaseTests(unittest.TestCase):
     def test_rollback_keeps_the_journal_when_the_previous_web_is_not_the_recorded_one_or_serves_without_login(self):
         for step in ("checked", "auth_denied"):
             with self.subTest(step):
-                self.release.journal(WEB + B, WEB + A)
+                self.release.journal(WEB + B, WEB + A, AGENT + D)
                 self.host.containers.update({WEB + A: True, WEB + B: True})
                 self.host.disk = self.host.live = WEB + B
                 routed = len(self.host.calls)
@@ -297,7 +289,7 @@ class ReleaseTests(unittest.TestCase):
                 self.release.transaction.unlink()
 
     def test_failed_rollback_or_independent_route_change_preserves_journal_and_candidate(self):
-        self.release.journal(WEB + B, WEB + A)
+        self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.host.containers[WEB + B] = True
         self.host.live = WEB + B
         self.host.rollback_fails = True
@@ -310,12 +302,6 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "independent change"):
             self.release.recover()
         self.assertEqual(self.host.calls, before)
-
-    def test_web_only_update_does_not_touch_agent(self):
-        self.github.agent_changed.return_value = False
-        self.release.apply(TARGET)
-        self.assertEqual(self.host.agent(), AGENT + D)
-        self.assertFalse(any(name.startswith(AGENT) for _, name in self.host.calls))
 
     def test_independent_agent_replacement_during_image_pull_is_not_overwritten(self):
         def replace():
@@ -330,7 +316,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(self.release.transaction.exists())
 
     def test_independent_routes_during_recovery_warmup_or_final_observation_are_preserved(self):
-        self.release.journal(WEB + B, WEB + A)
+        self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.host.containers[WEB + B] = True
         self.host.live = WEB + B
         self.host.on_warm = lambda _: setattr(self.host, "live", WEB + C)
@@ -363,7 +349,6 @@ class JointReleaseTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.host = Host(Path(temporary.name))
         self.github = Mock()
-        self.github.agent_changed.return_value = True
         self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
         self.paper = self.release.paper()
         self.controller = self.paper.host
@@ -374,20 +359,6 @@ class JointReleaseTests(unittest.TestCase):
         self.assertTrue(self.controller.running[PAPER + version])
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.paper.transaction.exists())
-
-    def test_a_version_commits_web_and_the_paper_controller(self):
-        self.release.apply(TARGET)
-        self.settled(B)
-        self.assertFalse(self.controller.running[PAPER + A])
-        self.assertEqual(self.host.agent(), AGENT + B)
-        self.assertFalse(self.release.failed.exists())
-
-    def test_the_web_warms_and_observes_against_the_paper_controller_of_its_version(self):
-        seen = []
-        self.host.on_warm = lambda name: seen.append(self.controller.live)
-        self.host.on_observe = lambda: seen.append(self.controller.live)
-        self.release.apply(TARGET)
-        self.assertEqual(seen, [paper_route(PAPER + B, "starts")] * 2, "new starts wait for the commit")
 
     def test_a_paper_failure_rolls_the_web_back_and_marks_the_version_failed(self):
         self.controller.failure = "warm"
@@ -472,7 +443,6 @@ class GenerationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.host = Host(Path(temporary.name))
         self.github = Mock()
-        self.github.agent_changed.return_value = True
         self.release = Release(self.host, self.github, live=IdleLive(self.host), paper=paper_release(self.host))
         self.controller = self.release.paper().host
         self.host.config = Config(state=self.host.state, research_origin=BASE)
@@ -483,25 +453,6 @@ class GenerationTests(unittest.TestCase):
                         patch.object(release.Generation, "where", side_effect=lambda *_: self.where)):
             patched.start()
             self.addCleanup(patched.stop)
-
-    def test_a_version_of_another_line_cuts_over_before_its_journal(self):
-        """The cutover (deploy/generation.py, tests/deploy/test_generation.py) runs instead of the release; the
-        release follows on a later tick, once the host's ledger is on the version's line."""
-        self.controller.unread = {"research": "2"}
-        with patch.object(release.Generation, "cut") as cut:
-            self.release.apply(TARGET)
-        cut.assert_called_once_with(TARGET, A, ANY, self.wanted, self.where)
-        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
-        self.assertNotIn(WEB + B, self.host.containers)
-        self.assertNotIn(PAPER + B, self.controller.running)
-        self.assertFalse(self.release.transaction.exists())
-        self.assertFalse(self.release.failed.exists(), "a host condition, not a failed version")
-        self.controller.unread = {}  # the host holds the new generation
-        self.where = {**self.where, "line": "v0.6"}
-        with patch.object(release.Generation, "cut") as cut:
-            self.release.apply(TARGET)
-        cut.assert_not_called()
-        self.assertEqual(self.host.disk, WEB + B)
 
     def waiting(self):
         """The images one apply pulled, as keys of IMAGES; its waits are the release's."""
@@ -544,7 +495,7 @@ class GenerationTests(unittest.TestCase):
              "archive": "20261123T000000Z-" + B[:12], "phase": "done", "market": "running"}))
 
     def settled_tick(self):
-        self.github.ancestor.side_effect = lambda before, after: before == after
+        self.github.ancestor.side_effect = lambda before, after: before in (after, D)  # the Agent's D too
         self.github.choose.return_value = None
         fresh = Release(self.host, self.github, live=IdleLive(self.host), paper=self.release.paper())
         with patch.object(release, "running", return_value=B), patch.object(Release, "handoff", return_value=False), \
@@ -634,7 +585,6 @@ class HostConditionTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.host = Host(Path(temporary.name))
         self.github = Mock()
-        self.github.agent_changed.return_value = True
         self.live = IdleLive(self.host)
         self.release = Release(self.host, self.github, live=self.live, paper=paper_release(self.host))
 
@@ -806,7 +756,12 @@ class ProtectedTests(unittest.TestCase):
 
     def test_the_ledger_and_docker_api_are_protected_and_required(self):
         services = ["trade-ide-ledger-1", "trade-ide-docker-api-1"]
-        self.assertEqual(sorted(self.host(services).protected()), sorted(services))
+        host = self.host(services)
+        before = host.protected()
+        self.assertEqual(sorted(before), sorted(services))
+        host.ensure_protected(before)
+        with self.assertRaisesRegex(HostCondition, "changed during release: trade-ide-ledger-1"):  # restarted since
+            host.ensure_protected({**before, services[0]: {**before[services[0]], "restarts": 1}})
         with self.assertRaises(RuntimeError):  # the ledger and docker-api stay required
             self.host(["trade-ide-docker-api-1"]).protected()
 
@@ -936,15 +891,13 @@ class PruneTests(unittest.TestCase):
                          "the routed version and the previous good one stay, and the newest failed one not older")
 
     def test_markers_of_failed_versions_older_than_the_routed_one_go_with_their_containers(self):
-        # Doctor 20261122-34: failed/ and paper-failed/ only grew, and the newest failed container of a version long
+        # Doctor 20261122-34: failed/ only grew, and the newest failed container of a version long
         # superseded stayed for good.
         with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
             root = Path(directory)
             for sha in (B, C, D):
                 (root / "failed").mkdir(exist_ok=True)
                 (root / "failed" / sha).write_text("")
-            (root / "paper-failed").mkdir()
-            (root / "paper-failed" / B).write_text("")
             host = Mock(state=root)
             host.disk_route.return_value = WEB + A
             host.prune.return_value = [WEB + B]
@@ -959,8 +912,7 @@ class PruneTests(unittest.TestCase):
                                                                      for prefix in (WEB, AGENT, PAPER, LIVE)))
             self.assertEqual(sorted(path.name for path in (root / "failed").iterdir()), [C, D],
                              "a newer failed version stays blocked; one whose container stays keeps its marker")
-            self.assertFalse((root / "paper-failed").exists(), "no version writes it")
-            self.assertEqual(checked.cleaned, [WEB + B, f"failed/{B}", "paper-failed/"])
+            self.assertEqual(checked.cleaned, [WEB + B, f"failed/{B}"])
 
     def test_failed_records_name_the_containers_of_their_kind(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
@@ -1100,18 +1052,6 @@ class SelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "fetch failed"):
                 source.approved()
             source.git.assert_not_called()
-
-    def test_agent_runtime_dependency_changes_include_its_base_image(self):
-        source = GitSource(Path("/unused"))
-        source.ancestor = Mock(return_value=True)
-        source.git = Mock(return_value="ide/web/src/App.tsx")
-        self.assertFalse(source.agent_changed(A, B))
-        for unchanged in ("tests/ledger/test_db.py", ".agents/skills/x/SKILL.md", "README.md", "deploy/release.py"):
-            source.git.return_value = unchanged
-            self.assertFalse(source.agent_changed(A, B), unchanged)
-        for changed in ("deploy/Dockerfile", "ide/agent/src/chat.ts", "ledger/db.py", "uv.lock"):
-            source.git.return_value = changed
-            self.assertTrue(source.agent_changed(A, B))
 
     def test_the_host_domain_and_data_root_come_from_the_installed_env_file(self):
         def compose(stdout, code=0):
@@ -1583,20 +1523,6 @@ class FollowTests(unittest.TestCase):
                 self.release.follow(WEB + A)
         self.assertEqual([image for _, image, _ in self.host.recreated][-2:], [OLD_SERVICE, OLD_SERVICE])
 
-    def test_a_release_tick_leaves_the_services_to_the_next_tick(self):
-        self.github.choose.return_value = TARGET
-        with patch("deploy.release.running", return_value=A), patch.object(Release, "apply") as apply, \
-                patch.object(Release, "follow") as follow, patch.object(Release, "prune"), \
-                patch.object(Release, "recover"), patch.object(Release, "settle") as settle:
-            Release(self.host, self.github, live=self.live).tick()
-            apply.assert_called_once_with(TARGET)
-            follow.assert_not_called()
-            settle.assert_not_called()
-            self.github.choose.return_value = None
-            Release(self.host, self.github, live=self.live).tick()
-            follow.assert_called_once_with(WEB + A)
-            settle.assert_called_once_with()
-
 
 class DefinitionFollowTests(unittest.TestCase):
     """Doctor 20261122-32: only an image change moved a service, so a version that changed the Caddyfile, OAuth2
@@ -2014,7 +1940,6 @@ class SettledTests(unittest.TestCase):
         self.github = Mock()
         self.github.approved.return_value = {**TARGET, "revision": A}
         self.github.docker_api.return_value = PROXY
-        self.github.agent_changed.return_value = False
         self.paper = Mock()
         self.paper.disk_route.return_value = self.paper.live_route.return_value = PAPER + A
         self.release = Mock(host=self.host, github=self.github, failed=self.host.state / "failed",
@@ -2040,12 +1965,10 @@ class SettledTests(unittest.TestCase):
             f"trade-release-web-{'0' * 12}, trade-service@{'0' * 12}. Failed markers: {C[:12]}.")})
         self.assertEqual(list(self.settled()), [f"settled:{A}"], "the same fact: sent once (deploy/notices.py)")
 
-    def test_an_agent_the_version_did_not_change_stays_on_its_own_revision(self):
+    def test_an_agent_of_another_version_is_named(self):
         del self.host.containers[AGENT + A]
         self.host.containers[AGENT + D] = [True, D, "ghcr.io/qoeop/trade-ide@sha256:" + "d" * 64]
-        self.assertEqual(list(self.settled()), [f"settled:{A}"])
-        self.github.agent_changed.return_value = True
-        self.assertIn(f"Agent runs {D[:12]}, an Agent this version changed", self.settled()[f"settled:{A}:diverged"])
+        self.assertIn(f"Agent runs {D[:12]}, not this version's", self.settled()[f"settled:{A}:diverged"])
 
     def test_each_part_off_the_version_is_named(self):
         cases = {

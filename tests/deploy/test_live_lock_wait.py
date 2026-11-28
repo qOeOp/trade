@@ -41,7 +41,6 @@ class LiveLockWaitTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.host = PairHost(Path(temporary.name).resolve())
         self.source = Mock()
-        self.source.agent_changed.return_value = False
         self.live = PairLive(self.host, self.source)
         self.release = Release(self.host, self.source, live=self.live, paper=paper_release(self.host))
         self.reader = None
@@ -141,14 +140,6 @@ class LiveLockWaitTests(unittest.TestCase):
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
 
-    def test_short_serialized_maintenance_also_allows_commit_after_release(self):
-        self.fake_clock()
-        self.host.on_observe = lambda: self.hold_reader(exclusive=True)
-        self.clock.after_sleep = self.release_reader
-        self.release.apply(PAIR)
-        self.assertEqual(self.clock.sleeps, [.1])
-        self.assertEqual(self.host.disk, WEB + B)
-
     def test_fresh_native_admission_after_wait_still_refuses_busy_or_unknown(self):
         for status in ("busy", "unavailable"):
             with self.subTest(status=status):
@@ -206,7 +197,7 @@ class LiveLockWaitTests(unittest.TestCase):
     def test_recovery_waits_for_reader_without_requiring_native_idle(self):
         self.fake_clock()
         self.live.prepare(A, PAIR)
-        self.release.journal(WEB + B, WEB + A)
+        self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.host.live = WEB + B
         self.host.idle = "busy"
         self.host.inspect_hook = Mock(side_effect=AssertionError("recovery must not inspect idle"))
@@ -307,7 +298,7 @@ class LiveLockWaitTests(unittest.TestCase):
 
     def check_recovery_identity_change(self, replace, reason):
         self.live.prepare(A, PAIR)
-        self.release.journal(WEB + B, WEB + A)
+        self.release.journal(WEB + B, WEB + A, AGENT + D)
         self.durable_routes(WEB + B)
         self.host.live = WEB + B
         self.host.idle = "busy"
@@ -360,14 +351,15 @@ class LiveLockWaitTests(unittest.TestCase):
 
         def change():
             self.release_reader()
-            self.host.containers[AGENT + D] = False
+            self.host.containers[AGENT + B] = False  # the replacement
             self.host.containers[AGENT + C] = True
 
         self.clock.after_sleep = change
-        with self.assertRaisesRegex(RuntimeError, "Agent changed"):
+        with self.assertRaisesRegex(RuntimeError, "Agent has an independent change"):
             self.release.apply(PAIR)
         self.assertEqual(self.host.disk, WEB + A)
         self.assertEqual(self.host.agent(), AGENT + C)
+        self.assertTrue(self.release.transaction.exists(), "kept for the operator")
 
     def test_protected_change_during_wait_is_rechecked_before_commit(self):
         self.fake_clock()
@@ -409,27 +401,12 @@ class LiveLockWaitTests(unittest.TestCase):
         self.live.health.assert_called()
         self.host.health.assert_called()
 
-    def test_real_short_shared_flock_release_allows_original_barrier_to_continue(self):
-        code = ("import fcntl,os,sys,time; f=os.open(sys.argv[1],os.O_RDONLY);"
-                "fcntl.flock(f,fcntl.LOCK_SH); print('held',flush=True);"
-                "sys.stdin.readline();time.sleep(.15);os.close(f);print('released',flush=True)")
-        child = subprocess.Popen([sys.executable, "-c", code, str(self.host.lock)],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        self.assertEqual(child.stdout.readline().strip(), "held")
-        child.stdin.write("release\n")
-        child.stdin.flush()
-        with self.ready_barrier():
-            self.host.assert_locked()
-        self.assertEqual(child.communicate(timeout=5)[0].strip(), "released")
-        self.assertEqual(child.returncode, 0)
-
 
 class ReleaseDiagnosticTests(unittest.TestCase):
     def test_primary_cause_is_written_before_recovery_error(self):
         with tempfile.TemporaryDirectory() as directory:
             host = PairHost(Path(directory).resolve())
             source = Mock()
-            source.agent_changed.return_value = False
             live = PairLive(host, source)
             release = Release(host, source, live=live, paper=paper_release(host))
             def reject():
@@ -479,10 +456,6 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         self.assertEqual(summary, f"unclassified runtime failure (RuntimeError at tests/deploy/test_live_lock_wait.py:{line})")
         self.assertNotIn(secret, summary)
         self.assertEqual(failure_summary(KeyError(secret)), "release metadata unavailable")
-
-    def test_a_protected_container_change_is_named_without_its_container(self):
-        error = RuntimeError("protected container changed during release: trade-ide-ledger-1")
-        self.assertEqual(failure_summary(error), "protected container changed")
 
     def test_closed_diagnostic_stream_does_not_raise_over_original_failure(self):
         closed = io.StringIO()

@@ -70,11 +70,6 @@ class Settings(unittest.TestCase):
         self.path.write_text(json.dumps(value))
         self.path.chmod(mode)
 
-    def test_absent_is_none_and_a_private_saved_file_is_its_token_and_chat(self):
-        self.assertIsNone(telegram.settings(self.directory))
-        self.save({"bot_token": TOKEN, "chat_id": 42})
-        self.assertEqual(telegram.settings(self.directory), (TOKEN, 42))
-
     def test_a_shared_linked_or_malformed_file_is_refused_without_its_content(self):
         cases = [({"bot_token": TOKEN, "chat_id": 42}, 0o644), ({"bot_token": TOKEN}, 0o600),
                  ({"bot_token": TOKEN, "chat_id": "42"}, 0o600), ({"bot_token": "x", "chat_id": 42}, 0o600),

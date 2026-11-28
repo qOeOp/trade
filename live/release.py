@@ -86,11 +86,10 @@ def _transaction(binding: Binding) -> dict | None:
         if os.path.lexists(path):
             raise ValueError("unavailable release transaction") from None
         return None
-    if (set(value) - {"agent_before"} != {"candidate", "previous"}
+    if (set(value) != {"candidate", "previous", "agent_before"}
             or not _web(value["candidate"]) or not _web(value["previous"]) or value["candidate"] == value["previous"]):
         raise ValueError("unknown release transaction")
-    if "agent_before" in value:
-        _sha(value["agent_before"], release_host.AGENT)
+    _sha(value["agent_before"], release_host.AGENT)
     return value
 
 

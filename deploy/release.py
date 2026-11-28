@@ -10,7 +10,6 @@ import contextlib
 import fcntl
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import traceback
@@ -119,8 +118,6 @@ def failure_summary(error: Exception) -> str:
                 "data generation cutover pending for another version",
             "a data generation cutover is pending for another line; left for the operator":
                 "data generation cutover pending for another line",
-            "the moved mirror does not follow the research repository":
-                "the moved mirror does not follow the research repository",
             "a pending release transaction waits for an admitted control": "pending journal waits for a control",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
@@ -174,14 +171,12 @@ class Release:
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("control", error)
 
-    def journal(self, candidate: str, previous: str, agent_before: str | None = None) -> dict:
-        """`agent_before` names the Agent a release replaces; None keeps it."""
+    def journal(self, candidate: str, previous: str, agent_before: str) -> dict:
+        """`agent_before` names the Agent the release replaces: every version changes it (pyproject.toml)."""
         revision(candidate)
         self.host.checked(previous)
-        transaction: dict[str, str] = {"candidate": candidate, "previous": previous}
-        if agent_before is not None:
-            self.host.checked(agent_before, AGENT)
-            transaction["agent_before"] = agent_before
+        self.host.checked(agent_before, AGENT)
+        transaction = {"candidate": candidate, "previous": previous, "agent_before": agent_before}
         durable_json(self.transaction, transaction)
         return transaction
 
@@ -221,22 +216,19 @@ class Release:
     def _recover(self, failed: bool) -> None:
         if not self.transaction.exists():
             return
-        transaction = read_journal(self.transaction, frozenset({"candidate", "previous"}), frozenset({"agent_before"}))
+        transaction = read_journal(self.transaction, frozenset({"candidate", "previous", "agent_before"}))
         candidate, previous = transaction["candidate"], transaction["previous"]
         sha = revision(candidate)
         self.host.checked(previous)
         self.known_routes(transaction)
         print(f"Rolling back uncommitted Web release {sha}", flush=True)
         self.live.restore(previous)
-        if "agent_before" in transaction:
-            before = transaction["agent_before"]
-            after = f"{AGENT}{sha}"
-            current = self.host.agent()
-            if current not in {None, before, after}:
-                raise RuntimeError("Agent has an independent change; preserve transaction and stop")
-            if self.host.exists(after):
-                self.host.stop(after)
-            self.host.start(before)
+        before, after = transaction["agent_before"], f"{AGENT}{sha}"
+        if self.host.agent() not in {None, before, after}:
+            raise RuntimeError("Agent has an independent change; preserve transaction and stop")
+        if self.host.exists(after):
+            self.host.stop(after)
+        self.host.start(before)
         self.host.start(previous)
         protected = self.host.protected()
         lenient = self.generation().done()  # the previous version cannot read a new generation's ledger
@@ -296,8 +288,8 @@ class Release:
         agent = self.host.agent()
         if agent is None:
             raise RuntimeError("standalone Agent is missing; recover it first")
-        before = revision(agent, AGENT)
-        change_agent = self.github.agent_changed(before, sha)
+        if not self.github.ancestor(revision(agent, AGENT), sha):
+            raise RuntimeError("Agent revision is not an ancestor of the candidate")
         protected = self.host.protected()
         # Every release pairs: the candidate brings its own control and takes the account, only while Live is idle
         # (0.x keeps no compatibility between versions, the user 2026-11-14).
@@ -338,14 +330,13 @@ class Release:
         if self.generation().due(target, owner, ready) or not ready():
             return
         self.github.ensure(target)
-        agent_before = agent if change_agent else None
         self.live.prepare(owner, target)
         try:
             with self.live.barrier(candidate, target["service"], idle=True) as held:
                 held()
                 self.github.ensure(target)
                 self.cleared(previous)
-                transaction = self.journal(candidate, previous, agent_before)
+                transaction = self.journal(candidate, previous, agent)
         except LiveBusy as busy:
             print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
             return
@@ -359,15 +350,14 @@ class Release:
             self.live.warm(candidate)
             self.host.create(candidate, image, live_socket=self.live.socket(candidate))
             self.host.start(candidate)
-            if change_agent:
-                replacement = f"{AGENT}{sha}"
-                self.host.create(replacement, image, agent=True)
-                if self.host.agent() != agent:
-                    raise RuntimeError("Agent changed during preparation; preserve independent replacement")
-                self.host.stop(agent)
-                if self.host.agent() is not None:
-                    raise RuntimeError("Agent writer appeared during handoff")
-                self.host.start(replacement)
+            replacement = f"{AGENT}{sha}"
+            self.host.create(replacement, image, agent=True)
+            if self.host.agent() != agent:
+                raise RuntimeError("Agent changed during preparation; preserve independent replacement")
+            self.host.stop(agent)
+            if self.host.agent() is not None:
+                raise RuntimeError("Agent writer appeared during handoff")
+            self.host.start(replacement)
             if paper_plan is not None:
                 # Before the Web warms: its readiness and observation read Paper through the router.
                 paper.switch(target, paper_plan)
@@ -383,7 +373,7 @@ class Release:
                 if self.host.live_route() != candidate or self.host.disk_route() != previous:
                     raise RuntimeError("router changed during final account admission" if final
                                        else "router changed before commit; preserve independent routing")
-                if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
+                if self.host.agent() != replacement:
                     raise RuntimeError("Agent changed during final account admission" if final else "Agent changed before commit")
                 self.host.ensure_protected(protected)
                 if paper_plan is not None:
@@ -514,10 +504,6 @@ class Release:
                 self.cleaned.append(f"failed/{sha}")
             if old - remaining:
                 sync_directory(self.failed)
-            # Paper's own markers, which no version writes since 0.3.1 (one marker per version, in failed/).
-            if (self.state / "paper-failed").is_dir():
-                shutil.rmtree(self.state / "paper-failed")
-                self.cleaned.append("paper-failed/")
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
 
