@@ -236,7 +236,7 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     instruments of the start's latest passed precheck (covered_from; LINE_HISTORY_SHORT when too short). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
     source review of its source hash and none failed, read at the head this connection sees; a review that failed
     only on activity (unresolved, or failed on a precheck that did not trade) is not counted once a later precheck
-    traded and passed (`review_activity.resolved`).
+    on its image traded and passed (`review_activity.resolved`).
     """
     if targets is not None:
         line_targets.check(*targets)
@@ -264,7 +264,8 @@ def select_line(conn: db.LedgerConnection, market_at: str | None, start: str, *,
     if today is None:
         (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
     reviewed = reviews(conn, candidate["source_sha256"])
-    verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(conn, record, reviewed)}
+    verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(
+        conn, record, [other for other in reviewed if other["image_digest"] == record["image_digest"]])}
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
