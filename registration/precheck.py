@@ -143,8 +143,8 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
     commit, lifecycle and comparable configuration of `identity`, and both passed; any mismatch is a refusal:
     a review of the precheck reviews the configuration it ran. Any failed review of the cited precheck, or of
     another precheck of the source on any image, fails it too (api, causal and readiness judge the source, not one
-    run or runtime; line selection reads the same set), except an activity-only failure a later traded precheck
-    resolved (review_activity.resolved)."""
+    run or runtime), except an activity-only failure a later traded precheck on its image resolved
+    (review_activity.resolved)."""
     record = read_review(conn, review_id)
     trial = trial_identity(conn, record["trial_id"])
     digest = digest_of(identity.get("image_ref"))
@@ -170,7 +170,8 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
                      missing=(str(review_id),))
     reviewed = review_records(conn, source_sha256)
     failed = [str(item["review_id"]) for item in reviewed if item["verdict"] == "failed"
-              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(conn, item, reviewed))]
+              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(
+                  conn, item, [other for other in reviewed if other["image_digest"] == item["image_digest"]]))]
     if failed:
         raise refuse("SOURCE_PRECHECK_FAILED", "the source has failed reviews: " + ", ".join(failed),
                      missing=tuple(failed))

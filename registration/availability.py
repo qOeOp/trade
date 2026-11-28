@@ -179,22 +179,28 @@ def mask(output: dict, value: dict) -> dict:
 
 def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | None = None,
                    scope: Mapping | None = None) -> dict:
-    """The independent source reviews bound to this run's source hash and image digest.
+    """The independent source reviews of this run's source: failed ones on any image (api, causal and readiness judge
+    the source, as registration does), passed ones on the run's image only.
 
     `records` are precheck.review_records already read for this call; `scope` {review_ids} counts only the named
     reviews (the facts fixed when a run was sealed: the reviews its registration cited, which existed
-    before it). Resolved activity failures (review_activity.resolved) are derived only from this filtered set, as
-    in line selection."""
+    before it). An activity failure is resolved (review_activity.resolved) only by this filtered set's reviews on
+    its own image."""
     reviews, ignored, eligible = [], [], []
     for record in records if records is not None else precheck.review_records(conn, run["source_sha256"]):
-        if record["source_sha256"] != run["source_sha256"] or record["image_digest"] != run["image_digest"]:
-            continue  # another candidate's or runtime's review
+        if record["source_sha256"] != run["source_sha256"]:
+            continue  # another candidate's review
         if scope is not None and record["review_id"] not in scope.get("review_ids", ()):
-            ignored.append({"review_id": record["review_id"], "reason": "not a review fixed when the run was sealed"})
+            if record["verdict"] == "failed" or record["image_digest"] == run["image_digest"]:
+                ignored.append({"review_id": record["review_id"],
+                                "reason": "not a review fixed when the run was sealed"})
             continue
         eligible.append(record)
     for record in eligible:
-        if review_activity.resolved(conn, record, eligible):
+        if record["verdict"] != "failed" and record["image_digest"] != run["image_digest"]:
+            continue  # a passed review on another runtime
+        if review_activity.resolved(conn, record, [other for other in eligible
+                                                   if other["image_digest"] == record["image_digest"]]):
             ignored.append({"review_id": record["review_id"], "reason": "activity unresolved, or failed without "
                             "fills or positions, resolved by a later traded precheck with passed reviews and no "
                             "failed review"})

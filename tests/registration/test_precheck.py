@@ -215,6 +215,11 @@ class PrecheckTests(unittest.TestCase):
         _, passed = precheck_of(elsewhere, 3)
         self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(elsewhere), self.identity()).code,
                          "SOURCE_PRECHECK_FAILED")
+        across = self.world.publish("quiet-on-another-image")["source"]
+        precheck_of(across, 0, "failed", runtime=OTHER_RUNTIME, activity={"status": "unresolved", "note": "no fill"})
+        _, passed = precheck_of(across, 3)
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(across), self.identity()).code,
+                         "SOURCE_PRECHECK_FAILED", "a traded precheck resolves activity failures on its image only")
         quiet = self.world.publish("quiet-earlier")["source"]
         precheck_of(quiet, 0, "failed", activity={"status": "unresolved", "note": "no order filled"})
         trial_id, passed = precheck_of(quiet, 3)
