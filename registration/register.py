@@ -194,68 +194,6 @@ def _candidate(conn: db.LedgerConnection, ref: str, field: str) -> dict:
         raise
 
 
-def _check_duties(body: Mapping, root: bool) -> None:
-    changed = body["changed_duties"]
-    unknown = [duty for duty in changed if duty not in strategies.DUTIES]
-    if unknown:
-        raise refuse("DUTY_UNKNOWN", "changed_duties names unknown duties: " + ", ".join(unknown), missing=tuple(unknown),
-                     expected="duty IDs A1 to I2")
-    if root and changed:
-        raise refuse("DUTY_UNKNOWN", "a root registration changes no duty", missing=("changed_duties",))
-    if not root and not changed:
-        raise refuse("DUTY_UNKNOWN", "a derived registration names at least one changed duty",
-                     missing=("changed_duties",))
-
-
-def _check_prediction(body: Mapping, root: bool) -> None:
-    catalogue = duties.slice_measures()
-    every = frozenset().union(*catalogue.values())
-    changed = set(body["changed_duties"])
-    allowed = strategies.DUTIES if root else changed  # a root changes no duty, predicts any
-    predicted = set()
-    for index, item in enumerate(body["prediction"]["mechanism"]):
-        where = f"prediction.mechanism[{index}]"
-        if item["duty"] not in allowed:
-            raise refuse("PREDICTION_INVALID", f"{where} predicts duty {item['duty']}, which changed_duties does not "
-                                               "name", missing=(where,))
-        if item["slice"] is None:
-            if not item["reason"].strip():
-                raise refuse("PREDICTION_INVALID", f"{where} has no slice and no reason", missing=(where,))
-            if item["measure"] is not None and item["measure"] not in every:
-                raise refuse("PREDICTION_INVALID", f"{where} names measure {item['measure']} outside the catalogue",
-                             missing=(where,), expected="null or a catalogue measure: " + ", ".join(sorted(every)))
-        elif item["slice"] not in catalogue:
-            raise refuse("PREDICTION_INVALID", f"{where} names slice {item['slice']}, which is not in the measure "
-                                               "catalogue", missing=(where,),
-                         expected="null or a catalogue slice: " + ", ".join(sorted(catalogue)))
-        elif item["measure"] not in catalogue[item["slice"]]:
-            raise refuse("PREDICTION_INVALID", f"{where} names {item['slice']}/{item['measure']}, which is not in the "
-                                               "measure catalogue", missing=(where,),
-                         expected=f"a measure of {item['slice']}: " + ", ".join(sorted(catalogue[item["slice"]])))
-        predicted.add(item["duty"])
-    unpredicted = sorted(changed - predicted)
-    if unpredicted:
-        raise refuse("PREDICTION_INVALID", "changed duties without a prediction: " + ", ".join(unpredicted),
-                     missing=tuple(unpredicted))
-    _check_counting(body["prediction"]["mechanism"], changed, every)
-
-
-def _check_counting(mechanism: list, changed: set[str], every: frozenset[str]) -> None:
-    """A changed duty whose named measures are all counts: a threshold change moves them mechanically."""
-    counts = duties.counting_measures()
-    named: dict[str, set[str]] = {}
-    for item in mechanism:
-        if item["duty"] in changed and item["measure"] is not None:
-            named.setdefault(item["duty"], set()).add(item["measure"])
-    counting_only = sorted(duty for duty, measures in named.items() if measures <= counts)
-    if counting_only:
-        raise refuse("PREDICTION_INVALID", "changed duties predicted only on counting measures ("
-                     + ", ".join(sorted(counts)) + "), which a threshold change moves mechanically: "
-                     + ", ".join(counting_only), missing=tuple(counting_only),
-                     expected="for each such duty, also a catalogue measure of quality, return, drawdown or exit "
-                              "structure: " + ", ".join(sorted(every - counts)))
-
-
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
     """A run joined with its trial's comparable identity and the identities of its reproductions: the
     comparability record."""
@@ -313,21 +251,6 @@ def _check_window(execution: Mapping, line: Mapping) -> None:
         raise refuse("WINDOW_MISMATCH", f"the trading window {execution['trade_start']} to {execution['trade_end']} is "
                                         f"not the line's development window {line['dev_start']} to {line['dev_end']}",
                      missing=("window",), expected=f"{line['dev_start']} to {line['dev_end']}")
-
-
-def _check_header(body: Mapping, parent: dict | None, sources: Mapping[str, bytes]) -> None:
-    """A derived registration's changed duties are the duty lines each grid candidate's header changes from its
-    parent's."""
-    if parent is None:
-        return
-    changed = sorted(set(body["changed_duties"]))
-    for ref, source in sources.items():
-        edited = duties.header_changes(parent["source"], source)
-        if edited != changed:
-            raise refuse("DUTY_HEADER_MISMATCH", f"grid candidate {ref} changes the header lines of "
-                                                 f"{', '.join(edited) or 'no duty'} from {strategies.name(parent)}; "
-                                                 f"changed_duties names {', '.join(changed)}",
-                         missing=tuple(sorted(set(edited) ^ set(changed))), expected=", ".join(edited) or "none")
 
 
 def _check_grid(conn: db.LedgerConnection, grid: list[str]) -> tuple[list[dict], dict | None, dict[str, bytes]]:
@@ -510,9 +433,9 @@ def _check_plan(conn: db.LedgerConnection, plan: Mapping) -> tuple[list[dict], d
     if plan["control_trial_id"] is not None or plan["comparison"] is not None:  # nothing to test without a control
         validate_design(plan["comparison"])
     points, parent, sources = _check_grid(conn, plan["grid"])
-    _check_duties(body, parent is None)
-    _check_prediction(body, parent is None)
-    _check_header(body, parent, sources)
+    duties.check_duties(body, parent is None)
+    duties.check_prediction(body, parent is None)
+    duties.check_header(body, parent, sources)
     _check_retry_of(conn, plan.get("retry_of"), points, parent)
     return points, parent, sources
 
