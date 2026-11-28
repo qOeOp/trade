@@ -66,24 +66,31 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 class _RunnerParser(argparse.ArgumentParser):
     def error(self, message):
         raise refuse("USAGE_ERROR", f"runner arguments: {message}",
-                     expected="--start T --end T [--trade-start T] and the other runner arguments the command's "
-                              "--help lists")
+                     expected="--start T --end T [--trade-start T], --symbols S... or --universe pool, and the other "
+                              "runner arguments the command's --help lists")
 
 
 def runner_inputs(runner_argv: list[str]) -> dict:
-    """Window (UTC ns), selection, lifecycle bundle and execution from existing runner flags."""
-    parser = _RunnerParser(add_help=False)
+    """Window (UTC ns), selection, lifecycle bundle and execution from existing runner flags. Like the runner's own
+    parser, no option is read from an abbreviation, and the contracts are chosen explicitly."""
+    parser = _RunnerParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--start", required=True)
     parser.add_argument("--trade-start")
     parser.add_argument("--end", required=True)
-    scope = parser.add_mutually_exclusive_group()  # as `paper start` declares them
+    scope = parser.add_mutually_exclusive_group(required=True)  # as `paper start` declares them
     scope.add_argument("--symbols", nargs="+")
     scope.add_argument("--universe", choices=("pool",))
     parser.add_argument("--lifecycle-bundle")
     parser.add_argument("--execution", default="bars")  # the runtime owns validation of this value
     parser.add_argument("--trade-ticks", action="store_true")
     parser.add_argument("--metrics", action="store_true")
-    known, _ = parser.parse_known_args(runner_argv)
+    known, rest = parser.parse_known_args(runner_argv)
+    # Left to the runner, which reads no abbreviation either: refused here, before registration fixes them.
+    names = parser._option_string_actions
+    shortened = sorted({name for value in rest if value.startswith("--") and (name := value.split("=", 1)[0]) not in {*names, "--"}
+                        and any(option.startswith(name) for option in names)})
+    if shortened:
+        parser.error(f"abbreviated options {', '.join(shortened)}; give the whole option name")
     if known.trade_ticks and known.execution != "quotes":
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.

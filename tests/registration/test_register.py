@@ -13,7 +13,7 @@ from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_DAY, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
                                pinned, sha, source)
-from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, config
+from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_WINDOW, World, capture, config
 from tests.helpers import refused
 
 OTHER_DIGEST = "sha256:" + "c" * 64
@@ -21,7 +21,8 @@ OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_
 
 
 def runner_argv(trade_start: str = "2026-01-01", end: str = "2026-02-01") -> list[str]:
-    return ["--start", "2025-12-31T00:00:00Z", "--trade-start", f"{trade_start}T00:00:00Z", "--end", f"{end}T00:00:00Z"]
+    return ["--start", "2025-12-31T00:00:00Z", "--trade-start", f"{trade_start}T00:00:00Z", "--end", f"{end}T00:00:00Z",
+            "--universe", "pool"]
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -644,7 +645,7 @@ class LineRecordTests(unittest.TestCase):
         trial_id = world.seal_run(self.root_trial)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
         exc = refused(world.register, self.derived(control_trial_id=trial_id),
-                      runner_argv=[*RUNNER_ARGV, "--symbols", "AAAUSDT"])
+                      runner_argv=[*RUNNER_WINDOW, "--symbols", "AAAUSDT"])
         self.assertEqual((exc.code, exc.missing), ("COMPARABILITY_MISMATCH", ("export_sha256",)))
         world.qualification.unavailable.add(trial_id)
         self.assertEqual(self.code(self.derived(control_trial_id=trial_id)), "ECONOMIC_EVIDENCE_UNAVAILABLE")
