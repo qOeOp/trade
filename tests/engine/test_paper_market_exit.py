@@ -263,3 +263,24 @@ class MarketExitTests(Clocked):
             self.release()
             self.feed(self.now + 2 * MINUTE)
         self.assertEqual((self.engine.cache.positions_open(), self.engine.cache.orders_open()), ([], []))
+
+    def test_an_exit_during_the_warm_up_is_refused(self):
+        """#3650: a recovering source runs its history callbacks and on_load before the recovery is checked; with no
+        back-fill pending (Session.exiting passes it) its market exit then broke rule 8 past submit_order."""
+        self.source.submit_order(self.entry("limit"))
+        self.release()
+        self.feed(self.now + MINUTE)
+        resting = self.entry("limit", "90.00")
+        self.source.submit_order(resting)
+        self.release()
+        self.feed(self.now + MINUTE)
+        order_rules.WARMING.add("SOURCE-001")
+        session = SimpleNamespace(exiting=mock.Mock(return_value=None), callback=nullcontext)
+        with mock.patch.object(paper, "SESSION", session):
+            self.on_next_bar(lambda source: source.market_exit())
+            self.feed(self.now + 2 * MINUTE)
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], [order_rules.CODE])
+        self.assertFalse(self.source.is_exiting())
+        self.assertEqual(len(self.engine.cache.positions_open()), 1)
+        self.assertEqual([order.client_order_id for order in self.engine.cache.orders_open()],
+                         [resting.client_order_id])
