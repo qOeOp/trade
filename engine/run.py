@@ -246,6 +246,7 @@ class CapitalObserver(DataActor):
     _ts: int | None
     _marks: dict[InstrumentId, Price]
     _latest: dict[InstrumentId, tuple[int, Price]]
+    _closed: set  # the closed position IDs a label has seen
 
     def __new__(cls, config=None):
         return DataActor.__new__(cls)

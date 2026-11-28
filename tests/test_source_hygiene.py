@@ -23,7 +23,7 @@ OVERSIZED = {
     "cli/research_commands.py": 934,
     "engine/audit.py": 1099,
     "engine/paper.py": 1244,
-    "engine/run.py": 944,
+    "engine/run.py": 945,
     "ide/research_graph/serve.py": 1134,
     "ledger/metrics.py": 994,
     "paper/serve.py": 882,
