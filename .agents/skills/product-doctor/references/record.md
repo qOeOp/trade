@@ -25,7 +25,7 @@ component, id, proof or remedy.
   it, and reproduces it first; if it does not reproduce, it replies with the proof and fixes nothing.
   First read the object's other open findings and `doctor.py scan --days 28`'s `fixed_files` (the tenth of files
   fixed most). From three open findings on, or on such a file, the fix is one restatement that closes them
-  together without growing the file's product and test lines; where none holds, the PR says why.
+  together without growing the file, its test a case of an existing one; where none holds, the PR says why.
   One cause is one PR, with `Closes #N` and, where a test can catch it, a test that fails without the fix, as a
   case of an existing test where one fits.
 - Closed as completed is merged, not shown to hold. Held is a comment naming its evidence: a test that

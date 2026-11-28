@@ -52,7 +52,7 @@ the last two audits took it (harm aside); say why and what is left out:
    on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
 4. **Find** (`find`): otherwise, unless open findings neither `authority` nor `claimed` outnumber twice those closed
-   in the last seven days, or the last two `find` records confirmed nothing above minor and `fixed_files` is empty:
+   in the last seven days, or the last two `find` records confirmed nothing above minor and `scan --days 28` lists no `fixed_files`:
    then say which and stop; the user or a new version line restarts it. First `scan`'s `unexamined` rows, oldest first, each under its own item and subject
    (say which stay out of reach); then the object much changed or longest unexamined, `outside` too,
    under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
