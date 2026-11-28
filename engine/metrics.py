@@ -100,11 +100,6 @@ class Feed:
         """The followed contracts' states whose next row is due by `now` and not yet handed over."""
         return [state for state in self._metrics_followed.values() if state["ts_event"] + VISIBLE_NS <= now]
 
-    def _metrics_read_now(self, state: dict) -> None:
-        """Read the state's row on the calling thread, for a back-fill: REST has long published it. Raises what the
-        read raises."""
-        state["found"].update(self._metrics_read(state["instrument_id"], state["ts_event"], list(ENDPOINTS)))
-
     def _metrics_tick(self, _event=None) -> None:
         """Each followed contract's due rows; none once the source unfollowed it, even from a row's own on_data."""
         now = self._metrics_clock().timestamp_ns()
