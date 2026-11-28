@@ -297,16 +297,24 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
     shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
 
 
-def pool_of(market: dict, prior: dict) -> list[str] | None:
-    """The pool the start declared as `prior` chose if it took the pool: the current-month members of its market day
-    at its declaration (None when that month has none). Nothing stored says a start took the pool, so a pool start
-    that reuses an operation replays it only when this equals the declared contracts."""
-    try:
-        return selection(market, str(prior["market_day"]), None, clock.moment_ns(prior["created_at"]))[2]
-    except Refusal as exc:
-        if exc.code != "UNIVERSE_EMPTY":
-            raise
-        return None
+# A start selects its pool on the host clock before the ledger stamps its declaration (after the source copy and
+# admission, seconds later): a pool chosen up to this long before created_at is still its own.
+DECLARATION_GAP_NS = 3600 * 10**9
+
+
+def pool_retry(market: dict, prior: dict) -> bool:
+    """Whether a pool start may replay the start declared as `prior`: its contracts are the pool its market day held
+    at its declaration (nothing stored says a start took the pool). A market that no longer resolves that pool cannot
+    tell, and the retry replays."""
+    moment, known = clock.moment_ns(prior["created_at"]), False
+    for at in (moment, moment - DECLARATION_GAP_NS):
+        try:
+            if selection(market, str(prior["market_day"]), None, at)[2] == prior["symbols"]:
+                return True
+            known = True
+        except Refusal as exc:
+            known = known or exc.code == "UNIVERSE_EMPTY"
+    return not known
 
 
 @serialized
@@ -325,7 +333,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
             if (prior["config"].get("candidate") != candidate or prior["config"]["leverage"] != leverage
-                    or prior["symbols"] != (symbols if symbols is not None else pool_of(market, prior))):
+                    or (symbols != prior["symbols"] if symbols is not None else not pool_retry(market, prior))):
                 raise refuse("OP_ID_CONFLICT",
                              "this start operation already names another candidate, leverage or contracts")
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),

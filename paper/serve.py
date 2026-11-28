@@ -342,7 +342,7 @@ class Daemon:
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
         if operation and (prior := self.start_result(operation)["run"]):
             if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols) \
-                    or (universe is not None and prior["symbols"] != self.pool_of(operation)):
+                    or (universe is not None and not self.pool_retry(operation)):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
         with db.read_as_of(self.research_profile) as source:
@@ -369,12 +369,12 @@ class Daemon:
             with self.lock:
                 self.starting.discard(candidate)
 
-    def pool_of(self, operation: str) -> list[str] | None:
-        """The pool the start `operation` declared chose if it took the pool (runs.pool_of)."""
+    def pool_retry(self, operation: str) -> bool:
+        """Whether a pool start may replay the start `operation` declared (runs.pool_retry)."""
         from shared import profiles
         with db.connect(self.profile, "reader") as conn:
             prior = records.paper_start_of(conn, operation)
-        return runs.pool_of(profiles.market(self.market), prior) if prior is not None else None
+        return prior is not None and runs.pool_retry(profiles.market(self.market), prior)
 
     def start_result(self, operation: str) -> dict:
         if not START_ID.fullmatch(operation):
