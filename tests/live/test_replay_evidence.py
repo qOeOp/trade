@@ -8,7 +8,6 @@ from decimal import Decimal
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
-import time
 import unittest
 from unittest.mock import patch
 
@@ -203,7 +202,6 @@ class CandidateReadTests(unittest.TestCase):
         trial_id = world.research_trial(registered["registration_id"], data)
         with patch.object(control, "_profile", return_value=world.profile):
             self.assertIsNone(control.candidate(config, "rsi@1")["last_symbols"], "a research trial that never ran")
-            before = time.time_ns()
             world.seal_run(trial_id)
             found = control.candidate(config, "rsi@1")
             caught = refused(control.candidate, config, "rsi@99", error=LiveRefusal)
@@ -211,10 +209,8 @@ class CandidateReadTests(unittest.TestCase):
                                  "source_sha256": hashlib.sha256(data).hexdigest(),
                                  "entry_class": "Fixture", "last_symbols": ["AAAUSDT", "BBBUSDT"]})
         self.assertEqual(caught.code, "LIVE_SOURCE_MISSING")
-        sha256 = hashlib.sha256(data).hexdigest()  # as of a moment (a Paper retry's declaration): only replays run by then
-        self.assertEqual(control.paper_records.research_symbols(world.conn, sha256, before), [])
-        self.assertEqual(control.paper_records.research_symbols(world.conn, sha256, time.time_ns()),
-                         [["AAAUSDT", "BBBUSDT"]])
+        self.assertEqual(control.paper_records.research_symbols(world.conn, hashlib.sha256(data).hexdigest()),
+                         [["AAAUSDT", "BBBUSDT"]], "a Paper default retry's contracts")
 
 
 class EvidenceReadAheadTests(unittest.TestCase):

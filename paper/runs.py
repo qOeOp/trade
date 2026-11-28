@@ -305,7 +305,8 @@ DECLARATION_GAP_NS = 3600 * 10**9
 def scope_retry(prior: dict, contracts) -> bool:
     """Whether a start naming no contracts may replay the start declared as `prior`: nothing stored says how a start
     chose them, so they must be among those its scope could give at its declaration, `contracts(at)` (the pool its
-    market day held, or any research replay's that had run). A scope with no answer cannot tell, and the retry replays."""
+    market day held, or any research replay's: two hosts' clocks cannot order those). A scope with no answer cannot tell,
+    and the retry replays."""
     moment, known = clock.moment_ns(prior["created_at"]), False
     for at in (moment, moment - DECLARATION_GAP_NS):
         try:
@@ -320,14 +321,13 @@ def scope_retry(prior: dict, contracts) -> bool:
 
 def retry_of(profile: db.LedgerProfile, op_id: str, market: dict | None, research: db.LedgerProfile) -> bool:
     """scope_retry for the start `op_id` declared in the Paper database `profile`: of the pool of `market`, else of
-    the HTTP default, a research replay of its source on the research ledger `research` (whose copy may lag)."""
+    the HTTP default, a research replay of its source on the research ledger `research`."""
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id)
     if prior is not None and market is not None:
         return scope_retry(prior, lambda at: [selection(market, str(prior["market_day"]), None, at)[2]])
     with db.read_as_of(research) as source:
-        return prior is not None and scope_retry(prior, lambda at: records.research_symbols(
-            source, prior["source_sha256"], at))
+        return prior is not None and scope_retry(prior, lambda _: records.research_symbols(source, prior["source_sha256"]))
 
 
 @serialized

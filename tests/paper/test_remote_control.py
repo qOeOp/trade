@@ -88,16 +88,14 @@ class StartIdentityTests(unittest.TestCase):
                     self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
 
     def test_http_retry_precedes_mutable_default_selection(self):
-        # A start naming no contracts replays a run whose contracts a research replay that had run by its declaration
-        # gave (a later one, or one the host's copy had not yet seen, does not matter); an operation first used for
-        # other contracts conflicts, and a ledger holding no such replay cannot tell.
-        declared = 1795858200 * 10**9  # ROW's created_at
-        for name, replays, replayed in (("the default then", [["BTCUSDT"]], True),
-                                        ("an earlier default", [["BTCUSDT"], ["ETHUSDT"]], True),
+        # A start naming no contracts replays a run whose contracts a research replay of its source gave (a later
+        # replay changing the default, or one the host's copy had not yet seen, does not matter); an operation first
+        # used for other contracts conflicts, and a ledger holding no such replay cannot tell.
+        for name, replays, replayed in (("the default then", [["BTCUSDT"], ["SOLUSDT"]], True),
                                         ("other contracts", [["ETHUSDT"]], False), ("no replay", [], True)):
-            def ran(_source, source_sha256, at, replays=replays):
+            def ran(_source, source_sha256, replays=replays):
                 self.assertEqual(source_sha256, "s" * 64)
-                return replays if at <= declared else replays + [["SOLUSDT"]]
+                return replays
             with self.subTest(name), mock.patch.object(db, "connect", connection), \
                     mock.patch.object(db, "read_as_of", connection), \
                     mock.patch.object(records, "paper_start_of", return_value={**ROW, "source_sha256": "s" * 64}), \

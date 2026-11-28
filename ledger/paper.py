@@ -17,7 +17,6 @@ database's writer removes its declaration, seal and files in one commit.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import hashlib
 import json
 
@@ -133,14 +132,14 @@ def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict
         "SELECT symbol FROM trial_instrument WHERE trial_id = %s ORDER BY symbol", (found["trial_id"],))]}
 
 
-def research_symbols(conn: db.LedgerConnection, source_sha256: str, at: int) -> list[list[str]]:
-    """The contracts of each research replay of the source that ran by UTC nanoseconds `at`, read on the research
-    ledger: the defaults a paper start could have taken by then."""
+def research_symbols(conn: db.LedgerConnection, source_sha256: str) -> list[list[str]]:
+    """The contracts of each research replay of the source that ran, read on the research ledger: the defaults a paper
+    start of it could have taken."""
     found: dict[int, list[str]] = {}
     for trial_id, symbol in conn.rows(
             "SELECT t.trial_id, i.symbol FROM trial t JOIN run r ON r.trial_id = t.trial_id JOIN trial_instrument i "
-            "ON i.trial_id = t.trial_id WHERE t.source_sha256 = %s AND t.purpose = 'research' AND r.created_at <= %s "
-            "ORDER BY i.symbol", (source_sha256, datetime(1970, 1, 1) + timedelta(microseconds=at // 1000))):
+            "ON i.trial_id = t.trial_id WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY i.symbol",
+            (source_sha256,)):
         found.setdefault(trial_id, []).append(symbol)
     return list(found.values())
 
