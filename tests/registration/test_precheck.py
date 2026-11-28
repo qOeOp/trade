@@ -200,7 +200,7 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(data), self.identity()).code,
                          "SOURCE_PRECHECK_FAILED")
 
-    def test_a_failed_source_review_of_an_earlier_precheck_fails_admission_on_its_image(self):
+    def test_a_failed_source_review_of_an_earlier_precheck_fails_admission_on_any_image(self):
         def precheck_of(data: bytes, fills: int, verdict="passed", runtime=None, **items) -> tuple[int, int]:
             trial_id = self.sealed(data, runtime=runtime, fingerprint=untraded(fills, fills))
             return trial_id, self.review(trial_id, verdict, **items)
@@ -212,8 +212,9 @@ class PrecheckTests(unittest.TestCase):
                          "SOURCE_PRECHECK_FAILED")
         elsewhere = self.world.publish("failed-on-another-image")["source"]
         precheck_of(elsewhere, 3, "failed", runtime=OTHER_RUNTIME, causal={"status": "failed", "note": "lookahead"})
-        trial_id, passed = precheck_of(elsewhere, 3)
-        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(elsewhere), self.identity()), trial_id)
+        _, passed = precheck_of(elsewhere, 3)
+        self.assertEqual(refused(precheck.require_precheck, self.conn, passed, sha(elsewhere), self.identity()).code,
+                         "SOURCE_PRECHECK_FAILED")
         quiet = self.world.publish("quiet-earlier")["source"]
         precheck_of(quiet, 0, "failed", activity={"status": "unresolved", "note": "no order filled"})
         trial_id, passed = precheck_of(quiet, 3)
