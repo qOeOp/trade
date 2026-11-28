@@ -43,7 +43,8 @@ ROOT = "."  # no path of a tree has this name
 SPLIT, ALONE = 0.1, 0.01  # shares of the tree's lines: above the first an object splits, above the second a part stands alone
 THEMES = ("harm", "slim", "find", "friction")
 RECORDS = "docs/plans/doctor/"
-RECORDED = re.compile(r"^\| ([a-z]+) \| ([^|]+) \| (?:examined|failed) \|", re.MULTILINE)
+RECORDED = re.compile(r"^\| ([a-z]+) \| ((?:[^|\\]|\\.)+) \| (examined|failed|not examined) \| ((?:[^|\\]|\\.)*) \|",
+                      re.MULTILINE)
 NOT_PRODUCT = ("tests/", "docs/", "changelog.d/", ".agents/evals/")
 REPEATS = 3
 SHOWN = 400  # characters of a value kept
@@ -267,10 +268,12 @@ def known(item: str, subject: str, rev: str) -> None:
             raise SystemExit(f"{part} is of {ROOT} or holds several objects; name one: {', '.join(tops)}")
 
 
-def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
-    """({top-level object: date}, {item: date}) last exercised, from the audit records in the tree."""
+def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], dict[str, str], list[dict]]:
+    """({top-level object: date}, {item: date}) last exercised, from the audit records in the tree, and the rows a
+    record named not examined that no record since exercised, oldest first."""
     by_object: dict[str, str] = {}
     by_item: dict[str, str] = {}
+    queue: dict[tuple[str, str], dict] = {}
     paths = tracked(rev)
 
     def there(name: str) -> bool:
@@ -281,18 +284,25 @@ def history(rev: str, tops: dict[str, dict[str, Any]]) -> tuple[dict[str, str], 
         date = Path(path).name[:10]
         if not re.fullmatch(r"\d{4}-\d\d-\d\d", date):
             continue
-        for item, subject in RECORDED.findall(git("show", f"{rev}:{path}").decode(errors="replace")):
-            by_item[item] = date
-            parts, scenario = split(subject.strip())
+        for item, subject, said, why in RECORDED.findall(git("show", f"{rev}:{path}").decode(errors="replace")):
+            subject = subject.strip().replace("\\|", "|")
+            parts, scenario = split(subject)
             kept = "+".join(part for part in parts if there(part.rstrip("/")))  # moved code was not run where it is now
+            if said == "not examined":
+                if kept == "+".join(parts):  # what was not reached where it no longer is waits for nothing
+                    queue.setdefault((item, subject), {"item": item, "subject": subject, "since": date,
+                                                       "why": why.strip().replace("\\|", "|"), "record": path})
+                continue
+            queue.pop((item, subject), None)
+            by_item[item] = date
             by_object.update(dict.fromkeys(covers(f"{kept}:{scenario}", tops), date))
-    return by_object, by_item
+    return by_object, by_item, list(queue.values())
 
 
 def scan(args: argparse.Namespace) -> None:
     rev = commit(args.tree)
     tops = objects(rev)
-    by_object, by_item = history(rev, tops)
+    by_object, by_item, queue = history(rev, tops)
     table: dict[str, dict[str, Any]] = {name: {**row, "commits": 0, "fixes": 0, "added": 0, "removed": 0,
                                                "examined": by_object.get(name)} for name, row in tops.items()}
     fixed: dict[str, int] = {}
@@ -323,7 +333,7 @@ def scan(args: argparse.Namespace) -> None:
     print(json.dumps({"tree": rev, "days": args.days, "objects": table,
                       "fixed_files": dict(sorted(fixed.items(), key=lambda pair: (-pair[1], pair[0]))[:20]),
                       "outside": {name: date for name, date in sorted(by_object.items()) if name.startswith("@")},
-                      "items": {name: by_item.get(name) for name in items()}}, indent=1))
+                      "items": {name: by_item.get(name) for name in items()}, "unexamined": queue}, indent=1))
 
 
 def scope(args: argparse.Namespace) -> None:
@@ -587,8 +597,6 @@ def report(args: argparse.Namespace) -> None:
         print(f"Scope, declared first: {', '.join(declared['items']) or 'no item'}; "
               f"{', '.join(declared['objects']) or 'no object'}. Nothing else is judged here.\n")
     print("Not exercised: " + (", ".join(missing) if missing else "nothing listed") + ".\n")
-    print("Not examined: " + ("; ".join(f"{row['item']}/{cell(row['subject'])} ({cell(row['why'])})" for row in late)
-                              or "nothing named") + ".\n")
     if not declared:
         named = {part for row in found if row.get("item") for part in split(row["subject"])[0]}
         dropped = [name for name in history(rev, tops)[0] if name.startswith("@") and name not in named]
@@ -607,6 +615,8 @@ def report(args: argparse.Namespace) -> None:
                         else f"{len(row['tests'])} telling tests")
             more = f" (of {len(entries)} attempts: {tried})" if tried and len(entries) > 1 else ""
             print(f"| {item} | {cell(subject)} | {said} | {evidence}{more} |")
+    for row in late:  # in the table, so that the record keeps it and a later `scan` queues it
+        print(f"| {row['item']} | {cell(row['subject'])} | not examined | {cell(row['why'])} |")
     probes = [row for row in found if row["kind"] == "probe"]
     latest = {row["id"]: row for row in probes}
     reruns = {row["id"]: row for row in found if row["kind"] == "refutation"}

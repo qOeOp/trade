@@ -31,7 +31,7 @@ One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examin
 
 An overall audit takes one theme; a full one runs when the user names it or before a new version line. Read the
 signals: `doctor.py scan` (the tree's objects, two weeks of changes and fixes, when each object and perspective was
-last exercised), the open findings and CI runs by `gh`, the last two records. Take the first theme that holds, unless
+last exercised, what records left unexamined), the open findings and CI runs by `gh`, the last two records. Take the first theme that holds, unless
 the last two audits took it (harm aside); say why and what is left out:
 
 1. **Stop harm** (`harm`): an open finding that risks money, records or wrong results and is new, changed or not yet
@@ -40,7 +40,8 @@ the last two audits took it (harm aside); say why and what is left out:
 2. **Slim** (`slim`): an object fixed again and again, well ahead of the rest, or whose tests outgrow it (`git log --numstat`
    on both). Net growth only orders (a growing product always has some). Group Shape and **checks**, one or two objects: [slim.md](references/slim.md).
 3. **Friction** (`friction`): a wait, repeat or decoding by the user or Agents that grew or that they named. Group Use.
-4. **Find** (`find`): otherwise. The object much changed or longest unexamined, `outside` too,
+4. **Find** (`find`): otherwise. First `scan`'s `unexamined` rows, oldest first, each under its own item and subject
+   (say which stay out of reach); then the object much changed or longest unexamined, `outside` too,
    under what it has longest gone without of the remaining groups of [lenses.md](references/lenses.md).
 
 Declare one to three objects and those lines of the groups that apply to them (a listed one as ITEM/SCENARIO where
