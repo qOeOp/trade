@@ -212,9 +212,9 @@ class CandidateReadTests(unittest.TestCase):
                                  "entry_class": "Fixture", "last_symbols": ["AAAUSDT", "BBBUSDT"]})
         self.assertEqual(caught.code, "LIVE_SOURCE_MISSING")
         sha256 = hashlib.sha256(data).hexdigest()  # as of a moment (a Paper retry's declaration): only replays run by then
-        self.assertIsNone(control.paper_records.last_research_symbols(world.conn, sha256, before))
-        self.assertEqual(control.paper_records.last_research_symbols(world.conn, sha256, time.time_ns())["symbols"],
-                         ["AAAUSDT", "BBBUSDT"])
+        self.assertEqual(control.paper_records.research_symbols(world.conn, sha256, before), [])
+        self.assertEqual(control.paper_records.research_symbols(world.conn, sha256, time.time_ns()),
+                         [["AAAUSDT", "BBBUSDT"]])
 
 
 class EvidenceReadAheadTests(unittest.TestCase):

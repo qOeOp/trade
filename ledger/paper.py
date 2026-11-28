@@ -123,15 +123,26 @@ def paper_runs(conn: db.LedgerConnection) -> list[dict]:
     return [{**_row(row), "seal": None if row["seal"] is None else json.loads(bytes(row["seal"]))} for row in rows]
 
 
-def last_research_symbols(conn: db.LedgerConnection, source_sha256: str, at: int | None = None) -> dict | None:
-    """The contracts ({trial_id, symbols}) of the source's latest research replay that ran (by UTC nanoseconds `at`),
-    read on the research ledger, or None: what a paper run of the version's last configuration trades."""
-    found = conn.one("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id WHERE t.source_sha256 = %s "
-                     "AND t.purpose = 'research' AND r.created_at <= COALESCE(%s, r.created_at) "
-                     "ORDER BY t.trial_id DESC LIMIT 1",
-                     (source_sha256, None if at is None else datetime(1970, 1, 1) + timedelta(microseconds=at // 1000)))
+def last_research_symbols(conn: db.LedgerConnection, source_sha256: str) -> dict | None:
+    """The contracts of the source's latest research replay that ran ({trial_id, symbols}), read on the research
+    ledger, or None: what a paper run of the version's last configuration trades."""
+    found = conn.one("SELECT t.trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+                     "WHERE t.source_sha256 = %s AND t.purpose = 'research' ORDER BY t.trial_id DESC LIMIT 1",
+                     (source_sha256,))
     return None if found is None else {"trial_id": found["trial_id"], "symbols": [symbol for (symbol,) in conn.rows(
         "SELECT symbol FROM trial_instrument WHERE trial_id = %s ORDER BY symbol", (found["trial_id"],))]}
+
+
+def research_symbols(conn: db.LedgerConnection, source_sha256: str, at: int) -> list[list[str]]:
+    """The contracts of each research replay of the source that ran by UTC nanoseconds `at`, read on the research
+    ledger: the defaults a paper start could have taken by then."""
+    found: dict[int, list[str]] = {}
+    for trial_id, symbol in conn.rows(
+            "SELECT t.trial_id, i.symbol FROM trial t JOIN run r ON r.trial_id = t.trial_id JOIN trial_instrument i "
+            "ON i.trial_id = t.trial_id WHERE t.source_sha256 = %s AND t.purpose = 'research' AND r.created_at <= %s "
+            "ORDER BY i.symbol", (source_sha256, datetime(1970, 1, 1) + timedelta(microseconds=at // 1000))):
+        found.setdefault(trial_id, []).append(symbol)
+    return list(found.values())
 
 
 def seal_paper_run(conn: db.LedgerConnection, paper_id: int, files: dict[str, bytes]) -> dict:

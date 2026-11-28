@@ -88,17 +88,20 @@ class StartIdentityTests(unittest.TestCase):
                     self.assertEqual((caught.status, caught.body["code"]), (409, "OP_ID_CONFLICT"))
 
     def test_http_retry_precedes_mutable_default_selection(self):
-        # A start naming no contracts replays the run its default (the last research replay's contracts) chose at its
-        # declaration, even after a later replay changed it; an operation first used for other contracts conflicts.
+        # A start naming no contracts replays a run whose contracts a research replay that had run by its declaration
+        # gave (a later one, or one the host's copy had not yet seen, does not matter); an operation first used for
+        # other contracts conflicts, and a ledger holding no such replay cannot tell.
         declared = 1795858200 * 10**9  # ROW's created_at
-        for name, default, replayed in (("the default then", ["BTCUSDT"], True), ("other contracts", ["ETHUSDT"], False)):
-            def last(_source, source_sha256, at, default=default):
+        for name, replays, replayed in (("the default then", [["BTCUSDT"]], True),
+                                        ("an earlier default", [["BTCUSDT"], ["ETHUSDT"]], True),
+                                        ("other contracts", [["ETHUSDT"]], False), ("no replay", [], True)):
+            def ran(_source, source_sha256, at, replays=replays):
                 self.assertEqual(source_sha256, "s" * 64)
-                return {"trial_id": 2, "symbols": default if at <= declared else ["SOLUSDT"]}
+                return replays if at <= declared else replays + [["SOLUSDT"]]
             with self.subTest(name), mock.patch.object(db, "connect", connection), \
                     mock.patch.object(db, "read_as_of", connection), \
                     mock.patch.object(records, "paper_start_of", return_value={**ROW, "source_sha256": "s" * 64}), \
-                    mock.patch.object(records, "last_research_symbols", side_effect=last):
+                    mock.patch.object(records, "research_symbols", side_effect=ran):
                 daemon = serve.Daemon.__new__(serve.Daemon)
                 daemon.profile, daemon.research_profile = mock.Mock(), mock.Mock()
                 daemon.start_result = mock.Mock(return_value={"run": {**ROW, "candidate": "a@1", "state": "accepted"}})
