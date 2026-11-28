@@ -419,8 +419,8 @@ def _check_retry_of(conn: db.LedgerConnection, retry_of: int | None, points: lis
     if {source for _, source in trials} & {point["source_sha256"] for point in points}:
         return
     if parent is not None:
-        change = conn.one("SELECT difference FROM candidate WHERE source_sha256 = %s", (points[0]["source_sha256"],))
-        same = (prior["parent"], prior["change"]) == (strategies.name(parent), change["difference"])
+        change = conn.rows("SELECT difference FROM candidate WHERE source_sha256 = %s", (points[0]["source_sha256"],))
+        same = (prior["parent"], prior["change"]) == (strategies.name(parent), change[0][0])
     else:
         same = prior["parent"] is None and bool({strategies.parse_ref(point["candidate"])[0] for point in points}
                                                 & {strategies.parse_ref(item["candidate"])[0] for item in prior["grid"]})
