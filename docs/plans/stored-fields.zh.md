@@ -55,6 +55,12 @@ Paper 记录只在远端主机的私有 Paper 库，不进研究账本、DoltHub
 | `config.environment`（`live` 或 `demo`，清单格式升为 `live-run-6`）（D-102） | 运行器选 Binance 主机与 Nautilus `BinanceEnvironment`（`engine/live.py`、`engine/live_node.py`、`engine/realtime.py`、`engine/klines.py`、`engine/kline_events.py`）；出口代理按运行放行的主机（`live/host.py`、`engine/egress.py`）；密钥检查（`live/key.py`，demo 没有 `apiRestrictions`）；`live compare`、每日对照、Telegram 与 Live 页标出 Demo | 用户为这次运行选的 Binance 环境 | `account_id`、`credential_binding`（API key 的 SHA-256）、`credential_ref` 都不含它；向交易所试探要有效 key 和一次网络调用，key 被撤销时两边答得一样，而运行器在第一次读之前就要选主机；出口日志要启动后才有 | 2026-11-21 用户「同意」（#3367） |
 | 凭证按环境分目录：`credentials/<environment>/`（各自的版本、`metadata.jsonl` 与选中），环境是路径，不是记录里的值 | Live 页的 Live/Demo 开关（列出、保存、删除、检查哪个环境的 key）；准备运行时只从运行的环境里取选中的 key（`live/credentials.py`） | 这把 key 属于哪个环境 | 独立审阅（#3367）认为一次只跑一个运行时不必存：交易所在准入时拒绝另一环境的 key，运行经 `credential_ref` 绑定 key 版本，代价是换环境要重新保存。用户不接受这个代价，两个环境各有自己的 key；key 字符串、`credential_binding`、`credential_ref` 都推不出环境。选了最省的形状：按目录分，不在行里加值 | 2026-11-21 用户「为什么只存一把 这是两个不同的环境吧 应该有按钮切换 demo 和 live都有各自的key才对吧」（#3367） |
 
+## 市场目录
+
+| 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
+|---|---|---|---|---|
+| `instrument.max_market_quantity`（可空字符串，交易所原文，取自 exchangeInfo `MARKET_LOT_SIZE.maxQty`；`inferred` 行为 null，交易所行缺这个过滤器时也为 null，即“上限未知、不检查”；同时加进 `instrument.TERMS`）（#3552） | `engine/order_rules.violation`：上限非 null 时，市价类订单（`MARKET`、`STOP_MARKET`、`MARKET_IF_TOUCHED`、`TRAILING_STOP_MARKET`）数量超出就拒绝，回放、Paper、Live 读同一份运行条款快照，拒绝一致。今天没有已存运行接近上限（2026-11-24 只读核对：83 个运行只交易 BTC、ETH、SOL，最大到 SOL 上限的 10.5%）；消费者是今后集中在低上限合约上的研究线（2026-11-24 有 171/522 个永续的市价上限不到 5 万 USDT） | 交易所对市价单另设的数量上限，与限价单的 `LOT_SIZE.maxQty`（今天的 `max_quantity`）不同 | 两个上限之比因合约而异，不能互推；Nautilus 2.0.0rc7 的合约只有一个 `max_quantity`，它的 Binance 解析器只读 `LOT_SIZE`，安装包和 `_libnautilus` 里都没有 `MARKET_LOT_SIZE`；市场目录、导出快照都不存 exchangeInfo 原始过滤器；回放时现读 exchangeInfo 会让回放随运行日变、下市合约读不到；用市价上限覆盖 `max_quantity` 会错拒限价单，还会缩小推断报价的数量（`market/export.py` 取 `max_quantity`）；只在 Paper/Live 检查会让 Paper 拒绝回放接受的订单 | **待用户授权**。2026-11-29 独立审阅结论：存。2026-11-29 的授权「都授权 找证据 全模块slim doctor继续完善测试迭代」不含新增字段。未决：Binance 是否对只减仓的出场与保护止损也用这个上限（拒绝出场之前先在 Demo 上探明）；历史上限取不回，和 `max_quantity` 一样整段窗口用快照当日的值；第一次跟随后每个合约追加一行条款 |
+
 ## 浏览器偏好
 
 | 字段 | 消费者 | 独立事实 | 为何不能派生 | 授权 |
