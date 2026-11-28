@@ -174,13 +174,24 @@ def covered_from(selection: list[str] | None, members: list[tuple[str, str]],
 TRACKS = {"include_quotes": "quote", "include_trades": "agg_trade", "include_metrics": "metrics"}
 
 
-def run_covered(conn: db.LedgerConnection, trial_id: int, market: Mapping) -> date | None:
+def run_covered(conn: db.LedgerConnection, trial_id: int, market: Mapping, *, listed: bool = False) -> date | None:
     """covered_from of a trial's recorded selection and market inputs (execution.recorded_inputs) on `market`
-    (registration.seams.coverage: the market day's universe `members` and `tracks(table)`)."""
+    (registration.seams.coverage: the market day's universe `members`, `tracks(table)` and `listed(symbol)`).
+    With `listed`, as a replay of named contracts needs it, which reads no universe: from the latest of each
+    contract's listed day and the first month each required table holds it; None when one has none."""
     given = execution.recorded_inputs(execution.recorded_coverage(conn, trial_id))
     symbols = given["selection"].get("symbols")
-    return covered_from(None if symbols is None else list(symbols), market["members"],
-                        [market["tracks"](table) for key, table in TRACKS.items() if given[key]])
+    tracks = [market["tracks"](table) for key, table in TRACKS.items() if given[key]]
+    if not listed or symbols is None:
+        return covered_from(None if symbols is None else list(symbols), market["members"], tracks)
+    starts = []
+    for symbol in symbols:
+        firsts = [min((month for month, held in track if held == symbol), default=None) for track in tracks]
+        day = market["listed"](symbol)
+        if day is None or None in firsts:
+            return None
+        starts += [day, *(date.fromisoformat(f"{month}-01") for month in firsts if month is not None)]
+    return max(starts, default=None)
 
 
 def development_period(today: date, latest_complete_day: date, covered: date | None) -> tuple[date, date]:
@@ -407,9 +418,9 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
     run's warm-up before a trade start no earlier than the segment's or than the run's coverage start plus that
     warm-up; None when nothing of the segment is left to trade), `done` (the latest history trial with a run that
     covers it, or None) and `status` (that run's). The run's coverage start is the later of the market's
-    `first_day` and its run_covered on `market` (registration.seams.coverage: its instruments' first universe
-    month holding the data the run required), the first day when there is none: a year before it is no veto year
-    to replay. A forward segment is covered by any history run trading from the holdout's end: its end moves with
+    `first_day` and its run_covered on `market` (registration.seams.coverage, `listed`: from the pool's first
+    universe month, or its named contracts' listing, holding the data the run required), the first day when there
+    is none: a year before it is no veto year to replay. A forward segment is covered by any history run trading from the holdout's end: its end moves with
     the market."""
     record = read_line(conn, line_id)
     dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
@@ -420,7 +431,7 @@ def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after
         trial = conn.one("SELECT input_start, trade_start FROM trial WHERE trial_id = %s", (participant["trial_id"],))
         assert trial is not None  # a participant is a run's trial
         warmup = trial["trade_start"] - trial["input_start"]
-        covered = run_covered(conn, participant["trial_id"], market) or first_day
+        covered = run_covered(conn, participant["trial_id"], market, listed=True) or first_day
         earliest = datetime.combine(max(first_day, covered), time()) + warmup
         own = [row for row in reversed(ran) if row["source_sha256"] == participant["source_sha256"]]
         for segment in segments:

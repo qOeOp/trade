@@ -167,7 +167,8 @@ def pinned(start=None, end=None):
 
 # The market days line close reads (first day, day after the latest complete day, coverage of a run's arguments):
 # January 2026, the pinned period, with no coverage start later than its first day.
-MARKET_DAYS = (date(2026, 1, 1), date(2026, 2, 1), {"members": [], "tracks": lambda table: []})
+MARKET_DAYS = (date(2026, 1, 1), date(2026, 2, 1), {"members": [], "tracks": lambda table: [],
+                                                    "listed": lambda symbol: None})
 
 
 def january():

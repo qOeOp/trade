@@ -105,6 +105,10 @@ class Market:
         from market import files
         return files.track_months(self._open(), market_day, table)
 
+    def listed_day(self, market_day: str, symbol: str) -> date | None:
+        from market import store
+        return store.listed_day(self._open(), market_day, symbol)
+
     def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
         try:
@@ -133,10 +137,12 @@ class Market:
 
 
 def coverage(market, market_day: str) -> dict:
-    """What ledger.lines.covered_from reads of `market` (a Market) at `market_day`: `members`, its universe
-    (YYYY-MM, symbol) rows, and `tracks(table)`, the months a contract table holds (read once per table)."""
+    """What ledger.lines.run_covered reads of `market` (a Market) at `market_day`: `members`, its universe
+    (YYYY-MM, symbol) rows, `tracks(table)`, the months a contract table holds, and `listed(symbol)`, the first day
+    of a contract's trading run into its first universe month (each read once)."""
     return {"members": market.universe_month(market_day),
-            "tracks": functools.cache(lambda table: market.track_months(market_day, table))}
+            "tracks": functools.cache(lambda table: market.track_months(market_day, table)),
+            "listed": functools.cache(lambda symbol: market.listed_day(market_day, symbol))}
 
 
 @dataclass(frozen=True)

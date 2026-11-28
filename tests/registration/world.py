@@ -74,6 +74,12 @@ class FakeMarket:
     def universe_month(self, market_day):
         return list(self.market_days[market_day])
 
+    def listed_day(self, market_day, symbol):
+        """The first day of the contract's first universe month, unless `listed` names the contract."""
+        months = [month for month, member in self.market_days[market_day] if member == symbol]
+        given = getattr(self, "listed", {})
+        return given[symbol] if symbol in given else date.fromisoformat(min(months) + "-01") if months else None
+
     def track_months(self, market_day, table):
         """Every universe member holds every contract table in its months, unless `tracks` names the table."""
         return list(getattr(self, "tracks", {}).get(table, self.market_days[market_day]))
