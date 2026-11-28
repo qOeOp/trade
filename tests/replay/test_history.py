@@ -20,7 +20,7 @@ from report import graph, history as report_history, measures, runs, status
 from runtime.container import STAGE_MEMORY_BYTES
 from tests.ledger.dolt import BINARY, MARKET_DAY, MARKET_DAYS, SKIP
 from tests.registration.test_register import second_line
-from tests.registration.world import RUNNER_ARGV, config, months_rows
+from tests.registration.world import RUNNER_ARGV, RUNNER_WINDOW, config, months_rows
 from tests.replay import world as replay_world
 from tests.replay.world import Market, ReplayWorld, registered_grid
 from tests.helpers import refused, tempdir
@@ -686,7 +686,7 @@ class HistoryRunTests(unittest.TestCase):
         world.market.listed = {"BBBUSDT": date(2024, 12, 20)}
         registration, (ref,) = registered_grid(world, ["kept"])
         passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None,
-                           [*RUNNER_ARGV, "--symbols", "AAAUSDT", "BBBUSDT"], registration=registration)
+                           [*RUNNER_WINDOW, "--symbols", "AAAUSDT", "BBBUSDT"], registration=registration)
         plan = lines.history_plan(world.conn, world.line["line_id"], *report_history.market_days(world.market),
                                   [{"source_sha256": world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s",
                                                                     (passed["trial_id"],))["source_sha256"],
