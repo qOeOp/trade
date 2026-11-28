@@ -305,19 +305,31 @@ class StrategyLoaderTests(unittest.TestCase):
                     continue
                 self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
 
-    def test_an_order_command_called_other_than_on_self_is_refused(self):
-        """The runner's order rules, Paper and Live sit before the source: a `super()` or class-bound command
-        would resolve past them to the native Strategy and reach the venue unchecked (#3793)."""
-        for call, code in (("self.submit_order(order)", None),
-                           ("self.cancel_all_orders(order.instrument_id)", None),
-                           ("super().submit_order(order)", "ORDER_RULE"),
-                           ("Strategy.submit_order(self, order)", "ORDER_RULE"),
-                           ("sent = super()\n        sent.close_position(order)", "ORDER_RULE"),
-                           ("super(ProbeStrategy, self).cancel_order(order)", "ORDER_RULE"),
-                           ("super().modify_order(order)", "ORDER_RULE"),
-                           ("Strategy.market_exit(self)", "ORDER_RULE")):
-            changed = SOURCE + f"\n    def send(self, order):\n        {call}\n"
-            with self.subTest(call=call):
+    def test_super_or_a_strategy_class_reaching_an_order_command_is_refused(self):
+        """The runner's order rules, Paper and Live sit before the source: an order command reached through super()
+        or a strategy class resolves past them to the native Strategy and reaches the venue unchecked (#3793)."""
+        for body, code in (("        self.submit_order(order)\n", None),
+                           ("        send(self, order)\n", None),  # the helper gets the composed instance
+                           ("        return order.market_exit or isinstance(self, (Strategy, ProbeStrategy))\n", None),
+                           ("        super(ProbeStrategy, self).on_start()\n", None),
+                           ("        return Strategy.on_start(self)\n", None),
+                           ("        super().submit_order(order)\n", "ORDER_RULE"),
+                           ("        Strategy.submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        ProbeStrategy.cancel_order(self, order)\n", "ORDER_RULE"),
+                           ("        trading.Strategy.modify_order(self, order)\n", "ORDER_RULE"),
+                           ("        super(ProbeStrategy, self).close_position(order)\n", "ORDER_RULE"),
+                           ("        self = super()\n        self.submit_order(order)\n", "ORDER_RULE"),
+                           ("        send(super(), order)\n", "ORDER_RULE"),
+                           ("        (lambda self: self.market_exit)(super())()\n", "ORDER_RULE"),
+                           ("        match super():\n            case object(submit_order=sent):\n"
+                            "                sent(order)\n", "ORDER_RULE"),
+                           ("        native = Strategy\n        native.submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        found = super\n        found().submit_order(order)\n", "ORDER_RULE")):
+            changed = (SOURCE.replace("from nautilus_trader.trading import Strategy\n",
+                                      "import nautilus_trader.trading as trading\nfrom nautilus_trader.trading import Strategy\n")
+                       + f"\n    def send(self, order):\n{body}\n\ndef send(strategy: Strategy, order) -> Strategy | None:\n"
+                         "    strategy.submit_order(order)\n")
+            with self.subTest(body=body):
                 self.source.write_text(changed)
                 digest = hashlib.sha256(changed.encode()).hexdigest()
                 if code is None:

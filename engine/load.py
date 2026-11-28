@@ -173,10 +173,73 @@ class LoadedStrategy:
 
 # Order APIs outside engine.order_rules, refused when the source names them at all.
 FORBIDDEN_ORDER_APIS = frozenset({"submit_order_list", "bracket", "add_exec_algorithm", "close_all_positions"})
-# The native order commands the runner's classes (order rules, Paper, Live) put before the source: called on
-# anything but the bare `self` (`super().submit_order`, `Strategy.submit_order(self, ...)`), one resolves past them.
+# The native order commands the runner's classes (order rules, Paper, Live) put before the source. Reached through
+# super() or through a strategy class rather than the instance, one resolves past them to the native Strategy.
 ORDER_COMMANDS = frozenset({"submit_order", "modify_order", "modify_orders", "cancel_order", "cancel_orders",
                             "cancel_all_orders", "close_position", "market_exit"})
+
+
+def order_bypass_findings(source: bytes) -> list[str]:
+    """The routes past the order rules, one line each: super() used other than to read a non-command attribute at
+    once, and a strategy class (native Strategy, or a source class extending one) used other than as a base,
+    super() or class-check argument, class pattern, comparison operand, annotation or reader of a non-command
+    attribute."""
+    tree = ast.parse(source, filename="<strategy>")
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    imported: dict[str, object] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imported.update(_imported(node, []))
+
+    def resolved(node: ast.AST) -> object:
+        if isinstance(node, ast.Name):
+            return imported.get(node.id)
+        if isinstance(node, ast.Attribute) and isinstance(value := resolved(node.value), ModuleType):
+            return getattr(value, node.attr, None)
+        return None
+
+    classes: set[str] = set()
+
+    def strategy_class(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name) and node.id in classes:
+            return True
+        value = resolved(node)
+        return inspect.isclass(value) and any(hasattr(value, name) for name in ORDER_COMMANDS)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and any(strategy_class(base) for base in node.bases):
+            classes.add(node.name)
+    def checked(node: ast.AST) -> bool:
+        parent = parents.get(node)
+        if isinstance(parent, ast.Tuple):
+            node, parent = parent, parents.get(parent)
+        return (isinstance(parent, ast.Call) and node in parent.args and isinstance(parent.func, ast.Name)
+                and parent.func.id in ("isinstance", "issubclass", "super"))
+
+    annotations = {id(part) for node in ast.walk(tree) for annotation in (
+        [node.annotation] if isinstance(node, (ast.arg, ast.AnnAssign)) else
+        [node.returns] if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else [])
+        if annotation is not None for part in ast.walk(annotation)}
+    found: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        if id(node) in annotations:
+            continue
+        parent = parents.get(node)
+        reads = (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr not in ORDER_COMMANDS)
+        if isinstance(node, ast.Name) and node.id == "super":
+            call = parent if isinstance(parent, ast.Call) and parent.func is node else None
+            above = parents.get(call) if call else None
+            if not (isinstance(above, ast.Attribute) and above.value is call and above.attr not in ORDER_COMMANDS):
+                found.add((node.lineno, ast.unparse(above if isinstance(above, ast.Attribute) else parent or node)))
+        elif (isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load)
+                and strategy_class(node) and not (
+                    reads
+                    or isinstance(parent, ast.ClassDef) and node in parent.bases
+                    or isinstance(parent, ast.MatchClass) and parent.cls is node
+                    or isinstance(parent, ast.Compare)
+                    or checked(node))):
+            found.add((node.lineno, ast.unparse(parent if isinstance(parent, ast.Attribute) else node)))
+    return [f"line {line}: {text}" for line, text in sorted(found)]
 
 
 def load_strategy(
@@ -208,11 +271,10 @@ def load_strategy(
     named = sorted({node.attr for node in attributes if node.attr in FORBIDDEN_ORDER_APIS})
     if named:
         raise Refusal("ORDER_RULE", f"the source names {', '.join(named)}, outside the order rules (engine.order_rules)")
-    past = sorted({f"line {node.lineno}: {ast.unparse(node)}" for node in attributes if node.attr in ORDER_COMMANDS
-                   and not (isinstance(node.value, ast.Name) and node.value.id == "self")})
+    past = order_bypass_findings(source)
     if past:
-        raise Refusal("ORDER_RULE", f"{'; '.join(past)}: an order command called other than on self skips "
-                                    "the order rules (engine.order_rules)")
+        raise Refusal("ORDER_RULE", f"{'; '.join(past)}: super() or a strategy class reaches the native order "
+                                    "commands past the order rules (engine.order_rules); send them on the instance")
     source_path = source_path.resolve()
     module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)
