@@ -353,7 +353,7 @@ DIGEST = ("bars", "first_ts_event", "last_ts_event", "sha256")
 def run_record(market: Iterable[Mapping], **run) -> dict:
     """A run as compare reads it: from its rows the market rows (engine.realtime.MarketRows: Paper's journal, Live's
     evidence pack; other rows are passed over), and `run`'s own parts as given: side_starts (its processes' starts),
-    events (its native order events), settlements, equity, terms, fees, and Paper's taken, held, interrupted and
+    events (its native order events), settlements, equity, taken, terms, fees, and Paper's held, interrupted and
     paused or Live's gate."""
     rows = list(market)
     warmup: dict[str, dict[str, dict]] = {}
@@ -672,7 +672,7 @@ def compare(run: Mapping, replay_events: list[dict] | None, archive: Mapping[str
     unsubscribes), late_aggregates (late_aggregate rows), events (native order events), settlements (funding), equity
     ([(minute, value)]), taken ({minute: the run clock when it took that value}, equity_differences), terms ({symbol:
     terms}), fees ({symbol: {maker, taker}})}.
-    `archived_marks`: {symbol: {minute: the archive's MARK close}}, for Paper's equity (mark_rounding).
+    `archived_marks`: {symbol: {minute: the archive's MARK close}}, for equity mark-rounding attribution (mark_rounding).
     `replay_events` None means the replay wrote no order events: its orders are unknown, not none."""
     found = bars(run.get("bars") or [], archive, start, end, run.get("kline_events") or [],
                  run.get("kline_sockets") or [], run.get("side_starts") or [])
