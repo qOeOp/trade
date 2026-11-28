@@ -521,9 +521,8 @@ COMMANDS = [
         "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head)",
         "one judgment row and its subject rows; the same content again is a replay",
         "judgment_id, ledger_commit, replayed",
-        "JUDGMENT_BODY_EMPTY (a blank body); "
-        "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
+        "JUDGMENT_BODY_EMPTY (a blank body); LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the "
+        "head); COMMIT_BEFORE_LINE; SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SEARCH_EXPOSURE_VARIANTS_MISSING (a search_exposure body whose first line is not `Evaluated variants: K`); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"), LEDGER,
          option("--kind", required=True, help="recommendation, priority, interpretation or search_exposure"),
