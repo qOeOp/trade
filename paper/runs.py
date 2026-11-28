@@ -317,6 +317,13 @@ def pool_retry(market: dict, prior: dict) -> bool:
     return not known
 
 
+def pool_retry_of(profile: db.LedgerProfile, market: dict, op_id: str) -> bool:
+    """pool_retry for the start `op_id` declared in the Paper database `profile`."""
+    with db.connect(profile, "reader") as conn:
+        prior = records.paper_start_of(conn, op_id)
+    return prior is not None and pool_retry(market, prior)
+
+
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, duration_seconds: int | None = None,
