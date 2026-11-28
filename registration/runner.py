@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 import subprocess
 
+from engine import config
 from shared import clock
 from shared.refusals import refuse
 
@@ -85,12 +86,11 @@ def runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--trade-ticks", action="store_true")
     parser.add_argument("--metrics", action="store_true")
     known, rest = parser.parse_known_args(runner_argv)
-    # Left to the runner, which reads no abbreviation either: refused here, before registration fixes them.
-    names = parser._option_string_actions
-    shortened = sorted({name for value in rest if value.startswith("--") and (name := value.split("=", 1)[0]) not in {*names, "--"}
-                        and any(option.startswith(name) for option in names)})
-    if shortened:
-        parser.error(f"abbreviated options {', '.join(shortened)}; give the whole option name")
+    # Left to the runner, whose own parser (no abbreviations) names what it reads: refused here, before registration fixes them.
+    names = config.build_parser()._option_string_actions
+    unknown = sorted({name for value in rest if value.startswith("--") and (name := value.split("=", 1)[0]) not in {*names, "--"}})
+    if unknown:
+        parser.error(f"options the runner does not declare: {', '.join(unknown)}; give the whole option name")
     if known.trade_ticks and known.execution != "quotes":
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
