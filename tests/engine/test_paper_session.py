@@ -371,7 +371,7 @@ class BackfillTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=warm_at):
             session = self.recovery(warm_at)
         handed: list = []
-        strategy = SimpleNamespace(_paper_subscriptions=set(), _metrics_owed=lambda now: [], _warming_state=lambda: {"expected": {
+        strategy = SimpleNamespace(_paper_subscriptions=set(), _metrics_followed={}, _metrics_owed=lambda now: [], _warming_state=lambda: {"expected": {
             ("warm", "15-MINUTE"): minutes or [minute(close) for close in range(
                 T - 4 * QUARTER + MINUTE_NS, warm_at + 1, MINUTE_NS)]}})
 
@@ -496,7 +496,7 @@ class BackfillTests(unittest.TestCase):
         handed: list = []
 
         def source(iid, subscriptions, orders):
-            strategy = SimpleNamespace(_paper_subscriptions=subscriptions, _metrics_owed=lambda now: [],
+            strategy = SimpleNamespace(_paper_subscriptions=subscriptions, _metrics_followed={}, _metrics_owed=lambda now: [],
                                        _warming_state=lambda: {"expected": {
                 ("warm", "15-MINUTE"): [minute(close, low="99960.0", high="99990.0",
                                                price="99900.0" if close == T - QUARTER else "99970.0")
@@ -651,7 +651,7 @@ class MetricsRecoveryTests(unittest.TestCase):
     ROWS = list(range(T - 50 * MINUTE_NS, T + 1, 5 * MINUTE_NS))  # due after the cut and by T + 1 minute
     ENDS = [T - 3 * QUARTER, T - 2 * QUARTER, T - QUARTER, T]
 
-    def recover(self, warmup=(("15-MINUTE", 3),), read=None, minutes=None, on_row=None, built=True):
+    def recover(self, warmup=(("15-MINUTE", 3),), read=None, minutes=None, on_row=None, built=True, subscribed=()):
         with mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
             session = BackfillTests.recovery(self, T + MINUTE_NS, warmup)  # type: ignore[arg-type]
         self.assertEqual(session.metrics_after(), self.CUT, "a recovery's on_start follows from the cut")
@@ -662,6 +662,7 @@ class MetricsRecoveryTests(unittest.TestCase):
             reads.append(ts_event)
             return {name: Decimal("1.5") for name in wanted}
         source = Metered(seen, read or rest, minutes, on_row)
+        source._paper_subscriptions.update(subscribed)
         clock = mock.Mock(**{"timer_names.return_value": []})
         session.release = lambda _: seen.append("released")
         session.cache = SimpleNamespace(bars=lambda _: [aggregated(end) for end in self.ENDS] if built else None)
@@ -690,19 +691,35 @@ class MetricsRecoveryTests(unittest.TestCase):
         self.assertIn("OSError: reset", refused)
         self.assertEqual(seen, [])
 
-    def test_an_unfollow_on_a_back_filled_row_stops_the_later_rows(self):
-        clock = mock.Mock(**{"timer_names.return_value": [metrics.TIMER]})
-
-        def unfollow(source, due):
-            if due == T - 40 * MINUTE_NS:
-                with mock.patch.object(Metered, "_metrics_clock", return_value=clock):
-                    source._metrics_unfollow(IID)
-        _, source, refused, seen, _ = self.recover(on_row=unfollow)
-        self.assertIsNone(refused)
-        self.assertEqual([item for item in seen if item != "released" and item[0] == "row"],
-                         [("row", due) for due in self.ROWS if due <= T - 40 * MINUTE_NS])
-        self.assertEqual([item[1] for item in seen if item != "released" and item[0] == "bar"], self.ENDS)
-        self.assertEqual(source._metrics_followed, {})
+    def test_an_unfollow_on_a_back_filled_row_stops_the_later_rows_and_any_other_change_refuses(self):
+        """#3832: a follow or subscription made on a back-filled row would start at T, not with that row, and the bars
+        of a type unsubscribed there would still be handed: the recovery is refused there."""
+        clock = mock.Mock(**{"timer_names.return_value": [metrics.TIMER], "timestamp_ns.return_value": T + MINUTE_NS})
+        cases = {
+            "an unfollow": lambda source: source._metrics_unfollow(IID),
+            "a re-follow": lambda source: (source._metrics_unfollow(IID), source._metrics_follow(IID)),
+            "a follow of another contract": lambda source: source._metrics_follow("ETHUSDT-PERP.BINANCE"),
+            "a bar subscription": lambda source: source._paper_subscriptions.add(Session.subscription(IID, "5-MINUTE")),
+            "a bar unsubscription": lambda source: source._paper_subscriptions.clear(),
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                def on_row(source, due, change=change):
+                    if due == T - 40 * MINUTE_NS:
+                        with mock.patch.object(Metered, "_metrics_clock", return_value=clock):
+                            change(source)
+                _, source, refused, seen, _ = self.recover(on_row=on_row, subscribed={Session.subscription(IID, "15-MINUTE")})
+                rows = [item for item in seen if item != "released" and item[0] == "row"]
+                bars = [item[1] for item in seen if item != "released" and item[0] == "bar"]
+                if name == "an unfollow":
+                    self.assertIsNone(refused)
+                    self.assertEqual(rows, [("row", due) for due in self.ROWS if due <= T - 40 * MINUTE_NS])
+                    self.assertEqual(bars, self.ENDS)
+                    self.assertEqual(source._metrics_followed, {})
+                else:
+                    self.assertEqual(refused, "a source changed its subscriptions on the back-filled "
+                                              f"{IID} metrics row due at {paper_session.history.utc(T - 40 * MINUTE_NS)}")
+                    self.assertEqual((rows[-1], bars), (("row", T - 40 * MINUTE_NS), [T - 3 * QUARTER]))
 
     def test_an_order_on_a_back_filled_row_is_checked_as_on_a_bar_ending_at_its_due_time(self):
         quiet = order(kind="LIMIT", side="BUY", price="99000.0")
