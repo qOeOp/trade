@@ -65,6 +65,15 @@ class ContinuityTests(unittest.TestCase):
         capture(self.world.conn, trial_id, self.data, purpose="explore", fingerprint=fingerprint)
         return trial_id
 
+    def test_a_failed_review_on_the_old_image_refuses_the_rebuild(self):
+        failed = self.world.open_precheck(self.data, runtime=RUNTIME)
+        capture(self.world.conn, failed, self.data)
+        precheck.record_review(self.world.profile, self.world.review_body(
+            failed, "failed", causal={"status": "failed", "note": "reads the next bar's close"}), "reviewer-b")
+        body = self.migrated_body()
+        with self.on_new_runtime():
+            self.assertEqual(refused(self.world.register, body).code, "SOURCE_PRECHECK_FAILED")
+
     def test_valid_baseline_rebuild_binds_once_and_preserves_history(self):
         self.reproduction({"fixture": "same"})
         body = self.migrated_body()

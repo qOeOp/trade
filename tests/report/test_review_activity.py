@@ -122,6 +122,20 @@ class ReviewActivityTests(unittest.TestCase):
                     self.reviewed(data, 2, 1, verdict="passed", runtime=OTHER_RUNTIME)
                 self.assertEqual(self.check(data)["status"], "failed")
 
+    def test_a_failed_review_on_another_image_fails_the_source_and_recovers_only_there(self):
+        data = self.world.publish("failed-elsewhere")["source"]
+        self.reviewed(data, 2, 1, verdict="passed", runtime=OTHER_RUNTIME)
+        self.assertEqual(self.check(data)["status"], "unreviewed", "a pass on another image reviews no run here")
+        self.reviewed(data, 2, 1, verdict="passed")
+        self.reviewed(data, runtime=OTHER_RUNTIME, causal=QUIET)
+        self.assertEqual(self.check(data)["status"], "failed")
+        quiet = self.world.publish("quiet-elsewhere")["source"]
+        self.reviewed(quiet, runtime=OTHER_RUNTIME, activity=QUIET)
+        self.reviewed(quiet, 2, 1, verdict="passed")
+        self.assertEqual(self.check(quiet)["status"], "failed", "a pass on this image resolves no failure on another")
+        self.reviewed(quiet, 2, 1, verdict="passed", runtime=OTHER_RUNTIME)
+        self.assertEqual(self.check(quiet)["status"], "passed")
+
     def test_recovery_obeys_the_review_scope(self):
         data = self.world.publish("scope")["source"]
         old = self.reviewed(data, activity=QUIET)

@@ -9,7 +9,7 @@ cites does not when its trading window is short, nor does a precheck that sealed
 (it stopped before market data reached the strategy, or a short one sealed no fill and no position).
 An Agent that did not write the source reviews the sealed precheck capture under four items; the
 review is one source_review row of that precheck trial and its source. Passing says the source runs,
-not that it is economic evidence; any failed review of the source on that image fails it (require_precheck).
+not that it is economic evidence; any failed review of the source, on any image, fails it (require_precheck).
 
 What a precheck is compared with is an execution identity: {image_ref, market_day, universe_rule,
 lifecycle_bundle, comparable_config_sha256, symbols}, the trial columns a registration fixes (its
@@ -142,8 +142,9 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
     """The precheck trial ID when the review and its native capture bind this source, the image, market
     commit, lifecycle and comparable configuration of `identity`, and both passed; any mismatch is a refusal:
     a review of the precheck reviews the configuration it ran. Any failed review of the cited precheck, or of
-    another precheck of the source on that image, fails it too (api, causal and readiness judge the source on that
-    runtime, not one run), except an activity-only failure a later traded precheck resolved (review_activity.resolved)."""
+    another precheck of the source on any image, fails it too (api, causal and readiness judge the source, not one
+    run or runtime), except an activity-only failure a later traded precheck on its image resolved
+    (review_activity.resolved)."""
     record = read_review(conn, review_id)
     trial = trial_identity(conn, record["trial_id"])
     digest = digest_of(identity.get("image_ref"))
@@ -167,11 +168,12 @@ def require_precheck(conn: db.LedgerConnection, review_id: int, source_sha256: s
         raise refuse("SOURCE_PRECHECK_FAILED", f"source review {review_id} did not pass: "
                      + ", ".join(item for item in ITEMS if record[item]["status"] != "passed"),
                      missing=(str(review_id),))
-    reviewed = [item for item in review_records(conn, source_sha256) if item["image_digest"] == digest]
+    reviewed = review_records(conn, source_sha256)
     failed = [str(item["review_id"]) for item in reviewed if item["verdict"] == "failed"
-              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(conn, item, reviewed))]
+              and (item["trial_id"] == trial["trial_id"] or not review_activity.resolved(
+                  conn, item, [other for other in reviewed if other["image_digest"] == item["image_digest"]]))]
     if failed:
-        raise refuse("SOURCE_PRECHECK_FAILED", f"the source has failed reviews on {digest}: " + ", ".join(failed),
+        raise refuse("SOURCE_PRECHECK_FAILED", "the source has failed reviews: " + ", ".join(failed),
                      missing=tuple(failed))
     return trial["trial_id"]
 
