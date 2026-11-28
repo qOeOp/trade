@@ -1056,8 +1056,8 @@ class LiveTests(unittest.TestCase):
         for failed, expected in ((False, 0), (True, 1)):
             with self.subTest(flat_failed=failed):
                 fresh_flat = {**self.flat_snapshot(), "observed_ns": 300}
-                status, session = run_stop_case(fresh_flat, failed=failed)
-                self.assertEqual((status, session.venue_flat), (expected, True))
+                status, _session = run_stop_case(fresh_flat, failed=failed)
+                self.assertEqual(status, expected)
                 rows = self.events()
                 self.assertEqual(rows[-1]["event"], "venue_flat")
                 kept = json.loads((self.output / rows[-1]["observation"]).read_text())

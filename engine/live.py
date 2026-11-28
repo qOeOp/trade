@@ -338,21 +338,17 @@ def start(args, manifest: dict, credentials, session: Session, resuming: bool) -
                     session.persistence_failed, session.native_flat = True, False
                     session.event("unresolved", reason="persistence_shutdown_failure", strict=False)
                     raise
-    if session.native_flat:
+    if session.native_flat or session.stop_venue_flat:
+        # After a stop whose read came before its closes, a close rejected or expired beside a late fill can leave
+        # Binance holding a leg, so that run too is released only on a read taken after them (#3727).
         final_snapshot = observer.snapshot(manifest["symbols"])
         observation = keep(args.output, "final-account", final_snapshot)
         require_flat(final_snapshot)
-        session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
-                      source_failed=session.failed, observation=observation)
-        return 1 if session.failed else 0
-    if session.stop_venue_flat:
-        # The stop's read came before its closes: a close rejected or expired beside a late fill can leave Binance
-        # holding a leg, so the run is released only on a read taken after them (#3727).
-        final_snapshot = observer.snapshot(manifest["symbols"])
-        observation = keep(args.output, "final-account", final_snapshot)
-        require_flat(final_snapshot)
-        session.venue_flat = True
-        session.event("venue_flat", strict=False, observation=observation, native_positions=True)
+        if session.native_flat:
+            session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
+                          source_failed=session.failed, observation=observation)
+        else:
+            session.event("venue_flat", strict=False, observation=observation, native_positions=True)
         return 1 if session.failed else 0
     if session.venue_flat:
         # Binance held nothing while the native cache still held a position (engine.live_connection.venue_flat_exit):
