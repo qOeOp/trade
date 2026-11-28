@@ -128,8 +128,10 @@ class VerdictTests(unittest.TestCase):
                          (False, "veto and holdout", []))
         self.assertIs(self.summary(*years[:2], self.cell("veto", 0.9, 0.25, label="2021"), self.HOLDOUT)
                       ["meets_targets"], False, "one veto year over the drawdown target fails the veto")
-        self.assertEqual([self.summary(self.cell("veto", annual, dd, short=True), self.HOLDOUT)["meets_targets"] for annual, dd
-                          in ((-0.5, 0.6), (None, 1.0), (-0.5, 0.15), (-0.5, None))], [False, False, True, True], "#3823: drawdown alone")
+        short = [self.summary(self.cell("veto", annual, dd, short=True), self.HOLDOUT)
+                 for annual, dd in ((-0.5, 0.6), (None, 1.0), (-0.5, 0.15), (-0.5, None))]
+        self.assertEqual([(found["meets_targets"], found["veto"]["years_meeting_targets"]) for found in short],
+                         [(False, 0), (False, 0), (True, 0), (True, 0)], "#3823: on its drawdown alone, never meeting both")
 
     def test_a_test_without_a_whole_veto_year_is_judged_on_the_holdout_alone(self):
         found = self.summary(self.cell("veto", -0.5, 0.6, whole=False), self.HOLDOUT)

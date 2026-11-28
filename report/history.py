@@ -175,8 +175,8 @@ def _discount(rows: list[dict], returns: dict[int, list[float]], prior: int | No
             "holdouts_with_returns": len(daily), "daily_sharpe_variance": variance}
 
 
-def _passes(measures: dict, targets: dict, short: bool = False) -> bool:
-    return (short or measures["annual_return"] >= targets["annual_return"]) and measures["mark_max_drawdown"] <= targets["max_drawdown"]
+def _passes(measures: dict, targets: dict) -> bool:
+    return measures["annual_return"] >= targets["annual_return"] and measures["mark_max_drawdown"] <= targets["max_drawdown"]
 
 
 def _read(measures: dict | None, short: bool = False) -> bool:
@@ -214,7 +214,7 @@ def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tu
     if targets is None or not years or missing:
         found["years_meeting_targets"] = found["meets_targets"] = None
         return found, missing
-    found["years_meeting_targets"] = sum(_passes(cell["measures"], targets, cell["short"]) for cell in read)
+    found["years_meeting_targets"] = sum(_passes(cell["measures"], targets) for cell in read if not cell["short"])
     found["meets_targets"] = (all(value <= targets["max_drawdown"] for value in drawdown)
                               and (not annual or statistics.median(annual) >= targets["annual_return"]))
     return found, missing
