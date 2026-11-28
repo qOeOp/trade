@@ -305,6 +305,92 @@ class StrategyLoaderTests(unittest.TestCase):
                     continue
                 self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
 
+    def test_super_or_a_strategy_class_reaching_an_order_command_is_refused(self):
+        """The runner's order rules, Paper and Live sit before the source: an order command reached through super()
+        or a strategy class resolves past them to the native Strategy and reaches the venue unchecked (#3793)."""
+        for body, code in (("        self.submit_order(order)\n", None),
+                           ("        send(self, order)\n", None),  # the helper gets the composed instance
+                           ("        return order.market_exit or isinstance(self, (Strategy, ProbeStrategy))\n", None),
+                           ("        super(ProbeStrategy, self).on_start()\n", None),
+                           ("        return Strategy.on_start(self)\n", None),
+                           ("        super().submit_order(order)\n", "ORDER_RULE"),
+                           ("        Strategy.submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        ProbeStrategy.cancel_order(self, order)\n", "ORDER_RULE"),
+                           ("        trading.Strategy.modify_order(self, order)\n", "ORDER_RULE"),
+                           ("        super(ProbeStrategy, self).close_position(order)\n", "ORDER_RULE"),
+                           ("        self = super()\n        self.submit_order(order)\n", "ORDER_RULE"),
+                           ("        send(super(), order)\n", "ORDER_RULE"),
+                           ("        (lambda self: self.market_exit)(super())()\n", "ORDER_RULE"),
+                           ("        match super():\n            case object(submit_order=sent):\n"
+                            "                sent(order)\n", "ORDER_RULE"),
+                           ("        native = Strategy\n        native.submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        found = super\n        found().submit_order(order)\n", "ORDER_RULE"),
+                           ("        held = (Strategy,)\n        held[0].submit_order(self, order)\n", "ORDER_RULE"),
+                           ("        self.held = Strategy\n", "ORDER_RULE"),
+                           ("        return isinstance(self, Strategy | int) and f'{ProbeStrategy}' != str(Strategy)\n",
+                            None)):
+            changed = (SOURCE.replace("from nautilus_trader.trading import Strategy\n",
+                                      "import nautilus_trader.trading as trading\nfrom nautilus_trader.trading import Strategy\n")
+                       + f"\n    def send(self, order):\n{body}\n\ndef send(strategy: Strategy, order) -> Strategy | None:\n"
+                         "    strategy.submit_order(order)\n")
+            with self.subTest(body=body):
+                self.source.write_text(changed)
+                digest = hashlib.sha256(changed.encode()).hexdigest()
+                if code is None:
+                    self.load(digest=digest)
+                    continue
+                self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
+
+    def test_a_strategy_class_reached_as_a_value_is_refused(self):
+        """A class object the source never names (a classmethod's cls, a nested or aliased base, a class hook) holds
+        the native commands unbound as well; a helper class of its own keeps its own super() (#3793)."""
+        head = "from nautilus_trader.trading import Strategy\n"
+        hooks = "    def replay_diagnostics(self):\n        return {}\n    def replay_integrity_findings(self, failed=False):\n        return []\n"
+        for text, code in (
+                (head + "class Book:\n    def cancel_order(self, o):\n        return o\n"
+                 "class Shadow(Book):\n    def cancel_order(self, o):\n        return super().cancel_order(o)\n"
+                 "Native = Strategy\nclass ProbeStrategy(Native):\n" + hooks, None),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    @classmethod\n    def native(cls):\n"
+                 "        return cls\n", "ORDER_RULE"),
+                (head + "class Holder:\n    class Base(Strategy):\n        pass\n"
+                 "class ProbeStrategy(Holder.Base):\n" + hooks + "    def go(self, o):\n"
+                 "        ProbeStrategy.submit_order(self, o)\n", "ORDER_RULE"),
+                (head + "class Mixin:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "class ProbeStrategy(Mixin, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "FOUND = []\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    def __init_subclass__(cls):\n        FOUND.append(cls)\n", "ORDER_RULE"),
+                (head + "class Tool:\n    def __set_name__(self, owner, name):\n        self.owner = owner\n"
+                 "class ProbeStrategy(Strategy):\n    tool = Tool()\n" + hooks, "ORDER_RULE"),
+                (head + "from dataclasses import dataclass\n@dataclass\nclass Signal:\n    side: int\n"
+                 "    @classmethod\n    def long(cls):\n        return cls(1)\n"
+                 "class ProbeStrategy(Strategy):\n    LOOKBACK = 3\n" + hooks + "    @classmethod\n"
+                 "    def lookback(cls):\n        return cls.LOOKBACK if cls is not Strategy else 0\n", None),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    @classmethod\n    def native(cls, /):\n"
+                 "        return cls\n", "ORDER_RULE"),
+                (head + "def isinstance(value, kind):\n    return value\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    def go(self, o):\n        isinstance(Strategy, int).submit_order(self, o)\n", "ORDER_RULE"),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    def go(self, catch):\n"
+                 "        return Strategy == catch\n", "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\nHelper = Sender\n"
+                 "class ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\nMIXINS = [Sender]\n"
+                 "class ProbeStrategy(MIXINS[0], Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "def native(kind):\n    return kind\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    found = classmethod(native)\n", "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "Helper = Sender if True else None\nclass ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "Helper: type = Sender\nclass ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "from enum import Enum\nclass Native(Enum):\n    BASE = Strategy\n"
+                 "class ProbeStrategy(Strategy):\n" + hooks, "ORDER_RULE")):
+            with self.subTest(text=text):
+                self.source.write_text(text)
+                digest = hashlib.sha256(text.encode()).hexdigest()
+                if code is None:
+                    self.load(digest=digest)
+                    continue
+                self.assertEqual(refused(self.load, digest=digest, error=Refusal).code, code)
+
     def test_the_execution_environment_is_a_runner_argument_in_the_effective_configuration(self):
         """--execution quotes needs both margin rates in (0, 1) with maintenance <= initial; bars takes none; the
         environment changes the effective configuration's account (so its digest and the comparability of runs),

@@ -1,0 +1,1 @@
+- A strategy source that reaches an order command through `super()` or a strategy class (`super().submit_order`, `Strategy.submit_order(self, ...)`, a kept or passed `super()`; likewise modify, cancel, close and market exit) is refused at load (`ORDER_RULE`); such a call skipped the order rules, Paper's checks and Live's custody (#3793).

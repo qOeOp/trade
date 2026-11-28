@@ -263,7 +263,16 @@ the breach's code; Live refuses at once and takes the STOP path.
   least 605 seconds after the strategy submits it, by the strategy's clock (Binance's 600 seconds plus the margin
   Live leaves for an entry's account check, see [Live execution](../live/README.md#live-execution)); a strategy cancels and closes only its own orders and
   positions; every order is on the strategy instance's own contract. A source naming `submit_order_list`,
-  `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load.
+  `bracket`, `add_exec_algorithm` or `close_all_positions` is refused at load. The rules, Paper and Live sit before
+  the source, so an order command (`submit_order`, `modify_order(s)`, `cancel_order(s)`, `cancel_all_orders`,
+  `close_position`, `market_exit`) reached through `super()` or a strategy class would reach the venue past them.
+  So a source is refused at load (`ORDER_RULE`, `engine.load.order_bypass_findings`) when it uses a strategy class
+  (native `Strategy`, a source class extending it, an alias of one, a classmethod's `cls`) other than as a base,
+  class check, `super()` argument, class pattern, `is` operand, annotation, text or reader of another attribute;
+  uses `super()` in a strategy class or a class it extends other than to read another attribute at once; defines
+  a hook that receives a class (`__init_subclass__`, `__set_name__`, descriptors, instance and subclass checks)
+  or a metaclass; decorates a strategy class or gives it a base other than a name; rebinds a builtin the check
+  trusts (`isinstance`, `super`, `classmethod`, ...); or uses `classmethod` other than as a decorator.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
   position ID) on the closing side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled
   quantity. Native order events do not name a resting stop's position, so the replay audit sums positions and stops
