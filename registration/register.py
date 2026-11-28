@@ -116,7 +116,8 @@ def plan_schema() -> dict:
             "conditions": {"description": "Where the conclusion of this trial applies (universe, window, costs).",
                            **_TEXT},
             "retry_of": {"description": "The earlier registration_id that actually consumed a grid source being "
-                                        "tried again.", **_ID},
+                                        "tried again, or whose failed trial of the same change (parent and "
+                                        "difference; for a root, strategy_id) this grid repairs.", **_ID},
         },
     }
 
@@ -406,6 +407,29 @@ def _runtime_transition(conn: db.LedgerConnection, plan: Mapping, execution: Map
     return current["source_sha256"] == earlier["source_sha256"]
 
 
+def _check_retry_of(conn: db.LedgerConnection, retry_of: int | None, points: list[dict], parent: dict | None) -> None:
+    """retry_of names a registration that consumed a grid source of this one, or one testing the same change (the
+    same published parent and difference; for a root, a grid candidate of the same strategy_id) with a retryable
+    trial: a repaired source. Checked before the line's records, whose interpretation gate retry_of relaxes."""
+    if retry_of is None:
+        return
+    prior = load_registration(conn, retry_of)
+    trials = conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE research_registration_id = %s",
+                       (retry_of,))
+    if {source for _, source in trials} & {point["source_sha256"] for point in points}:
+        return
+    if parent is not None:
+        change = conn.one("SELECT difference FROM candidate WHERE source_sha256 = %s", (points[0]["source_sha256"],))
+        same = (prior["parent"], prior["change"]) == (strategies.name(parent), change["difference"])
+    else:
+        same = prior["parent"] is None and bool({strategies.parse_ref(point["candidate"])[0] for point in points}
+                                                & {strategies.parse_ref(item["candidate"])[0] for item in prior["grid"]})
+    if not (same and any(retryable(conn, trial_id) for trial_id, _ in trials)):
+        raise refuse("RETRY_NOT_ALLOWED", f"registration {retry_of} consumed no grid source of this registration and "
+                                          "has no retryable trial of the same change to repair",
+                     missing=(str(retry_of),))
+
+
 def _check_retry(conn: db.LedgerConnection, chain: list[dict], plan: Mapping, execution: Mapping) -> list[dict]:
     """Keep failed-attempt retries; additionally admit fixed-question rebuilds on a different image.
     Return only linked transition registrations with consumed grid points for technical exposure checks."""
@@ -489,6 +513,7 @@ def _check_plan(conn: db.LedgerConnection, plan: Mapping) -> tuple[list[dict], d
     _check_duties(body, parent is None)
     _check_prediction(body, parent is None)
     _check_header(body, parent, sources)
+    _check_retry_of(conn, plan.get("retry_of"), points, parent)
     return points, parent, sources
 
 
