@@ -281,6 +281,31 @@ def position_at(position, ts: int, instrument):
     return held if held.is_open else None
 
 
+class HeldPositions:
+    """The positions held at each label T, read in label order once T's events are complete: every open position, every
+    one closed since the last label and, when there are new ones, every native snapshot (a HEDGING position ID closed
+    and reopened by an order naming it keeps its earlier cycle only as a snapshot), each as it stood at T
+    (position_at). Cycles of one ID do not overlap, so at most one of them is held at T."""
+
+    def __init__(self) -> None:
+        self.closed: set = set()  # the closed position IDs seen at a label
+        self.snapshots = 0  # the native position snapshots seen at a label
+
+    def at(self, cache, ts: int) -> list:
+        opened = cache.positions_open()
+        self.closed -= {position.id for position in opened}  # a reopened ID: its next close is a new one
+        cycles = list(opened)
+        if cache.positions_closed_count() > len(self.closed):
+            closed = sorted(set(cache.position_closed_ids()) - self.closed, key=str)
+            self.closed.update(closed)
+            cycles += map(cache.position, closed)
+        if len(snapshots := cache.position_snapshots()) > self.snapshots:
+            self.snapshots = len(snapshots)
+            cycles += sorted(snapshots, key=lambda snapshot: str(snapshot.id))
+        held = (position_at(cycle, ts, cache.instrument(cycle.instrument_id)) for cycle in cycles)
+        return [position for position in held if position is not None]
+
+
 def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """engine.capital_findings: the capital observer (engine.run.CapitalObserver) valued every input timestamp and
     every open position in it."""

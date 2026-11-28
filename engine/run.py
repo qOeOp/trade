@@ -246,7 +246,6 @@ class CapitalObserver(DataActor):
     _ts: int | None
     _marks: dict[InstrumentId, Price]
     _latest: dict[InstrumentId, tuple[int, Price]]
-    _closed: set  # the closed position IDs a label has seen
 
     def __new__(cls, config=None):
         return DataActor.__new__(cls)
@@ -257,7 +256,7 @@ class CapitalObserver(DataActor):
         self.lifecycle_ids = [InstrumentId.from_str(value) for value in config.lifecycle_ids]
         self.timestamps, self.findings, self.marks_seen = 0, [], 0
         self.lifecycle = {str(value): {key: 0 for key in LIFECYCLE_COUNTS} for value in self.lifecycle_ids}
-        self._ts, self._marks, self._latest, self._closed = None, {}, {}, set()
+        self._ts, self._marks, self._latest, self._held = None, {}, {}, report.HeldPositions()
         self.carried: list[dict] = []
         self._carrying: dict[str, dict] = {}  # instrument -> the open carry interval
         self._gaps: dict[str, dict] = {}  # instrument -> the open valuation-gap interval
@@ -330,13 +329,7 @@ class CapitalObserver(DataActor):
         self.timestamps += 1
         unvalued: dict[str, str]
         carried, unvalued = set(), {}
-        closed: list = []  # closed since the last label: one closed after T was still held at T
-        if cache.positions_closed_count() > len(self._closed):
-            closed = sorted(set(cache.position_closed_ids()) - self._closed, key=str)
-            self._closed.update(closed)
-        for now in [*cache.positions_open(), *map(cache.position, closed)]:
-            if (position := report.position_at(now, ts, cache.instrument(now.instrument_id))) is None:
-                continue
+        for position in self._held.at(cache, ts):
             instrument = str(position.instrument_id)
             price = self._marks.get(position.instrument_id)
             if price is None:
