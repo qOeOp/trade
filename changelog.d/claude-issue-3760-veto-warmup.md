@@ -1,0 +1,1 @@
+- A veto year cut only by a candidate's warm-up is a whole year again, so `research history` and validation registration read the reserved veto year instead of judging on the holdout alone (#3760).

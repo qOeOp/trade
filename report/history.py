@@ -8,7 +8,7 @@ targets is judged on the veto years and on the holdout apart, and it meets them 
 (line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. A line whose test has no whole veto year is judged on the holdout alone. A part
-year (cut by the market's first day plus warm-up), a segment shorter than SHORT_DAYS and a cut holdout are
+year (cut by the market's first day; one cut only by the warm-up is whole when SHORT_DAYS or more are left, _whole_year), a segment shorter than SHORT_DAYS and a cut holdout are
 shown but read in no summary: a holdout is cut (`cut`) when it ends before the planned holdout's end or, sooner, the
 day after the market's latest complete day (market_days; 20261122-20, user 2026-11-22: a `line history` run on an
 earlier market day replayed part of the holdout and that part alone decided). A segment `line history` replayed again after an invalid run has one cell, its latest
@@ -87,8 +87,12 @@ def _veto_year(row: dict) -> str:
 
 
 def _whole_year(row: dict) -> bool:
-    """A veto segment that trades its whole year (not cut by the market's first day plus warm-up)."""
-    return row["trade_start"] == datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
+    """A veto segment that reads as its whole year: its input starts on or before the year's start, so the market's
+    first day did not cut it, and it trades SHORT_DAYS or more. A year cut only by the participant's own warm-up is
+    whole (#3760: the market's first day on the year's start, the reserve before a longer period, turned the
+    reserved year into a part year that no summary read and require_unfalsified passed on the holdout alone)."""
+    year_start = datetime.combine(lines.veto_year_start(row["trade_end"].date()), time())
+    return row["input_start"] <= year_start and (row["trade_end"] - row["trade_start"]).days >= SHORT_DAYS
 
 
 def _latest(rows: list[dict], kind) -> list[dict]:

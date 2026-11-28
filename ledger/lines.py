@@ -382,7 +382,7 @@ class HistoryBinder:
 
 def history_trials(conn: db.LedgerConnection, line_id: int) -> list[dict]:
     """The line's history trials with their run's status (None while it has no run), in trial order."""
-    return conn.dicts("SELECT t.trial_id, t.source_sha256, t.trade_start, t.trade_end, r.status FROM trial t "
+    return conn.dicts("SELECT t.trial_id, t.source_sha256, t.input_start, t.trade_start, t.trade_end, r.status FROM trial t "
                       "LEFT JOIN run r ON r.trial_id = t.trial_id WHERE t.purpose = 'history' AND t.line_id = %s "
                       "ORDER BY t.trial_id", (line_id,))
 
