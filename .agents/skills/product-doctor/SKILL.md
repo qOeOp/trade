@@ -1,6 +1,6 @@
 ---
 name: product-doctor
-description: Diagnoses what is wrong or unreasonable in the product and its project - code, results, storage, releases, skills, agents, size - against evidence, challenges design choices nobody questions, and reviews proposed mechanisms or skill rules. Use for focused product diagnosis, for keeping the evidence of a running research session that its transcript cannot show (attach), or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
+description: Diagnoses what is wrong or unreasonable in the product and its project - code, results, storage, releases, skills, agents, size - against evidence, challenges design choices nobody questions, and reviews proposed mechanisms or skill rules. Use for focused product diagnosis, for checking a change before it merges, for keeping the evidence of a running research session that its transcript cannot show (attach), or a task calling for an overall product or session audit; ordinary strategy repairs belong to research-round.
 ---
 
 # Product doctor
@@ -26,6 +26,15 @@ Research conclusions and experiment choice belong to `research-round`.
 ## Focused diagnosis
 
 One question: steps 3, 4, 6 and 7, then its issues (step 8), no `report`. Examine what answers it and stop.
+
+## Change check
+
+A change before it merges, in a fresh session given only its base, branch and description. Read what it changes and
+every caller of that; list the states the changed code can meet, and exercise those its tests do not. A claim is a
+`doctor.py probe --tree BRANCH --control-tree BASE`: `shown` means the base reads otherwise, so the change made it and
+it is fixed before the merge; a reading the base shares predates the change and becomes an issue (step 8).
+`doctor.py recheck COMMIT --tree BRANCH` says whether its own tests fail without it. Report nothing unproven; stop at
+the change's reach.
 
 ## Themed audit
 
