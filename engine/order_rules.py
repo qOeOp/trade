@@ -32,7 +32,8 @@ contract at once (user, 2026-11-11).
 7. An order is on the strategy instance's own contract (CONTRACTS): instances of one source coordinate legs on several
    contracts through state the source shares between them, each ordering on its own (user, 2026-11-13;
    docs/plans/cross-line-fusion-20261111.zh.md, 5.1).
-8. No order before the strategy's warm-up has ended and the runner has called its on_start (WARMING).
+8. No order and no market exit before the strategy's warm-up has ended and the runner has called its on_start
+   (WARMING).
 
 The source cannot name submit_order_list, bracket, add_exec_algorithm or close_all_positions at all
 (engine.load.FORBIDDEN_ORDER_APIS).
@@ -261,6 +262,12 @@ class OrderRules:
             # Native close_position sends its MARKET order past submit_order (rule 5); a GTD one panics natively.
             return self._order_rule(f"Live cannot send a {time_in_force.name} MARKET order")
         return super().close_position(position, client_id, tags, time_in_force, True, False)  # type: ignore[misc]
+
+    def market_exit(self):
+        # The native exit sends its MARKET closes past submit_order and closes again every 100 ms (rule 8).
+        if str(_strategy_id(self)) in WARMING:
+            return self._order_rule("no market exit before the warm-up has ended and on_start has run")
+        return super().market_exit()  # type: ignore[misc]
 
     def close_all_positions(self, *args, **kwargs):
         return self._order_rule("positions are closed one at a time")
