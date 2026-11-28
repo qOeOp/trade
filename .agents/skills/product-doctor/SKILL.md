@@ -33,8 +33,9 @@ A change before it merges, in a fresh session given only its base, branch and de
 every caller of that; list the states the changed code can meet, and exercise those its tests do not. A claim is a
 `doctor.py probe --tree BRANCH --control-tree BASE`: `shown` means the base reads otherwise, so the change made it and
 it is fixed before the merge; a reading the base shares predates the change and becomes an issue (step 8).
-`doctor.py recheck COMMIT --tree BRANCH` says whether its own tests fail without it. Report nothing unproven; stop at
-the change's reach.
+`doctor.py recheck COMMIT --tree BRANCH` says whether its own tests fail without it. State its net lines, product and
+tests apart, and the mechanisms, branches and tests it adds and removes; growth a smaller change avoids is a finding,
+shown by that change on a scratch copy passing the same probes. Report nothing unproven; stop at the change's reach.
 
 ## Themed audit
 
