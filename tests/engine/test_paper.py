@@ -228,6 +228,36 @@ class MetricsJournalTests(unittest.TestCase):
                          "no release_late: the fill reached the cache before the on_bar of its bar ran")
         self.assertEqual(source._paper_held, [])
 
+    def test_metrics_followed_in_on_start_are_fixed_and_a_recovery_follows_from_its_cut(self):
+        """#3783: following metrics in on_start no longer defers every checkpoint; following or unfollowing once the run
+        is ready (or on a back-filled bar) is a change a recovery's on_start would not repeat."""
+        from engine import metrics
+        cut = DAY + 7 * MINUTE_NS
+        clock = mock.Mock(**{"timer_names.return_value": [], "timestamp_ns.return_value": DAY + 20 * MINUTE_NS})
+        cases = {  # (ready, handing, metrics_after): (changed, the first row's stamp)
+            "a first start": ((False, None, None), (False, DAY + 20 * MINUTE_NS)),
+            "a recovery's start": ((False, None, cut), (False, DAY + 5 * MINUTE_NS)),
+            "on a back-filled bar": ((False, ("bar",), None), (True, DAY + 20 * MINUTE_NS)),
+            "a ready run": ((True, None, None), (True, DAY + 20 * MINUTE_NS)),
+        }
+        for name, ((ready, handing, after), expected) in cases.items():
+            with self.subTest(name):
+                source = object.__new__(paper._PaperConfigured)
+                source._metrics_setup(None)
+                source._paper_subscription_changes = False
+                session = SimpleNamespace(ready=ready, handing=handing, metrics_after=lambda after=after: after)
+                with mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock), \
+                        mock.patch.object(paper, "SESSION", session):
+                    source._metrics_follow(str(IID))
+                self.assertEqual((source._paper_subscription_changes, source._metrics_followed[str(IID)]["ts_event"]),
+                                 expected)
+        source._paper_subscription_changes = False
+        clock.timer_names.return_value = [metrics.TIMER]
+        with mock.patch.object(paper._PaperConfigured, "_metrics_clock", return_value=clock), \
+                mock.patch.object(paper, "JOURNAL"):
+            source._metrics_unfollow(str(IID))
+        self.assertTrue(source._paper_subscription_changes, "a recovery's on_start would follow it again")
+
     def test_an_unsubscribe_of_metrics_the_source_followed_is_journalled(self):
         source = object.__new__(paper._PaperConfigured)
         source._metrics_followed = {str(IID): {}}

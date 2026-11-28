@@ -37,6 +37,7 @@ RETRY_NS = 30 * 1_000_000_000  # REST allows 1000 requests per 5 minutes per IP;
 # 2026-11-15 Paper trial).
 READ_AHEAD_NS = 2 * RETRY_NS
 TICK = timedelta(seconds=1)
+TIMER = "runner-metrics"  # the Feed's own timer on the source's clock, not a source timer (engine.paper_session)
 EXACT = Decimal("1e-16")  # the export's decimal128(38, 16): a value reads back with 16 places in either mode
 # The Metrics field each public endpoint gives, and the endpoint's field holding it.
 ENDPOINTS = {"sum_open_interest": ("openInterestHist", "sumOpenInterest"),
@@ -75,23 +76,34 @@ class Feed:
     def _metrics_clock(self):
         return Strategy.clock.__get__(self, type(self))  # the runner's, not the source's guarded clock
 
-    def _metrics_follow(self, instrument_id: str) -> None:
+    def _metrics_follow(self, instrument_id: str, after_ns: int | None = None) -> None:
         """From the first row the replay would still deliver: stamped at or after the instance's input start
-        (engine.strategy.guard_callback) and due after now."""
+        (engine.strategy.guard_callback) and due after now, or after `after_ns` (a Paper recovery's checkpoint cut:
+        the rows due since then are back-filled, engine.paper_session)."""
         if instrument_id in self._metrics_followed:
             return
         clock = self._metrics_clock()
-        start = max(getattr(self, "_replay_input_start_ns", 0), clock.timestamp_ns() - VISIBLE_NS + 1)
+        after = clock.timestamp_ns() if after_ns is None else after_ns
+        start = max(getattr(self, "_replay_input_start_ns", 0), after - VISIBLE_NS + 1)
         first = -(-start // PERIOD_NS) * PERIOD_NS
         self._metrics_followed[instrument_id] = {"instrument_id": instrument_id, "ts_event": first, "found": {},
                                                  "thread": None, "retry_ns": 0}
-        if "runner-metrics" not in clock.timer_names():
-            clock.set_timer("runner-metrics", TICK, callback=self._metrics_tick)
+        if TIMER not in clock.timer_names():
+            clock.set_timer(TIMER, TICK, callback=self._metrics_tick)
 
     def _metrics_unfollow(self, instrument_id: str) -> None:
         self._metrics_followed.pop(instrument_id, None)
-        if not self._metrics_followed and "runner-metrics" in self._metrics_clock().timer_names():
-            self._metrics_clock().cancel_timer("runner-metrics")
+        if not self._metrics_followed and TIMER in self._metrics_clock().timer_names():
+            self._metrics_clock().cancel_timer(TIMER)
+
+    def _metrics_owed(self, now: int) -> list[dict]:
+        """The followed contracts' states whose next row is due by `now` and not yet handed over."""
+        return [state for state in self._metrics_followed.values() if state["ts_event"] + VISIBLE_NS <= now]
+
+    def _metrics_read_now(self, state: dict) -> None:
+        """Read the state's row on the calling thread, for a back-fill: REST has long published it. Raises what the
+        read raises."""
+        state["found"].update(self._metrics_read(state["instrument_id"], state["ts_event"], list(ENDPOINTS)))
 
     def _metrics_tick(self, _event=None) -> None:
         """Each followed contract's due rows; none once the source unfollowed it, even from a row's own on_data."""
@@ -109,17 +121,7 @@ class Feed:
             return False
         complete = len(state["found"]) == len(ENDPOINTS)
         if now >= due and (complete or thread is not None and now >= due + PERIOD_NS - RETRY_NS):
-            found = state["found"]
-            if "sum_open_interest" in found:
-                row = Metrics(InstrumentId.from_str(state["instrument_id"]), found["sum_open_interest"],
-                              found.get("count_toptrader_long_short_ratio"),
-                              found.get("sum_toptrader_long_short_ratio"), found.get("count_long_short_ratio"),
-                              state["ts_event"], due)
-                self.on_data(CustomData(metrics_data_type(state["instrument_id"]), row))
-            else:
-                self.log.warning(f"metrics of {state['instrument_id']} at {state['ts_event']} were not read by the "
-                                 f"next row's time{state.get('error', '')}; skipped")
-            state.update(ts_event=state["ts_event"] + PERIOD_NS, found={}, thread=None, retry_ns=0, error="")
+            self._metrics_hand(state)
             return True
         if not complete and now >= state["retry_ns"]:
             wanted = [name for name in ENDPOINTS if name not in state["found"]]
@@ -133,3 +135,17 @@ class Feed:
             state["retry_ns"] = now + RETRY_NS
             state["thread"].start()
         return False
+
+    def _metrics_hand(self, state: dict) -> None:
+        """Hand the state's row over as read (one without open interest is skipped) and move on to the next row."""
+        found, due = state["found"], state["ts_event"] + VISIBLE_NS
+        if "sum_open_interest" in found:
+            row = Metrics(InstrumentId.from_str(state["instrument_id"]), found["sum_open_interest"],
+                          found.get("count_toptrader_long_short_ratio"),
+                          found.get("sum_toptrader_long_short_ratio"), found.get("count_long_short_ratio"),
+                          state["ts_event"], due)
+            self.on_data(CustomData(metrics_data_type(state["instrument_id"]), row))
+        else:
+            self.log.warning(f"metrics of {state['instrument_id']} at {state['ts_event']} were not read by the "
+                             f"next row's time{state.get('error', '')}; skipped")
+        state.update(ts_event=state["ts_event"] + PERIOD_NS, found={}, thread=None, retry_ns=0, error="")
