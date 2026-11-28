@@ -192,6 +192,32 @@ class RunTests(unittest.TestCase):
         profiles.private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
         self.assertEqual(refused(self.start).code, "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
 
+    def test_a_database_without_its_profile_here_is_not_served_unchecked(self):
+        """A moved data directory (#3695): the profile still names the old service directory, so the schema check
+        must not pass over its database."""
+        def mirror():
+            process, _ = service.start(self.service_root, self.data, self.backups, None, self.origin, self.port,
+                                       BINARY, None, self.log)
+            self.addCleanup(server.stop, process)
+            return process
+
+        process = mirror()
+        conn = server.connect_root(server.service_config(self.service_root), database="research")
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE ledger_schema SET version = 99")
+                cursor.execute("CALL DOLT_COMMIT('-Am', 'another schema', '--skip-verification')")
+        finally:
+            conn.close()
+        server.stop(process)
+        self.assertEqual(refused(mirror).code, "SERVICE_CHECK_FAILED", "control: its profile names this directory")
+        path = profiles.home() / "research.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        profiles.private_write(path, {**stored, "service": str(self.root / "old" / "s")})
+        self.assertEqual(refused(mirror).code, "SERVICE_CHECK_FAILED", "its profile names the old directory")
+        path.unlink()
+        self.assertEqual(refused(mirror).code, "SERVICE_CHECK_FAILED", "it has no profile")
+
     def test_disk_dolt_no_longer_needs_is_reclaimed(self):
         process, config = self.start()
         server.stop(process)
