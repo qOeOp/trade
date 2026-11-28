@@ -32,6 +32,14 @@ minute (`submitted`), or the recovery is refused as a touched one is. A cut wait
 by a minute while it would close a crossed bucket: the native aggregator builds a request's bucket only once a later
 minute arrives.
 
+A source's metrics subscription (engine.metrics.Feed) made in its on_start is a fixed one, as its bars are: a recovery's
+on_start follows the contract again from the checkpoint's cut, and the back-fill reads the rows due after the cut and
+by T from REST on the node thread and hands them over with the aggregated bars, by time (a row due at a bucket's end
+before that bucket's bar, as the live Feed hands it within a tick and the bar comes BUILD_DELAY_US later). An order the
+source submits on one is checked as on a back-filled bar from the row's due time, against the source's warm-up
+minutes; a source declaring no aggregation reads none, so its order refuses the recovery. A cut waits while a followed
+row is due and not handed over (`due`), and the Feed's own timer is not a source timer.
+
 A source without the protocol (`Session.supported` false), or one whose recovery crossed a funding settlement, is
 held after an interruption, as Live holds
 (docs/plans/paper-recovery-open-orders-20261117.zh.md, 保持模式): while a position is open its checkpoint holds the
@@ -47,6 +55,7 @@ from __future__ import annotations
 import base64
 from contextlib import contextmanager
 from dataclasses import asdict
+import functools
 import json
 from typing import Any, cast
 import time
@@ -54,7 +63,7 @@ import time
 from nautilus_trader.model import Price, Venue
 from nautilus_trader.trading import Strategy
 
-from engine import history, klines, paper_checkpoint as checkpoint, paper_terms, strategy as strategy_runtime, warmup
+from engine import history, klines, metrics, paper_checkpoint as checkpoint, paper_terms, strategy as strategy_runtime, warmup
 from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS
 
@@ -223,7 +232,8 @@ class Session:
         self.downtime: dict[str, list] = {}  # contract: the one-minute klines of the interruption (read_downtime)
         self.working: set[str] = set()  # the contracts of the restored unfinished orders (engine.paper.build_node)
         self.stopped_ns: int | None = None  # when a pause stopped the node (before_stop)
-        self.handing: tuple | None = None  # (period, aggregated bar, the receiver's minutes up to T, its contract)
+        # (what is handed, the instant the order would have worked from, the receiver's minutes up to T, its contract)
+        self.handing: tuple | None = None
         if self.missed_settlement():
             # The source would never see that settlement as it happened: the run is held instead of ended.
             self.hold("the recovery crossed an unobserved funding settlement")
@@ -335,50 +345,90 @@ class Session:
                 return
             self.ready = True
 
+    def metrics_after(self) -> int | None:
+        """Where a metrics subscription made now starts (engine.metrics.Feed): in a recovery's on_start, after the
+        checkpoint's cut, whose later rows the back-fill hands over; otherwise None, after now."""
+        if self.saved and self.saved.get("sources") and not self.held and not self.ready and self.handing is None:
+            return self.saved["cut_ns"]
+        return None
+
     def backfill(self) -> str | None:
-        """Hand each source the aggregated bars its recovery's warm-up completed (`since`), in time order, through the
-        held data callbacks live bars take (engine.paper._hold), each released at once: nothing it does reaches the
-        Sandbox before the next, and no live data is dispatched before all have run. rc7 delivers a request's bars
-        only through the cache, under the bar's standard type, which is the type a live aggregated bar has. The bars
-        must be those of every bucket ending after the checkpoint's cut and by T, or the recovery is refused."""
-        if not self.since:
+        """Hand each source the aggregated bars its recovery's warm-up completed (`since`) and the metrics rows due
+        after the checkpoint's cut and by T of each contract it follows, in time order, through the held data
+        callbacks live data takes (engine.paper._hold), each released at once: nothing it does reaches the Sandbox
+        before the next, and no live data is dispatched before all have run. rc7 delivers a request's bars only through
+        the cache, under the bar's standard type, which is the type a live aggregated bar has. The bars must be those of
+        every bucket ending after the checkpoint's cut and by T, and every row must be read, or the recovery is
+        refused before anything is handed over."""
+        if not self.saved or not self.saved.get("sources") or self.held:
             return None
-        assert self.saved is not None and self.release is not None
+        assert self.release is not None
         contracts = list(strategy_runtime.STRATEGIES)
-        built: dict[tuple[str, str], list] = {}
-        for iid in contracts:  # each instance warmed its own contract's aggregations
-            for period, first in self.since.items():
-                step = warmup.period_ns(period)
-                cached = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
-                found = sorted((bar for bar in cached if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
-                               key=lambda bar: bar.ts_event)
-                ends = list(range(first + step, self.warm_at + 1, step))
-                if [self.bucket_end(bar) for bar in found] != ends:
-                    return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars ending "
-                            f"from {history.utc(ends[0])} to {history.utc(ends[-1])}")
-                built[(iid, period)] = found
-        handed = []
-        # By time, then each contract's bar in the run's order of contracts, each to its subscribers in that order.
-        # A fixed order: the live node has none for bars ending at the same instant (rc7 fires each aggregator's
-        # timer as its own task and breaks subscriber ties by a random handler id; 2026-11-18 native probe).
+        handed: list[tuple] = []
+        if self.since:
+            built: dict[tuple[str, str], list] = {}
+            for iid in contracts:  # each instance warmed its own contract's aggregations
+                for period, first in self.since.items():
+                    step = warmup.period_ns(period)
+                    cached = self.cache.bars(warmup.aggregated_type(iid, period).standard()) or []
+                    found = sorted((bar for bar in cached
+                                    if self.saved["cut_ns"] < self.bucket_end(bar) <= self.warm_at),
+                                   key=lambda bar: bar.ts_event)
+                    ends = list(range(first + step, self.warm_at + 1, step))
+                    if [self.bucket_end(bar) for bar in found] != ends:
+                        return (f"the native aggregator built {len(found)} of the {len(ends)} {iid} {period} bars "
+                                f"ending from {history.utc(ends[0])} to {history.utc(ends[-1])}")
+                    built[(iid, period)] = found
+            # By time, then each contract's bar in the run's order of contracts, each to its subscribers in that
+            # order. A fixed order: the live node has none for bars ending at the same instant (rc7 fires each
+            # aggregator's timer as its own task and breaks subscriber ties by a random handler id; 2026-11-18 native
+            # probe).
+            for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
+                minutes = cast(Any, strategy)._warming_state()["expected"]
+                subscribed = cast(Any, strategy)._paper_subscriptions
+                for order, other in enumerate(contracts):
+                    for period in self.since:
+                        if other == iid or self.subscription(other, period) in subscribed:
+                            handed += [(bar.ts_event, order, index, functools.partial(strategy.on_bar, bar), (
+                                f"back-filled {period} bar of the bucket ending at "
+                                f"{history.utc(self.bucket_end(bar))}", self.bucket_end(bar),
+                                minutes.get(("warm", period)) or [], iid)) for bar in built[(other, period)]]
+        # A row is due at a bucket's end, before that bucket's bar (stamped BUILD_DELAY_US after it). An order on it is
+        # checked against the receiver's longest warm-up minutes, which all end at T.
         for index, (iid, strategy) in enumerate(strategy_runtime.STRATEGIES.items()):
-            minutes = cast(Any, strategy)._warming_state()["expected"]
-            subscribed = cast(Any, strategy)._paper_subscriptions
-            for order, other in enumerate(contracts):
-                for period in self.since:
-                    if other == iid or self.subscription(other, period) in subscribed:
-                        handed += [(bar.ts_event, order, index, strategy, period, bar,
-                                    minutes.get(("warm", period)) or [], iid) for bar in built[(other, period)]]
-        for *_, strategy, period, bar, minutes, iid in sorted(handed, key=lambda item: item[:3]):
-            self.handing = (period, bar, minutes, iid)
+            source = cast(Any, strategy)
+            expected = source._warming_state()["expected"]
+            minutes = max((expected.get(("warm", period)) or [] for period in self.aggregated), key=len, default=[])
+            for state in source._metrics_owed(self.warm_at):
+                other = state["instrument_id"]
+                for ts_event in range(state["ts_event"], self.warm_at - metrics.VISIBLE_NS + 1, metrics.PERIOD_NS):
+                    try:
+                        row = source._metrics_read(other, ts_event, list(metrics.ENDPOINTS))
+                    except Exception as exc:  # the network or an answer REST changed
+                        return (f"the {other} metrics row stamped {history.utc(ts_event)} could not be read "
+                                f"({type(exc).__name__}: {exc})")
+                    due = ts_event + metrics.VISIBLE_NS
+                    order = contracts.index(other) if other in contracts else len(contracts)
+                    handed.append((due, order, index, functools.partial(self.hand_row, source, state, ts_event, row), (
+                        f"back-filled {other} metrics row due at {history.utc(due)}", due, minutes, iid)))
+        for *_, deliver, handing in sorted(handed, key=lambda item: item[:3]):
+            self.handing = handing
             try:
-                strategy.on_bar(bar)
+                deliver()
                 self.release(None)
             finally:
                 self.handing = None
             if self.refused:
                 return self.refused
         return None
+
+    @staticmethod
+    def hand_row(source, state: dict, ts_event: int, found: dict) -> None:
+        """A back-filled metrics row, through the Feed's own hand-over (engine.metrics.Feed), unless the source
+        unfollowed its contract on an earlier back-filled bar or row."""
+        if source._metrics_followed.get(state["instrument_id"]) is state and state["ts_event"] == ts_event:
+            state["found"] = dict(found)
+            source._metrics_hand(state)
 
     @staticmethod
     def subscription(iid: str, period: str) -> str:
@@ -408,11 +458,11 @@ class Session:
         (user decision 2026-11-18); a trailing stop not yet activated by its activation price: in the uninterrupted
         run a close at or above a sell's (at or below a buy's) would have activated it at once, as a minute after it
         would, and then it trails from there. An activated one, or one without an activation price, fails. Once the
-        recovery is refused, nothing more is sent (`commanded`)."""
+        recovery is refused, nothing more is sent (`commanded`). A back-filled metrics row is checked as a bar whose
+        bucket ended at the row's due time."""
         if self.refused or self.handing is None:
             return self.refused
-        period, bar, minutes, own = self.handing
-        end = self.bucket_end(bar)
+        what, end, minutes, own = self.handing
         if order is None or _name(order.order_type) == "MARKET":
             found: str | None = "a position close is a MARKET order" if order is None else (
                 f"{order.client_order_id} is a MARKET order")
@@ -432,8 +482,7 @@ class Session:
                 found = (f"{order.client_order_id} ({_name(order.side)} {_name(order.order_type)} at {level}) is "
                          f"marketable at the close {close}")
         if found:
-            self.refused = self.refused or (f"an order submitted on the back-filled {period} bar of the bucket ending "
-                                            f"at {history.utc(end)} cannot wait for T: {found}")
+            self.refused = self.refused or f"an order submitted on the {what} cannot wait for T: {found}"
         return found
 
     def commanded(self, close: bool = False) -> str | None:
@@ -448,7 +497,8 @@ class Session:
         back-fill has ended refuses the recovery. rc7 closes again every 100 ms while a position is open, past the
         source's overrides, and Python cannot end a running exit: timer events already queued outlive a cancelled
         timer. So it would go on sending if the back-fill then refused the recovery."""
-        if self.commanded(close=True) is None and self.since and not self.ready:
+        if self.commanded(close=True) is None and self.saved and not self.ready and (self.since or any(
+                cast(Any, source)._metrics_owed(self.warm_at) for source in strategy_runtime.STRATEGIES.values())):
             self.refused = "a market exit begun before the back-fill ended would go on closing after a refusal"
         return self.refused
 
@@ -456,9 +506,14 @@ class Session:
         """Why a cut at `now` could not tell whether a declared aggregation's latest bar reached the source, or None:
         a bucket ended after T and its bar is not in the native cache yet (rc7 builds it BUILD_DELAY_US after the
         end, caches it and dispatches it in one step; a held callback then defers the cut until it ran). A source
-        without the protocol is never back-filled (a held recovery starts none), so nothing is due for it."""
+        without the protocol is never back-filled (a held recovery starts none), so nothing is due for it. Likewise a
+        followed metrics row due by `now` that the Feed has not handed over yet: a recovery follows from the cut."""
         if not self.supported:
             return None
+        for iid, strategy in strategy_runtime.STRATEGIES.items():
+            for state in cast(Any, strategy)._metrics_owed(now):
+                return (f"the {state['instrument_id']} metrics row due at "
+                        f"{history.utc(state['ts_event'] + metrics.VISIBLE_NS)} has not reached the {iid} source")
         for iid in strategy_runtime.STRATEGIES:
             for period in self.aggregated:
                 end = warmup.bucket_start(now, period)
@@ -540,14 +595,15 @@ class Session:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
             if paper_terms.QUEUE:
                 raise checkpoint.fail("an entry waits for its terms read")
-            found = self.due(cache, cut_ns)
-            if found:
-                raise checkpoint.fail(f"{found}; a recovery could not tell whether to hand it over")
             for iid in strategy_runtime.STRATEGIES:
                 for period in self.aggregated:
                     latest = cache.bar(warmup.aggregated_type(iid, period).standard())
                     if latest is not None:  # a bar dispatched while the node shut down is one the source has had
                         cut_ns = max(cut_ns, self.bucket_end(latest))
+            # At the cut itself: a recovery hands over what is due after it, so what is due by it must have come.
+            found = self.due(cache, cut_ns)
+            if found:
+                raise checkpoint.fail(f"{found}; a recovery could not tell whether to hand it over")
             self._restorable(cache)
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
@@ -557,7 +613,7 @@ class Session:
                                           "aggregation (also of the run's other contracts), without custom routing")
                 if strategy._paper_user_timers:
                     raise checkpoint.fail("the source registered timers outside the recovery protocol")
-                if strategy._paper_held or strategy.clock.timer_names():
+                if strategy._paper_held or set(strategy.clock.timer_names()) - {metrics.TIMER}:
                     raise checkpoint.fail("a strategy callback or timer remains pending")
                 source_state = strategy.save()
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
@@ -566,7 +622,7 @@ class Session:
                                 "cadence": {key: asdict(value) for key, value in strategy._paper_cadence.items()}}
             self._restorable(cache)
             if (self.depth or strategy_runtime.FAILURES
-                    or any(cast(Any, source)._paper_held or source.clock.timer_names()
+                    or any(cast(Any, source)._paper_held or set(source.clock.timer_names()) - {metrics.TIMER}
                            or cast(Any, source)._paper_user_timers
                            for source in strategy_runtime.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left a callback or timer pending")
@@ -597,6 +653,10 @@ class Session:
             self.pause_error = f"the pause had an order that cannot be restored ({found}); its original state is retained"
         if paper_terms.QUEUE:  # the source sent it, the venue never had it: no checkpoint can hold it
             self.pause_error = "the pause had an entry waiting for its terms read; its original state is retained"
-        # A held checkpoint restores no source, so a source's timers are not lost by it.
+        # A held checkpoint restores no source, so a source's timers are not lost by it. The Feed's own hands no row
+        # after this instant, the final cut's (engine.metrics.Feed): a recovery follows from it again.
+        for source in strategy_runtime.STRATEGIES.values() if self.supported else ():
+            if metrics.TIMER in source.clock.timer_names():
+                source.clock.cancel_timer(metrics.TIMER)
         if self.supported and any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"

@@ -1,5 +1,6 @@
 """A checkpoint cannot turn pending callbacks, hooks or native orders into an empty account."""
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import gc
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS
-from engine import paper_session, protection
+from engine import metrics, paper_session, protection
 from engine.paper_session import Session
 from tests.helpers import refused
 
@@ -85,6 +86,7 @@ class SessionTests(unittest.TestCase):
     def strategy(self):
         return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False, _paper_user_timers=False,
                                _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=list),
+                               _metrics_owed=lambda now: [],
                                save=lambda: {"phase": b"1"},
                                _paper_cadence={})
 
@@ -225,7 +227,8 @@ class SessionTests(unittest.TestCase):
         session = self.session()
         for held, timers in (([object()], []), ([], ["a-user-timer"])):
             strategy = SimpleNamespace(_paper_held=held, _paper_subscription_changes=False, _paper_user_timers=False,
-                                       _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: timers))
+                                       _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, _metrics_owed=lambda now: [],
+                                       clock=SimpleNamespace(timer_names=lambda: timers))
             with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 with self.assertRaises(checkpoint.Refusal):
                     session.cut(SimpleNamespace(orders=list))
@@ -368,7 +371,7 @@ class BackfillTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=warm_at):
             session = self.recovery(warm_at)
         handed: list = []
-        strategy = SimpleNamespace(_paper_subscriptions=set(), _warming_state=lambda: {"expected": {
+        strategy = SimpleNamespace(_paper_subscriptions=set(), _metrics_owed=lambda now: [], _warming_state=lambda: {"expected": {
             ("warm", "15-MINUTE"): minutes or [minute(close) for close in range(
                 T - 4 * QUARTER + MINUTE_NS, warm_at + 1, MINUTE_NS)]}})
 
@@ -380,7 +383,7 @@ class BackfillTests(unittest.TestCase):
         strategy.pending = None
 
         def release(_):
-            handed.append(("released", session.handing[1].ts_event))
+            handed.append(("released", session.handing[1] + DELAY))
             if strategy.pending is not None:
                 handed.append(("submitted", session.submitted(strategy.pending)))
         session.release = release
@@ -467,13 +470,13 @@ class BackfillTests(unittest.TestCase):
             self.assertIsNone(self.recovery(T + MINUTE_NS).submitted(order(kind="MARKET")),
                               "outside the back-fill nothing is checked")
             session = self.recovery(T + MINUTE_NS)
-        session.handing, session.refused = ("15-MINUTE", bars[2], {}, IID), "an earlier order's refusal"
+        session.handing, session.refused = ("back-filled 15-MINUTE bar", bars[2].ts_event - DELAY, [], IID), "an earlier order's refusal"
         self.assertEqual(session.submitted(quiet), "an earlier order's refusal", "after a refusal nothing more is sent")
         session.handing = None
         self.assertEqual((session.submitted(quiet), session.commanded(), session.commanded(close=True)),
                          ("an earlier order's refusal",) * 3, "nor on a live bar, nor a cancel or close")
         # A position close on a back-filled bar is a MARKET order; a cancel there is sent.
-        session.handing, session.refused = ("15-MINUTE", bars[2], {}, IID), None
+        session.handing, session.refused = ("back-filled 15-MINUTE bar", bars[2].ts_event - DELAY, [], IID), None
         self.assertIsNone(session.commanded())
         self.assertIn("a position close is a MARKET order", session.commanded(close=True))
         self.assertIn("back-filled 15-MINUTE bar", session.refused)
@@ -493,7 +496,8 @@ class BackfillTests(unittest.TestCase):
         handed: list = []
 
         def source(iid, subscriptions, orders):
-            strategy = SimpleNamespace(_paper_subscriptions=subscriptions, _warming_state=lambda: {"expected": {
+            strategy = SimpleNamespace(_paper_subscriptions=subscriptions, _metrics_owed=lambda now: [],
+                                       _warming_state=lambda: {"expected": {
                 ("warm", "15-MINUTE"): [minute(close, low="99960.0", high="99990.0",
                                                price="99900.0" if close == T - QUARTER else "99970.0")
                                         for close in range(T - 4 * QUARTER + MINUTE_NS, T + 2 * MINUTE_NS, MINUTE_NS)]}})
@@ -545,7 +549,7 @@ class BackfillTests(unittest.TestCase):
             to_dict=lambda: {"calculate_account_state": True}), orders=list, bars=lambda _: None)
         seen: list = []
         with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: SimpleNamespace(
-                _warming_state=lambda: {"expected": {}})}, clear=True), \
+                _warming_state=lambda: {"expected": {}}, _metrics_owed=lambda now: [])}, clear=True), \
                 mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
             session.start(lambda: seen.append("started"))
         self.assertEqual((seen, session.ready), (["started"], False))
@@ -574,7 +578,7 @@ class BackfillTests(unittest.TestCase):
         # Once the back-fill has ended and the recovery is ready, an exit begins.
         session.since, session.ready = {"15-MINUTE": T}, True
         self.assertIsNone(session.exiting())
-        session.handing = ("15-MINUTE", aggregated(T), [], IID)
+        session.handing = ("back-filled 15-MINUTE bar", T, [], IID)
         self.assertIn("a position close is a MARKET order", session.exiting())
 
     def test_a_cut_waits_for_the_bar_of_a_bucket_that_ended(self):
@@ -582,7 +586,8 @@ class BackfillTests(unittest.TestCase):
             session = self.recovery(T + MINUTE_NS)
         latest: list = [aggregated(T + QUARTER - QUARTER)]  # the last bar before the bucket ending at T + QUARTER
         cache = SimpleNamespace(bar=lambda _: latest[0])
-        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: object()}, clear=True):
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {IID: SimpleNamespace(_metrics_owed=lambda now: [])},
+                             clear=True):
             self.assertIsNone(session.due(cache, T + QUARTER - 1))
             self.assertIn("has not reached the source", session.due(cache, T + QUARTER + 1))
             latest[0] = aggregated(T + QUARTER)
@@ -616,6 +621,145 @@ class BackfillTests(unittest.TestCase):
                 session.cut(cache)
             self.assertEqual(session.backend.snapshot.call_args.args[1]["cut_ns"], T + 2 * QUARTER)
 
+
+
+class Metered(metrics.Feed):
+    """A source following metrics through the runner's Feed (engine.metrics), its on_data and on_bar recorded."""
+
+    def __init__(self, seen: list, read, minutes: list | None = None, on_row=None):
+        self._metrics_setup(read)
+        self.seen, self.minutes, self.on_row, self.log = seen, minutes, on_row, mock.Mock()
+        self._paper_subscriptions: set[str] = set()
+
+    def _warming_state(self):
+        return {"expected": {} if self.minutes is None else {("warm", "15-MINUTE"): self.minutes}}
+
+    def on_data(self, data):
+        self.seen.append(("row", data.data.ts_init))
+        if self.on_row:
+            self.on_row(self, data.data.ts_init)
+
+    def on_bar(self, bar):
+        self.seen.append(("bar", bar.ts_event - DELAY))
+
+
+class MetricsRecoveryTests(unittest.TestCase):
+    """#3783: a metrics subscription made in on_start is a fixed one. A recovery's on_start follows the contract from
+    the checkpoint's cut, and the back-fill hands over the rows due since, by time with the aggregated bars."""
+
+    CUT = BackfillTests.START  # T - 53 minutes: the first row due after it is due at T - 50 minutes
+    ROWS = list(range(T - 50 * MINUTE_NS, T + 1, 5 * MINUTE_NS))  # due after the cut and by T + 1 minute
+    ENDS = [T - 3 * QUARTER, T - 2 * QUARTER, T - QUARTER, T]
+
+    def recover(self, warmup=(("15-MINUTE", 3),), read=None, minutes=None, on_row=None, built=True):
+        with mock.patch("engine.paper_session.time.time_ns", return_value=T + MINUTE_NS):
+            session = BackfillTests.recovery(self, T + MINUTE_NS, warmup)  # type: ignore[arg-type]
+        self.assertEqual(session.metrics_after(), self.CUT, "a recovery's on_start follows from the cut")
+        seen: list = []
+        reads: list = []
+
+        def rest(iid, ts_event, wanted):
+            reads.append(ts_event)
+            return {name: Decimal("1.5") for name in wanted}
+        source = Metered(seen, read or rest, minutes, on_row)
+        clock = mock.Mock(**{"timer_names.return_value": []})
+        session.release = lambda _: seen.append("released")
+        session.cache = SimpleNamespace(bars=lambda _: [aggregated(end) for end in self.ENDS] if built else None)
+        with mock.patch.object(Metered, "_metrics_clock", return_value=clock), \
+                mock.patch.dict(strategy_runtime.STRATEGIES, {IID: source}, clear=True):
+            source._metrics_follow(IID, session.metrics_after())
+            return session, source, session.backfill(), seen, reads
+
+    def test_the_rows_due_since_the_cut_reach_the_source_by_time_with_the_bars(self):
+        session, source, refused, seen, reads = self.recover()
+        self.assertIsNone(refused)
+        # A row due at a bucket's end comes before that bucket's bar, stamped BUILD_DELAY_US later.
+        expected = sorted([(due, ("row", due)) for due in self.ROWS] + [(end + DELAY, ("bar", end)) for end in self.ENDS])
+        self.assertEqual(seen, [step for _, item in expected for step in (item, "released")])
+        self.assertEqual(reads, [due - metrics.VISIBLE_NS for due in self.ROWS], "each row read once, by its stamp")
+        self.assertEqual(source._metrics_followed[IID]["ts_event"], T, "the Feed goes on with the row due after T")
+        self.assertIsNone(session.handing)
+
+    def test_a_row_rest_cannot_give_refuses_before_anything_is_handed(self):
+        def failing(iid, ts_event, wanted):
+            if ts_event == T - 30 * MINUTE_NS:
+                raise OSError("reset")
+            return {name: Decimal("1.5") for name in wanted}
+        _, _, refused, seen, _ = self.recover(read=failing)
+        self.assertIn("metrics row stamped", refused)
+        self.assertIn("OSError: reset", refused)
+        self.assertEqual(seen, [])
+
+    def test_an_unfollow_on_a_back_filled_row_stops_the_later_rows(self):
+        clock = mock.Mock(**{"timer_names.return_value": [metrics.TIMER]})
+
+        def unfollow(source, due):
+            if due == T - 40 * MINUTE_NS:
+                with mock.patch.object(Metered, "_metrics_clock", return_value=clock):
+                    source._metrics_unfollow(IID)
+        _, source, refused, seen, _ = self.recover(on_row=unfollow)
+        self.assertIsNone(refused)
+        self.assertEqual([item for item in seen if item != "released" and item[0] == "row"],
+                         [("row", due) for due in self.ROWS if due <= T - 40 * MINUTE_NS])
+        self.assertEqual([item[1] for item in seen if item != "released" and item[0] == "bar"], self.ENDS)
+        self.assertEqual(source._metrics_followed, {})
+
+    def test_an_order_on_a_back_filled_row_is_checked_as_on_a_bar_ending_at_its_due_time(self):
+        quiet = order(kind="LIMIT", side="BUY", price="99000.0")
+        warm = [minute(close) for close in range(T - 4 * QUARTER + MINUTE_NS, T + 2 * MINUTE_NS, MINUTE_NS)]
+        cases = {
+            "an untouched buy limit": ((("15-MINUTE", 3),), warm, quiet, None),
+            "a MARKET": ((("15-MINUTE", 3),), warm, order(kind="MARKET"), "is a MARKET order"),
+            "a buy stop a minute reached": ((("15-MINUTE", 3),), warm, order(side="BUY", trigger="100400.0"),
+                                            "touched in the interruption"),
+            # A source declaring no aggregation reads no minutes: its order cannot be proven untouched.
+            "no warm-up minutes": ((("1-MINUTE", 3),), None, quiet, "could not all be read"),
+        }
+        for name, (warmup, minutes, submitted, reason) in cases.items():
+            with self.subTest(name):
+                found: list = []
+
+                def submit(source, due, submitted=submitted, found=found):
+                    if due == T - 20 * MINUTE_NS:
+                        found.append(session_[0].submitted(submitted))
+                session_: list = []
+                original = Session.backfill
+
+                def backfill(self_):
+                    session_.append(self_)
+                    return original(self_)
+                with mock.patch.object(Session, "backfill", backfill):
+                    session, _, refused, _, _ = self.recover(warmup, minutes=minutes, on_row=submit,
+                                                             built=minutes is not None)
+                if reason is None:
+                    self.assertEqual((found, refused), ([None], None))
+                else:
+                    self.assertIn(reason, found[0])
+                    self.assertIn(f"back-filled {IID} metrics row due at", refused)
+
+    def test_a_cut_waits_for_a_row_due_and_the_feeds_timer_is_not_a_source_timer(self):
+        session = SessionTests.session(self)  # type: ignore[arg-type]
+        strategy = SessionTests.strategy(self)  # type: ignore[arg-type]
+        due = 10 * metrics.PERIOD_NS
+        strategy._metrics_owed = lambda now: [{"instrument_id": IID, "ts_event": due - metrics.VISIBLE_NS}] if (
+            now >= due) else []
+        timers = [metrics.TIMER]
+        strategy.clock = SimpleNamespace(timer_names=lambda: list(timers), cancel_timer=timers.remove)
+        cache = SimpleNamespace(orders=list)
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
+            with mock.patch("engine.paper_session.time.time_ns", return_value=due):
+                caught = refused(session.cut, cache, error=checkpoint.Refusal)
+            self.assertIn(f"the {IID} metrics row due at", str(caught))
+            session.backend.snapshot.assert_not_called()
+            with mock.patch("engine.paper_session.time.time_ns", return_value=due - 1):
+                session.cut(cache)
+            session.backend.snapshot.assert_called_once()
+            # The Feed hands no row after a pause's stop instant; a source's own timer still refuses the pause.
+            session.before_stop(cache)
+            self.assertEqual((timers, session.pause_error), ([], None))
+            timers[:] = [metrics.TIMER, "a-source-timer"]
+            session.before_stop(cache)
+            self.assertIn("a source timer", session.pause_error)
 
 class HeldTests(unittest.TestCase):
     """A source without the recovery protocol is held after an interruption (docs/plans/
