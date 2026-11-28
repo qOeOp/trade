@@ -185,13 +185,12 @@ def _read(measures: dict | None, short: bool = False) -> bool:
 
 
 def _veto(cells: list[dict], targets: dict | None, planned: Iterable[str]) -> tuple[dict, list[str]]:
-    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): the
-    `planned` years (history_plan's veto segments with something to trade) without a history trial, whole years
-    without a passed run or without one of the two readings, and part years without a passed run (an audit failure
-    such as UNPROTECTED_POSITION, 20261120-01). A passed part year stays out of the readings: it is not a year.
-    `whole_years` counts every whole veto year replayed, read or not; a year takes its first run with readings, so a
-    trial left without a run does not hide its rerun. A `short` whole year is read on its drawdown alone, and in nothing
-    without one, as a part year (#3823)."""
+    """The whole veto years' counts, readings and verdict, and the years the verdict lacks (`veto YEAR`): the `planned`
+    years (history_plan's veto segments with something to trade) without a history trial, whole years without a passed
+    run or without one of the two readings, and part years without a passed run (an audit failure such as
+    UNPROTECTED_POSITION, 20261120-01). A passed part year is not a year, nor a `short` whole year without a drawdown; a
+    short one with it is read on that alone (#3823). `whole_years` counts every whole veto year replayed, read or not; a
+    year takes its first run with readings, so a trial left without a run does not hide its rerun."""
     years: dict[str, dict] = {}
     part: dict[str, bool] = {}
     for cell in cells:
