@@ -179,18 +179,22 @@ ORDER_COMMANDS = frozenset({"submit_order", "modify_order", "modify_orders", "ca
                             "cancel_all_orders", "close_position", "market_exit"})
 
 
-# Hooks and class keywords through which the language hands a source a class object it never named.
+# Hooks through which the language hands a source a class object it never named, and the builtins the order
+# bypass check trusts by name.
 CLASS_HOOKS = frozenset({"__init_subclass__", "__set_name__", "__get__", "__set__", "__delete__", "__class_getitem__",
-                         "__mro_entries__", "__prepare__"})
+                         "__mro_entries__", "__prepare__", "__instancecheck__", "__subclasscheck__"})
+CLASS_CHECKS = frozenset({"isinstance", "issubclass", "super"}) | SOURCE_TYPE_USES
+TRUSTED_BUILTINS = CLASS_CHECKS | {"classmethod"}
 
 
 def order_bypass_findings(source: bytes) -> list[str]:
     """The routes past the order rules, one line each. A strategy class (native Strategy or ExecutionAlgorithm, a
-    source class extending one, an alias of one, a classmethod's `cls` in one) may serve as a base, a class check,
-    a super() argument, a class pattern, a comparison operand, an annotation, text or the reader of a non-command
-    attribute, nothing else; super() in a strategy class or a class it extends, or with arguments, may only read a
-    non-command attribute at once; no class defines a hook that receives a class or takes class keywords, and no
-    strategy class or class it extends is decorated."""
+    source class extending one, a name assigned one, a classmethod's `cls` in one) may serve as a base, a class
+    check, a super() argument, a class pattern, an `is` operand, an annotation, text or the reader of a non-command
+    attribute, nothing else. super() in a strategy class or a class it extends, or with arguments, may only read a
+    non-command attribute at once. No class defines a hook that receives a class or takes class keywords, no
+    strategy class or class it extends is decorated or has a base other than a name, the source rebinds none of the
+    builtins this check trusts, and `classmethod` appears only as a decorator."""
     tree = ast.parse(source, filename="<strategy>")
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     imported: dict[str, object] = {}
@@ -205,18 +209,40 @@ def order_bypass_findings(source: bytes) -> list[str]:
             return getattr(value, node.attr, None)
         return None
 
-    classes: set[str] = set()
+    def functions(node: ast.AST) -> list[ast.AST]:
+        found: list[ast.AST] = []
+        above = parents.get(node)
+        while above is not None:
+            if isinstance(above, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                found.append(above)
+            above = parents.get(above)
+        return found
+
+    def named(node: ast.AST) -> str | None:
+        return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+
+    classes: set[str] = set()  # strategy classes and names assigned one
+    receivers: set[tuple[int, str]] = set()  # (classmethod, its first parameter)
 
     def strategy_class(node: ast.AST) -> bool:
-        if isinstance(node, ast.Name) and node.id in classes or isinstance(node, ast.Attribute) and node.attr in classes:
+        if isinstance(node, ast.Name) and any((id(f), node.id) in receivers for f in functions(node)):
+            return True
+        if named(node) in classes:
             return True
         value = resolved(node)
         return inspect.isclass(value) and any(hasattr(value, name) for name in ORDER_COMMANDS)
 
     definitions = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    aliases: dict[str, set[str]] = {node.name: {node.name} for node in definitions}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, (ast.Name, ast.Attribute)):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    aliases.setdefault(target.id, set()).add(named(node.value) or "")
+    related: set[str] = set()
     size = -1
-    while size != len(classes):  # nested and aliased classes: until nothing more is found
-        size = len(classes)
+    while size != len(classes) + len(related) + len(receivers):  # until nothing more is found
+        size = len(classes) + len(related) + len(receivers)
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and any(strategy_class(base) for base in node.bases):
                 classes.add(node.name)
@@ -224,19 +250,18 @@ def order_bypass_findings(source: bytes) -> list[str]:
                     and strategy_class(node.value):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 classes.update(target.id for target in targets if isinstance(target, ast.Name))
-        related = {node.name for node in definitions if node.name in classes}
-        while True:  # the source classes a strategy class extends: their super() reaches Strategy too
-            more = {base.id if isinstance(base, ast.Name) else base.attr for node in definitions
-                    if node.name in related for base in node.bases if isinstance(base, (ast.Name, ast.Attribute))}
-            if more <= related:
-                break
-            related |= more
+        related |= {node.name for node in definitions if node.name in classes}
+        for node in definitions:  # the source classes a strategy class extends: their super() reaches Strategy too
+            if node.name in related:
+                for base in node.bases:
+                    related |= aliases.get(named(base) or "", set())
         for node in definitions:
             if node.name in related:
                 for method in node.body:
-                    if (isinstance(method, ast.FunctionDef) and method.args.args
-                            and any(isinstance(d, ast.Name) and d.id == "classmethod" for d in method.decorator_list)):
-                        classes.add(method.args.args[0].arg)
+                    if (isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and any(isinstance(d, ast.Name) and d.id == "classmethod" for d in method.decorator_list)
+                            and (first := (method.args.posonlyargs + method.args.args)[:1])):
+                        receivers.add((id(method), first[0].arg))
     annotations = {id(part) for node in ast.walk(tree) for annotation in (
         [node.annotation] if isinstance(node, (ast.arg, ast.AnnAssign)) else
         [node.returns] if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else [])
@@ -253,7 +278,8 @@ def order_bypass_findings(source: bytes) -> list[str]:
         if (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr not in ORDER_COMMANDS
                 or isinstance(parent, ast.ClassDef) and node in parent.bases
                 or isinstance(parent, ast.MatchClass) and parent.cls is node
-                or isinstance(parent, (ast.Compare, ast.FormattedValue))):
+                or isinstance(parent, ast.Compare) and all(isinstance(op, (ast.Is, ast.IsNot)) for op in parent.ops)
+                or isinstance(parent, ast.FormattedValue)):
             return True
         if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and parent.value is node:
             targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
@@ -261,17 +287,27 @@ def order_bypass_findings(source: bytes) -> list[str]:
         while isinstance(parent, ast.Tuple) or isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.BitOr):
             node, parent = parent, parents.get(parent)
         return (isinstance(parent, ast.Call) and node in parent.args and isinstance(parent.func, ast.Name)
-                and parent.func.id in ("isinstance", "issubclass", "super") + tuple(SOURCE_TYPE_USES))
+                and parent.func.id in CLASS_CHECKS)
 
     found: set[tuple[int, str]] = set()
     for node in ast.walk(tree):
         if id(node) in annotations:
             continue
-        parent = parents.get(node)
+        line, parent = getattr(node, "lineno", 0), parents.get(node)
+        bound = (node.name if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else
+                 node.id if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) else
+                 node.arg if isinstance(node, ast.arg) else
+                 (node.asname or node.name) if isinstance(node, ast.alias) else None)
+        if bound in TRUSTED_BUILTINS:
+            found.add((line, f"rebinds {bound}"))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in CLASS_HOOKS:
-            found.add((node.lineno, f"def {node.name}"))
-        elif isinstance(node, ast.ClassDef) and (node.keywords or node.name in related and node.decorator_list):
-            found.add((node.lineno, f"class {node.name} {'keywords' if node.keywords else 'decorators'}"))
+            found.add((line, f"def {node.name}"))
+        elif isinstance(node, ast.ClassDef) and (node.keywords or node.name in related and (
+                node.decorator_list or not all(isinstance(base, (ast.Name, ast.Attribute)) for base in node.bases))):
+            found.add((line, f"class {node.name}: keywords, decorators or a base other than a name"))
+        elif isinstance(node, ast.Name) and node.id == "classmethod":
+            if not (isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) and node in parent.decorator_list):
+                found.add((line, "classmethod other than as a decorator"))
         elif isinstance(node, ast.Name) and node.id == "super":
             call = parent if isinstance(parent, ast.Call) and parent.func is node else None
             above = parents.get(call) if call else None
@@ -279,10 +315,10 @@ def order_bypass_findings(source: bytes) -> list[str]:
             if call is not None and not call.args and owner is not None and owner.name not in related:
                 continue
             if not (isinstance(above, ast.Attribute) and above.value is call and above.attr not in ORDER_COMMANDS):
-                found.add((node.lineno, ast.unparse(above if isinstance(above, ast.Attribute) else parent or node)))
+                found.add((line, ast.unparse(above if isinstance(above, ast.Attribute) else parent or node)))
         elif (isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and strategy_class(node)
               and not allowed(node)):
-            found.add((node.lineno, ast.unparse(parent if isinstance(parent, ast.Attribute) else node)))
+            found.add((line, ast.unparse(parent if isinstance(parent, ast.Attribute) else node)))
     return [f"line {line}: {text}" for line, text in sorted(found)]
 
 

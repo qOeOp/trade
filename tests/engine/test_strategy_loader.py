@@ -360,7 +360,23 @@ class StrategyLoaderTests(unittest.TestCase):
                 (head + "FOUND = []\nclass ProbeStrategy(Strategy):\n" + hooks
                  + "    def __init_subclass__(cls):\n        FOUND.append(cls)\n", "ORDER_RULE"),
                 (head + "class Tool:\n    def __set_name__(self, owner, name):\n        self.owner = owner\n"
-                 "class ProbeStrategy(Strategy):\n    tool = Tool()\n" + hooks, "ORDER_RULE")):
+                 "class ProbeStrategy(Strategy):\n    tool = Tool()\n" + hooks, "ORDER_RULE"),
+                (head + "from dataclasses import dataclass\n@dataclass\nclass Signal:\n    side: int\n"
+                 "    @classmethod\n    def long(cls):\n        return cls(1)\n"
+                 "class ProbeStrategy(Strategy):\n    LOOKBACK = 3\n" + hooks + "    @classmethod\n"
+                 "    def lookback(cls):\n        return cls.LOOKBACK if cls is not Strategy else 0\n", None),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    @classmethod\n    def native(cls, /):\n"
+                 "        return cls\n", "ORDER_RULE"),
+                (head + "def isinstance(value, kind):\n    return value\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    def go(self, o):\n        isinstance(Strategy, int).submit_order(self, o)\n", "ORDER_RULE"),
+                (head + "class ProbeStrategy(Strategy):\n" + hooks + "    def go(self, catch):\n"
+                 "        return Strategy == catch\n", "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\nHelper = Sender\n"
+                 "class ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\nMIXINS = [Sender]\n"
+                 "class ProbeStrategy(MIXINS[0], Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "def native(kind):\n    return kind\nclass ProbeStrategy(Strategy):\n" + hooks
+                 + "    found = classmethod(native)\n", "ORDER_RULE")):
             with self.subTest(text=text):
                 self.source.write_text(text)
                 digest = hashlib.sha256(text.encode()).hexdigest()

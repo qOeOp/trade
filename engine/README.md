@@ -268,10 +268,11 @@ the breach's code; Live refuses at once and takes the STOP path.
   `close_position`, `market_exit`) reached through `super()` or a strategy class would reach the venue past them.
   So a source is refused at load (`ORDER_RULE`, `engine.load.order_bypass_findings`) when it uses a strategy class
   (native `Strategy`, a source class extending it, an alias of one, a classmethod's `cls`) other than as a base,
-  class check, `super()` argument, class pattern, comparison, annotation, text or reader of another attribute;
+  class check, `super()` argument, class pattern, `is` operand, annotation, text or reader of another attribute;
   uses `super()` in a strategy class or a class it extends other than to read another attribute at once; defines
-  a hook that receives a class (`__init_subclass__`, `__set_name__`, descriptors) or a metaclass; or decorates a
-  strategy class.
+  a hook that receives a class (`__init_subclass__`, `__set_name__`, descriptors, instance and subclass checks)
+  or a metaclass; decorates a strategy class or gives it a base other than a name; rebinds a builtin the check
+  trusts (`isinstance`, `super`, `classmethod`, ...); or uses `classmethod` other than as a decorator.
 - Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
   position ID) on the closing side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled
   quantity. Native order events do not name a resting stop's position, so the replay audit sums positions and stops
