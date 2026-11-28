@@ -24,8 +24,9 @@ running, cut short and at a limit.
   like the real thing, do not give back what the stopped step had consumed.
 - **operation** [any]: what an operator learns, and when, as a service degrades or a disk fills.
 - **logs** [any]: each deployed service's own log since the last audit (where `deploy/remote/README.md`'s Logs and the
-  local compose say): restarts, kills, and errors or warnings that repeat or grow, each traced to the code that
-  wrote it. A finding names a line's kind, count and time, never a Live or Paper record.
+  local compose say; not Live's private root): restarts, kills, and errors or warnings that repeat or grow, each
+  traced to the code that wrote it; a log that starts later leaves the gap unexamined. A finding names a line's
+  kind, count and time, never a Live or Paper record.
 - **lifecycle** [any]: first install, upgrade, idle, moving host, on copies.
 
 ## Contracts
