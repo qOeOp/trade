@@ -39,17 +39,19 @@ class RunnerTests(unittest.TestCase):
 
     def test_universe_takes_only_pool_and_excludes_symbols(self):
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z"]
-        for valid in ([*window, "--universe", "pool"], [*window, "--universe=pool"]):
+        for valid in ([*window, "--universe", "pool"], [*window, "--universe=pool"], [*window, "--universe", "pool", "--leverage", "3"]):
             with self.subTest(valid=valid):
                 self.assertEqual(runner.runner_inputs(valid)["selection"], {"universe": True})
         # neither is the whole pool chosen by omission (#3816); an abbreviation, which the runner refuses, is
         # refused here too, beside a scope or in place of one (#3791), as is a runner option misspelt or
-        # abbreviated (#3829)
+        # abbreviated (#3829), help or a value no option takes (#3851)
         for bad in ([*window, "--universe", "bogus"], [*window, "--universe"],
                     [*window, "--symbols", "AAAUSDT", "--universe", "pool"], window,
                     [*window, "--univ", "pool"], [*window, "--sym", "AAAUSDT"],
                     [*window, "--symbols", "AAAUSDT", "--univ", "pool"], [*window, "--universe", "pool", "--trade", "x"],
-                    [*window, "--universe", "pool", "--init", "0.05"], [*window, "--universe", "pool", "--account=x"]):
+                    [*window, "--universe", "pool", "--init", "0.05"], [*window, "--universe", "pool", "--account=x"],
+                    [*window, "--universe", "pool", "--help"], [*window, "--universe", "pool", "-h"],
+                    [*window, "--universe", "pool", "--leverage", "3", "4"]):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(runner.runner_inputs, bad).code, "USAGE_ERROR")
 

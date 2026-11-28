@@ -85,12 +85,12 @@ def runner_inputs(runner_argv: list[str]) -> dict:
     parser.add_argument("--execution", default="bars")  # the runtime owns validation of this value
     parser.add_argument("--trade-ticks", action="store_true")
     parser.add_argument("--metrics", action="store_true")
-    known, rest = parser.parse_known_args(runner_argv)
-    # Left to the runner, whose own parser (no abbreviations) names what it reads: refused here, before registration fixes them.
-    names = config.build_parser()._option_string_actions
-    unknown = sorted({name for value in rest if value.startswith("--") and (name := value.split("=", 1)[0]) not in {*names, "--"}})
-    if unknown:
-        parser.error(f"options the runner does not declare: {', '.join(unknown)}; give the whole option name")
+    # The rest is the runner's, parsed with its own options (no abbreviations, no help): refused here before registration fixes it.
+    for action in config.build_parser()._actions:
+        if action.dest != "help" and action.option_strings[0] not in parser._option_string_actions:
+            action.required = False  # the inputs the entry writes, refused as reserved where the entry writes them
+            parser._add_action(action)
+    known = parser.parse_args(runner_argv)
     if known.trade_ticks and known.execution != "quotes":
         # In the bar environment a market order fills at once at the previous bar's close, so an order a trade
         # prompts mid-minute would fill at a price up to 59 seconds older than the trade.
