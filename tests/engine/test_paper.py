@@ -1201,7 +1201,7 @@ class EntryTermsTests(unittest.TestCase):
                     mock.patch.object(paper.OrderRules, "cancel_order", native), \
                     mock.patch.object(paper.OrderRules, "cancel_orders", native), \
                     mock.patch.object(paper.OrderRules, "cancel_all_orders", native), \
-                    mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
+                    mock.patch.object(paper.OrderRules, "_runner_orders_allowed", return_value=True), \
                     mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: None)), \
                     mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
                     mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:
@@ -1224,7 +1224,7 @@ class EntryTermsTests(unittest.TestCase):
         source = self.source()
         with mock.patch.object(klines, "get_json", return_value=answer), \
                 mock.patch.object(paper.OrderRules, "cancel_order", native), \
-                mock.patch.object(paper.OrderRules, "_orders_allowed", return_value=True), \
+                mock.patch.object(paper.OrderRules, "_runner_orders_allowed", return_value=True), \
                 mock.patch.object(paper.paper_terms, "native_cache", lambda _: SimpleNamespace(order=lambda _: known)), \
                 mock.patch.object(paper.paper_terms, "CANCELLER", mock.sentinel.canceller), \
                 mock.patch.object(paper.paper_terms.unsent, "cancel") as ended:

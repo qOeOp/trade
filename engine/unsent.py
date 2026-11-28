@@ -58,13 +58,13 @@ class Waiting:
         if any(match(order) for order, _own in self._unsent_held()):
             self._unsent_refuse()
 
-    def _foreign(self, client_order_ids) -> list:
+    def _runner_foreign(self, client_order_ids) -> list:
         """Another instance's held entry is a known order too (engine.order_rules rule 6)."""
         ids = list(client_order_ids)
         found = [order for order, own in self._unsent_held() if not own and order.client_order_id in ids]
         if found:
             self._unsent_refuse()
-        return super()._foreign(ids) + [str(order.client_order_id) for order in found]  # type: ignore[misc]
+        return super()._runner_foreign(ids) + [str(order.client_order_id) for order in found]  # type: ignore[misc]
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         self._unsent_check()

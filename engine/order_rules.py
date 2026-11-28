@@ -1,7 +1,7 @@
 """Order rules, one set for replay, Paper and Live (docs/plans/r1-runtime-contract-20261110.zh.md, 7.1).
 
 OrderRules wraps the source's native order commands. A command that breaks a rule is not sent: the runner's
-`_breach` records it (replay and Paper refuse the run once the current chunk or tick ends) or raises (Live).
+`_runner_breach` records it (replay and Paper refuse the run once the current chunk or tick ends) or raises (Live).
 
 Positions are HEDGING (engine.strategy.source_config, docs/plans/cross-line-fusion-20261111.zh.md, 4): each entry
 order opens its own position, so a strategy may hold several long and short positions and pending entries on one
@@ -201,73 +201,73 @@ def exposure(cache, order) -> Decimal | None:
 
 
 class OrderRules:
-    """The rules around the native order commands; `_breach(code, text)` is the runner's."""
+    """The rules around the native order commands; `_runner_breach(code, text)` is the runner's."""
 
-    _breach: Callable[[str, str], Any]  # engine.strategy.Subscriptions records; Live raises
+    _runner_breach: Callable[[str, str], Any]  # engine.strategy.Subscriptions records; Live raises
 
-    def _order_rule(self, text: str):
-        return self._breach(CODE, f"{_strategy_id(self)}: {text}")
+    def _runner_rule(self, text: str):
+        return self._runner_breach(CODE, f"{_strategy_id(self)}: {text}")
 
-    def _orders_allowed(self, order, position_id=None, client_id=None, params=None) -> bool:
+    def _runner_orders_allowed(self, order, position_id=None, client_id=None, params=None) -> bool:
         """True when `order` keeps the rules; otherwise the breach is reported (and raised, in Live)."""
         found = violation(self, order, position_id, client_id, params)
         if found is None:
             return True
-        self._order_rule(f"{order.client_order_id}: {found}")
+        self._runner_rule(f"{order.client_order_id}: {found}")
         return False
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
-        if self._orders_allowed(order, position_id, client_id, params):
+        if self._runner_orders_allowed(order, position_id, client_id, params):
             return super().submit_order(order, position_id=position_id, client_id=client_id,  # type: ignore[misc]
                                         params=params)
         return None
 
     def submit_order_list(self, *args, **kwargs):
-        return self._order_rule("order lists are not sent")
+        return self._runner_rule("order lists are not sent")
 
     def modify_order(self, *args, **kwargs):
-        return self._order_rule("orders are not modified")
+        return self._runner_rule("orders are not modified")
 
     def modify_orders(self, *args, **kwargs):
-        return self._order_rule("orders are not modified")
+        return self._runner_rule("orders are not modified")
 
-    def _foreign(self, client_order_ids) -> list:
+    def _runner_foreign(self, client_order_ids) -> list:
         """The IDs of known orders of another strategy (native cancellation ignores an unknown one)."""
         cache = native_cache(self)
         return [str(identity) for identity in client_order_ids
                 if (found := cache.order(identity)) is not None and found.strategy_id != _strategy_id(self)]
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
-        if params or self._foreign([client_order_id]):
-            return self._order_rule(f"{client_order_id}: a strategy cancels only its own orders, without parameters")
+        if params or self._runner_foreign([client_order_id]):
+            return self._runner_rule(f"{client_order_id}: a strategy cancels only its own orders, without parameters")
         return super().cancel_order(client_order_id, client_id, params)  # type: ignore[misc]
 
     def cancel_orders(self, client_order_ids, client_id=None, params=None):
         ids = list(client_order_ids)
-        if params or self._foreign(ids):
-            return self._order_rule("a strategy cancels only its own orders, without parameters")
+        if params or self._runner_foreign(ids):
+            return self._runner_rule("a strategy cancels only its own orders, without parameters")
         return super().cancel_orders(ids, client_id, params)  # type: ignore[misc]
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         if not strategy_only or params:
-            return self._order_rule("a strategy cancels only its own orders, without parameters")
+            return self._runner_rule("a strategy cancels only its own orders, without parameters")
         return super().cancel_all_orders(instrument_id, order_side, client_id, True, params)  # type: ignore[misc]
 
     def close_position(self, position, client_id=None, tags=None, time_in_force=None, reduce_only=None,
                        quote_quantity=None, params=None):
         if (position is None or not position.is_open or position.strategy_id != _strategy_id(self)
                 or reduce_only is False or quote_quantity or params or client_id not in (None, ClientId(VENUE))):
-            return self._order_rule("a strategy closes only its own open position, by a base-quantity reduction")
+            return self._runner_rule("a strategy closes only its own open position, by a base-quantity reduction")
         if time_in_force not in (None, TimeInForce.GTC, TimeInForce.IOC, TimeInForce.FOK):
             # Native close_position sends its MARKET order past submit_order (rule 5); a GTD one panics natively.
-            return self._order_rule(f"Live cannot send a {time_in_force.name} MARKET order")
+            return self._runner_rule(f"Live cannot send a {time_in_force.name} MARKET order")
         return super().close_position(position, client_id, tags, time_in_force, True, False)  # type: ignore[misc]
 
     def market_exit(self):
         # The native exit sends its MARKET closes past submit_order and closes again every 100 ms (rule 8).
         if str(_strategy_id(self)) in WARMING:
-            return self._order_rule("no market exit before the warm-up has ended and on_start has run")
+            return self._runner_rule("no market exit before the warm-up has ended and on_start has run")
         return super().market_exit()  # type: ignore[misc]
 
     def close_all_positions(self, *args, **kwargs):
-        return self._order_rule("positions are closed one at a time")
+        return self._runner_rule("positions are closed one at a time")

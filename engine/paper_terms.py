@@ -139,17 +139,17 @@ class Waiting(unsent.Waiting):
 
     _paper_instrument_id: str
     _paper_entry_terms: Any
-    _orders_allowed: Any
+    _runner_orders_allowed: Any
 
-    def _wait(self, order, send, end) -> None:
-        queue(self._paper_entry_terms, self._paper_instrument_id, order, send, end)
+    def _paper_wait(self, order, send, *args) -> None:
+        queue(self._paper_entry_terms, self._paper_instrument_id, order, send, lambda: self._paper_end(order, *args))
 
-    def _end_waiting(self, order, position_id, client_id, params) -> None:
+    def _paper_end(self, order, position_id, client_id, params) -> None:
         """End a cancelled entry. An unsent order keeps the order rules too, as in a replay, which checks it before
         its cancel."""
         if native_cache(self).order(order.client_order_id) is not None:  # an order the source submitted before
             super().cancel_order(order.client_order_id, None, None)  # type: ignore[misc]
-        elif self._orders_allowed(order, position_id, client_id, params):
+        elif self._runner_orders_allowed(order, position_id, client_id, params):
             assert CANCELLER is not None  # add_gate's
             unsent.cancel(CANCELLER, order, ENTRY_GATE)
 
