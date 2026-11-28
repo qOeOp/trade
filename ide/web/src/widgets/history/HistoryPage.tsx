@@ -43,7 +43,7 @@ function tip(cell: HistoryCell, row: HistoryRow, column: Column, shortDays: numb
   return (
     <div className="space-y-0.5">
       <p className="font-semibold">{KIND[cell.kind]}{column.kind === "year" ? ` ${column.label}` : ""} · trial {cell.trial_id}</p>
-      <p>{day(cell.trade_start)} to {day(cell.trade_end)} UTC{cell.short ? ` · under ${shortDays} days, counted in no summary` : ""}</p>
+      <p>{day(cell.trade_start)} to {day(cell.trade_end)} UTC{cell.short ? ` · under ${shortDays} days, ${cell.whole_year ? "its drawdown alone counted" : "counted in no summary"}` : ""}</p>
       {cell.kind === "veto" && !cell.whole_year && !cell.short && <p>Part of the year: the rest is before the market</p>}
       {m ? <>
         <p>Annual return {pct(m.annual_return)} · max drawdown {pct(m.mark_max_drawdown)} · Sharpe {ratio(m.sharpe_365)}</p>
@@ -184,7 +184,7 @@ export function HistoryPage() {
               <input type="checkbox" checked={all} disabled={only !== "all"} onChange={(e) => setAll(e.target.checked)} />Rows with no edge</label></Tip>
           <DropdownChoice<Metric> name="Show" label="Show" options={METRICS} value={metric} onChange={setMetric} />
           <DropdownChoice<Order> name="Order" label="Order" options={ORDERS} value={order} onChange={setOrder} />
-          <InfoTip label="How to read it" text={`Colour: ${colourWords(metric)} · star: the segment meets both targets${history ? ` · grey: under ${history.short_days} days, not counted` : ""} · hatched: part of a year. `
+          <InfoTip label="How to read it" text={`Colour: ${colourWords(metric)} · star: the segment meets both targets${history ? ` · grey: under ${history.short_days} days, not counted (a whole veto year: drawdown alone)` : ""} · hatched: part of a year. `
             + "The verdict reads the veto years and the holdout apart; it tests, it does not validate, and picking by it is a choice among the participants."} />
         </span>
       </div>

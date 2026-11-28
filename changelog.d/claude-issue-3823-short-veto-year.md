@@ -1,0 +1,1 @@
+- A veto year the warm-up leaves under 90 days to trade is read on its drawdown alone, so a candidate that lost more than the drawdown target there is refused instead of being judged on the holdout alone (#3823).
