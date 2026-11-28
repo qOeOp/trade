@@ -15,8 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from nautilus_trader.analysis import SharpeRatio
-from nautilus_trader.model import ClientOrderId
-from nautilus_trader.model import Venue
+from nautilus_trader.model import ClientOrderId, Position, Venue
 
 from engine.config import (EXECUTION_BAR_MINUTES, MARK_CARRY_MAX_MINUTES, MINUTE_NS, AccountContract, Refusal, Window,
                            utc_text)
@@ -264,6 +263,23 @@ def without_unfilled_liquidity(orders):
     unfilled = [Decimal(str(value or 0)) == 0 for value in result["filled_qty"]]
     result.loc[unfilled, "liquidity_side"] = "NO_LIQUIDITY_SIDE"
     return result
+
+def position_at(position, ts: int, instrument):
+    """The native Position as it stood at `ts` (its fills and adjustments stamped at or before `ts`), or None when it
+    was not open then. A position with no later event is returned as it is; any other is rebuilt from its own events."""
+    if position.ts_last <= ts:
+        return position if position.is_open else None
+    fills = [fill for fill in position.events() if fill.ts_event <= ts]
+    if not fills:
+        return None
+    held = Position(instrument, fills[0])
+    for fill in fills[1:]:
+        held.apply(fill)
+    for adjustment in position.adjustments():
+        if adjustment.ts_event <= ts:
+            held.apply_adjustment(adjustment)
+    return held if held.is_open else None
+
 
 def capital_findings(observer, expected_timestamps: int) -> list[str]:
     """engine.capital_findings: the capital observer (engine.run.CapitalObserver) valued every input timestamp and

@@ -84,6 +84,71 @@ class CapitalExposureTests(unittest.TestCase):
                          "two partial exits, including native commissions")
         self.assertEqual(rows[-1]["realized_pnl"], str(engine.cache.positions_open()[0].realized_pnl))
 
+    def test_a_row_holds_the_positions_as_of_its_own_timestamp(self):
+        # One position closes and another opens on a fill 30 s after bar T: row T holds the first, valued at T's
+        # MARK, and not the second, as the account read at or before T holds neither fill (issue 3652).
+        from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
+        from nautilus_trader.common import LoggerConfig, LogLevel
+        from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, StrategyId, TraderId
+        from nautilus_trader.trading import Strategy, StrategyConfig
+        from engine import run
+        from tests.engine import test_fill_model as native
+
+        class Switch(Strategy):
+            def __init__(self):
+                super().__init__(StrategyConfig(strategy_id=StrategyId("R1-AAA")))
+                self.count = 0
+
+            def on_start(self):
+                self.subscribe_bars(native.BAR_TYPE)
+
+            def on_bar(self, bar):
+                self.count += 1
+                if self.count == 1:
+                    self.buy()
+                if self.count == 2:
+                    self.clock.set_time_alert_ns("switch", bar.ts_event + 30 * 10**9, self.switch)
+
+            def buy(self):
+                self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.BUY,
+                                                             Quantity.from_str("1.000")))
+
+            def switch(self, event):
+                held = self.cache.positions_open(strategy_id=self.strategy_id)[0]
+                self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.SELL,
+                                                             Quantity.from_str("1.000"), reduce_only=True),
+                                  position_id=held.id)
+                self.buy()
+
+        engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
+                  logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False)))
+        self.addCleanup(engine.dispose)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "exposures.csv.gz"
+            run.add_venue(engine, native.fees())
+            engine.add_instrument(native.INSTRUMENT)
+            engine.add_strategy(Switch())
+            observer = run.capital_observer((str(native.INSTRUMENT_ID),), path)
+            engine.add_actor(observer)
+            data, labels = [], []
+            for i, value in enumerate((100, 90, 95, 95)):
+                ts = native.START + (i + 1) * native.BAR_NS - 1_000_000
+                price = Price.from_str(f"{value:.2f}")
+                labels.append(ts)
+                data += [MarkPriceUpdate(native.INSTRUMENT_ID, price, ts, ts),
+                         Bar(native.BAR_TYPE, price, price, price, price, Quantity.from_str("1000.000"), ts, ts)]
+            engine.add_data(data)
+            engine.run()
+            observer.finish(engine.cache)
+            rows = list(csv.DictReader(io.StringIO(gzip.decompress(path.read_bytes()).decode())))
+        first, second = sorted({position.id for position in engine.cache.positions()}, key=lambda pid: engine.cache.position(pid).ts_opened)
+        held = {label: [row["position_id"] for row in rows if int(row["ts_event_ns"]) == label] for label in labels}
+        self.assertEqual(observer.findings, [])
+        self.assertEqual(held, {labels[0]: [str(first)], labels[1]: [str(first)], labels[2]: [str(second)],
+                                labels[3]: [str(second)]})
+        at_drop = next(row for row in rows if int(row["ts_event_ns"]) == labels[1])
+        self.assertEqual(at_drop["unrealized_pnl"], "-10.00000000 USDT", "the first position at T's MARK of 90")
+
     def test_missed_timestamps_and_unvalued_positions_fail_the_run(self):
         complete = SimpleNamespace(timestamps=3, findings=[])
         self.assertEqual(capital_findings(complete, 3), [])

@@ -912,8 +912,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
     if found is None or trough is None:
         reason = "DRAWDOWN_INTERVAL_MISSING"
     else:
-        # Native exposure observations include all events before the next bar. Account @2
-        # reads cash <= label; reconciliation below isolates any cutoff disagreement.
+        # A label's exposure rows hold positions as of the label, as equity_path's account row at or before it.
         owners: defaultdict[str, set[str]] = defaultdict(set)
         for row in positions:
             owners[row["position_id"]].add(row["instrument_id"])
@@ -924,7 +923,7 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
             if label is None:
                 return values
             for row, cycle in zip(positions, found, strict=True):
-                if cycle["closed"] and cycle["ts_last"] < label + 60 * 10**9:
+                if cycle["closed"] and cycle["ts_last"] <= label:
                     values[row["instrument_id"]] += cycle["realized"]
             for row in exposures.rows_at(label):
                 names = owners.get(row["position_id"], set())

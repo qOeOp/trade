@@ -386,13 +386,14 @@ expiry, which the terminal order rows lack. Orders are grouped by client order I
 event order; line order across orders is not the engine's processing order. The gzip header time
 is zero, so equal histories give equal bytes; event IDs are fresh UUIDs in every run.
 
-In `exposures.csv.gz`, a row labelled with one-minute bar timestamp T holds a position open after every event
-before the next bar timestamp, including fills stamped between bars, valued with the native
+In `exposures.csv.gz`, a row labelled with one-minute bar timestamp T holds a position as it stood at T, after
+its fills and funding stamped at or before T and none later, valued with the native
 `Position.notional_value` and `Position.unrealized_pnl` at T's MARK. An observer values the
-positions once the first MARK of the next timestamp shows that point reached, and the runner values
+positions once the first MARK of the next timestamp shows T's events complete, taking a position changed or
+closed since T as rebuilt natively from its own events up to T, and the runner values
 the last timestamp after every component stopped. It adds no timer: in probes a five-minute timer
 made a run with many resting orders more than ten times slower. Balances and margins are not
-repeated: use the latest account state before the next bar timestamp. A held contract without a
+repeated: use the latest account state at or before T. A held contract without a
 MARK at a bar (a hole in its one-minute data) is valued at its latest MARK while that is at most 60
 minutes old (`engine.config.MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such hole is one
 interval in the summary's `mark_carry` and a limitation. A run fails integrity if a timestamp or an
