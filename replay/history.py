@@ -156,7 +156,8 @@ def run_history(ledger: db.LedgerProfile, market, at: str | None, line: str, lim
                                                      f"{record['market_day']}: its market can end inside the holdout",
                          expected=f"{record['market_day']} or later")
         candidates, without = report_history.candidates(conn, record["line_id"])
-        plan = lines.history_plan(conn, record["line_id"], first_day, after_last, candidates)
+        plan = lines.history_plan(conn, record["line_id"], first_day, after_last,
+                                  registration_seams.coverage(source, market_day), candidates)
         order = {trial_id: _sharpe(conn, trial_id) for trial_id in {item["trial_id"] for item in plan}}
     todo = [item for item in plan if item["window"] is not None
             and (item["done"] is None or item["status"] == "invalid")]

@@ -18,9 +18,9 @@ from registration import precheck
 from replay import entry, history, seams as replay_seams
 from report import graph, history as report_history, measures, runs, status
 from runtime.container import STAGE_MEMORY_BYTES
-from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
+from tests.ledger.dolt import BINARY, MARKET_DAY, MARKET_DAYS, SKIP
 from tests.registration.test_register import second_line
-from tests.registration.world import RUNNER_ARGV, config, months_rows
+from tests.registration.world import RUNNER_ARGV, RUNNER_WINDOW, config, months_rows
 from tests.replay import world as replay_world
 from tests.replay.world import Market, ReplayWorld, registered_grid
 from tests.helpers import refused, tempdir
@@ -352,7 +352,7 @@ class HistoryRunTests(unittest.TestCase):
         passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                            registration=registration)
         self.assertEqual(passed["status"], "passed")
-        days = (date(2025, 11, 1), date(2026, 4, 1))  # the fake market: 2025-11 to its latest day 2026-03-31
+        days = (date(2025, 11, 1), date(2026, 4, 1), MARKET_DAYS[2])  # the fake market: 2025-11 to 2026-03
         caught = refused(lines.close_line, world.profile, line, b"summary", days)
         self.assertEqual(caught.code, "HISTORY_INCOMPLETE")
         self.assertEqual(len(caught.missing), 3, "2025 (from November), the control and the holdout")
@@ -662,6 +662,42 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(report_history.require_unfalsified(world.conn, source["source_sha256"], world.market),
                          {"line": line, "judged_on": "veto and holdout"}, "every planned year replayed")
 
+    def test_veto_years_before_the_data_a_run_requires_are_not_planned(self):
+        """#3759: a --metrics run's closing test planned the years before the market held metrics, runs the engine
+        refuses (METRICS_MISSING), which left the candidate undecided for good; and a selection's later listing
+        likewise. Only the years from its coverage start are veto years to replay."""
+        world = self.world
+        line = world.line["line"]
+        world.market = YearsMarket({MARKET_DAY: months_rows(YEARS_MONTHS)})
+        world.market.tracks = {"metrics": months_rows([month for month in YEARS_MONTHS if month >= "2025-01"])}
+        lines.set_targets(world.conn, world.line["line_id"], 0.2, 0.2)
+        registration, (ref,) = registered_grid(world, ["kept"])
+        entry.run(world.profile, world.market, MARKET_DAY, ref, None, [*RUNNER_ARGV, "--metrics"],
+                  registration=registration)
+        with patch.object(replay_world, "inspect_stand_in", windowed):
+            ran = history.run_history(world.profile, world.market, MARKET_DAY, line)
+        self.assertEqual(sorted(item["segment"] for item in ran["ran"]), ["2025-01", "development", "holdout"])
+        (row,) = report_history.research_history(world.profile, world.market, line=line)["lines"][0]["rows"]
+        self.assertEqual(row["summary"]["missing"], [], "the years before 2025 are no veto years the verdict lacks")
+
+    def test_named_contracts_count_from_their_listing(self):
+        """#3759: a contract listed in 2024-12 and in the universe from 2025-02 gives a run naming it no veto year
+        before its listing, and the whole of 2025, which its bars cover."""
+        world = self.world
+        world.market = YearsMarket({MARKET_DAY: [(month, symbol) for month, symbol in months_rows(YEARS_MONTHS)
+                                                 if symbol == "AAAUSDT" or month >= "2025-02"]})
+        world.market.listed = {"BBBUSDT": date(2024, 12, 20)}
+        registration, (ref,) = registered_grid(world, ["kept"])
+        passed = entry.run(world.profile, world.market, MARKET_DAY, ref, None,
+                           [*RUNNER_WINDOW, "--symbols", "AAAUSDT", "BBBUSDT"], registration=registration)
+        plan = lines.history_plan(world.conn, world.line["line_id"], *report_history.market_days(world.market),
+                                  [{"source_sha256": world.conn.one("SELECT source_sha256 FROM trial WHERE trial_id = %s",
+                                                                    (passed["trial_id"],))["source_sha256"],
+                                    "trial_id": passed["trial_id"]}])
+        self.assertEqual([(item["label"], item["window"] and item["window"]["trade_start"].date()) for item in plan
+                          if item["kind"] == "veto"],
+                         [("2023-01", None), ("2024-01", date(2024, 12, 21)), ("2025-01", date(2025, 1, 1))])
+
     def test_a_holdout_cut_by_an_earlier_market_day_decides_nothing(self):
         """20261122-20 (user 2026-11-22, 「授权」): `line history --market-day` at a day whose market ends inside the
         holdout replays a cut holdout of 90 days or more; it passed `require_unfalsified` (validation, Live) while the
@@ -734,7 +770,7 @@ class HistoryRunTests(unittest.TestCase):
         fail_review(late)  # after its history runs: judged on read, it loses its row and its readings
         self.assertEqual(read(), ([kept], 1, 1, [(early, runs[early], "SOURCE_REVIEW_FAILED"),
                                                  (late, runs[late], "SOURCE_REVIEW_FAILED")]))
-        days = (date(2025, 11, 1), date(2026, 4, 1))
+        days = (date(2025, 11, 1), date(2026, 4, 1), MARKET_DAYS[2])
         caught = refused(lines.close_line, world.profile, line, b"summary", days)
         self.assertEqual(caught.code, "HISTORY_INCOMPLETE", "of every participant, the ledger's own rule")
         with patch.object(report_history, "market_days", return_value=days):

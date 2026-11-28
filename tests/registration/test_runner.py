@@ -12,7 +12,7 @@ from tests.helpers import refused
 class RunnerTests(unittest.TestCase):
     def test_runner_arguments_give_the_window_and_selection(self):
         parsed = runner.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00+00:00",
-                                              "--symbols", "AAAUSDT", "BBBUSDT", "--account", "x"])
+                                              "--symbols", "AAAUSDT", "BBBUSDT", "--leverage", "3"])
         self.assertEqual(parsed["window"]["start"], parsed["window"]["trade_start"])
         self.assertEqual(parsed["window"]["end"] - parsed["window"]["start"], 32 * 86_400 * 10**9)
         self.assertEqual((parsed["selection"], parsed["lifecycle_bundle"]), ({"symbols": ["AAAUSDT", "BBBUSDT"]}, None))
@@ -43,11 +43,13 @@ class RunnerTests(unittest.TestCase):
             with self.subTest(valid=valid):
                 self.assertEqual(runner.runner_inputs(valid)["selection"], {"universe": True})
         # neither is the whole pool chosen by omission (#3816); an abbreviation, which the runner refuses, is
-        # refused here too, beside a scope or in place of one (#3791)
+        # refused here too, beside a scope or in place of one (#3791), as is a runner option misspelt or
+        # abbreviated (#3829)
         for bad in ([*window, "--universe", "bogus"], [*window, "--universe"],
                     [*window, "--symbols", "AAAUSDT", "--universe", "pool"], window,
                     [*window, "--univ", "pool"], [*window, "--sym", "AAAUSDT"],
-                    [*window, "--symbols", "AAAUSDT", "--univ", "pool"], [*window, "--universe", "pool", "--trade", "x"]):
+                    [*window, "--symbols", "AAAUSDT", "--univ", "pool"], [*window, "--universe", "pool", "--trade", "x"],
+                    [*window, "--universe", "pool", "--init", "0.05"], [*window, "--universe", "pool", "--account=x"]):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(runner.runner_inputs, bad).code, "USAGE_ERROR")
 

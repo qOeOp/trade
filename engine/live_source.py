@@ -37,7 +37,7 @@ class LiveClock(strategy_runtime.GuardedClock):
 
 class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
     config: Any
-    _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
+    _runner_orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
     _runner_reads_funding: bool
 
@@ -104,7 +104,7 @@ class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
                 raise Refusal("LIVE_CONNECTION_UNVERIFIED", f"entries are closed "
                               f"({live_connection.gate_reason(self._live, symbol)}) until the venue and the native "
                               "cache agree again")
-            self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
+            self._runner_orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             commands.require_entry(self._live, order)
             if not self._live_membership.member_at(self._warming_clock().timestamp_ns()):
                 # Outside its contract's membership at the native clock, where Paper does not send it: denied
@@ -350,7 +350,7 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     # type() otherwise infers this extracted module. Preserve the entry point's
     # original definition context, including __main__ for python -m engine.live.
     callbacks["__module__"] = source_module
-    callbacks["_breach"] = _live_breach
+    callbacks["_runner_breach"] = _live_breach
     # The runner warms the source before its on_start (engine.history.Warming).
     callbacks = strategy_runtime.deferred_start(callbacks)
     combined = type("LiveSource_" + loaded.content_hash,

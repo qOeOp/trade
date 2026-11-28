@@ -353,13 +353,12 @@ class Session:
         return None
 
     def backfill(self) -> str | None:
-        """Hand each source the aggregated bars its recovery's warm-up completed (`since`) and the metrics rows due
-        after the checkpoint's cut and by T of each contract it follows, in time order, through the held data
-        callbacks live data takes (engine.paper._hold), each released at once: nothing it does reaches the Sandbox
-        before the next, and no live data is dispatched before all have run. rc7 delivers a request's bars only through
-        the cache, under the bar's standard type, which is the type a live aggregated bar has. The bars must be those of
-        every bucket ending after the checkpoint's cut and by T, and every row must be read, or the recovery is
-        refused before anything is handed over."""
+        """Hand each source, in time order, the aggregated bars its recovery's warm-up completed (`since`) and the
+        metrics rows due after the cut and by T of each contract it follows, through the held data callbacks live data
+        takes (engine.paper._hold), each released before the next and before any live data (rc7 delivers a request's
+        bars only through the cache, as the standard type of a live aggregated bar). Without every bar and row, nothing
+        is handed. On a handed item, a subscription or follow would start at T (none in rc7 starts in the past) and an
+        unsubscribed type's bars would still come: any change but an unfollow (hand_row) refuses the recovery."""
         if not self.saved or not self.saved.get("sources") or self.held:
             return None
         assert self.release is not None
@@ -411,6 +410,8 @@ class Session:
                     order = contracts.index(other) if other in contracts else len(contracts)
                     handed.append((due, order, index, functools.partial(self.hand_row, source, state, ts_event, row), (
                         f"back-filled {other} metrics row due at {history.utc(due)}", due, minutes, iid)))
+        fixed = [(source, set(source._paper_subscriptions), dict(source._metrics_followed))
+                 for source in cast(Any, strategy_runtime.STRATEGIES).values()]
         for *_, deliver, handing in sorted(handed, key=lambda item: item[:3]):
             self.handing = handing
             try:
@@ -418,8 +419,9 @@ class Session:
                 self.release(None)
             finally:
                 self.handing = None
-            if self.refused:
-                return self.refused
+            if self.refused or not all(source._paper_subscriptions == bars and source._metrics_followed.items()
+                                       <= rows.items() for source, bars, rows in fixed):
+                return self.refused or f"a source changed its subscriptions on the {handing[0]}"
         return None
 
     @staticmethod

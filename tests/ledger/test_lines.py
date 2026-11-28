@@ -144,9 +144,16 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([lines.covered_from(found, members) for found in
                           (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["BTCUSDT", "WIFUSDT"])],
                          [date(2020, 2, 1), date(2020, 2, 1), date(2022, 7, 1), None])
-        self.assertEqual([lines.selection(argv) for argv in ('["--symbols", "BTCUSDT", "ETHUSDT", "--start", "x"]',
-                                                              ["--universe", "pool", "--start", "x"])],
-                         [["BTCUSDT", "ETHUSDT"], None])
+        # #3759: a month counts only when every table the replay requires holds it too (metrics from 2021-12)
+        members = [("2021-11", "BTCUSDT"), ("2021-12", "BTCUSDT"), ("2022-07", "OPUSDT"), ("2022-08", "OPUSDT")]
+        metrics = [("2021-12", "BTCUSDT"), ("2022-08", "OPUSDT"), ("2021-11", "WIFUSDT")]
+        self.assertEqual([lines.covered_from(found, members, [metrics]) for found in
+                          (None, ["BTCUSDT"], ["BTCUSDT", "OPUSDT"], ["WIFUSDT"])],
+                         [date(2021, 12, 1), date(2021, 12, 1), date(2022, 8, 1), None])
+        pool = [("2020-02", "BTCUSDT"), ("2020-03", "BTCUSDT"), ("2020-03", "OPUSDT"), ("2020-04", "BTCUSDT"),
+                ("2020-04", "OPUSDT")]
+        self.assertEqual(lines.covered_from(None, pool, [[("2020-03", "BTCUSDT"), *pool[3:]]]), date(2020, 4, 1),
+                         "the pool's first month whose every member holds the table")
         line = self.select()
         self.assertEqual((line["line"], lines.read_line(self.conn, line["line_id"])["dev_start"]),
                          ("ema-trend", "2021-04-01"))

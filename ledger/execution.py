@@ -413,6 +413,31 @@ def _start_of(conn: db.LedgerConnection, trial_id: int) -> tuple[dict, bytes]:
     return trial, files[problems.COVERAGE]
 
 
+def recorded_coverage(conn: db.LedgerConnection, trial_id: int) -> dict:
+    """A trial's coverage receipt from its start bundle, parsed (EXECUTION_START_MISSING without one)."""
+    found = _json(_start_of(conn, trial_id)[1])
+    if not isinstance(found, dict):
+        raise refuse("EXECUTION_IDENTITY", f"the coverage receipt of trial {trial_id} is not a JSON object",
+                     missing=(f"trial-{trial_id}-start/{problems.COVERAGE}",))
+    return found
+
+
+def recorded_inputs(coverage: Mapping) -> dict:
+    """The market inputs a run's coverage receipt records, as registration.inputs.market_inputs takes them:
+    `selection` (its input identity's, {"universe": true} or {"symbols": [...]}), `include_quotes` (the quote
+    environment), `include_trades` and `include_metrics` (an export receipt counts trades, --trade-ticks, or
+    metrics, --metrics)."""
+    identity = coverage.get("input_identity")
+    if not isinstance(identity, Mapping) or not isinstance(identity.get("selection"), Mapping):
+        raise refuse("EXECUTION_IDENTITY", "the coverage receipt records no input selection",
+                     missing=("input_identity.selection",))
+    pieces = [piece for receipt in (coverage.get("export_receipts") or {}).values() for piece in receipt.get("pieces", [])]
+    account = (coverage.get("effective_config") or {}).get("account") or {}
+    return {"selection": dict(identity["selection"]), "include_quotes": account.get("execution") == "quotes",
+            "include_trades": any("trade" in piece.get("counts", {}) for piece in pieces),
+            "include_metrics": any("metrics" in piece.get("counts", {}) for piece in pieces)}
+
+
 def recovery_bundles(conn: db.LedgerConnection, trial_id: int) -> list[str]:
     """The recovery bundles of a trial."""
     return [bundle for bundle, in conn.rows("SELECT bundle FROM evidence_bundle WHERE kind = 'recovery' AND "

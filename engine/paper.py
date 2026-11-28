@@ -348,7 +348,7 @@ class _PaperConfigured(history.Warming, metrics.Feed, paper_terms.Waiting, Order
         send = functools.partial(super().submit_order, order, position_id, client_id, params)
         if order.is_reduce_only or not self._paper_entry_terms or denied_exiting(self, order):
             return send()
-        return self._wait(order, send, functools.partial(self._end_waiting, order, position_id, client_id, params))
+        return self._paper_wait(order, send, position_id, client_id, params)
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         return None if SESSION and SESSION.commanded() else super().cancel_order(client_order_id, client_id, params)

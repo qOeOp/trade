@@ -248,7 +248,7 @@ def _market_facts(market: dict):
         market_day = source.resolve_day(market_at)
         return {"market_day": market_day, "universe_rule": source.universe_rule(market_day),
                 "latest_complete_day": source.days(market_day)[1],
-                "members": source.universe_month(market_day)}
+                "covered": lambda conn, trial_id: lines.run_covered(conn, trial_id, seams.coverage(source, market_day))}
     return facts
 
 

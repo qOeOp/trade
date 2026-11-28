@@ -391,7 +391,7 @@ class Warming:
         self._warming_failed(code, text)
 
     def _warming_failed(self, code: str, text: str) -> None:
-        self._breach(code, text)  # type: ignore[attr-defined]  # engine.strategy.Subscriptions or the runner's
+        self._runner_breach(code, text)  # type: ignore[attr-defined]  # engine.strategy.Subscriptions or the runner's
 
     def subscribe_funding_rates(self, instrument_id, *args, **kwargs):
         state = self._warming_state()

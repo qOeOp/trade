@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date
+import functools
 from pathlib import Path
 
 from ledger.execution import IDENTITY_FIELDS
@@ -100,6 +101,14 @@ class Market:
         found = universe.months_of(self._open(), market_day)
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
+    def track_months(self, market_day: str, table: str) -> list[tuple[str, str]]:
+        from market import files
+        return files.track_months(self._open(), market_day, table)
+
+    def listed_day(self, market_day: str, symbol: str) -> date | None:
+        from market import coverage
+        return coverage.listed_day(self._open(), market_day, symbol)
+
     def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
         try:
@@ -125,6 +134,15 @@ class Market:
         """market.validate_lifecycle (LIFECYCLE_INPUT)."""
         from market import lifecycle
         return lifecycle.validate_lifecycle(body, market_day, files)
+
+
+def coverage(market, market_day: str) -> dict:
+    """What ledger.lines.run_covered reads of `market` (a Market) at `market_day`: `members`, its universe
+    (YYYY-MM, symbol) rows, `tracks(table)`, the months a contract table holds, and `listed(symbol)`, the first day
+    a contract traded before its first universe month (each read once)."""
+    return {"members": market.universe_month(market_day),
+            "tracks": functools.cache(lambda table: market.track_months(market_day, table)),
+            "listed": functools.cache(lambda symbol: market.listed_day(market_day, symbol))}
 
 
 @dataclass(frozen=True)

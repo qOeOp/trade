@@ -37,30 +37,21 @@ def stored_runner_argv(stored: Mapping, input_start: datetime, trade_start: date
     that replay a stored trial's capture (`stored`: its trial and capture) by its identity over another window."""
     start = stored["capture"]["start"]
     recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
-    selection = recorded["selection"]
+    coverage = stored["capture"].get("input_coverage") or {}
+    given = execution.recorded_inputs(coverage)
+    selection = given.pop("selection")
     runner_argv = ["--start", _iso(input_start), "--trade-start", _iso(trade_start), "--end", _iso(trade_end),
                    *(["--symbols", *selection["symbols"]] if "symbols" in selection else ["--universe", "pool"])]
     if recorded.get("lifecycle_bundle"):
         runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
-    coverage = stored["capture"].get("input_coverage") or {}
     account = trials.config_key(coverage.get("effective_config"))["account"]
-    include_quotes = account.get("execution") == "quotes"
-    # A receipt counts trades exactly when the run exported them (--trade-ticks).
-    include_trades = any("trade" in piece.get("counts", {})
-                         for receipt in coverage.get("export_receipts", {}).values()
-                         for piece in receipt.get("pieces", []))
-    # Likewise metrics (--metrics), which the runner is then given again.
-    include_metrics = any("metrics" in piece.get("counts", {})
-                          for receipt in coverage.get("export_receipts", {}).values()
-                          for piece in receipt.get("pieces", []))
-    if include_quotes:
+    if given["include_quotes"]:
         runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
                         "--maintenance-margin", account["maintenance_margin_rate"]]
-    if include_metrics:
+    if given["include_metrics"]:  # the runner is given --metrics again
         runner_argv.append("--metrics")
     runner_argv += ["--starting-balance", account["starting_balance_usdt"], "--leverage", account["default_leverage"]]
-    return recorded, runner_argv, {"include_quotes": include_quotes, "include_trades": include_trades,
-                                   "include_metrics": include_metrics}
+    return recorded, runner_argv, given
 
 
 def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, image: str | None = None) -> dict:

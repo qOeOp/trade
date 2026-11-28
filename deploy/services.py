@@ -139,9 +139,8 @@ def settled(release, cleaned: list[str]) -> dict[str, str]:
         differs["Agent"] = "is not running"
     elif before == sha:
         release_container("Agent", agent, target["image"])
-    else:  # a version that did not change the Agent keeps the one running (Release.apply)
-        differs["Agent"] = f"runs {before[:12]}, an Agent this version changed" if github.agent_changed(before, sha) \
-            else None
+    else:  # every version replaces the Agent (Release.apply)
+        differs["Agent"] = f"runs {before[:12]}, not this version's"
     controller = PAPER + sha
     release_container("Paper controller", controller, target["service"],
                       paper.disk_route() == controller and paper.live_route() == controller)

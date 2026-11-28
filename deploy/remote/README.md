@@ -82,7 +82,7 @@ uses (and old docker-api images), since they can be pulled again by digest. A Li
 remains, and its `live/<revision>/` directory goes with it. A runtime image goes when no container uses it, neither a
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
 again pulls it by digest. A failed version older than the routed one can no longer be chosen: its stopped containers
-go, and its `failed/` marker goes once none of them remains; `paper-failed/`, which no version writes, goes too.
+go, and its `failed/` marker goes once none of them remains.
 The images of a version that waits to be released stay too, whether or not a container uses them.
 Running containers, the active routes, runs, ledger records and market inputs are never pruned.
 A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
@@ -516,8 +516,8 @@ version's commit and `OLD` the previous one.
    docker ps -a --filter name=trade-release-agent- --format '{{.CreatedAt}}  {{.Names}}' | sort -r
    ```
 
-   If `trade-release-agent-NEW` exists, the version replaced the Agent: `AGENT` is the newest other Agent container
-   whose revision has no failed marker. Otherwise the Agent was not replaced and stays.
+   Every version replaces the Agent: `AGENT` is the newest Agent container other than `trade-release-agent-NEW` whose
+   revision has no failed marker.
 4. As root, from the running control's code, freeze new Paper starts on `NEW`'s controller and write the two journals
    in the formats `PaperRelease.switch` and `Release.journal` write, after the checks `Release.journal` makes. Paper's
    journal goes first: alone, the next tick rolls Paper forward again, since the Web route already names `NEW`
@@ -525,11 +525,11 @@ version's commit and `OLD` the previous one.
 
    ```sh
    cd "$(readlink -f /var/lib/trade-release/control/current)"
-   python3 - NEW OLD [AGENT] <<'EOF'
+   python3 - NEW OLD AGENT <<'EOF'
    import fcntl, sys
    from deploy.paper_host import PAPER, PaperHost
    from deploy.release_host import AGENT, WEB, Config, DockerHost, durable_json
-   new, old, agent = sys.argv[1], sys.argv[2], (sys.argv[3:] or [None])[0]
+   new, old, agent = sys.argv[1:4]
    config = Config.installed()
    web, paper = DockerHost(config), PaperHost(config)
    with (config.state / "lock").open("a") as lock:
@@ -541,16 +541,12 @@ version's commit and `OLD` the previous one.
            raise SystemExit("the routes do not name NEW")
        web.checked(WEB + old)
        paper.checked(PAPER + old)
-       if agent is not None:
-           web.checked(agent, AGENT)
+       web.checked(agent, AGENT)
        paper.known({PAPER + new})
        paper.persist_route(PAPER + new, "starts")
        paper.switch(PAPER + new, "starts")
        durable_json(config.state / "paper-transaction.json", {"candidate": PAPER + new, "previous": PAPER + old})
-       journal = {"candidate": WEB + new, "previous": WEB + old}
-       if agent is not None:
-           journal["agent_before"] = agent
-       durable_json(config.state / "transaction.json", journal)
+       durable_json(config.state / "transaction.json", {"candidate": WEB + new, "previous": WEB + old, "agent_before": agent})
    print("Journals written; start trade-release.timer")
    EOF
    ```

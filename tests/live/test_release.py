@@ -22,6 +22,7 @@ from tests.helpers import refused
 
 OLD = "trade-release-web-" + "a" * 40
 NEW = "trade-release-web-" + "b" * 40
+JOURNAL = {"candidate": NEW, "previous": OLD, "agent_before": "trade-release-agent-" + "d" * 40}
 
 
 class LiveReleaseMetadataTests(unittest.TestCase):
@@ -50,7 +51,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
 
     def test_transaction_keeps_only_previous_maintenance_even_after_persist(self):
         candidate = release.Binding(self.directory, NEW)
-        durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
+        durable_json(self.transaction, JOURNAL)
         for route in (OLD, NEW):
             durable_json(self.route, route_config(route))
             self.refused()
@@ -62,10 +63,8 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.refused(maintenance=True)
 
     def test_corrupt_ambiguous_missing_and_nonregular_metadata_are_unavailable(self):
-        for value in ({"candidate": NEW}, {"candidate": NEW, "previous": OLD, "unexpected": 1},
-                      {"candidate": NEW, "previous": OLD, "agent_before": None},
-                      {"candidate": NEW, "previous": NEW},
-                      {"candidate": NEW + "-x", "previous": OLD}):
+        for value in ({"candidate": NEW}, {**JOURNAL, "unexpected": 1}, {"candidate": NEW, "previous": OLD},
+                      {**JOURNAL, "agent_before": None}, {**JOURNAL, "previous": NEW}, {**JOURNAL, "candidate": NEW + "-x"}):
             with self.subTest(value=value):
                 durable_json(self.transaction, value)
                 self.refused()
@@ -206,7 +205,7 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual(before, self.files())
 
     def test_an_admission_refusal_comes_before_any_effect(self):
-        durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
+        durable_json(self.transaction, JOURNAL)
         before = self.files()
         with patch.object(control, "_operation", side_effect=AssertionError("secret dispatched")):
             status, refused = control.execute(self.config, "credential_save", None, {
@@ -215,7 +214,7 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual(before, self.files())
 
     def test_listing_and_explicit_maintenance_distinguish_previous_from_candidate(self):
-        durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
+        durable_json(self.transaction, JOURNAL)
         with patch.object(control, "run_view", return_value={"run_id": self.run_id}):
             previous = control.listing(self.config, binding=self.binding)
             candidate = control.listing(self.config, binding=release.Binding(self.release_state, NEW))
@@ -274,7 +273,7 @@ with os.fdopen(descriptor, "rb") as locked:
     fcntl.flock(locked, fcntl.LOCK_EX)
     print(release.idle_locked(root), flush=True)
     sys.stdin.readline()
-    durable_json(metadata / "transaction.json", {"candidate": sys.argv[4], "previous": sys.argv[3]})
+    durable_json(metadata / "transaction.json", {"candidate": sys.argv[4], "previous": sys.argv[3], "agent_before": "trade-release-agent-" + "d" * 40})
     print("committed", flush=True)
 ''', self.root, self.release_state, OLD, NEW)
         self.assertEqual(self.line(host), "idle")
