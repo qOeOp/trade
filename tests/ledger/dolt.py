@@ -75,7 +75,7 @@ def coverage(market_day: str = MARKET_DAY, *, effective_config: dict | None = No
     lifecycle_bundle) and, when given, the membership file's content."""
     input_identity = {"market_name": "market", "market_day": market_day, "universe_rule": "usdt-perp-listed30d-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
-    input_identity.setdefault("selection", {"symbols": list(input_identity["symbols"])})
+    input_identity.setdefault("selection", {"universe": True})
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
                                      "account": dict(ACCOUNT)}

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import contextlib
-import functools
 import hashlib
 from importlib.resources import files
 import os
@@ -249,7 +248,7 @@ def _market_facts(market: dict):
         market_day = source.resolve_day(market_at)
         return {"market_day": market_day, "universe_rule": source.universe_rule(market_day),
                 "latest_complete_day": source.days(market_day)[1],
-                "covered": functools.partial(lines.run_covered, market=seams.coverage(source, market_day))}
+                "covered": lambda conn, trial_id: lines.run_covered(conn, trial_id, seams.coverage(source, market_day))}
     return facts
 
 
