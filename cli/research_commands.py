@@ -798,7 +798,7 @@ COMMANDS = [
         "when it lost the evidence after its history runs. "
         "deflated_sharpe is the holdout's "
         "deflated Sharpe at the participant count (the `research status` formula), null when it cannot be computed. The veto passes when every whole veto year's drawdown is "
-        "at most the target and their median annual return at least the target; the holdout when its drawdown is at "
+        "at most the target and the median annual return of those trading short_days or more at least the target; the holdout when its drawdown is at "
         "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
         "alone when the test has no whole veto year. whole_years counts every whole veto year replayed. The verdict "
         "needs every reading it is defined on: a veto year the test plans (one with something to trade on the "

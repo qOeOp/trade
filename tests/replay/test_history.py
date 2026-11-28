@@ -66,9 +66,8 @@ class SegmentTests(unittest.TestCase):
                          [("2019-10", date(2020, 1, 1), date(2020, 10, 1)), ("2020-10", date(2020, 10, 1), date(2021, 10, 1))])
 
     def test_a_veto_year_cut_only_by_the_warm_up_is_whole(self):
-        """#3760: the market's first day on the reserved year's start (the reserve before a longer period), so any
-        warm-up moved the trade start; the year read as a part year, the summary judged on the holdout alone and
-        require_unfalsified passed a candidate that lost the whole reserved year."""
+        """#3760, #3823: the market's first day on the reserved year's start, so any warm-up moved the trade start; read
+        as a part year, the year was left out and require_unfalsified passed a candidate that lost it."""
         def year(input_start, trade_start):
             return report_history._whole_year({"input_start": datetime.fromisoformat(input_start),
                                                "trade_start": datetime.fromisoformat(trade_start),
@@ -77,7 +76,7 @@ class SegmentTests(unittest.TestCase):
         self.assertTrue(year("2021-01-01", "2021-01-02"), "one warm-up day after the market's first day")
         self.assertTrue(year("2021-01-01", "2021-07-01"), "a half-year warm-up")
         self.assertFalse(year("2021-03-01", "2021-03-02"), "the market's first day cut the year")
-        self.assertFalse(year("2021-01-01", "2021-10-15"), "under SHORT_DAYS left after the warm-up")
+        self.assertTrue(year("2021-01-01", "2021-10-15"), "#3823: under SHORT_DAYS left, read on its drawdown alone")
 
     def test_a_period_at_the_market_start_and_end_has_only_the_control(self):
         found = lines.history_segments(date(2026, 1, 1), date(2026, 4, 1), date(2026, 1, 1), date(2026, 4, 1))
@@ -129,6 +128,8 @@ class VerdictTests(unittest.TestCase):
                          (False, "veto and holdout", []))
         self.assertIs(self.summary(*years[:2], self.cell("veto", 0.9, 0.25, label="2021"), self.HOLDOUT)
                       ["meets_targets"], False, "one veto year over the drawdown target fails the veto")
+        self.assertEqual([self.summary(self.cell("veto", -0.5, dd, short=True), self.HOLDOUT)["meets_targets"] for dd in
+                          (0.6, 0.15)], [False, True], "#3823: a year the warm-up leaves short is read on its drawdown alone")
 
     def test_a_test_without_a_whole_veto_year_is_judged_on_the_holdout_alone(self):
         found = self.summary(self.cell("veto", -0.5, 0.6, whole=False), self.HOLDOUT)
