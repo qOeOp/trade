@@ -420,3 +420,16 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
             "lifecycle_missing": [] if episodes is None else [symbol for symbol in symbols if symbol not in episodes],
             "interpretation": INTERPRETATION}
 
+
+def listed_day(market: files.Market, market_day: str, symbol: str) -> date | None:
+    """The first day a contract traded before its first universe month at `market_day` (its listing, for a contract
+    new to the market): its bars begin there. None when it is no member of any month."""
+    months = [month for month, member in universe.months_of(market, market_day) if member == symbol]
+    if not months:
+        return None
+    start = min(months)
+    while True:  # read back a quarter at a time until one holds no trading day
+        days = store.trading_days(market, [symbol], start - timedelta(days=92), start)[symbol]
+        if not days:
+            return start
+        start = min(days)

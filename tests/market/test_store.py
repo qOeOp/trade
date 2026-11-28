@@ -106,7 +106,7 @@ class ImportTests(unittest.TestCase):
         """#3759: a line's veto years of named contracts start at their listing, not their first universe month."""
         market = files.open_market(self.profile, "reader")
         day = self.market_days[MAR]
-        self.assertEqual([store.listed_day(market, day, symbol) for symbol in ("BBBUSDT", "CCCUSDT", "USDCUSDT")],
+        self.assertEqual([coverage.listed_day(market, day, symbol) for symbol in ("BBBUSDT", "CCCUSDT", "USDCUSDT")],
                          [date(2025, 1, 20), JAN, None])
 
     def test_members_need_thirty_unbroken_days_and_a_delisted_contract_keeps_its_months(self):

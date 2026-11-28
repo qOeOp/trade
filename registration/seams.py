@@ -106,8 +106,8 @@ class Market:
         return files.track_months(self._open(), market_day, table)
 
     def listed_day(self, market_day: str, symbol: str) -> date | None:
-        from market import store
-        return store.listed_day(self._open(), market_day, symbol)
+        from market import coverage
+        return coverage.listed_day(self._open(), market_day, symbol)
 
     def membership_path(self, market_day: str, window_end: int) -> dict:
         from market import universe
