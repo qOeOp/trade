@@ -154,7 +154,7 @@ class StrategyLoaderTests(unittest.TestCase):
                        "from decimal import localcontext\nwith localcontext() as context:\n    context.prec = 50\n"):
             with self.subTest(honest=honest):
                 self.assertEqual(source_findings(honest.encode()), [])
-        # Each private name the runner keeps on the source's instance begins with one of RUNNER_WORDS.
+        # Each name the runner keeps on the source's instance is native or begins with one of RUNNER_WORDS.
         from engine import history, live_source, metrics, order_rules, paper, paper_terms, unsent
         for cls in (strategy_runtime.Subscriptions, order_rules.OrderRules, history.Warming, metrics.Feed,
                     unsent.Waiting, paper_terms.Waiting, paper._PaperConfigured, live_source._LiveConfigured,
@@ -163,8 +163,8 @@ class StrategyLoaderTests(unittest.TestCase):
             names = {*vars(cls), *(node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
                                    and isinstance(node.value, ast.Name) and node.value.id == "self")}
             with self.subTest(runner=cls.__qualname__):
-                self.assertEqual([name for name in names if name.startswith("_") and not name.startswith("__")
-                                  and not _runner_name(name)], [])
+                self.assertEqual([name for name in names if not name.startswith("__")
+                                  and not (_runner_name(name) if name.startswith("_") else hasattr(Strategy, name))], [])
 
     def test_a_cache_write_fails_the_callback_that_made_it(self):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        self.cache.instruments()\n"

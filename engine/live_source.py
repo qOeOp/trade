@@ -87,7 +87,7 @@ class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
         # shape and contract, as in replay and Paper.
         if order.is_reduce_only:
             commands.require_order_identity(self._live, order, strategy_ids(self._live.manifest)[symbol])
-            position = self.owned_position(position_id)
+            position = self._live_owned_position(position_id)
             return super().submit_order(order, position_id=position.id, client_id=client_id, params=params)
         pending = PendingEntry(order, super().submit_order, client_id, self._live.deciding)
         try:
@@ -130,7 +130,7 @@ class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
             commands.refuse_entries(self._live, getattr(exc, "code", type(exc).__name__), str(exc))
             raise
 
-    def owned_position(self, position_id):
+    def _live_owned_position(self, position_id):
         cache = native_cache(self)
         position = cache.position(position_id) if position_id is not None else None
         if (position is None or not position.is_open
@@ -162,7 +162,7 @@ class _LiveConfigured(history.Warming, metrics.Feed, unsent.Waiting):
     def close_position(self, position, client_id=None, tags=None, time_in_force=None,
                        reduce_only=None, quote_quantity=None, params=None):
         commands.require_connection(self._live)
-        current = self.owned_position(position.id if position is not None else None)
+        current = self._live_owned_position(position.id if position is not None else None)
         return super().close_position(current, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
 
     def shutdown_system(self, reason=None):
