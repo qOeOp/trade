@@ -376,7 +376,13 @@ class StrategyLoaderTests(unittest.TestCase):
                 (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\nMIXINS = [Sender]\n"
                  "class ProbeStrategy(MIXINS[0], Strategy):\n" + hooks, "ORDER_RULE"),
                 (head + "def native(kind):\n    return kind\nclass ProbeStrategy(Strategy):\n" + hooks
-                 + "    found = classmethod(native)\n", "ORDER_RULE")):
+                 + "    found = classmethod(native)\n", "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "Helper = Sender if True else None\nclass ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "class Sender:\n    def go(self, o):\n        super().submit_order(o)\n"
+                 "Helper: type = Sender\nclass ProbeStrategy(Helper, Strategy):\n" + hooks, "ORDER_RULE"),
+                (head + "from enum import Enum\nclass Native(Enum):\n    BASE = Strategy\n"
+                 "class ProbeStrategy(Strategy):\n" + hooks, "ORDER_RULE")):
             with self.subTest(text=text):
                 self.source.write_text(text)
                 digest = hashlib.sha256(text.encode()).hexdigest()

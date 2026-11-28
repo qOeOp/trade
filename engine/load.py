@@ -193,7 +193,8 @@ def order_bypass_findings(source: bytes) -> list[str]:
     check, a super() argument, a class pattern, an `is` operand, an annotation, text or the reader of a non-command
     attribute, nothing else. super() in a strategy class or a class it extends, or with arguments, may only read a
     non-command attribute at once. No class defines a hook that receives a class or takes class keywords, no
-    strategy class or class it extends is decorated or has a base other than a name, the source rebinds none of the
+    strategy class or class it extends is decorated or has a base other than a traced class name, no strategy class
+    is kept as a class attribute, the source rebinds none of the
     builtins this check trusts, and `classmethod` appears only as a decorator."""
     tree = ast.parse(source, filename="<strategy>")
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
@@ -239,6 +240,13 @@ def order_bypass_findings(source: bytes) -> list[str]:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     aliases.setdefault(target.id, set()).add(named(node.value) or "")
+    # Names bound other than by a class statement or a plain `name = name` assignment: a base spelled so is untraced.
+    untraced = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load)
+                and not (isinstance(parent := parents.get(node), ast.Assign) and node in parent.targets
+                         and isinstance(parent.value, (ast.Name, ast.Attribute)))}
+    untraced |= {node.arg for node in ast.walk(tree) if isinstance(node, ast.arg)}
+    untraced |= {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    untraced |= {name for name, value in imported.items() if not inspect.isclass(value)}
     related: set[str] = set()
     size = -1
     while size != len(classes) + len(related) + len(receivers):  # until nothing more is found
@@ -283,7 +291,9 @@ def order_bypass_findings(source: bytes) -> list[str]:
             return True
         if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and parent.value is node:
             targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
-            return all(isinstance(target, ast.Name) for target in targets)  # each name is then a strategy class
+            # each name is then a strategy class; in a class body it would be another object's attribute
+            return (all(isinstance(target, ast.Name) for target in targets)
+                    and not isinstance(parents.get(parent), ast.ClassDef))
         while isinstance(parent, ast.Tuple) or isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.BitOr):
             node, parent = parent, parents.get(parent)
         return (isinstance(parent, ast.Call) and node in parent.args and isinstance(parent.func, ast.Name)
@@ -303,8 +313,10 @@ def order_bypass_findings(source: bytes) -> list[str]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in CLASS_HOOKS:
             found.add((line, f"def {node.name}"))
         elif isinstance(node, ast.ClassDef) and (node.keywords or node.name in related and (
-                node.decorator_list or not all(isinstance(base, (ast.Name, ast.Attribute)) for base in node.bases))):
-            found.add((line, f"class {node.name}: keywords, decorators or a base other than a name"))
+                node.decorator_list or not all(
+                    inspect.isclass(resolved(base)) or named(base) in aliases and named(base) not in untraced
+                    for base in node.bases))):
+            found.add((line, f"class {node.name}: keywords, decorators or a base other than a traced class name"))
         elif isinstance(node, ast.Name) and node.id == "classmethod":
             if not (isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) and node in parent.decorator_list):
                 found.add((line, "classmethod other than as a decorator"))
