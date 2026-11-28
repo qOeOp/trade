@@ -329,7 +329,6 @@ class Release:
         # runners allow it, before it changes anything: until then no other image is pulled (qOeOp/trade#3494).
         if self.generation().due(target, owner, ready) or not ready():
             return
-        self.github.ensure(target)
         self.live.prepare(owner, target)
         try:
             with self.live.barrier(candidate, target["service"], idle=True) as held:
@@ -367,7 +366,6 @@ class Release:
             self.host.switch(candidate)
             self.host.observe(candidate, lines, protected)
             self.live.health(candidate)
-            self.github.ensure(target)
 
             def unchanged(final: bool) -> None:
                 if self.host.live_route() != candidate or self.host.disk_route() != previous:
