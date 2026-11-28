@@ -219,7 +219,7 @@ def replay_and_compare(run: Mapping, market: dict, market_day: str, archived: Ma
                                                           firsts.get(symbol_of(row["instrument_id"]), end))
     archived_metrics = {symbol: archive_metrics(opened, market_day, symbol, first, end)
                         for symbol, first in firsts.items()}
-    # Only Paper records when it took each minute's value, which equity_differences needs with its marks.
+    # A run that says when it took each minute's value (Paper, Live) has its equity checked against archived marks.
     archived_marks = ({symbol: archive_marks(market, market_day, symbol, start, end) for symbol in symbols}
                       if run.get("taken") else None)
     if not existing:  # a preliminary comparison made its directory for its market (replay.preliminary)

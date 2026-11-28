@@ -228,7 +228,8 @@ def gate(events: list[dict]) -> dict:
 def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -> dict:
     """The run's own parts of the record replay.comparison.run_record reads with its evidence pack's market rows:
     its native order events, the entries its gate changed, its process's start, its equity path from `balance` with
-    the funding `settled`, its contracts' terms and the account's fee rates in `snapshot`."""
+    the funding `settled`, when it took each minute's value, its contracts' terms and the account's fee rates in
+    `snapshot`."""
     equity, _ = run_journal.with_funding(sorted(
         ((row["minute_ns"], Decimal(balance) + Decimal(row["result"])) for row in pack["events"]
          if row.get("event") == "minute_result" and isinstance(row.get("minute_ns"), int)
@@ -236,6 +237,9 @@ def parts(pack: Mapping, balance: str, snapshot: Mapping, settled: list[dict]) -
     # One process (segment): its side connection is down from its first journal line to its first up.
     return {"side_starts": [row["observed_ns"] for row in pack["events"][:1] if isinstance(row.get("observed_ns"), int)],
             "events": pack["orders"], "gate": gate(pack["events"]), "settlements": settled, "equity": equity,
+            # Live values a minute at the next minute's first mark, as Paper does, but its observed_ns is the host's
+            # clock and its fills carry the venue's: the minute's end stands for when it took the value (#3660).
+            "taken": {minute: minute + shared.MINUTE_NS for minute, _ in equity},
             "terms": dict((pack["manifest"].get("market") or {}).get("terms") or {}),
             "fees": _fees(snapshot, list(pack["manifest"]["symbols"]))}
 
