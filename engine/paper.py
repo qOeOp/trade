@@ -73,10 +73,10 @@ stops and targets to the Sandbox on live bars; once no position is open it cance
 
 from __future__ import annotations
 
-# This must precede third-party imports: every native worker must inherit the mask.
-if __name__ == "__main__":
-    from engine.signals import block
-    block()
+if __name__ == "__main__":  # before third-party imports: native workers inherit the mask, allocations base pages
+    from engine import pages, signals
+    signals.block()
+    pages.base_pages_only()
 
 import argparse
 from contextlib import nullcontext, suppress
